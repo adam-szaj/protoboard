@@ -268,7 +268,7 @@ def _parametric_preview_count(raw: dict[str, Any]) -> int | None:
     return None if gen_cls is None else gen_cls.preview_pin_count
 
 
-@traced("_build_component_package")
+@traced()
 def _build_component_package(
     name: str,
     raw: dict[str, Any],

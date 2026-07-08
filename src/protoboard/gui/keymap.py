@@ -33,7 +33,9 @@ global action is rejected (raises :class:`FinalShortcutError`).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field, replace
+from typing import override
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
@@ -64,18 +66,19 @@ class FinalShortcutError(ProtoboardError):
 # segment before the first dot; the bare name is the segment after the last
 # dot.  ``global.action.<name>`` holds the generic default a tool action can
 # inherit by binding the same bare name to ``None``.
-
-
+@traced()
 def category_of(action_id: str) -> str:
     """The category segment of *action_id* (text before the first dot)."""
     return action_id.split(".", 1)[0]
 
 
+@traced()
 def name_of(action_id: str) -> str:
     """The bare action name of *action_id* (text after the last dot)."""
     return action_id.rsplit(".", 1)[-1]
 
 
+@traced()
 def _global_id(name: str) -> str:
     return f"global.action.{name}"
 
@@ -96,47 +99,60 @@ class KeyAction:
     """
 
     id: str
-    default: str | None
+    shortcuts: list[str] = field(default_factory=list)
     display: str = ""
     final: bool = False
 
     @property
+    def default(self) -> list[str]:
+        return self.shortcuts
+
+    def clone(self) -> KeyAction:
+        return KeyAction(id=self.id,
+                         shortcuts=self.shortcuts,
+                         display=self.display,
+                         final=self.final)
+
+    @property
+    @traced()
     def category(self) -> str:
         return category_of(self.id)
 
     @property
+    @traced()
     def name(self) -> str:
         return name_of(self.id)
 
 
-# ---------------------------------------------------------------------------
-# Generic global actions (Stage 1 — minimal set: what SelectTool inherits +
-# one ``final`` example).  The full ~160-action migration is a later stage.
-# ---------------------------------------------------------------------------
-
 GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
-    KeyAction(_global_id("delete"), "Del", "Delete"),
-    KeyAction(_global_id("cancel"), "Esc", "Cancel"),
-    KeyAction(_global_id("confirm"), "Return", "Confirm"),
-    KeyAction(_global_id("edit"), "E", "Edit"),
+    KeyAction(_global_id("delete"), ["Del"], "Delete", final=True),
+    KeyAction(_global_id("cancel"), ["Esc"], "Cancel", final=True),
+    KeyAction(_global_id("confirm"), ["Return", "Space"],
+              "Confirm",
+              final=True),
+    KeyAction(_global_id("edit"), ["E"], "Edit"),
     # Generic transform ops shared by Select / Place (defaults match the legacy
     # flat table so behaviour is identical until the Stage-2 migration).
-    KeyAction(_global_id("rotate_cw"), "R", "Rotate CW"),
-    KeyAction(_global_id("rotate_ccw"), "Shift+R", "Rotate CCW"),
-    KeyAction(_global_id("flip"), "Alt+R", "Flip"),
-    KeyAction(_global_id("redrag"), "Ctrl+R", "Re-drag Pins"),
-    KeyAction(_global_id("show_shortcuts"), "?", "Show Shortcuts"),
+    KeyAction(_global_id("rotate_cw"), ["R"], "Rotate CW"),
+    KeyAction(_global_id("rotate_ccw"), ["Shift+R"], "Rotate CCW"),
+    KeyAction(_global_id("flip"), ["Shift+F"], "Flip"),
+    KeyAction(_global_id("redrag"), ["P"], "Re-drag Pins"),
+    KeyAction(_global_id("show_shortcuts"), ["?"],
+              "Show Shortcuts",
+              final=True),
     # Example of a protected shortcut a tool may not re-purpose.
-    KeyAction("session.action.save_as", "Ctrl+Shift+S", "Save As", final=True),
+    KeyAction("session.action.save_as", ["Ctrl+Shift+S"],
+              "Save As",
+              final=True),
 )
 
 
 # ---------------------------------------------------------------------------
 # Event → QKeySequence matcher
 # ---------------------------------------------------------------------------
-
-
-def event_to_sequence(key: int, modifiers: Qt.KeyboardModifier) -> QKeySequence:
+@traced()
+def event_to_sequence(key: int,
+                      modifiers: Qt.KeyboardModifier) -> QKeySequence:
     """Build the :class:`QKeySequence` a key press represents.
 
     ``QKeySequence(int(modifiers) | int(key))`` is the canonical construction;
@@ -145,6 +161,7 @@ def event_to_sequence(key: int, modifiers: Qt.KeyboardModifier) -> QKeySequence:
     return QKeySequence(int(modifiers.value) | int(key))
 
 
+@traced()
 def _has_shift(sequence: QKeySequence) -> bool:
     """True when *sequence*'s single chord carries an explicit Shift modifier.
 
@@ -155,6 +172,7 @@ def _has_shift(sequence: QKeySequence) -> bool:
     return "shift+" in sequence.toString().lower()
 
 
+@traced()
 def _is_symbol_key(key: int) -> bool:
     """True when *key* is a symbol (not a letter or digit).
 
@@ -172,8 +190,58 @@ def _is_symbol_key(key: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+class AbstractKeyMap(ABC):
+
+    @abstractmethod
+    def register_tool_actions(
+            self, actions: dict[str, str | list[str] | None]) -> None:
+        ...
+
+    @abstractmethod
+    def resolve(self, action_id: str) -> str:
+        ...
+
+    @abstractmethod
+    def resolve_action(self, action_id: str) -> KeyAction | None:
+        ...
+
+    @abstractmethod
+    def display_of(self, action_id: str) -> str:
+        ...
+
+    @abstractmethod
+    def is_final(self, action_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def matches(self, key: int, modifiers: Qt.KeyboardModifier,
+                action_id: str) -> bool:
+        ...
+
+    @abstractmethod
+    def set_override(self, action_id: str,
+                     shortcuts: list[str]) -> KeyAction | None:
+        ...
+
+    @abstractmethod
+    def known_actions(self) -> tuple[KeyAction, ...]:
+        ...
+
+    @abstractmethod
+    def actions_in(self, category: str) -> tuple[KeyAction, ...]:
+        ...
+
+    @abstractmethod
+    def load_overrides(self) -> None:
+        ...
+
+    @abstractmethod
+    def save_overrides(self) -> None:
+        ...
+
+
 @dataclass
-class KeyMap:
+class KeyMap(AbstractKeyMap):
     """Category-grouped key bindings with two-level resolution.
 
     Holds the merged tree of every known action (the built-in
@@ -182,28 +250,14 @@ class KeyMap:
     action right now", following the inherit (``None``) / override rules.
     """
 
-    #: action_id -> KeyAction (the declared actions, defaults + final flags).
+    _parent: AbstractKeyMap | None = field(default=None)
     _actions: dict[str, KeyAction] = field(default_factory=dict)
-    #: action_id -> shortcut string, user overrides loaded from disk.  An entry
-    #: of ``""`` means "explicitly unbound"; a missing entry falls back to the
-    #: action's declared default.
-    _overrides: dict[str, str] = field(default_factory=dict)
-
-    # -- construction -------------------------------------------------------
-
-    @classmethod
-    def with_globals(cls) -> KeyMap:
-        """A fresh map carrying only the built-in global actions."""
-        km = cls()
-        for action in GLOBAL_ACTIONS:
-            km._actions[action.id] = action
-        return km
 
     # -- registration -------------------------------------------------------
 
-    def register_tool_actions(
-        self, actions: dict[str, str | None]
-    ) -> None:
+    @traced()
+    @override
+    def register_tool_actions(self, actions: dict[str, list[str]]) -> None:
         """Register a tool's declared actions (``key_actions()`` output).
 
         *actions* maps ``"<category>.action.<name>" -> shortcut | None``.  A
@@ -212,69 +266,48 @@ class KeyMap:
         collides with a ``final`` global action is rejected.
         """
         for action_id, shortcut in actions.items():
-            if shortcut is not None and self._is_final_shortcut(shortcut):
-                raise FinalShortcutError(
-                    f"{action_id!r} cannot bind {shortcut!r}: reserved by a "
-                    f"final global action"
-                )
+            # if shortcut is not None and self._is_final_shortcut(shortcut):
+            #     raise FinalShortcutError(
+            #         f"{action_id!r} cannot bind {shortcut!r}: reserved by a "
+            #         f"final global action")
             display = self._inherited_display(action_id)
-            self._actions[action_id] = KeyAction(
-                id=action_id, default=shortcut, display=display
-            )
+            self._actions[action_id] = KeyAction(id=action_id,
+                                                 shortcuts=shortcut,
+                                                 display=display)
 
+    @traced()
     def _inherited_display(self, action_id: str) -> str:
-        glob = self._actions.get(_global_id(name_of(action_id)))
+        glob = self._get_action(_global_id(name_of(action_id)))
         return glob.display if glob is not None else name_of(action_id).title()
 
     # -- resolution ---------------------------------------------------------
 
+    def _get_action(self, action_id: str) -> KeyAction | None:
+        return self._actions.get(action_id)
+
+    @traced()
     def resolve(self, action_id: str) -> str:
-        """The shortcut string that currently fires *action_id* ('' if none).
+        action = self._get_action(action_id)
+        return action_id if action else (
+            self._parent.resolve(action_id) if self._parent else "")
 
-        Order: user override on this action (if present, taken verbatim — ``""``
-        means explicitly unbound) → the action's declared default → when that
-        default is ``None``, the *resolved* generic ``global.action.<name>``
-        (so a user override on the global binding propagates to every tool
-        action that inherits it).
-        """
-        if action_id in self._overrides:
-            return self._overrides[action_id]
-        action = self._actions.get(action_id)
-        if action is None:
-            return ""
-        if action.default is not None:
-            return action.default
-        # Inherit: resolve the matching global action (unless this *is* it).
-        global_id = _global_id(name_of(action_id))
-        if global_id == action_id:
-            return ""  # a global action with a None default = unbound
-        return self.resolve(global_id)
-
+    @traced()
     def resolve_display(self, action_id: str) -> str:
         """Human-facing binding text: ``|`` alternatives shown as ``"Up / W"``."""
         return " / ".join(a for a in self.resolve(action_id).split("|") if a)
 
+    @traced()
     def is_final(self, action_id: str) -> bool:
-        action = self._actions.get(action_id)
+        action = self._get_action(action_id)
         return action is not None and action.final
 
-    def _is_final_shortcut(self, shortcut: str) -> bool:
-        target = QKeySequence(shortcut)
-        if target.isEmpty():
-            return False
-        for action in self._actions.values():
-            if not (action.final and action.default):
-                continue
-            if QKeySequence(action.default) == target:
-                return True
-        return False
+    @traced()
+    def _non_final_shortcut(self, shortcut: list[str]) -> list[QKeySequence]:
+        return []
 
-    # -- matching -----------------------------------------------------------
-
-    @traced("KeyMap.matches")
-    def matches(
-        self, key: int, modifiers: Qt.KeyboardModifier, action_id: str
-    ) -> bool:
+    @traced()
+    def matches(self, key: int, modifiers: Qt.KeyboardModifier,
+                action_id: str) -> bool:
         """True when a key press equals *action_id*'s resolved shortcut.
 
         A shifted *symbol* (``?``, ``:``, ``+`` …) reaches us as its
@@ -293,14 +326,12 @@ class KeyMap:
         # ``"Up|W"`` — arrow OR WASD step); the press matches if it equals ANY.
         return any(
             self._seq_matches(key, modifiers, alt)
-            for alt in shortcut.split("|")
-            if alt
-        )
+            for alt in shortcut.split("|") if alt)
 
     @staticmethod
-    def _seq_matches(
-        key: int, modifiers: Qt.KeyboardModifier, shortcut: str
-    ) -> bool:
+    @traced()
+    def _seq_matches(key: int, modifiers: Qt.KeyboardModifier,
+                     shortcut: str) -> bool:
         """True when a key press equals one (single, non-``|``) shortcut string.
 
         A shifted *symbol* (``?``, ``:``, ``+`` …) reaches us as its
@@ -315,11 +346,8 @@ class KeyMap:
         target = QKeySequence(shortcut)
         if event_to_sequence(key, modifiers) == target:
             return True
-        if (
-            modifiers & Qt.KeyboardModifier.ShiftModifier
-            and _is_symbol_key(key)
-            and not _has_shift(target)
-        ):
+        if (modifiers & Qt.KeyboardModifier.ShiftModifier
+                and _is_symbol_key(key) and not _has_shift(target)):
             without_shift = modifiers & ~Qt.KeyboardModifier.ShiftModifier
             if event_to_sequence(key, without_shift) == target:
                 return True
@@ -327,29 +355,39 @@ class KeyMap:
 
     # -- overrides / persistence -------------------------------------------
 
-    def set_override(self, action_id: str, shortcut: str) -> None:
+    @traced()
+    def set_override(self, action_id: str,
+                     shortcuts: list[str]) -> KeyAction | None:
         """Set a user override for *action_id* (does not persist by itself)."""
-        self._overrides[action_id] = shortcut
+        action: KeyAction | None = self.resolve_action(action_id)
+        if action:
+            new_override = replace(action, shortcuts=shortcuts)
+            self._actions[action_id] = new_override
+            return new_override
+        return None
 
+    @traced()
     def known_actions(self) -> tuple[KeyAction, ...]:
         """Every declared action, for UI / introspection."""
         return tuple(self._actions.values())
 
+    @traced()
     def actions_in(self, category: str) -> tuple[KeyAction, ...]:
         """Every declared action in *category* (text before the first dot)."""
-        return tuple(
-            a for a in self._actions.values() if a.category == category
-        )
+        return tuple(a for a in self._actions.values()
+                     if a.category == category)
 
+    @traced()
     def display_of(self, action_id: str) -> str:
         """The human label for *action_id* (declared display, else the name)."""
-        action = self._actions.get(action_id)
+        action = self._get_action(action_id)
         if action is not None and action.display:
             return action.display
         return name_of(action_id).replace("_", " ").title()
 
     # -- disk ---------------------------------------------------------------
 
+    @traced()
     def load_overrides(self) -> None:
         """Read user overrides from the namespaced tree YAML, if present.
 
@@ -370,22 +408,29 @@ class KeyMap:
         if not KEYBINDINGS_V2_FILE.exists():
             return
         try:
-            from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
+            from ruamel.yaml import \
+                YAML  # type: ignore[import-untyped,unused-ignore]
 
             yaml = YAML()
             raw = yaml.load(KEYBINDINGS_V2_FILE)
             if not isinstance(raw, dict):
                 return
             for category, entries in raw.items():
-                if not isinstance(category, str) or not isinstance(entries, dict):
+                if not isinstance(category, str) or not isinstance(
+                        entries, dict):
                     continue
                 for name, value in entries.items():
+                    action_id = f"{category}.{name}"
+                    display = self._inherited_display(action_id)
                     if not isinstance(name, str) or not isinstance(value, str):
                         continue  # null / non-string → inherit (skip)
-                    self._overrides[f"{category}.{name}"] = value
+                    self._actions[action_id] = KeyAction(action_id,
+                                                         shortcuts=[value],
+                                                         display=display)
         except Exception:  # noqa: BLE001 — corrupt file → defaults
             return
 
+    @traced()
     def save_overrides(self) -> None:
         """Persist user overrides to the namespaced tree YAML.
 
@@ -395,9 +440,9 @@ class KeyMap:
         from protoboard.paths import CONFIG_DIR, KEYBINDINGS_V2_FILE
 
         tree: dict[str, dict[str, str]] = {}
-        for action_id, shortcut in self._overrides.items():
-            action = self._actions.get(action_id)
-            if action is not None and action.default == shortcut:
+        for action_id, shortcut in self._actions.items():
+            action = self._get_action(action_id)
+            if action is not None and action.shortcuts == shortcut:
                 continue  # equals declared default → don't persist
             category, _, name = action_id.partition(".")
             if not name:
@@ -405,12 +450,35 @@ class KeyMap:
             tree.setdefault(category, {})[name] = shortcut
 
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
+        from ruamel.yaml import \
+            YAML  # type: ignore[import-untyped,unused-ignore]
 
         yaml = YAML()
         yaml.default_flow_style = False
         with KEYBINDINGS_V2_FILE.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — namespaced keyboard shortcuts\n")
-            fh.write("# Grouped by category. null = inherit the global default.\n")
+            fh.write(
+                "# Grouped by category. null = inherit the global default.\n")
             if tree:
                 yaml.dump(tree, fh)
+
+    @override
+    def resolve_action(self, action_id: str) -> KeyAction | None:
+        resolved_id = self.resolve(action_id)
+        return self._get_action(resolved_id)
+
+class GlobalKeyMap(KeyMap):
+    @classmethod
+    def with_globals(cls) -> KeyMap:
+        """A fresh map carrying only the built-in global actions."""
+        km = cls()
+        for action in GLOBAL_ACTIONS:
+            km._actions[action.id] = action
+        return km
+
+    @override
+    def resolve(self, action_id: str) -> str:
+        global_id = _global_id(name_of(action_id))
+        if global_id == action_id:
+            return ""  # a global action with a None default = unbound
+        return self.resolve(global_id)

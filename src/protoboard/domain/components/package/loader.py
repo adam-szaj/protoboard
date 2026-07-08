@@ -536,7 +536,7 @@ def _validate_dims(
                 f"would silently degrade to the pin-hug rectangle)")
 
 
-@traced("build_package")
+@traced()
 def build_package(
     merged: PackageDict,
     pkg: str,
@@ -628,7 +628,7 @@ def build_package(
     )
 
 
-@traced("load_packages")
+@traced()
 def load_packages(raw_list: list[PackageDict]) -> dict[str, Package]:
     """Build all non-abstract packages from a list of raw definitions."""
     registry = {str(d["name"]): d for d in raw_list if "name" in d}

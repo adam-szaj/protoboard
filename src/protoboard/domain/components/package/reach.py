@@ -107,7 +107,7 @@ def pin_reaches(
     return out
 
 
-@traced("is_pin_bendable")
+@traced()
 def is_pin_bendable(
     package: Package,
     pin_number: int,
@@ -127,7 +127,7 @@ def is_pin_bendable(
     return reach is not None and reach.is_movable
 
 
-@traced("package_to_bend_specs")
+@traced()
 def package_to_bend_specs(
     package: Package,
     *,

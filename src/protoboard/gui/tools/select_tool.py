@@ -246,7 +246,7 @@ class SelectTool(_Tool):
 
     # -- _Tool lifecycle ----------------------------------------------------
 
-    @traced("SelectTool.activate")
+    @traced()
     def activate(self, session: EditorSession, view: BoardView) -> None:
         self._session = session
         self._view = view
@@ -261,7 +261,7 @@ class SelectTool(_Tool):
             session.highlight_stack, source_id="select_tool"
         )
 
-    @traced("SelectTool.deactivate")
+    @traced()
     def deactivate(self) -> None:
         # Cancel an armed transform first so leaving the tool reverts a
         # half-done rotate/move (and drops its live preview / controller).
@@ -307,7 +307,7 @@ class SelectTool(_Tool):
             groups=bool(f & SelectionFilter.GROUPS),
         )
 
-    @traced("SelectTool._pick_at")
+    @traced()
     def _pick_at(
         self, what: object, scene_pt: QPointF
     ) -> Selectable | None:
@@ -378,7 +378,7 @@ class SelectTool(_Tool):
 
     # -- press --------------------------------------------------------------
 
-    @traced("SelectTool.on_press")
+    @traced()
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
@@ -488,7 +488,7 @@ class SelectTool(_Tool):
                 return True
         return False
 
-    @traced("SelectTool._apply_selection")
+    @traced()
     def _apply_selection(
         self, sel: Selectable, op: SetOp, basis: BasisScope = BasisScope.SINGLE
     ) -> None:
@@ -1010,12 +1010,12 @@ class SelectTool(_Tool):
             alt=bool(mods & Qt.KeyboardModifier.AltModifier),
         )
 
-    @traced("SelectTool.on_move")
+    @traced()
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if self._mouse is not None:
             self._mouse.on_move(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
 
-    @traced("SelectTool.on_release")
+    @traced()
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         mouse = self._mouse
         if mouse is None:
@@ -1109,7 +1109,7 @@ class SelectTool(_Tool):
         if n:
             self._status(f"Moved — {n} wire(s) dropped/edited  ·  Ctrl+Z undoes", 4000)
 
-    @traced("SelectTool.on_double_press")
+    @traced()
     def on_double_press(self, scene_pt: QPointF) -> None:
         """Board double-click → enter the group under the cursor, else forward.
 
@@ -1175,7 +1175,7 @@ class SelectTool(_Tool):
 
     # -- arming gestures ----------------------------------------------------
 
-    @traced("SelectTool._arm_band")
+    @traced()
     def _arm_band(self, scene_pt: QPointF) -> RubberBandController:
         press = Point(scene_pt.x(), scene_pt.y())
         return RubberBandController(
@@ -1269,7 +1269,7 @@ class SelectTool(_Tool):
         groups = self._collect_caught_groups(rx0, ry0, rx1, ry1, ltr)
         return wires + groups
 
-    @traced("SelectTool._arm_drag")
+    @traced()
     def _arm_drag(
         self, sel: Selectable, scene_pt: QPointF
     ) -> DragController | None:
@@ -1728,7 +1728,7 @@ class SelectTool(_Tool):
             return Intent.UNDO
         return None
 
-    @traced("SelectTool._dispatch_intent")
+    @traced()
     def _dispatch_intent(self, intent: Intent) -> bool:
         """Route a semantic intent to the active interaction; return if consumed.
 
@@ -1779,7 +1779,7 @@ class SelectTool(_Tool):
 
     # -- re-drag (bendable lead reposition, a request_pick client) ----------
 
-    @traced("SelectTool.begin_redrag")
+    @traced()
     def begin_redrag(self, comp_id: uuid.UUID | None = None) -> None:
         """Arm re-drag: choose a pin, then the pad it should reach.
 
@@ -1951,7 +1951,7 @@ class SelectTool(_Tool):
             return None
         return self._selectable_pin(comp_id, picked[0])
 
-    @traced("SelectTool._arm_pick")
+    @traced()
     def _arm_pick(
         self,
         what: str,
@@ -2263,7 +2263,7 @@ class SelectTool(_Tool):
 
     # -- wire-edit (fragment = selection, operations = actions) -------------
 
-    @traced("SelectTool._begin_edit_selected")
+    @traced()
     def _begin_edit_selected(self) -> None:
         """``[E]`` — edit the selected object, dispatched by its kind.
 
@@ -2280,7 +2280,7 @@ class SelectTool(_Tool):
             return
         self._status("Nothing to edit — select a group or wire first")
 
-    @traced("SelectTool.arm_wire_edit")
+    @traced()
     def arm_wire_edit(self) -> None:
         """Enter wire-edit on the selected wire — the ``[E]`` entry point.
 
@@ -2727,7 +2727,7 @@ class SelectTool(_Tool):
 
     # -- keys ---------------------------------------------------------------
 
-    @traced("SelectTool.on_key")
+    @traced()
     def on_key(self, event: QKeyEvent) -> None:
         key = event.key()
         mods = event.modifiers()
@@ -2909,7 +2909,7 @@ class SelectTool(_Tool):
 
     # -- rotate / flip ------------------------------------------------------
 
-    @traced("SelectTool.begin_rotate_around_point")
+    @traced()
     def begin_rotate_around_point(self) -> None:
         if self._selection.is_empty():
             self._status("Rotate around point: select component(s) or a group first")
@@ -2944,7 +2944,7 @@ class SelectTool(_Tool):
         if self._view is not None:
             self._view.refresh()
 
-    @traced("SelectTool.invoke_armed_atomic")
+    @traced()
     def _invoke_armed_atomic(
         self,
         arm: "Callable[[], None]",
@@ -2978,7 +2978,7 @@ class SelectTool(_Tool):
             return True
         return False  # parked in a conflict — left armed for the user
 
-    @traced("SelectTool.arm_rotate")
+    @traced()
     def arm_rotate(self) -> None:
         """Arm float-rotate on the selection — the ``[R]`` entry point.
 
@@ -3054,7 +3054,7 @@ class SelectTool(_Tool):
 
         return self._view.snap(QPointF(raw.x, raw.y))
 
-    @traced("SelectTool.arm_move")
+    @traced()
     def arm_move(self) -> None:
         """Arm keyboard float-move on the selection — the ``[G]`` entry point.
 
@@ -3106,7 +3106,7 @@ class SelectTool(_Tool):
                 out.add(hit.id)
         return frozenset(out)
 
-    @traced("SelectTool._rotate_selected")
+    @traced()
     def _rotate_selected(self, delta: int = 90) -> None:
         from protoboard.domain.commands.group_cmds import (
             RotateAroundPointCommand,
@@ -3125,7 +3125,7 @@ class SelectTool(_Tool):
         self._execute(cmd)
         self._notify_selection()  # refresh Properties panel rotation, etc.
 
-    @traced("SelectTool._flip_selected")
+    @traced()
     def _flip_selected(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
@@ -4696,7 +4696,7 @@ class SelectTool(_Tool):
             cast("ComponentState", self._session),
         )
 
-    @traced("SelectTool._execute")
+    @traced()
     def _execute(self, cmd: object) -> None:
         self._exec_command(cmd)
         self._session.layout_changed.emit()
@@ -4704,7 +4704,7 @@ class SelectTool(_Tool):
 
     # -- group navigation ---------------------------------------------------
 
-    @traced("SelectTool.enter_group")
+    @traced()
     def enter_group(self, group_id: uuid.UUID | None = None) -> bool:
         """Enter a group's edit context — its members become directly editable.
 
@@ -4725,7 +4725,7 @@ class SelectTool(_Tool):
         self._status("Entered group — [Esc] to leave")
         return True
 
-    @traced("SelectTool.exit_group")
+    @traced()
     def exit_group(self) -> None:
         if len(self._group_stack) > 1:
             self._group_stack.pop()

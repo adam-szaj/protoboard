@@ -7,7 +7,7 @@ import math
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import structlog
 
@@ -24,7 +24,7 @@ _PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -46,22 +46,19 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.board.boxes import StripAtom
-from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerOverrides, LayerState, layer_state_for_tool
+from protoboard.gui.layer_state import LayerOverrides, layer_state_for_tool
 from protoboard.gui.renderers.board_renderer import (
     BOARD_BG,
     build_board_display_list,
     paint_board,
 )
 from protoboard.gui.renderers.component_renderer import (
-    render_components,
     render_groups,
     update_component_groups,
 )
 from protoboard.gui.renderers.wire_renderer import (
     render_ratsnest,
-    render_wires_with_nets,
     update_wire_groups,
 )
 from protoboard.gui.session import EditorSession
@@ -141,8 +138,8 @@ class BoardView(QGraphicsView):
         # KeyMap to consult for the contextual shortcut veto, even headless
         # (BoardView without a MainWindow).  MainWindow loads user overrides
         # into it; tools register their own actions on activate().
-        from protoboard.gui.keymap import KeyMap as _KeyMap
-        self._keymap = _KeyMap.with_globals()
+        from protoboard.gui.keymap import (KeyMap as _KeyMap, GlobalKeyMap as _GlobalKeyMap)
+        self._keymap = _KeyMap(_GlobalKeyMap.with_globals())
         # ``[?]`` shortcut-help overlay — a QLabel parked over the viewport,
         # built lazily on first toggle.
         self._shortcuts_overlay: object | None = None
@@ -359,6 +356,7 @@ class BoardView(QGraphicsView):
     # Public
     # ------------------------------------------------------------------
 
+    @traced()
     def apply_throttle_settings(
         self,
         *,
@@ -377,6 +375,7 @@ class BoardView(QGraphicsView):
         self._rubber_band_throttle_ms = rubber_band_ms
         self._label_vis_timer.setInterval(zoom_refresh_ms)
 
+    @traced()
     def set_ratsnest_mode(self, mode: str) -> None:
         """Switch the Connections layer between ``"full"`` (K_n graph)
         and ``"closest"`` (nearest-other-pin) line modes.  No-op when
@@ -386,6 +385,7 @@ class BoardView(QGraphicsView):
         self._ratsnest_mode = mode
         self.refresh()
 
+    @traced()
     def set_antialiasing(self, enabled: bool) -> None:
         """Toggle Antialiasing render hint and rebuild raster caches.
 
@@ -402,6 +402,7 @@ class BoardView(QGraphicsView):
         self._invalidate_bg_cache()
         self.viewport().update()
 
+    @traced()
     def set_show_selection_bbox(self, enabled: bool) -> None:
         """Toggle the thin dashed bounding box drawn around selections.
 
@@ -419,23 +420,28 @@ class BoardView(QGraphicsView):
         self.viewport().update()
 
     @property
+    @traced()
     def camera_side(self) -> str:
         return self._camera_side
 
     @property
+    @traced()
     def view_transform(self) -> str:
         return self._view_transform
 
     @property
+    @traced()
     def active_group_id(self) -> uuid.UUID:
         return self._active_group_id
 
+    @traced()
     def set_active_group(self, group_id: uuid.UUID) -> None:
         """Called by SelectTool on group navigation to trigger a re-render."""
         self._active_group_id = group_id
         self.refresh()
 
-    def _effective_highlighted_net(self) -> "uuid.UUID | None":
+    @traced()
+    def _effective_highlighted_net(self) -> uuid.UUID | None:
         """Pick the net id that should drive glow-ring rendering.
 
         Priority: the actively-drawn routing net (``session.routing_net_id``)
@@ -448,6 +454,7 @@ class BoardView(QGraphicsView):
             return rn
         return self._highlighted_net_id
 
+    @traced()
     def _on_routing_net_changed(self, _net_id: object) -> None:
         """Invalidate component/wire group caches so glow rings rebuild.
 
@@ -461,6 +468,7 @@ class BoardView(QGraphicsView):
         self._wire_fingerprints.clear()
         self._schedule_refresh()
 
+    @traced()
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
         """Legacy: update local net_id and apply opacity (used by SelectTool internals)."""
         if net_id == self._highlighted_net_id and self._highlight_profile is None:
@@ -469,6 +477,7 @@ class BoardView(QGraphicsView):
         self._highlight_profile = None
         self._apply_highlight_opacity()
 
+    @traced()
     def set_highlighted_net_with_profile(
         self, net_id: uuid.UUID | None, profile: object
     ) -> None:
@@ -477,6 +486,7 @@ class BoardView(QGraphicsView):
         self._highlight_profile = profile
         self._apply_highlight_opacity()
 
+    @traced()
     def _apply_highlight_opacity(self) -> None:
         _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
         try:
@@ -490,6 +500,7 @@ class BoardView(QGraphicsView):
                     n_wire_groups=len(self._wire_groups),
                 )
 
+    @traced()
     def _apply_highlight_opacity_impl(self) -> None:
         """Apply dimming to existing comp/wire groups without a full refresh.
 
@@ -622,6 +633,7 @@ class BoardView(QGraphicsView):
             # sees the stale pixmap until they wiggle the cursor.
             self.viewport().update()
 
+    @traced()
     def _clear_highlight_dimming(self) -> None:
         """Restore every comp/wire/label group to full opacity (no highlight).
 
@@ -653,6 +665,7 @@ class BoardView(QGraphicsView):
             self._invalidate_back_cache()
             self.viewport().update()
 
+    @traced()
     def _recolour_selected_outlines(self) -> set[uuid.UUID]:
         """Paint the selected components' body outline in the select colour.
 
@@ -736,6 +749,7 @@ class BoardView(QGraphicsView):
         self._sync_selection_bbox_overlays(selected)
         return selected
 
+    @traced()
     def set_selection_outline_override(self, color: QColor | None) -> None:
         """Override the selection-outline colour (None → back to theme cyan).
 
@@ -754,6 +768,7 @@ class BoardView(QGraphicsView):
         self._select_outline_override = QColor(color) if color is not None else None
         self._apply_highlight_opacity()
 
+    @traced()
     def _recolour_selected_group_outlines(
         self, theme: Theme, select_rgb: QColor
     ) -> None:
@@ -800,6 +815,7 @@ class BoardView(QGraphicsView):
             self._cyan_group_outlined.add(gid)
 
     @staticmethod
+    @traced()
     def _recolour_pen(item: QGraphicsRectItem, to_colour: QColor) -> None:
         """Recolour *item*'s pen to *to_colour* (alpha and style preserved)."""
         p = item.pen()
@@ -810,6 +826,7 @@ class BoardView(QGraphicsView):
         item.setPen(new_pen)
 
     @staticmethod
+    @traced()
     def _set_outline_colour(
         grp: QGraphicsItemGroup, from_colour: QColor, to_colour: QColor,
         *, match_rgb: int | None = None,
@@ -846,12 +863,14 @@ class BoardView(QGraphicsView):
     # outline overlay (add / re-sync / remove on selection change) but is gated
     # by ``show_selection_bbox``.
 
+    @traced()
     def _selection_bbox_pen(self) -> QPen:
         theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
         pen = QPen(QColor(theme.selection_bbox_color), theme.selection_bbox_width)
         pen.setStyle(Qt.PenStyle.DashLine)
         return pen
 
+    @traced()
     def _add_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
         from protoboard.gui.layer_state import Z_SELECTION
 
@@ -868,6 +887,7 @@ class BoardView(QGraphicsView):
         self._scene.addItem(rect)
         self._selection_bbox_overlays[comp_id] = rect
 
+    @traced()
     def _update_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
         rect = self._selection_bbox_overlays.get(comp_id)
         if rect is None:
@@ -885,6 +905,7 @@ class BoardView(QGraphicsView):
         except RuntimeError:
             self._selection_bbox_overlays.pop(comp_id, None)
 
+    @traced()
     def _remove_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
         rect = self._selection_bbox_overlays.pop(comp_id, None)
         if rect is None:
@@ -895,6 +916,7 @@ class BoardView(QGraphicsView):
         except RuntimeError:
             pass
 
+    @traced()
     def _sync_selection_bbox_overlays(self, selected: set[uuid.UUID]) -> None:
         """Add/refresh a dashed bbox for each selected component, drop the rest.
 
@@ -908,6 +930,7 @@ class BoardView(QGraphicsView):
             else:
                 self._add_selection_bbox_overlay(cid)
 
+    @traced()
     def _redraw_selected_wire_overlays(self) -> set[uuid.UUID]:
         """Draw a bright-yellow overlay over every *selected* wire.
 
@@ -969,6 +992,7 @@ class BoardView(QGraphicsView):
             self._wire_select_overlays[wid] = group
         return selected
 
+    @traced()
     def _remove_wire_select_overlay(self, wire_id: uuid.UUID) -> None:
         group = self._wire_select_overlays.pop(wire_id, None)
         if group is None:
@@ -980,6 +1004,7 @@ class BoardView(QGraphicsView):
             # C++ item already destroyed by a scene rebuild — nothing to do.
             pass
 
+    @traced()
     def _selection_disc_net_ids(self, fallback: set[uuid.UUID]) -> set[uuid.UUID]:
         """Nets whose pads get the bright highlight (bhl), per the spec:
 
@@ -1011,6 +1036,7 @@ class BoardView(QGraphicsView):
                     out.add(wnid)
         return out
 
+    @traced()
     def _redraw_net_pad_highlights(self, net_ids: set[uuid.UUID]) -> None:
         """Draw bright-yellow discs on every pad of the *highlighted nets*.
 
@@ -1058,6 +1084,7 @@ class BoardView(QGraphicsView):
             self._scene.addItem(item)
             self._net_pad_highlight_items.append(item)
 
+    @traced()
     def _draw_free_pad_ring(self) -> None:
         """Draw the light ring on the clicked free pin-pad (if any).
 
@@ -1084,6 +1111,7 @@ class BoardView(QGraphicsView):
         self._scene.addItem(item)
         self._net_pad_highlight_items.append(item)
 
+    @traced()
     def set_clicked_free_pad(self, pos: Point | None) -> None:
         """Set (or clear) the clicked free-pin pad whose ring is drawn.
 
@@ -1103,6 +1131,7 @@ class BoardView(QGraphicsView):
         self._free_pad_ring_pos = pos
         self._apply_highlight_opacity()
 
+    @traced()
     def _clear_net_pad_highlights(self) -> None:
         for item in self._net_pad_highlight_items:
             try:
@@ -1114,6 +1143,7 @@ class BoardView(QGraphicsView):
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 
+    @traced()
     def _apply_label_visibility(self) -> None:
         """Show/hide overlay text labels based on current view scale.
 
@@ -1141,6 +1171,7 @@ class BoardView(QGraphicsView):
                 n_scene_items=n_items,
             )
 
+    @traced()
     def set_highlighted_net_silent(self, net_id: uuid.UUID | None) -> None:
         """Set the highlighted net without triggering a refresh.
 
@@ -1149,6 +1180,7 @@ class BoardView(QGraphicsView):
         """
         self._highlighted_net_id = net_id
 
+    @traced()
     def _on_drag_moved(self) -> None:
         """Live drag: move scene groups to current placement positions (no rebuild).
 
@@ -1198,6 +1230,7 @@ class BoardView(QGraphicsView):
 
         self._update_group_outlines_on_drag()
 
+    @traced()
     def _update_group_outlines_on_drag(self) -> None:
         """Recompute each group's outline rect from live member geometry.
 
@@ -1296,6 +1329,7 @@ class BoardView(QGraphicsView):
             rect_h = max(ys) - min(ys) + 2 * margin
             rect_item.setRect(QRectF(x0, y0, rect_w, rect_h))
 
+    @traced()
     def set_wire_drag_state(
         self,
         states: dict[uuid.UUID, str],
@@ -1324,6 +1358,7 @@ class BoardView(QGraphicsView):
             else:
                 grp.setOpacity(1.0)
 
+    @traced()
     def set_theme(self, theme: object) -> None:
         from protoboard.gui.theme import Theme
         if isinstance(theme, Theme):
@@ -1339,6 +1374,7 @@ class BoardView(QGraphicsView):
     # View control — camera and transform are independent.
     # ------------------------------------------------------------------
 
+    @traced()
     def set_camera_side(self, side: str) -> None:
         """Switch between top and bottom camera.  Syncs tool side."""
         if side == self._camera_side:
@@ -1349,6 +1385,7 @@ class BoardView(QGraphicsView):
         self._apply_view_transform()
         self.refresh()
 
+    @traced()
     def set_view_transform(self, transform: str) -> None:
         """Set the visual transform: 'normal', 'mirror_h', 'mirror_v', or 'mirror_hv'."""
         if transform == self._view_transform:
@@ -1358,13 +1395,16 @@ class BoardView(QGraphicsView):
         self._apply_view_transform()
         self.refresh()
 
+    @traced()
     def _has_mirror_h(self) -> bool:
         return self._view_transform in ("mirror_h", "mirror_hv")
 
+    @traced()
     def _has_mirror_v(self) -> bool:
         return self._view_transform in ("mirror_v", "mirror_hv")
 
     @staticmethod
+    @traced()
     def _compose_view_transform(*, h: bool, v: bool) -> str:
         if h and v:
             return "mirror_hv"
@@ -1374,6 +1414,7 @@ class BoardView(QGraphicsView):
             return "mirror_v"
         return "normal"
 
+    @traced()
     def _apply_view_transform(self) -> None:
         """Recompute the QGraphicsView scale matrix from current state."""
         sx = -1.0 if self._has_mirror_h() else 1.0
@@ -1401,6 +1442,7 @@ class BoardView(QGraphicsView):
         # handles the mirror.  Keep the anchor for a smooth visual jump.
         self._invalidate_bg_cache(keep_anchor=True)
 
+    @traced()
     def _sync_tool_side(self, side: str) -> None:
         from protoboard.gui.tools.route_tool import RouteTool
         if isinstance(self._active_tool, RouteTool):
@@ -1412,29 +1454,35 @@ class BoardView(QGraphicsView):
 
     # Convenience toggles (used by menu/keyboard).  Each axis flips
     # independently so combining H + V produces ``mirror_hv``.
+    @traced()
     def toggle_mirror_h(self) -> None:
         self.set_view_transform(self._compose_view_transform(
             h=not self._has_mirror_h(), v=self._has_mirror_v(),
         ))
 
+    @traced()
     def toggle_mirror_v(self) -> None:
         self.set_view_transform(self._compose_view_transform(
             h=self._has_mirror_h(), v=not self._has_mirror_v(),
         ))
 
+    @traced()
     def toggle_camera(self) -> None:
         self.set_camera_side(
             "bottom" if self._camera_side == "top" else "top"
         )
 
     # Legacy alias used by MainWindow._mirror_view (now means Mirror H).
+    @traced()
     def toggle_mirror(self) -> None:
         self.toggle_mirror_h()
 
     @property
+    @traced()
     def is_mirrored(self) -> bool:
         return self._has_mirror_h()
 
+    @traced()
     def fit_board(self) -> None:
         """Scale and center the view to fit the board bounds."""
         b = self._session.board.bounds
@@ -1448,6 +1496,7 @@ class BoardView(QGraphicsView):
         self._invalidate_bg_cache(keep_anchor=True)
         self._apply_label_visibility()
 
+    @traced()
     def fit_area(self) -> None:
         """Fit view to the active group's components; falls back to fit_board() for ROOT."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
@@ -1487,6 +1536,7 @@ class BoardView(QGraphicsView):
         self._invalidate_bg_cache(keep_anchor=True)
         self._apply_label_visibility()
 
+    @traced()
     def fit_selection(self) -> None:
         """Fit view to the bounding box of selected components and wires."""
         tool = self._active_tool
@@ -1533,6 +1583,7 @@ class BoardView(QGraphicsView):
         self._invalidate_bg_cache(keep_anchor=True)
         self._apply_label_visibility()
 
+    @traced()
     def set_session(self, session: EditorSession) -> None:
         """Replace the current session (used when opening a recent project)."""
         if self._active_tool is not None:
@@ -1553,6 +1604,7 @@ class BoardView(QGraphicsView):
         session.selection_requested.connect(self._on_selection_requested)
         self.refresh()
 
+    @traced()
     def set_tool(self, tool: _Tool | None) -> None:
         # While autoroute is running, mutating tools (Place / Route / Cut)
         # are not allowed — fall back to the SelectTool instance (which is
@@ -1573,10 +1625,12 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     @property
+    @traced()
     def keymap(self) -> KeyMap:
         """The namespaced keybindings the active tool consults for the veto."""
         return self._keymap
 
+    @traced()
     def _register_tool_keymap(self, tool: _Tool) -> None:
         """Merge a tool's declared key actions into the KeyMap.
 
@@ -1595,10 +1649,12 @@ class BoardView(QGraphicsView):
                 "keymap.tool_action_rejected", error=str(exc)
             )
 
+    @traced()
     def board_pad_positions(self) -> list[Point]:
         """Cached list of all board pad positions (raster units)."""
         return self._pad_positions
 
+    @traced()
     def _rebuild_pad_cache(self) -> None:
         """Rebuild _pad_positions and _pad_spatial from the current board layout."""
         from collections import defaultdict
@@ -1625,11 +1681,13 @@ class BoardView(QGraphicsView):
             spatial[(int(round(p.x)), int(round(p.y)))].append(p)
         self._pad_spatial = dict(spatial)
 
+    @traced()
     def _schedule_refresh(self) -> None:
         """Schedule a refresh for the next event-loop tick (debounce)."""
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
 
+    @traced()
     def _fire_on_scene_cleared(self) -> None:
         """Notify tools that the scene was wiped (board layer rebuild)."""
         notified: set[int] = set()
@@ -1639,6 +1697,7 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None and id(self._active_tool) not in notified:
             self._active_tool.on_scene_cleared()
 
+    @traced()
     def _invalidate_all_groups(self) -> None:
         """Drop all persistent group caches (called when scene is fully cleared)."""
         self._comp_groups.clear()
@@ -1660,6 +1719,7 @@ class BoardView(QGraphicsView):
         # Net-pad highlight discs are scene items too — drop the stale refs.
         self._net_pad_highlight_items.clear()
 
+    @traced()
     def refresh(self) -> None:
         """Update the scene to reflect current session state.
 
@@ -1966,6 +2026,7 @@ class BoardView(QGraphicsView):
         self._session.perf.record_refresh(_ms)
         self._session.perf.scene_items = len(self._scene.items())
 
+    @traced()
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""
         from protoboard.gui.tools.select_tool import SelectTool
@@ -1976,6 +2037,7 @@ class BoardView(QGraphicsView):
         if isinstance(tool, SelectTool):
             tool._select_primary(comp_id)
 
+    @traced()
     def _on_selection_requested(
         self, comp_ids: object, wire_ids: object, net_id: object
     ) -> None:
@@ -2022,13 +2084,13 @@ class BoardView(QGraphicsView):
         tool._set_selection_from_ids(target_c, target_w, set())
         tool._notify_selection()
 
+    @traced()
     def snap(self, scene_pt: QPointF, exclude_ids: frozenset[uuid.UUID] | None = None) -> Point:
         """Snap scene-space point to nearest accessible pad or component pin.
 
         Pins belonging to child groups are only accessible if they are exported.
         ``exclude_ids`` — component IDs whose pins are skipped (e.g. currently dragged).
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         # Build set of component IDs that are locked inside child groups,
         # and their exported pins.
@@ -2102,6 +2164,7 @@ class BoardView(QGraphicsView):
         # leaving components at fractional positions.
         return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
 
+    @traced()
     def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
         """Return True if *scene_pt* is near a pin locked inside a child group
         (i.e. not exported). Used by RouteTool to show a status message."""
@@ -2130,6 +2193,7 @@ class BoardView(QGraphicsView):
                     return True
         return False
 
+    @traced()
     def center_on_scene_point(self, scene_pt: QPointF) -> None:
         """Scroll the view so that scene_pt appears at the centre of the viewport."""
         vp = self.viewport()
@@ -2143,6 +2207,7 @@ class BoardView(QGraphicsView):
         hbar.setValue(hbar.value() + round(delta_scene.x() * scale))
         vbar.setValue(vbar.value() + round(delta_scene.y() * scale))
 
+    @traced()
     def _show_canvas_menu(self, vp_pos: QPoint, scene_pt: QPointF) -> None:
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
@@ -2163,6 +2228,7 @@ class BoardView(QGraphicsView):
         elif chosen in tool_action_items:
             self._trigger_tool_action(tool_action_items[chosen])
 
+    @traced()
     def _add_tool_action_menu(self, menu: object) -> dict[object, str]:
         """Add the active tool's actions to *menu*; return {QAction: action_id}.
 
@@ -2191,6 +2257,7 @@ class BoardView(QGraphicsView):
         menu.addSeparator()
         return items
 
+    @traced()
     def _trigger_tool_action(self, action_id: str) -> None:
         """Run *action_id* by synthesising its resolved key into the tool."""
         from PySide6.QtCore import QEvent
@@ -2211,6 +2278,7 @@ class BoardView(QGraphicsView):
 
     # -- [?] shortcut-help overlay -----------------------------------------
 
+    @traced()
     def _shortcuts_overlay_visible(self) -> bool:
         # Track shown-state via ``isHidden()`` (False once ``show()`` is called)
         # rather than ``isVisible()`` — the latter is False in a headless test
@@ -2219,14 +2287,14 @@ class BoardView(QGraphicsView):
         ov = self._shortcuts_overlay
         return isinstance(ov, QLabel) and not ov.isHidden()
 
-    @traced("BoardView._toggle_shortcuts_overlay")
+    @traced()
     def _toggle_shortcuts_overlay(self) -> None:
         if self._shortcuts_overlay_visible():
             self._hide_shortcuts_overlay()
         else:
             self._show_shortcuts_overlay()
 
-    @traced("BoardView._hide_shortcuts_overlay")
+    @traced()
     def _hide_shortcuts_overlay(self) -> None:
         from PySide6.QtWidgets import QLabel
         ov = self._shortcuts_overlay
@@ -2243,7 +2311,7 @@ class BoardView(QGraphicsView):
         win = self.window()
         return getattr(win, "_keybindings", None)
 
-    @traced("BoardView._show_shortcuts_overlay")
+    @traced()
     def _show_shortcuts_overlay(self) -> None:
         """Float a panel listing the globally + tool-relevant shortcuts.
 
@@ -2895,7 +2963,6 @@ class BoardView(QGraphicsView):
         # Build display list if missing (board / theme / alpha changes
         # clear _bg_display_list; pure viewport resize does not).
         if self._bg_display_list is None:
-            from protoboard.gui.layer_state import LayerState as _LayerState
             from protoboard.gui.renderers.board_renderer import build_pad_net_map
             _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
             from dataclasses import replace as _dc_replace
@@ -3311,7 +3378,6 @@ def _build_wire_net_map(session: EditorSession) -> dict[uuid.UUID, uuid.UUID]:
     holes are all handled correctly — not just wires whose endpoints happen
     to land directly on a component pin.
     """
-    from protoboard.domain.schematic.net import PinRef
 
     if not session.schematic.nets or not session.layout.wires:
         return {}
@@ -3344,10 +3410,51 @@ def _build_wire_net_map(session: EditorSession) -> dict[uuid.UUID, uuid.UUID]:
                     break
     return result
 
+from abc import ABC, abstractmethod
 
-class _Tool:
+
+class BoardViewTool(ABC):
     """Base class for board-view interaction tools."""
 
+    @abstractmethod
+    def activate(self, session: EditorSession, view: BoardView) -> None: ...
+    @abstractmethod
+    def deactivate(self) -> None: ...
+    @abstractmethod
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool: ...
+    @abstractmethod
+    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None: ...
+    @abstractmethod
+    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None: ...
+    @abstractmethod
+    def on_key(self, event: QKeyEvent) -> None: ...
+    @abstractmethod
+    def on_key_release(self, event: QKeyEvent) -> None: ...
+    @abstractmethod
+    def wants_key(self, event: QKeyEvent) -> bool: ...
+    @abstractmethod
+    def wants_wheel(self, event: QWheelEvent) -> bool: ...
+    @abstractmethod
+    def on_wheel(self, event: QWheelEvent) -> None: ...
+    @abstractmethod
+    def key_actions(self) -> dict[str, str | None]: ...
+
+
+    @abstractmethod
+    def displayable_action_ids(self) -> list[str]:
+        """Ordered action ids to surface in the ``[?]`` overlay / RMB menu.
+
+        Default: the tool's own declared actions (:meth:`key_actions`).  A tool
+        can override to add the inherited generic globals it also responds to.
+        """
+        # return list(self.key_actions().keys())
+
+    @abstractmethod
+    def on_scene_cleared(self) -> None:
+        """Called after scene.clear() so tool can drop stale item references."""
+        pass
+
+class _Tool(BoardViewTool):
     def __init__(self) -> None:
         # Bound on activate(); set to None up-front so that pre-activate code
         # paths (e.g. MainWindow applies user preferences to a freshly built
@@ -3358,71 +3465,19 @@ class _Tool:
         self._session: EditorSession = None  # type: ignore[assignment]
         self._view: BoardView = None  # type: ignore[assignment]
 
+    @override
+    @traced()
     def activate(self, session: EditorSession, view: BoardView) -> None:
         self._session = session
         self._view = view
 
-    def _theme(self) -> "Theme":
-        from protoboard.gui.theme import DEFAULT_THEME, Theme
-        t = getattr(self._view, "_theme_override", None)
-        return t if isinstance(t, Theme) else DEFAULT_THEME
-
+    @override
+    @traced()
     def deactivate(self) -> None:
-        pass
+        self._session = None
+        self._view = None
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
-        """Handle mouse press. Return True if the event was consumed."""
-        return False
-
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        pass
-
-    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        pass
-
-    def on_key(self, event: QKeyEvent) -> None:
-        pass
-
-    def on_key_release(self, event: QKeyEvent) -> None:
-        pass
-
-    def wants_key(self, event: QKeyEvent) -> bool:
-        """True when the tool wants to handle *event* itself this very moment.
-
-        Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
-        application shortcut whose key it needs contextually right now (e.g. a
-        wire-edit fragment claiming ``[W]`` / ``[A]`` / ``Delete`` from the
-        Route / Library / Delete actions).  Vetoing makes Qt deliver the key as
-        an ordinary ``KeyPress`` to ``on_key`` instead of firing the QAction.
-        Default: claim nothing.
-        """
-        return False
-
-    def wants_wheel(self, event: QWheelEvent) -> bool:
-        """True when the tool consumes the wheel *right now* instead of zooming.
-
-        Consulted by :meth:`BoardView.wheelEvent` before its zoom accumulation:
-        an armed float-rotate uses the wheel to step the rotation ±90°, so it
-        claims the wheel while armed and lets it zoom otherwise.  Default: never
-        — every tool/state keeps the wheel zooming unless it opts in here.
-        """
-        return False
-
-    def on_wheel(self, event: QWheelEvent) -> None:
-        """Handle a wheel tick the tool claimed via :meth:`wants_wheel`."""
-        pass
-
-    def key_actions(self) -> dict[str, str | None]:
-        """The keyboard actions this tool declares (namespaced keybindings).
-
-        Maps ``"<category>.action.<name>" -> shortcut | None``: a literal
-        shortcut overrides for this tool, ``None`` inherits the matching generic
-        ``global.action.<name>`` default.  Registered into the view's
-        :class:`~protoboard.gui.keymap.KeyMap` on :meth:`activate`, and consulted
-        (dynamically, by current binding) for the shortcut veto.  Default: none.
-        """
-        return {}
-
+    @traced()
     def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
         """True when *event* equals *action_id*'s currently-resolved shortcut.
 
@@ -3435,6 +3490,94 @@ class _Tool:
             return False
         return view.keymap.matches(event.key(), event.modifiers(), action_id)
 
+    def _theme(self) -> Theme:
+        from protoboard.gui.theme import DEFAULT_THEME, Theme
+        t = getattr(self._view, "_theme_override", None)
+        return t if isinstance(t, Theme) else DEFAULT_THEME
+
+    @override
+    @traced()
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
+        """Handle mouse press. Return True if the event was consumed."""
+        return False
+
+    @override
+    @traced()
+    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+        pass
+
+    @override
+    @traced()
+    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+        pass
+
+    @override
+    @traced()
+    def on_key(self, event: QKeyEvent) -> None:
+        pass
+
+    @override
+    @traced()
+    def on_key_release(self, event: QKeyEvent) -> None:
+        pass
+
+    @override
+    @traced()
+    def wants_key(self, event: QKeyEvent) -> bool:
+        """True when the tool wants to handle *event* itself this very moment.
+
+        Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
+        application shortcut whose key it needs contextually right now (e.g. a
+        wire-edit fragment claiming ``[W]`` / ``[A]`` / ``Delete`` from the
+        Route / Library / Delete actions).  Vetoing makes Qt deliver the key as
+        an ordinary ``KeyPress`` to ``on_key`` instead of firing the QAction.
+        Default: claim nothing.
+        """
+        return False
+
+    @override
+    @traced()
+    def wants_wheel(self, event: QWheelEvent) -> bool:
+        """True when the tool consumes the wheel *right now* instead of zooming.
+
+        Consulted by :meth:`BoardView.wheelEvent` before its zoom accumulation:
+        an armed float-rotate uses the wheel to step the rotation ±90°, so it
+        claims the wheel while armed and lets it zoom otherwise.  Default: never
+        — every tool/state keeps the wheel zooming unless it opts in here.
+        """
+        return False
+
+    @override
+    @traced()
+    def on_wheel(self, event: QWheelEvent) -> None:
+        """Handle a wheel tick the tool claimed via :meth:`wants_wheel`."""
+        pass
+
+    @override
+    @traced()
+    def key_actions(self) -> dict[str, str | None]:
+        """The keyboard actions this tool declares (namespaced keybindings).
+
+        Maps ``"<category>.action.<name>" -> shortcut | None``: a literal
+        shortcut overrides for this tool, ``None`` inherits the matching generic
+        ``global.action.<name>`` default.  Registered into the view's
+        :class:`~protoboard.gui.keymap.KeyMap` on :meth:`activate`, and consulted
+        (dynamically, by current binding) for the shortcut veto.  Default: none.
+        """
+        return {}
+
+    @traced()
+    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
+        """True when *event* equals *action_id*'s currently-resolved shortcut.
+
+        Resolves through the view's :class:`KeyMap`, so a tool dispatches and
+        vetoes keys by *action id* — never by hard-coded ``Qt.Key`` literals.
+        Returns False pre-activate / headless (no view).
+        """
+        return self._view.keymap.matches(event.key(), event.modifiers(), action_id) if self._view else False
+
+    @override
+    @traced()
     def displayable_action_ids(self) -> list[str]:
         """Ordered action ids to surface in the ``[?]`` overlay / RMB menu.
 
@@ -3443,6 +3586,8 @@ class _Tool:
         """
         return list(self.key_actions().keys())
 
+    @override
+    @traced()
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
         pass

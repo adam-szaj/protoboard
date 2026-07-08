@@ -11,18 +11,18 @@ from protoboard.services.debug_trace import (
 )
 
 
-@traced("add")
+@traced()
 def _add(a: int, b: int = 1) -> int:
     return a + b
 
 
-@traced("boom")
+@traced()
 def _boom() -> None:
     raise ValueError("nope")
 
 
 class _Obj:
-    @traced("method")
+    @traced()
     def double(self, x: int) -> int:
         return x * 2
 

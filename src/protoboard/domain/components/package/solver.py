@@ -53,7 +53,7 @@ class OffsetRange:
         return self.r_min_mm <= distance_mm <= self.r_max_mm
 
 
-@traced("axial_board_offset_range")
+@traced()
 def axial_board_offset_range(
     *,
     length_mm: float,

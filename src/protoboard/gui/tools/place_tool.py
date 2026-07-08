@@ -21,11 +21,11 @@ Flow for components with bendable_pins (two-phase):
     - Esc → return to ANCHOR phase (discard offsets, resume normal ghost).
     - R / Shift+R → standard rotation ±90° (pin_offsets unchanged).
 """
-
 from __future__ import annotations
 
 import uuid
-from typing import Literal, cast
+from enum import StrEnum
+from typing import cast
 
 import structlog
 from PySide6.QtCore import QPointF, Qt
@@ -48,6 +48,8 @@ from protoboard.gui.renderers.component_renderer import make_ghost_item
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItemGroup, QMainWindow
 
+from protoboard.services.debug_trace import traced
+
 _log = structlog.get_logger(__name__)
 _REACH_PAD_RADIUS = 0.18
 
@@ -63,7 +65,14 @@ _ACT_ROTATE_CW = "place-tool.action.rotate_cw"
 _ACT_ROTATE_CCW = "place-tool.action.rotate_ccw"
 _ACT_FLIP = "place-tool.action.flip"
 _ACT_REDRAG = "place-tool.action.redrag"
+_ACT_CANCEL = "place-tool.action.cancel"
+_ACT_CONFIRM = "place-tool.action.confirm"
 
+
+class PhaseEnum(StrEnum):
+    ANCHOR = "ancor"
+    DRAG_PIN = "drag_pin"
+    FLOATING = "floating"
 
 class PlaceTool(_Tool):
     """Places a component at the snapped cursor position on left-click.
@@ -92,8 +101,8 @@ class PlaceTool(_Tool):
         # Last snapped cursor position in the anchor phase — kept so the
         # ghost stays under the cursor across R / Shift+R rotations.
         self._last_cursor_pos: Point | None = None
-        # Two-phase state
-        self._phase: Literal["anchor", "drag_pin", "floating"] = "anchor"
+
+        self._phase: PhaseEnum = PhaseEnum.ANCHOR
         self._anchor_pos: Point | None = None
         self._pin_offsets: dict[int, Vector] = {}
         self._drag_pin_queue: list[int] = []
@@ -105,13 +114,25 @@ class PlaceTool(_Tool):
         self._pending_placement: object = None
         self._pending_wire_cmds: list[object] = []
 
+    @traced()
+    def _is_phase(self, phase: PhaseEnum) -> bool:
+        return self._phase == phase
+
+    @traced()
+    def _set_phase(self, phase: PhaseEnum) -> PhaseEnum:
+        old_phase = self._phase
+        self._phase = phase
+        return old_phase
+
+    @traced()
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
         self._reset_phase()
         self._rebuild_ghost()
 
+    @traced()
     def deactivate(self) -> None:
-        if self._phase == "floating":
+        if self._is_phase(PhaseEnum.FLOATING):
             self._cancel_floating_place()
         self._clear_reach_overlay()
         self._remove_ghost()
@@ -121,6 +142,7 @@ class PlaceTool(_Tool):
     # Bend-spec resolution
     # ------------------------------------------------------------------
 
+    @traced()
     def _bend_specs(self, defn: ComponentDefinition) -> dict[int, PinBendSpec]:
         """Effective per-pin bend specs for the part being placed.
 
@@ -148,12 +170,13 @@ class PlaceTool(_Tool):
     # Mouse events
     # ------------------------------------------------------------------
 
+    @traced()
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         snapped = self._view.snap(scene_pt)
 
-        if self._phase == "floating":
+        if self._is_phase(PhaseEnum.FLOATING):
             self._commit_floating_place()
             return True
 
@@ -161,7 +184,7 @@ class PlaceTool(_Tool):
         specs = self._bend_specs(defn) if defn else {}
         bendable = sorted(specs.keys())
 
-        if self._phase == "anchor":
+        if self._is_phase(PhaseEnum.ANCHOR):
             if not bendable:
                 self._commit(snapped, pin_offsets={})
             else:
@@ -181,7 +204,7 @@ class PlaceTool(_Tool):
                 self._drag_pin_queue = [p for p in bendable if p != _ANCHOR_PIN]
                 if self._drag_pin_queue:
                     self._current_drag_pin = self._drag_pin_queue.pop(0)
-                    self._phase = "drag_pin"
+                    self._set_phase(PhaseEnum.DRAG_PIN)
                     self._rebuild_ghost_at_anchor()
                     self._update_reach_overlay()
                 else:
@@ -190,7 +213,7 @@ class PlaceTool(_Tool):
                     self._commit(snapped, pin_offsets=dict(self._pin_offsets))
             return True
 
-        if self._phase == "drag_pin":
+        if self._is_phase(PhaseEnum.DRAG_PIN):
             assert self._anchor_pos is not None and self._current_drag_pin is not None
             new_off = self._compute_drag_offset(snapped)
             if new_off is not None:
@@ -207,12 +230,13 @@ class PlaceTool(_Tool):
 
         return False
 
+    @traced()
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         snapped = self._view.snap(scene_pt)
-        if self._phase == "anchor":
+        if self._is_phase(PhaseEnum.ANCHOR):
             self._last_cursor_pos = snapped
             self._move_ghost(snapped.x, snapped.y)
-        elif self._phase == "drag_pin":
+        elif self._is_phase(PhaseEnum.DRAG_PIN):
             assert self._anchor_pos is not None and self._current_drag_pin is not None
             new_off = self._compute_drag_offset(snapped)
             if new_off is not None:
@@ -220,6 +244,7 @@ class PlaceTool(_Tool):
                 self._rebuild_ghost_at_anchor()
             self._update_reach_line(snapped)
 
+    @traced()
     def key_actions(self) -> dict[str, str | None]:
         """Transform keys PlaceTool drives during placement (all inherit global).
 
@@ -235,23 +260,25 @@ class PlaceTool(_Tool):
             _ACT_REDRAG: None,
         }
 
+    @traced()
     def wants_key(self, event: QKeyEvent) -> bool:
         """Claim the transform keys so the (no-op while placing) globals don't
         shadow them.  Decided dynamically through the KeyMap — no key literals."""
-        return (
-            self._key_matches(event, _ACT_ROTATE_CW)
-            or self._key_matches(event, _ACT_ROTATE_CCW)
-            or self._key_matches(event, _ACT_FLIP)
-            or self._key_matches(event, _ACT_REDRAG)
-        )
+        return (self._key_matches(event, _ACT_ROTATE_CW)
+                or self._key_matches(event, _ACT_ROTATE_CCW)
+                or self._key_matches(event, _ACT_FLIP)
+                or self._key_matches(event, _ACT_REDRAG)
+                or self._key_matches(event, _ACT_CONFIRM)
+                or self._key_matches(event, _ACT_CANCEL))
 
+    @traced()
     def on_key(self, event: object) -> None:
         if not isinstance(event, QKeyEvent):
             return
         key = event.key()
 
         # Floating phase: Enter commits, Esc cancels.
-        if self._phase == "floating":
+        if self._is_phase(PhaseEnum.FLOATING):
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_floating_place()
                 event.accept()
@@ -261,7 +288,7 @@ class PlaceTool(_Tool):
                 event.accept()
             return
 
-        if self._key_matches(event, _ACT_FLIP) and self._phase == "drag_pin":
+        if self._key_matches(event, _ACT_FLIP) and self._is_phase(PhaseEnum.DRAG_PIN):
             # Flip pin1/pin2 — anchor moves to old pin2 pad.
             defn = self._session.components.get(self._definition_ref)
             fp = self._resolved_footprint(defn) if defn else None
@@ -288,7 +315,7 @@ class PlaceTool(_Tool):
         ):
             delta = -90 if self._key_matches(event, _ACT_ROTATE_CCW) else 90
             self._rotation = (self._rotation + delta) % 360
-            if self._phase == "drag_pin":
+            if self._is_phase(PhaseEnum.DRAG_PIN):
                 self._rebuild_ghost_at_anchor()
                 self._update_reach_overlay()
             else:
@@ -308,16 +335,16 @@ class PlaceTool(_Tool):
             if not specs:
                 return
             bendable = sorted(specs.keys())
-            if self._phase == "anchor" and self._anchor_pos is None:
+            if self._is_phase(PhaseEnum.ANCHOR) and self._anchor_pos is None:
                 return  # nothng to re-drag yet
-            if self._phase == "anchor":
+            if self._is_phase(PhaseEnum.ANCHOR):
                 # anchor already fixed (e.g. after phase reset), start drag
                 self._pin_offsets = {
                     p: specs[p].default_offset for p in bendable
                 }
                 self._drag_pin_queue = bendable[1:]
                 self._current_drag_pin = bendable[0]
-                self._phase = "drag_pin"
+                self._set_phase(PhaseEnum.DRAG_PIN)
             else:
                 # Reset current drag pin to default
                 assert self._current_drag_pin is not None
@@ -328,12 +355,13 @@ class PlaceTool(_Tool):
             self._update_reach_overlay()
             event.accept()
 
-        elif key == Qt.Key.Key_Escape and self._phase == "drag_pin":
+        elif key == Qt.Key.Key_Escape and self._is_phase(PhaseEnum.DRAG_PIN):
             self._clear_reach_overlay()
             self._reset_phase()
             self._rebuild_ghost()
             event.accept()
 
+    @traced()
     def on_scene_cleared(self) -> None:
         self._ghost = None
         self._reach_items = []
@@ -343,13 +371,14 @@ class PlaceTool(_Tool):
     # Ghost helpers
     # ------------------------------------------------------------------
 
+    @traced()
     def _rebuild_ghost(self) -> None:
         self._remove_ghost()
         defn = self._session.components.get(self._definition_ref)
         if defn is None:
             return
         offsets: dict[int, Vector] = {}
-        if self._phase == "drag_pin":
+        if self._is_phase(PhaseEnum.DRAG_PIN):
             offsets = dict(self._pin_offsets)
         else:
             specs = self._bend_specs(defn)
@@ -376,16 +405,19 @@ class PlaceTool(_Tool):
         self._view.scene().addItem(ghost)
         self._ghost = ghost
 
+    @traced()
     def _rebuild_ghost_at_anchor(self) -> None:
         self._rebuild_ghost()
         if self._anchor_pos is not None and self._ghost is not None:
             self._ghost.setPos(self._anchor_pos.x, self._anchor_pos.y)
 
+    @traced()
     def _remove_ghost(self) -> None:
         if self._ghost is not None:
             self._view.scene().removeItem(self._ghost)
             self._ghost = None
 
+    @traced()
     def _move_ghost(self, x: float, y: float) -> None:
         if self._ghost is not None:
             self._ghost.setPos(x, y)
@@ -397,6 +429,7 @@ class PlaceTool(_Tool):
     # Reach overlay
     # ------------------------------------------------------------------
 
+    @traced()
     def _update_reach_overlay(self) -> None:
         """Draw green dots on the pads the active pin may land on.
 
@@ -433,6 +466,7 @@ class PlaceTool(_Tool):
                     _dot(pt)
             return
 
+    @traced()
     def _update_reach_line(self, cursor: Point) -> None:
         """Update the feedback line from pin baseline to cursor."""
         # Remove old line (last item if it's a line)
@@ -459,6 +493,7 @@ class PlaceTool(_Tool):
         self._view.scene().addItem(line)
         self._reach_items.append(line)
 
+    @traced()
     def _clear_reach_overlay(self) -> None:
         for item in self._reach_items:
             self._view.scene().removeItem(item)
@@ -468,6 +503,7 @@ class PlaceTool(_Tool):
     # Offset computation
     # ------------------------------------------------------------------
 
+    @traced()
     def _resolved_footprint(self, defn: ComponentDefinition) -> "Footprint":
         """The footprint of the *chosen* package variant, not the definition's.
 
@@ -487,6 +523,7 @@ class PlaceTool(_Tool):
                 return PackageFootprint(pkg)
         return defn.default_footprint()
 
+    @traced()
     def _pin_baseline_world(self, pin_number: int) -> Point | None:
         """World position of the pin ignoring any current offset."""
         if self._anchor_pos is None:
@@ -504,6 +541,7 @@ class PlaceTool(_Tool):
         return pin_world_position(self._resolved_footprint(defn), temp,
                                   pin_number)
 
+    @traced()
     def _compute_drag_offset(self, cursor: Point) -> Vector | None:
         """Return the clamped/snapped local offset for the active drag pin."""
         assert self._anchor_pos is not None and self._current_drag_pin is not None
@@ -534,6 +572,7 @@ class PlaceTool(_Tool):
     # Commit
     # ------------------------------------------------------------------
 
+    @traced()
     def _commit(self, position: Point, pin_offsets: dict[int, Vector]) -> None:
         _log.debug("place.attempt", definition=self._definition_ref, pos=(position.x, position.y), rotation=self._rotation)
         defn = self._session.components.get(self._definition_ref)
@@ -603,18 +642,17 @@ class PlaceTool(_Tool):
             self._do_place(inst, placement, wire_cmds)
         else:
             # Enter floating — show component on board, wait for Enter/Esc.
-            self._pending_inst = inst
-            self._pending_placement = placement
-            self._pending_wire_cmds = wire_cmds
+            self._reset_pending(inst, placement, wire_cmds)
             self._session.layout.placements[inst.id] = placement
             self._session.instances[inst.id] = inst
-            self._phase = "floating"
+            self._set_phase(PhaseEnum.FLOATING)
             self._session.layout_changed.emit()
             win = self._view.window() if self._view is not None else None
             sb = cast(QMainWindow, win).statusBar() if win is not None else None
             if sb is not None:
                 sb.showMessage("[Enter] Accept placement  ·  [Esc] Cancel", 0)
 
+    @traced()
     def _do_place(
         self, inst: object, placement: object, wire_cmds: list[object]
     ) -> None:
@@ -634,24 +672,38 @@ class PlaceTool(_Tool):
             self._session.stack.execute(macro, state)
         else:
             self._session.stack.execute(cmd, state)
-        _log.info("place.committed", definition=self._definition_ref,
-                  refdes=inst.refdes, pos=(placement.position.x, placement.position.y))  # type: ignore[union-attr]
+        _log.info("place.committed",
+                  definition=self._definition_ref,
+                  refdes=inst.refdes,
+                  pos=(placement.position.x,
+                       placement.position.y))  # type: ignore[union-attr]
         self._session.layout_changed.emit()
 
+    @traced()
+    def _reset_pending(self,
+                       inst: object = None,
+                       placement: object = None,
+                       wire_cmds: list[object] | None = None):
+        self._pending_inst = inst
+        self._pending_placement = placement
+        self._pending_wire_cmds = wire_cmds or []
+
+    @traced()
     def _commit_floating_place(self) -> None:
         """Commit the pending floating placement."""
         if self._pending_inst is None or self._pending_placement is None:
             return
-        self._do_place(self._pending_inst, self._pending_placement, self._pending_wire_cmds)
-        self._pending_inst = None
-        self._pending_placement = None
-        self._pending_wire_cmds = []
-        self._phase = "anchor"
+
+        self._do_place(self._pending_inst, self._pending_placement,
+                       self._pending_wire_cmds)
+        self._reset_pending()
+        self._set_phase(PhaseEnum.ANCHOR)
         win = self._view.window() if self._view is not None else None
         sb = cast(QMainWindow, win).statusBar() if win is not None else None
         if sb is not None:
             sb.clearMessage()
 
+    @traced()
     def _cancel_floating_place(self) -> None:
         """Remove the pending floating placement from layout without a command."""
         if self._pending_inst is not None:
@@ -659,17 +711,16 @@ class PlaceTool(_Tool):
             self._session.layout.placements.pop(inst_id, None)
             self._session.instances.pop(inst_id, None)
             self._session.layout_changed.emit()
-        self._pending_inst = None
-        self._pending_placement = None
-        self._pending_wire_cmds = []
-        self._phase = "anchor"
+        self._reset_pending()
+        self._set_phase(PhaseEnum.ANCHOR)
         win = self._view.window() if self._view is not None else None
         sb = cast(QMainWindow, win).statusBar() if win is not None else None
         if sb is not None:
             sb.clearMessage()
 
+    @traced()
     def _reset_phase(self) -> None:
-        self._phase = "anchor"
+        self._set_phase(PhaseEnum.ANCHOR)
         self._anchor_pos = None
         self._pin_offsets = {}
         self._drag_pin_queue = []
@@ -677,6 +728,7 @@ class PlaceTool(_Tool):
 
     # ------------------------------------------------------------------
 
+    @traced()
     def _next_refdes(self) -> str:
         defn = self._session.components.get(self._definition_ref)
         prefix = (

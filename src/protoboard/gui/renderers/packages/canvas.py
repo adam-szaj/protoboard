@@ -206,7 +206,7 @@ class BodyCanvas:
 
     # -- shapes ---------------------------------------------------------
 
-    @traced("addRect")
+    @traced()
     def addRect(
         self,
         p1: _XY,
@@ -232,7 +232,7 @@ class BodyCanvas:
         path = rounded_rect_path(rect, (tl * s, tr * s, br * s, bl * s))
         return self._emit(path, fill, border, pen, pen_width, z_offset, z)
 
-    @traced("addCircle")
+    @traced()
     def addCircle(
         self,
         center: _XY,
@@ -249,7 +249,7 @@ class BodyCanvas:
         return self.addEllipse(center, r, r, fill=fill, border=border, pen=pen,
                                pen_width=pen_width, z_offset=z_offset, z=z)
 
-    @traced("addEllipse")
+    @traced()
     def addEllipse(
         self,
         center: _XY,
@@ -270,7 +270,7 @@ class BodyCanvas:
         path.addEllipse(QRectF(cx - rx, cy - ry, 2 * rx, 2 * ry))
         return self._emit(path, fill, border, pen, pen_width, z_offset, z)
 
-    @traced("addArc")
+    @traced()
     def addArc(
         self,
         center: _XY,
@@ -299,7 +299,7 @@ class BodyCanvas:
         item.setBrush(QBrush())  # stroke only
         return item
 
-    @traced("addPath")
+    @traced()
     def addPath(
         self,
         path: QPainterPath,

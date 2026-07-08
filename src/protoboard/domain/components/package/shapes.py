@@ -377,7 +377,7 @@ class Cylinder(Package):
         # Pads sit at the body ends; spacing is at least one body length.
         return self.length_mm + _lead_diameter_mm(self.leads)
 
-    @traced("Cylinder.pin_positions")
+    @traced()
     def pin_positions(
         self,
         *,
@@ -388,7 +388,7 @@ class Cylinder(Package):
         steps = _resolve_board_steps(self.leads, solved_range=solved)
         return cumulative_positions(steps)
 
-    @traced("Cylinder.board_offset_range")
+    @traced()
     def board_offset_range(
         self,
         *,
@@ -505,7 +505,7 @@ class Prism(Package):
         ).height * RASTER_MM
         return ln + _lead_diameter_mm(self.leads)
 
-    @traced("Prism.pin_positions")
+    @traced()
     def pin_positions(
         self,
         *,
@@ -517,7 +517,7 @@ class Prism(Package):
         steps = _resolve_board_steps(self.leads, solved_range=None)
         return cumulative_positions(steps)
 
-    @traced("Prism.board_offset_range")
+    @traced()
     def board_offset_range(
         self,
         *,
@@ -601,7 +601,7 @@ class Disc(Package):
     def pin_count(self) -> int:
         return self.leads.pin_count
 
-    @traced("Disc.pin_positions")
+    @traced()
     def pin_positions(
         self,
         *,
@@ -612,7 +612,7 @@ class Disc(Package):
         steps = _resolve_board_steps(self.leads, solved_range=None)
         return cumulative_positions(steps)
 
-    @traced("Disc.board_offset_range")
+    @traced()
     def board_offset_range(
         self,
         *,

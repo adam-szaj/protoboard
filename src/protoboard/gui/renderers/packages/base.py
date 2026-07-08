@@ -513,7 +513,7 @@ class PackageRenderer(BodyShape):
         )
         return self.render_body(positions)
 
-    @traced("render_body")
+    @traced()
     def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
         """The body silhouette — THE override point for renderer subclasses.
 
@@ -731,7 +731,7 @@ class PackageRenderer(BodyShape):
     # Generic — bbox() rectangle in holes (fallback for every shape)
     # ------------------------------------------------------------------
 
-    @traced("_draw_bbox")
+    @traced()
     def _draw_bbox(self, positions: list[Point]) -> list[QGraphicsItem]:
         box = bbox_or_none(self._pkg)
         if box is None:

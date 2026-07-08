@@ -33,13 +33,13 @@ from __future__ import annotations
 import functools
 import os
 import reprlib
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, Callable, TypeVar
 
 import structlog
 
-_log = structlog.get_logger("protoboard.trace")
+_log = structlog.get_logger("trace")
 
 _ENABLED: bool = os.environ.get("PROTOBOARD_TRACE", "0") == "1"
 
@@ -84,17 +84,16 @@ class _TracedWrapper:
         if not self.active:
             return self.fn(*args, **kwargs)
         _log.debug(
-            "trace.call",
-            fn=self.label,
+            f"trace.call[{self.label}]",
             args=[_abbr(a) for a in args],
             kwargs={k: _abbr(v) for k, v in kwargs.items()},
         )
         try:
             result = self.fn(*args, **kwargs)
         except BaseException as exc:
-            _log.debug("trace.raise", fn=self.label, exc=f"{type(exc).__name__}: {exc}")
+            _log.debug(f"trace.raise[{self.label}]", exc=f"{type(exc).__name__}: {exc}")
             raise
-        _log.debug("trace.return", fn=self.label, result=_abbr(result))
+        _log.debug(f"trace.return[{self.label}]", result=_abbr(result))
         return result
 
     def __get__(self, obj: Any, objtype: Any = None) -> Any:
@@ -103,7 +102,7 @@ class _TracedWrapper:
         return functools.partial(self.__call__, obj)
 
 
-def traced(label: str) -> Callable[[F], F]:
+def traced(label: str | None = None) -> Callable[[F], F]:
     """Parameterised decorator: log args + return value on every call.
 
     Active only while tracing is enabled (env var at import, or
@@ -111,7 +110,8 @@ def traced(label: str) -> Callable[[F], F]:
     """
 
     def decorator(fn: F) -> F:
-        wrapper = _TracedWrapper(fn, label)
+        _label = label if label else fn.__qualname__
+        wrapper = _TracedWrapper(fn, _label)
         _REGISTRY.append(wrapper)
         return wrapper  # type: ignore[return-value]
 
@@ -132,7 +132,7 @@ def set_enabled(enabled: bool) -> None:
 
 
 @contextmanager
-def tracing_enabled() -> Iterator[None]:
+def tracing_enabled() -> Generator[None]:
     """Context manager that enables tracing for its duration."""
     prev = _ENABLED
     set_enabled(True)
