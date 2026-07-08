@@ -84,8 +84,6 @@ class TraceJSONEncoder(JSONEncoder):
         return self.default(o)
 
 # Step: 1
-# create the patch
-from json import JSONEncoder
 def wrapped_default(self, obj):
     return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(obj)
 wrapped_default.default = JSONEncoder().default
@@ -100,7 +98,6 @@ def _json(value: object) -> str:
     try:
         return json.dumps(value, default=TraceJSONEncoder())
     except Exception as e:
-        # _log.warning(f"Can't convert '{value}' to json: {e}")
         return repr(value)
 
 

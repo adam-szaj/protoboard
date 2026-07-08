@@ -91,7 +91,7 @@ src/protoboard/
 │   ├── layout/         # placement.py, wire.py, wire_utils.py, knot.py, cut.py,
 │   │                   # group.py, layout.py, normalize.py, pad_conflict.py,
 │   │                   # drag_classification.py, group_ownership.py, pin_pad_classification.py
-│   ├── connectivity/   # incremental.py (graph.py is a re-export shim)
+│   ├── connectivity/   # incremental.py, wire_net_map.py (graph.py is a re-export shim)
 │   ├── routing_settings.py
 │   └── commands/       # base.py, board_cmds.py, component_cmds.py,
 │                       # drag_cmds.py, group_cmds.py, net_cmds.py
@@ -108,7 +108,8 @@ src/protoboard/
 │   ├── drag_detector.py
 │   └── pad_strategy.py
 ├── gui/
-│   ├── main_window.py, session.py, board_view.py, selection_fsm.py,
+│   ├── main_window.py, session.py, board_view.py, board_view_tool.py
+│   │                   # (AbstractBoardView + BoardViewTool seam), selection_fsm.py,
 │   │                   # drag_set.py, keybindings.py, …
 │   ├── selection/      # SelectTool-as-a-service: selectable.py (protocol+adapters),
 │   │                   # service.py (SelectionService + pick-API), hit_test.py,

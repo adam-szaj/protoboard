@@ -1342,7 +1342,7 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
     """A 16×16 perfboard session with a single net-bound straight wire selected.
 
     wire: (1.5,1.5) → (2.5,1.5) → (3.5,1.5) → (4.5,1.5), bottom side, bound to
-    one net via a 1-pin component at the first pad, so `_build_wire_net_map`
+    one net via a 1-pin component at the first pad, so `build_wire_net_map`
     resolves it.
     """
     import uuid

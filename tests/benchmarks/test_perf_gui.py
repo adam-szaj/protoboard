@@ -61,8 +61,7 @@ def test_bench_set_highlighted_net(
     """Switching highlighted net must be O(N) setOpacity calls, not rebuilds."""
     from collections import Counter
 
-    from protoboard.gui.board_view import _build_wire_net_map
-    wire_net_map = _build_wire_net_map(synthetic_medium_routed_session)
+    wire_net_map = synthetic_medium_routed_session.cached_wire_net_map()
     if not wire_net_map:
         pytest.skip("routed fixture produced no wires")
     busiest_net_id = Counter(wire_net_map.values()).most_common(1)[0][0]

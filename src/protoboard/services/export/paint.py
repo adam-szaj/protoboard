@@ -222,7 +222,8 @@ def _build_graph_and_wire_net_map(
     rebuilds.  Returns ``(None, {})`` if the snapshot has no schematic
     nets — the renderers handle that branch already.
 
-    The algorithm mirrors :func:`protoboard.gui.board_view._build_wire_net_map`
+    The algorithm mirrors
+    :func:`protoboard.domain.connectivity.wire_net_map.build_wire_net_map`
     but operates on the snapshot's frozen state instead of a live
     session.
     """

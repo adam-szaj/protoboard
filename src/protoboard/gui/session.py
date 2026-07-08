@@ -244,7 +244,7 @@ class EditorSession(QObject):
         self._plated_through_pads_cache: set[Point] | None = None
         self._under_component_pads_cache: set[Point] | None = None
         # wire.id → net.id mapping, cached because both BoardView and the
-        # inspector / performance panels call ``_build_wire_net_map`` on
+        # inspector / performance panels call ``build_wire_net_map`` on
         # every selection click.  Invalidated alongside the graph since
         # it derives from ConnectivityGraph.
         self._wire_net_map_cache: dict[uuid.UUID, uuid.UUID] | None = None
@@ -517,8 +517,12 @@ class EditorSession(QObject):
         cache = self._wire_net_map_cache
         if cache is None:
             _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
-            from protoboard.gui.board_view import _build_wire_net_map
-            cache = _build_wire_net_map(self)
+            from protoboard.domain.connectivity.wire_net_map import (
+                build_wire_net_map,
+            )
+            cache = build_wire_net_map(
+                self.schematic, self.layout, self.connectivity_graph()
+            )
             self._wire_net_map_cache = cache
             if _CLICK_PROFILE:
                 _click_log.info(

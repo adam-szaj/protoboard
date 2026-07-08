@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
-    from protoboard.gui.board_view import BoardView
+    from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.gui.drag_set import DragSet
     from protoboard.gui.selection.adapters import WireVertexSelectable
     from protoboard.gui.selection.armed import ArmedSubTool
@@ -247,7 +247,7 @@ class SelectTool(_Tool):
     # -- _Tool lifecycle ----------------------------------------------------
 
     @traced()
-    def activate(self, session: EditorSession, view: BoardView) -> None:
+    def activate(self, session: EditorSession, view: AbstractBoardView) -> None:
         self._session = session
         self._view = view
         # SelectionService / HighlightController are per-session — reuse one
@@ -326,13 +326,11 @@ class SelectTool(_Tool):
                 Point(scene_pt.x(), scene_pt.y()), frozenset()
             ))
         if what == "wire-vertex":
-            from protoboard.gui.board_view import _build_wire_net_map
-
             sel, cycle = self._hit_tester().hit_wire_vertex(
                 scene_pt.x(),
                 scene_pt.y(),
                 start_wire_id=self._wire_edit_active_start_wire(),
-                wire_net_map=_build_wire_net_map(self._session),
+                wire_net_map=self._session.cached_wire_net_map(),
                 cycle=self._wire_edit_cycle,
             )
             self._wire_edit_cycle = cycle
@@ -2604,9 +2602,7 @@ class SelectTool(_Tool):
         )
 
     def _wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
-        from protoboard.gui.board_view import _build_wire_net_map
-
-        return _build_wire_net_map(self._session)
+        return self._session.cached_wire_net_map()
 
     def _refresh_after_wire_op(self) -> None:
         self._refresh_highlight()
@@ -3413,7 +3409,7 @@ class SelectTool(_Tool):
         # Route triggers back through BoardView's synthesised-key dispatch.
         for act, action_id in tool_items.items():
             act.triggered.connect(
-                lambda _checked=False, _a=action_id: view._trigger_tool_action(_a)
+                lambda _checked=False, _a=action_id: view.trigger_tool_action(_a)
             )
 
     def _hint_free_pin_under(self, sel: Selectable | None, scene_pt: QPointF) -> None:

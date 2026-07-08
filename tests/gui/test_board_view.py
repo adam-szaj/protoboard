@@ -262,5 +262,5 @@ class TestShortcutsHelp:
         assert isinstance(tool, PlaceTool)
         before = tool._rotation
         # Triggering the rotate action synthesises its key into on_key.
-        board_view._trigger_tool_action("place-tool.action.rotate_cw")
+        board_view.trigger_tool_action("place-tool.action.rotate_cw")
         assert tool._rotation == (before + 90) % 360

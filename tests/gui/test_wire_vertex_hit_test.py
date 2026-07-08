@@ -31,7 +31,6 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
-from protoboard.gui.board_view import _build_wire_net_map
 from protoboard.gui.selection.hit_test import HitTester, WireEditCycle
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
@@ -63,7 +62,7 @@ def three_wire_knot(
     """Three bare wires of one net meeting at the shared pad (5.5, 5.5).
 
     wireA east, wireB south, wireC west.  A 1-pin component bound to a Net at
-    the shared pad makes ``_build_wire_net_map`` resolve all three to one net.
+    the shared pad makes ``build_wire_net_map`` resolve all three to one net.
     """
     library = load_library([_LIBRARY_DIR])
     sess = EditorSession(board=_perfboard(), library=library)
@@ -96,7 +95,7 @@ def three_wire_knot(
     sess.layout.wires.extend([wire_a, wire_b, wire_c])
     sess.invalidate_graph()
 
-    return sess, [wire_a, wire_b, wire_c], _build_wire_net_map(sess)
+    return sess, [wire_a, wire_b, wire_c], sess.cached_wire_net_map()
 
 
 def _tester(sess: EditorSession) -> HitTester:

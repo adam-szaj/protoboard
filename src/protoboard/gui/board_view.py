@@ -24,7 +24,7 @@ _PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -65,17 +65,20 @@ from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.services.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
+# ``_Tool`` moved to board_view_tool; re-exported here because every tool
+# module still imports it from board_view (repointing them is a later phase).
+from protoboard.gui.board_view_tool import AbstractBoardView, _Tool
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
 _GRID_PX = 60.0  # initial pixels-per-raster-unit
 
 
-class BoardView(QGraphicsView):
-    """Main board canvas. Handles zoom/pan and forwards mouse events to tools."""
+class BoardView(AbstractBoardView):
+    """Main board canvas. Handles zoom/pan and forwards mouse events to tools.
 
-    cursor_moved = Signal(float, float)  # raster x, y of cursor
-    pad_clicked = Signal(float, float)  # snapped raster x, y
-    escape_tool = Signal()  # right-click or Esc — return to Select
+    The ``cursor_moved`` / ``pad_clicked`` / ``escape_tool`` signals are
+    declared on :class:`AbstractBoardView`.
+    """
 
     def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -156,18 +159,24 @@ class BoardView(QGraphicsView):
         self._highlight_profile: object | None = None
         # Subscribe to highlight stack changes.
         session.highlight_stack.changed.connect(self._apply_highlight_opacity)
-        # Subscribe to routing-net changes (RouteTool while-drawing union with stack).
-        # Apply opacity immediately for the live feedback while drawing, AND
-        # schedule a full refresh so the per-pin glow ring is rebuilt — the
-        # ring is drawn inside the component group at render time, so a
-        # mere opacity tweak can't add or remove it.
-        session.routing_net_changed.connect(self._apply_highlight_opacity)
+        # Subscribe to routing-net changes (RouteTool while-drawing union with
+        # stack).  One slot with a matching (net_id) arity: it applies opacity
+        # immediately for the live feedback while drawing, AND schedules a full
+        # refresh so the per-pin glow ring is rebuilt — the ring is drawn inside
+        # the component group at render time, so a mere opacity tweak can't add
+        # or remove it.  (``_apply_highlight_opacity`` itself must not be
+        # connected here: it takes no argument, and its @traced wrapper hides
+        # the arity from Qt, so Qt would pass the net id and blow up the call.)
         session.routing_net_changed.connect(self._on_routing_net_changed)
         # Panel -> board selection: a panel asks the session to select something
         # (component / net / pin); the session re-broadcasts it here and we drive
         # SelectTool.  This is the single subscription point — no panel-awareness
         # leaks into the view; it only ever knows the session it already holds.
-        session.selection_requested.connect(self._on_selection_requested)
+        # The bound slot is parked once: the @traced descriptor mints a fresh
+        # partial per attribute access, and set_session must hand Qt the very
+        # same object again or disconnect() silently misses.
+        self._selection_requested_slot = self._on_selection_requested
+        session.selection_requested.connect(self._selection_requested_slot)
         # Theme — overridden by MainWindow after Preferences apply.
         self._theme_override: Theme | None = None
         self._last_drag_refresh: float = 0.0
@@ -456,14 +465,16 @@ class BoardView(QGraphicsView):
 
     @traced()
     def _on_routing_net_changed(self, _net_id: object) -> None:
-        """Invalidate component/wire group caches so glow rings rebuild.
+        """Apply opacity now + invalidate group caches so glow rings rebuild.
 
-        Group fingerprints intentionally exclude highlight state (it's
+        The opacity pass gives live feedback while drawing.  Group
+        fingerprints intentionally exclude highlight state (it's
         usually applied via opacity-only updates), so a change in
         ``routing_net_id`` would not trigger a rebuild by itself.  Clear
         the caches and ask for a refresh — the next paint pass will
         render the glow rings on pads belonging to the routed net.
         """
+        self._apply_highlight_opacity()
         self._comp_fingerprints.clear()
         self._wire_fingerprints.clear()
         self._schedule_refresh()
@@ -1591,8 +1602,13 @@ class BoardView(QGraphicsView):
             self._active_tool = None
         # Drop the old session's selection-request hook before swapping, so a
         # lingering old session can't drive this view alongside the new one.
+        # Must be the parked slot object from __init__ — a fresh
+        # ``self._on_selection_requested`` access is a different partial and
+        # disconnect() would silently miss.
         try:
-            self._session.selection_requested.disconnect(self._on_selection_requested)
+            self._session.selection_requested.disconnect(
+                self._selection_requested_slot
+            )
         except (TypeError, RuntimeError):
             pass
         self._session = session
@@ -1601,7 +1617,7 @@ class BoardView(QGraphicsView):
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
-        session.selection_requested.connect(self._on_selection_requested)
+        session.selection_requested.connect(self._selection_requested_slot)
         self.refresh()
 
     @traced()
@@ -2226,7 +2242,7 @@ class BoardView(QGraphicsView):
         elif chosen is act_escape:
             self.escape_tool.emit()
         elif chosen in tool_action_items:
-            self._trigger_tool_action(tool_action_items[chosen])
+            self.trigger_tool_action(tool_action_items[chosen])
 
     @traced()
     def _add_tool_action_menu(self, menu: object) -> dict[object, str]:
@@ -2258,7 +2274,7 @@ class BoardView(QGraphicsView):
         return items
 
     @traced()
-    def _trigger_tool_action(self, action_id: str) -> None:
+    def trigger_tool_action(self, action_id: str) -> None:
         """Run *action_id* by synthesising its resolved key into the tool."""
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QKeyEvent
@@ -3360,6 +3376,7 @@ class BoardView(QGraphicsView):
         if not event.isAccepted():
             self.window().keyPressEvent(event)
 
+    @override
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
         if self._active_tool is not None:
             self._active_tool.on_key_release(event)
@@ -3371,226 +3388,7 @@ class BoardView(QGraphicsView):
         super().leaveEvent(event)  # type: ignore[arg-type]
 
 
-def _build_wire_net_map(session: EditorSession) -> dict[uuid.UUID, uuid.UUID]:
-    """Return a mapping wire.id → net.id using ConnectivityGraph.
-
-    Uses the cached graph so strips, bare-wire chains, and plated-through
-    holes are all handled correctly — not just wires whose endpoints happen
-    to land directly on a component pin.
-    """
-
-    if not session.schematic.nets or not session.layout.wires:
-        return {}
-
-    graph = session.connectivity_graph()
-
-    # canonical_key → net.id  (one net per electric set that has named pins)
-    canonical_to_net: dict[object, uuid.UUID] = {}
-    for net in session.schematic.nets.values():
-        for ref in net.pins:
-            ck = graph.node_for_pin(ref)
-            if ck is not None:
-                canonical_to_net[ck] = net.id
-
-    result: dict[uuid.UUID, uuid.UUID] = {}
-    for wire in session.layout.wires:
-        # Insulated wires only make electrical contact at their two endpoints;
-        # bare wires contact every pad they pass through.
-        contact_pts = (
-            ([wire.path[0], wire.path[-1]] if len(wire.path) >= 2 else wire.path)
-            if wire.insulated
-            else wire.path
-        )
-        for pt in contact_pts:
-            ck = graph.node_for_pad(pt, wire.side)
-            if ck is not None:
-                net_id = canonical_to_net.get(ck)
-                if net_id is not None:
-                    result[wire.id] = net_id
-                    break
-    return result
-
-from abc import ABC, abstractmethod
+# build_wire_net_map moved to protoboard.domain.connectivity.wire_net_map;
+# GUI code reaches it through EditorSession.cached_wire_net_map().
 
 
-class BoardViewTool(ABC):
-    """Base class for board-view interaction tools."""
-
-    @abstractmethod
-    def activate(self, session: EditorSession, view: BoardView) -> None: ...
-    @abstractmethod
-    def deactivate(self) -> None: ...
-    @abstractmethod
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool: ...
-    @abstractmethod
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None: ...
-    @abstractmethod
-    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None: ...
-    @abstractmethod
-    def on_key(self, event: QKeyEvent) -> None: ...
-    @abstractmethod
-    def on_key_release(self, event: QKeyEvent) -> None: ...
-    @abstractmethod
-    def wants_key(self, event: QKeyEvent) -> bool: ...
-    @abstractmethod
-    def wants_wheel(self, event: QWheelEvent) -> bool: ...
-    @abstractmethod
-    def on_wheel(self, event: QWheelEvent) -> None: ...
-    @abstractmethod
-    def key_actions(self) -> dict[str, str | None]: ...
-
-
-    @abstractmethod
-    def displayable_action_ids(self) -> list[str]:
-        """Ordered action ids to surface in the ``[?]`` overlay / RMB menu.
-
-        Default: the tool's own declared actions (:meth:`key_actions`).  A tool
-        can override to add the inherited generic globals it also responds to.
-        """
-        # return list(self.key_actions().keys())
-
-    @abstractmethod
-    def on_scene_cleared(self) -> None:
-        """Called after scene.clear() so tool can drop stale item references."""
-        pass
-
-class _Tool(BoardViewTool):
-    def __init__(self) -> None:
-        # Bound on activate(); set to None up-front so that pre-activate code
-        # paths (e.g. MainWindow applies user preferences to a freshly built
-        # SelectTool) can ``if self._session is not None`` without AttributeError.
-        # Type is narrowed to the real EditorSession after activate(); existing
-        # callers all access these only via the event-handler paths that run
-        # *after* activate().
-        self._session: EditorSession = None  # type: ignore[assignment]
-        self._view: BoardView = None  # type: ignore[assignment]
-
-    def __json_repr__(self) -> str:
-        return str(type(self))
-
-    @override
-    @traced()
-    def activate(self, session: EditorSession, view: BoardView) -> None:
-        self._session = session
-        self._view = view
-
-    @override
-    @traced()
-    def deactivate(self) -> None:
-        self._session = None
-        self._view = None
-
-    @traced()
-    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
-        """True when *event* equals *action_id*'s currently-resolved shortcut.
-
-        Resolves through the view's :class:`KeyMap`, so a tool dispatches and
-        vetoes keys by *action id* — never by hard-coded ``Qt.Key`` literals.
-        Returns False pre-activate / headless (no view).
-        """
-        view = self._view
-        if view is None:
-            return False
-        return view.keymap.matches(event.key(), event.modifiers(), action_id)
-
-    def _theme(self) -> Theme:
-        from protoboard.gui.theme import DEFAULT_THEME, Theme
-        t = getattr(self._view, "_theme_override", None)
-        return t if isinstance(t, Theme) else DEFAULT_THEME
-
-    @override
-    @traced()
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
-        """Handle mouse press. Return True if the event was consumed."""
-        return False
-
-    @override
-    @traced()
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        pass
-
-    @override
-    @traced()
-    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        pass
-
-    @override
-    @traced()
-    def on_key(self, event: QKeyEvent) -> None:
-        pass
-
-    @override
-    @traced()
-    def on_key_release(self, event: QKeyEvent) -> None:
-        pass
-
-    @override
-    @traced()
-    def wants_key(self, event: QKeyEvent) -> bool:
-        """True when the tool wants to handle *event* itself this very moment.
-
-        Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
-        application shortcut whose key it needs contextually right now (e.g. a
-        wire-edit fragment claiming ``[W]`` / ``[A]`` / ``Delete`` from the
-        Route / Library / Delete actions).  Vetoing makes Qt deliver the key as
-        an ordinary ``KeyPress`` to ``on_key`` instead of firing the QAction.
-        Default: claim nothing.
-        """
-        return False
-
-    @override
-    @traced()
-    def wants_wheel(self, event: QWheelEvent) -> bool:
-        """True when the tool consumes the wheel *right now* instead of zooming.
-
-        Consulted by :meth:`BoardView.wheelEvent` before its zoom accumulation:
-        an armed float-rotate uses the wheel to step the rotation ±90°, so it
-        claims the wheel while armed and lets it zoom otherwise.  Default: never
-        — every tool/state keeps the wheel zooming unless it opts in here.
-        """
-        return False
-
-    @override
-    @traced()
-    def on_wheel(self, event: QWheelEvent) -> None:
-        """Handle a wheel tick the tool claimed via :meth:`wants_wheel`."""
-        pass
-
-    @override
-    @traced()
-    def key_actions(self) -> dict[str, str | None]:
-        """The keyboard actions this tool declares (namespaced keybindings).
-
-        Maps ``"<category>.action.<name>" -> shortcut | None``: a literal
-        shortcut overrides for this tool, ``None`` inherits the matching generic
-        ``global.action.<name>`` default.  Registered into the view's
-        :class:`~protoboard.gui.keymap.KeyMap` on :meth:`activate`, and consulted
-        (dynamically, by current binding) for the shortcut veto.  Default: none.
-        """
-        return {}
-
-    @traced()
-    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
-        """True when *event* equals *action_id*'s currently-resolved shortcut.
-
-        Resolves through the view's :class:`KeyMap`, so a tool dispatches and
-        vetoes keys by *action id* — never by hard-coded ``Qt.Key`` literals.
-        Returns False pre-activate / headless (no view).
-        """
-        return self._view.keymap.matches(event.key(), event.modifiers(), action_id) if self._view else False
-
-    @override
-    @traced()
-    def displayable_action_ids(self) -> list[str]:
-        """Ordered action ids to surface in the ``[?]`` overlay / RMB menu.
-
-        Default: the tool's own declared actions (:meth:`key_actions`).  A tool
-        can override to add the inherited generic globals it also responds to.
-        """
-        return list(self.key_actions().keys())
-
-    @override
-    @traced()
-    def on_scene_cleared(self) -> None:
-        """Called after scene.clear() so tool can drop stale item references."""
-        pass
