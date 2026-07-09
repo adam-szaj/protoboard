@@ -18,6 +18,7 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.cut_tool import CutTool
 from protoboard.services.library.loader import load_library
+from tests.gui.input_helpers import pointer
 
 _LIBRARY_DIR = Path(__file__).parent.parent.parent / "library"
 _HUG = SizePolicy.HUG
@@ -49,15 +50,7 @@ def _session(rows: int = 3, cols: int = 5) -> EditorSession:
 def _click(view: BoardView, x: float, y: float) -> None:
     tool = view._active_tool
     assert tool is not None
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y), QPointF(x, y),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        ),
-        QPointF(x, y),
-    )
+    tool.on_press(pointer(x, y))
 
 
 def _strip_atoms(board: Board) -> list[StripAtom]:

@@ -12,11 +12,13 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
+from tests.gui.input_helpers import pointer
 
 
 def _place(
@@ -25,15 +27,9 @@ def _place(
     board_view.set_tool(PlaceTool("R"))
     tool = board_view._active_tool
     assert isinstance(tool, PlaceTool)
-    ev = QMouseEvent(
-        QMouseEvent.Type.MouseButtonPress,
-        QPointF(x, y), QPointF(x, y),
-        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-    )
-    tool.on_press(ev, QPointF(x, y))
+    tool.on_press(pointer(x, y))
     while tool._phase == "drag_pin":
-        tool.on_press(ev, QPointF(x, y))
+        tool.on_press(pointer(x, y))
     return list(session.instances.values())[-1]
 
 
@@ -41,38 +37,15 @@ def _press(
     tool: SelectTool, x: float, y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y), QPointF(x, y),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods,
-        ),
-        QPointF(x, y),
-    )
+    tool.on_press(pointer(x, y, mods=mods))
 
 
 def _move(tool: SelectTool, x: float, y: float) -> None:
-    tool.on_move(
-        QMouseEvent(
-            QMouseEvent.Type.MouseMove,
-            QPointF(x, y), QPointF(x, y),
-            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        ),
-        QPointF(x, y),
-    )
+    tool.on_move(pointer(x, y))
 
 
 def _release(tool: SelectTool, x: float, y: float) -> None:
-    tool.on_release(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonRelease,
-            QPointF(x, y), QPointF(x, y),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
-            Qt.KeyboardModifier.NoModifier,
-        ),
-        QPointF(x, y),
-    )
+    tool.on_release(pointer(x, y))
 
 
 def _click(
@@ -325,16 +298,7 @@ class TestRubberBand:
 
     @staticmethod
     def _release_mods(tool, x, y, mods):  # type: ignore[no-untyped-def]
-        from PySide6.QtGui import QMouseEvent
-
-        tool.on_release(
-            QMouseEvent(
-                QMouseEvent.Type.MouseButtonRelease,
-                QPointF(x, y), QPointF(x, y),
-                Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, mods,
-            ),
-            QPointF(x, y),
-        )
+        tool.on_release(pointer(x, y, mods=mods))
 
     def test_band_catches_wires(self, qtbot) -> None:
         """A rubber-band over a wire selects it (regression: band ignored wires)."""
@@ -2063,7 +2027,7 @@ class TestFreePinHint:
             placement=session.layout.placements[inst.id],
             pin_number=1,
         )
-        tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
+        tool._hint_free_pin_under(sel, Point(1.5, 1.5))
         assert msgs == []  # netted pin → silent
 
         # Disconnect the pin → now free → clicking it hints.
@@ -2078,7 +2042,7 @@ class TestFreePinHint:
             ),
             cast(ComponentState, session),
         )
-        tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
+        tool._hint_free_pin_under(sel, Point(1.5, 1.5))
         assert len(msgs) == 1
         assert "no net" in msgs[0]
         assert "Assign to net" in msgs[0]
@@ -2110,7 +2074,7 @@ class TestFreePinHint:
         sel = ComponentSelectable(  # body hit: no pin_number
             component_id=inst.id, placement=session.layout.placements[inst.id]
         )
-        tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
+        tool._hint_free_pin_under(sel, Point(1.5, 1.5))
         assert msgs == []  # body click → no free-pin hint
 
     def test_no_hint_for_wire_or_empty(self, qtbot) -> None:
@@ -2124,7 +2088,7 @@ class TestFreePinHint:
         msgs: list[str] = []
         tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
         wire = next(iter(session.layout.wires))
-        tool._hint_free_pin_under(WireSelectable(wire=wire), QPointF(2.5, 1.5))
+        tool._hint_free_pin_under(WireSelectable(wire=wire), Point(2.5, 1.5))
         assert msgs == []  # wire hit → never a free-pin hint
 
 
@@ -2229,7 +2193,7 @@ class TestContextMenu:
     def _menu_datas(tool, x: float, y: float):  # type: ignore[no-untyped-def]
         from PySide6.QtCore import QPointF
 
-        built = tool._build_context_menu(QPointF(x, y))
+        built = tool._build_context_menu(Point(x, y))
         assert built is not None, "expected a menu over an item"
         _menu, items = built
         return list(items.values())
@@ -2240,7 +2204,7 @@ class TestContextMenu:
         _session, view = _wire_session(qtbot)
         tool = _v2(view)
         # Far from any wire/component → no item menu (BoardView falls back).
-        assert tool._build_context_menu(QPointF(15.0, 15.0)) is None
+        assert tool._build_context_menu(Point(15.0, 15.0)) is None
 
     def test_wire_section_present_over_wire(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -2267,7 +2231,7 @@ class TestContextMenu:
         data = next(
             d for d in self._menu_datas(tool, 2.5, 1.5) if d[0] == "wire_side"
         )
-        tool._menu_dispatch(data, QPointF(2.5, 1.5))
+        tool._menu_dispatch(data, Point(2.5, 1.5))
 
         assert _depth(session) == depth + 1  # a command ran
         wire_after = next(iter(session.layout.wires))
@@ -2287,7 +2251,7 @@ class TestContextMenu:
         datas = self._menu_datas(tool, 0.5, 0.5)
         assert any(d[0] == "component_side" for d in datas)
         data = next(d for d in datas if d[0] == "component_side")
-        tool._menu_dispatch(data, QPointF(0.5, 0.5))
+        tool._menu_dispatch(data, Point(0.5, 0.5))
 
         assert _depth(session) == depth + 1  # a command ran
         assert session.layout.placements[inst.id].side != side_before
@@ -2300,7 +2264,7 @@ class TestContextMenu:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        built = tool._build_context_menu(QPointF(2.5, 1.5))
+        built = tool._build_context_menu(Point(2.5, 1.5))
         assert built is not None
         menu, items = built
         assert isinstance(menu, QMenu)
@@ -2336,7 +2300,7 @@ class TestContextMenu:
         data = next(
             d for d in self._menu_datas(tool, 1.5, 1.5) if d[0] == "lock"
         )
-        tool._menu_dispatch(data, QPointF(1.5, 1.5))
+        tool._menu_dispatch(data, Point(1.5, 1.5))
 
         assert _depth(session) == depth + 1
         assert session.layout.placements[inst.id].locked
@@ -2357,7 +2321,7 @@ class TestContextMenu:
         data = next(
             d for d in self._menu_datas(tool, 1.5, 1.5) if d[0] == "disconnect_pin"
         )
-        tool._menu_dispatch(data, QPointF(1.5, 1.5))
+        tool._menu_dispatch(data, Point(1.5, 1.5))
         assert session.schematic.net_for_pin(ref) is None  # now disconnected
 
     def test_select_section_present_over_wire(self, qtbot) -> None:
@@ -2385,7 +2349,7 @@ class TestContextMenu:
             d for d in self._menu_datas(tool, 1.5, 1.5)
             if d[0] == "select_net_wires"
         )
-        tool._menu_dispatch(data, QPointF(1.5, 1.5))
+        tool._menu_dispatch(data, Point(1.5, 1.5))
         assert wire.id in tool._selected_wire_ids
 
     def test_highlight_section_and_push(self, qtbot) -> None:
@@ -2403,11 +2367,11 @@ class TestContextMenu:
             d for d in self._menu_datas(tool, 2.5, 1.5)
             if d[0] == "highlight_selection"
         )
-        tool._menu_dispatch(data, QPointF(2.5, 1.5))
+        tool._menu_dispatch(data, Point(2.5, 1.5))
         assert session.highlight_stack.has_persistent()  # selection spotlit
 
         # Clear removes it.
-        tool._menu_dispatch(("clear_highlight",), QPointF(2.5, 1.5))
+        tool._menu_dispatch(("clear_highlight",), Point(2.5, 1.5))
         assert not session.highlight_stack.has_persistent()
 
 

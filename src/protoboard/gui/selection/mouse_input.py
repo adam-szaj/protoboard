@@ -33,50 +33,16 @@ interaction with ``Point`` / ``Mods`` / ``Intent`` and no ``QApplication``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+# The value types moved to the seam's Qt-free port vocabulary (qt-ports §2.2);
+# re-exported here so controller code keeps its historical import path.
+from protoboard.gui.ports.inputs import Intent, Mods
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
 
 __all__ = ["Intent", "Mods", "MouseInputController"]
-
-
-@dataclass(frozen=True, slots=True)
-class Mods:
-    """Keyboard modifiers active during a pointer event (Qt-free snapshot).
-
-    The tool extracts these from the ``QMouseEvent`` once and passes this value
-    object; controllers interpret them themselves (the meaning is
-    controller-specific, so the tool never decodes them into intents).
-    """
-
-    ctrl: bool = False
-    shift: bool = False
-    alt: bool = False
-
-    @property
-    def none(self) -> bool:
-        """True when no modifier is held (a plain click / move)."""
-        return not (self.ctrl or self.shift or self.alt)
-
-
-class Intent(Enum):
-    """A semantic interaction intent the tool delivers via :meth:`on_event`.
-
-    Translated from a key press by the tool's keybinding layer, so controllers
-    stay independent of the user's actual key mapping.  Kept to the small set an
-    in-flight interaction needs to be *driven* — selection/navigation actions
-    stay in the tool, not here.
-    """
-
-    CONFIRM = "confirm"
-    """Finalize the interaction (e.g. Enter ends a pick / commits a floating drag)."""
-    CANCEL = "cancel"
-    """Abort the interaction (e.g. Esc)."""
-    UNDO = "undo"
-    """Revise — drop the last collected step (e.g. Backspace during a pick)."""
 
 
 @runtime_checkable

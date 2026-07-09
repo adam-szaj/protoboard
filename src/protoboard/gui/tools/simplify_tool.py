@@ -21,14 +21,15 @@ from __future__ import annotations
 
 import uuid
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QKeyEvent, QPen
 from PySide6.QtWidgets import QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
+from protoboard.gui.ports import LEFT_BUTTON, PointerInput
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
@@ -137,14 +138,11 @@ class SimplifyTool(SelectTool):
     # Input handling
     # ------------------------------------------------------------------
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
+    def on_press(self, inp: PointerInput) -> bool:
         # Shift+LPM on a wire → draft or apply (depending on whether the
         # draft already exists for this wire).
-        if (
-            event.button() == Qt.MouseButton.LeftButton
-            and bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        ):
-            wire_id = self._hit_test_wire(scene_pt)
+        if inp.button == LEFT_BUTTON and inp.mods.shift:
+            wire_id = self._hit_test_wire(inp.scene_pos)
             if wire_id is not None:
                 if self._draft_wire_id == wire_id and self._draft_path is not None:
                     return self._apply_simplify(wire_id)
@@ -152,7 +150,7 @@ class SimplifyTool(SelectTool):
         # Any non-(Shift+LPM-on-wire) interaction discards the draft and
         # falls through to the parent SelectTool.
         self._clear_draft()
-        return super().on_press(event, scene_pt)
+        return super().on_press(inp)
 
     def on_key(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:

@@ -18,6 +18,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.qt_geometry import from_qpointf
+from protoboard.gui.qt_inputs import pointer_input
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
     VIEW_CANVAS_MENU,
@@ -346,7 +347,9 @@ class ToolHost:
                 # Ctrl+LMB keeps the tool's first refusal (component drag);
                 # a consuming tool suppresses the pan.
                 tool = self._active_tool
-                if tool is not None and tool.on_press(event, scene_pt):
+                if tool is not None and tool.on_press(
+                    pointer_input(event, from_qpointf(scene_pt))
+                ):
                     return True
             self._ctrl_panning = ctrl_variant
             self._panning = True
@@ -373,7 +376,9 @@ class ToolHost:
             return True
         # Not a bound gesture — the press belongs to the tool's input stream.
         if self._active_tool is not None:
-            self._active_tool.on_press(event, scene_pt)
+            self._active_tool.on_press(
+                pointer_input(event, from_qpointf(scene_pt))
+            )
             return True
         return False  # fall through to QGraphicsView
 
@@ -403,10 +408,10 @@ class ToolHost:
             view.verticalScrollBar().setValue(
                 int(view.verticalScrollBar().value() - delta.y())
             )
-        scene_pt = view.mapToScene(event.pos())
-        view.notify_cursor_moved(from_qpointf(scene_pt))
+        scene_pos = from_qpointf(view.mapToScene(event.pos()))
+        view.notify_cursor_moved(scene_pos)
         if not self._panning and self._active_tool is not None:
-            self._active_tool.on_move(event, scene_pt)
+            self._active_tool.on_move(pointer_input(event, scene_pos))
         elif not self._panning:
             return False  # fall through to QGraphicsView
         return True
@@ -421,8 +426,8 @@ class ToolHost:
             self._ctrl_panning = False
             view.setCursor(Qt.CursorShape.ArrowCursor)
         elif self._active_tool is not None:
-            scene_pt = view.mapToScene(event.pos())
-            self._active_tool.on_release(event, scene_pt)
+            scene_pos = from_qpointf(view.mapToScene(event.pos()))
+            self._active_tool.on_release(pointer_input(event, scene_pos))
         else:
             return False  # fall through to QGraphicsView
         return True
@@ -431,10 +436,10 @@ class ToolHost:
         view = self._view
         left = Qt.MouseButton.LeftButton
         if event.button() == left and self._active_tool is not None:
-            scene_pt = view.mapToScene(event.pos())
+            scene_pos = from_qpointf(view.mapToScene(event.pos()))
             handler = getattr(self._active_tool, "on_double_press", None)
             if handler is not None:
-                handler(scene_pt)
+                handler(scene_pos)
 
     def wants_shortcut_override(self, event: QEvent) -> bool:
         """Give the active tool first refusal on a global shortcut's key.

@@ -26,11 +26,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from enum import StrEnum
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import structlog
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
+from PySide6.QtGui import QColor, QKeyEvent
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
@@ -49,9 +49,11 @@ from protoboard.gui.renderers.component_renderer import make_ghost_item
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItemGroup
 
-from protoboard.gui.ports import StatusEvent
-from protoboard.gui.qt_geometry import from_qpointf
+from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
+
+if TYPE_CHECKING:
+    from protoboard.gui.ports import PointerInput
 
 _log = structlog.get_logger(__name__)
 _REACH_PAD_RADIUS = 0.18
@@ -174,10 +176,10 @@ class PlaceTool(_Tool):
     # ------------------------------------------------------------------
 
     @traced()
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
-        if event.button() != Qt.MouseButton.LeftButton:
+    def on_press(self, inp: PointerInput) -> bool:
+        if inp.button != LEFT_BUTTON:
             return False
-        snapped = self._view.snap(from_qpointf(scene_pt))
+        snapped = self._view.snap(inp.scene_pos)
 
         if self._is_phase(PhaseEnum.FLOATING):
             self._commit_floating_place()
@@ -234,8 +236,8 @@ class PlaceTool(_Tool):
         return False
 
     @traced()
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        snapped = self._view.snap(from_qpointf(scene_pt))
+    def on_move(self, inp: PointerInput) -> None:
+        snapped = self._view.snap(inp.scene_pos)
         if self._is_phase(PhaseEnum.ANCHOR):
             self._last_cursor_pos = snapped
             self._move_ghost(snapped.x, snapped.y)

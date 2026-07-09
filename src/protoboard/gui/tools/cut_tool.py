@@ -5,15 +5,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QMouseEvent
-
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.commands.board_cmds import SplitStripCommand
+from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.ports import LEFT_BUTTON
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
+    from protoboard.gui.ports import PointerInput
 
 # Maximum scene-unit distance to accept a click as targeting a strip.
 _MAX_DIST = 0.65
@@ -26,11 +26,11 @@ class CutTool(_Tool):
     - Click between two pads → cut BETWEEN them (two clean segments).
     """
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
-        if event.button() != Qt.MouseButton.LeftButton:
+    def on_press(self, inp: PointerInput) -> bool:
+        if inp.button != LEFT_BUTTON:
             return False
 
-        result = _find_cut_target(self._session.board, scene_pt)
+        result = _find_cut_target(self._session.board, inp.scene_pos)
         if result is None:
             return False
 
@@ -57,7 +57,7 @@ class CutTool(_Tool):
 
 
 def _find_cut_target(
-    board: object, scene_pt: QPointF
+    board: object, scene_pt: Point
 ) -> tuple[StripAtom, int, bool] | None:
     """Return (atom, index, cut_between) for the closest strip target.
 
@@ -85,20 +85,20 @@ def _find_cut_target(
 
         if atom.orientation == "horizontal":
             half = n / 2.0
-            dy = abs(scene_pt.y() - pos.y)
+            dy = abs(scene_pt.y - pos.y)
             if dy > _MAX_DIST:
                 continue
-            dx_from_start = scene_pt.x() - (pos.x - half + 0.5)
+            dx_from_start = scene_pt.x - (pos.x - half + 0.5)
             # Pad positions relative to strip start: 0.0, 1.0, 2.0, …, n-1
             # Gap positions: 0.5, 1.5, …, n-1.5
             pad_idx, is_on_pad, dist = _nearest_feature(dx_from_start, n)
             d = dist + dy
         else:
             half = n / 2.0
-            dx = abs(scene_pt.x() - pos.x)
+            dx = abs(scene_pt.x - pos.x)
             if dx > _MAX_DIST:
                 continue
-            dy_from_start = scene_pt.y() - (pos.y - half + 0.5)
+            dy_from_start = scene_pt.y - (pos.y - half + 0.5)
             pad_idx, is_on_pad, dist = _nearest_feature(dy_from_start, n)
             d = dist + dx
 

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from protoboard.geometry import Point
-    from protoboard.gui.ports import StatusEvent
+    from protoboard.gui.ports import PointerInput, StatusEvent
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
     from protoboard.gui.layer_state import LayerState
@@ -258,14 +258,14 @@ class BoardViewTool(ABC):
         """Drop session/view bindings; called when another tool takes over."""
 
     @abstractmethod
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
+    def on_press(self, inp: PointerInput) -> bool:
         """Handle mouse press. Return True if the event was consumed."""
 
     @abstractmethod
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None: ...
+    def on_move(self, inp: PointerInput) -> None: ...
 
     @abstractmethod
-    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None: ...
+    def on_release(self, inp: PointerInput) -> None: ...
 
     @abstractmethod
     def on_key(self, event: QKeyEvent) -> None: ...
@@ -388,18 +388,18 @@ class _Tool(BoardViewTool):
 
     @override
     @traced()
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
+    def on_press(self, inp: PointerInput) -> bool:
         """Handle mouse press. Return True if the event was consumed."""
         return False
 
     @override
     @traced()
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_move(self, inp: PointerInput) -> None:
         pass
 
     @override
     @traced()
-    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_release(self, inp: PointerInput) -> None:
         pass
 
     @override

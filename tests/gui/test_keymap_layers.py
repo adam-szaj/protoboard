@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _Tool
+from tests.gui.input_helpers import pointer
 
 
 class _ToolA(_Tool):
@@ -124,7 +125,7 @@ class TestMouseChordRouting:
         from PySide6.QtCore import Qt
 
         class _Grabby(_ToolA):
-            def on_press(self, event, scene_pt) -> bool:
+            def on_press(self, inp) -> bool:
                 return True  # consumes (component drag)
 
         board_view.set_tool(_Grabby())
@@ -139,7 +140,7 @@ class TestMouseChordRouting:
         pressed: list[bool] = []
 
         class _Probe(_ToolA):
-            def on_press(self, event, scene_pt) -> bool:
+            def on_press(self, inp) -> bool:
                 pressed.append(True)
                 return True
 

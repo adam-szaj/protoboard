@@ -37,8 +37,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.ports import StatusEvent
-from protoboard.gui.qt_geometry import from_qpointf
+from protoboard.gui.ports import LEFT_BUTTON, PointerInput, StatusEvent
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
@@ -179,7 +178,7 @@ class SelectTool(_Tool):
         # All pointer + intent events route here uniformly; the controller owns
         # its own start threshold and outcome.
         self._mouse: MouseInputController | None = None
-        self._press_pt: QPointF | None = None
+        self._press_pt: Point | None = None
         self._band_item: QGraphicsRectItem | None = None
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
@@ -316,7 +315,7 @@ class SelectTool(_Tool):
 
     @traced()
     def _pick_at(
-        self, what: object, scene_pt: QPointF
+        self, what: object, scene_pt: Point
     ) -> Selectable | None:
         """Resolve a click into the Selectable the active pick wants.
 
@@ -329,20 +328,18 @@ class SelectTool(_Tool):
         if what in ("pad", "point"):
             from protoboard.gui.selection.adapters import PointSelectable
 
-            return PointSelectable(point=self._snap(
-                Point(scene_pt.x(), scene_pt.y()), frozenset()
-            ))
+            return PointSelectable(point=self._snap(scene_pt, frozenset()))
         if what == "wire-vertex":
             sel, cycle = self._hit_tester().hit_wire_vertex(
-                scene_pt.x(),
-                scene_pt.y(),
+                scene_pt.x,
+                scene_pt.y,
                 start_wire_id=self._wire_edit_active_start_wire(),
                 wire_net_map=self._session.cached_wire_net_map(),
                 cycle=self._wire_edit_cycle,
             )
             self._wire_edit_cycle = cycle
             return sel
-        return self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
+        return self._hit_tester().hit(scene_pt.x, scene_pt.y, self._filters())
 
     def _wire_edit_active_start_wire(self) -> uuid.UUID | None:
         """The wire the wire-vertex pick is anchored on for tie-breaking.
@@ -369,29 +366,26 @@ class SelectTool(_Tool):
         )
 
     @staticmethod
-    def _decode_modifiers(event: QMouseEvent) -> tuple[BasisScope, SetOp]:
-        mods = event.modifiers()
-        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-        alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+    def _decode_modifiers(mods: Mods) -> tuple[BasisScope, SetOp]:
         op = (
-            SetOp.REMOVE if (ctrl and shift)
-            else SetOp.ADD if ctrl
+            SetOp.REMOVE if (mods.ctrl and mods.shift)
+            else SetOp.ADD if mods.ctrl
             else SetOp.SET
         )
-        basis = BasisScope.RELATION if alt else BasisScope.SINGLE
+        basis = BasisScope.RELATION if mods.alt else BasisScope.SINGLE
         return basis, op
 
     # -- press --------------------------------------------------------------
 
     @traced()
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
-        if event.button() != Qt.MouseButton.LeftButton:
+    def on_press(self, inp: PointerInput) -> bool:
+        if inp.button != LEFT_BUTTON:
             return False
+        scene_pt = inp.scene_pos
 
         # 1. Pivot-capture mode (rotate-around-point) wins everything.
         if self._pivot_capture_pending:
-            self._rotate_pivot = self._view.snap(from_qpointf(scene_pt))
+            self._rotate_pivot = self._view.snap(scene_pt)
             self._pivot_capture_pending = False
             self._status(
                 "Pivot set — Rotate CW/CCW to rotate around it  ·  [Esc] Clear", 0
@@ -400,9 +394,7 @@ class SelectTool(_Tool):
 
         # 1b. An armed sub-tool may claim the click (e.g. float-rotate sets its
         #     shared pad pivot) — it does not change the selection while armed.
-        if self._armed is not None and self._armed.on_click(
-            Point(scene_pt.x(), scene_pt.y())
-        ):
+        if self._armed is not None and self._armed.on_click(scene_pt):
             return True
 
         # 2. An active mouse interaction (drag / band / pick) owns the press.
@@ -411,7 +403,7 @@ class SelectTool(_Tool):
         #    drag/band armed their own press at construction.
         if self._mouse is not None and not self._mouse.finished:
             self._press_pt = scene_pt
-            self._mouse.on_press(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
+            self._mouse.on_press(scene_pt, inp.mods)
             return True
 
         # 2b. A fragment is selected but no pick is live (between picking the
@@ -421,8 +413,8 @@ class SelectTool(_Tool):
             self._wire_edit_clear()
 
         # 3. Normal selection. Resolve the hit.
-        basis, op = self._decode_modifiers(event)
-        sel = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
+        basis, op = self._decode_modifiers(inp.mods)
+        sel = self._hit_tester().hit(scene_pt.x, scene_pt.y, self._filters())
 
         # Net context (drives the bright pad highlight) comes from the click
         # itself: a pin-pad click → that pin's net, a wire click → the wire's
@@ -1007,31 +999,22 @@ class SelectTool(_Tool):
 
     # -- mouse-interaction routing -----------------------------------------
 
-    @staticmethod
-    def _mods(event: QMouseEvent) -> Mods:
-        mods = event.modifiers()
-        return Mods(
-            ctrl=bool(mods & Qt.KeyboardModifier.ControlModifier),
-            shift=bool(mods & Qt.KeyboardModifier.ShiftModifier),
-            alt=bool(mods & Qt.KeyboardModifier.AltModifier),
-        )
-
     @traced()
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_move(self, inp: PointerInput) -> None:
         if self._mouse is not None:
-            self._mouse.on_move(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
+            self._mouse.on_move(inp.scene_pos, inp.mods)
 
     @traced()
-    def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_release(self, inp: PointerInput) -> None:
         mouse = self._mouse
         if mouse is None:
             return
-        pt = Point(scene_pt.x(), scene_pt.y())
-        mods = self._mods(event)
+        pt = inp.scene_pos
+        mods = inp.mods
         # Synthesise a click (press + release with no intervening drag) — the
         # higher-level event click-driven controllers (picks) act on.  Below the
         # threshold the release IS the click; otherwise it's a real release.
-        if self._is_click(scene_pt):
+        if self._is_click(pt):
             mouse.on_click(pt, mods)
         else:
             mouse.on_release(pt, mods)
@@ -1116,7 +1099,7 @@ class SelectTool(_Tool):
             self._status(f"Moved — {n} wire(s) dropped/edited  ·  Ctrl+Z undoes", 4000)
 
     @traced()
-    def on_double_press(self, scene_pt: QPointF) -> None:
+    def on_double_press(self, scene_pt: Point) -> None:
         """Board double-click → enter the group under the cursor, else forward.
 
         (BoardView calls this hook for ``MouseButtonDblClick``.)  Double-clicking
@@ -1126,15 +1109,13 @@ class SelectTool(_Tool):
         double-click first.
         """
         if self._mouse is not None and not self._mouse.finished:
-            self._mouse.on_double_click(
-                Point(scene_pt.x(), scene_pt.y()), Mods()
-            )
+            self._mouse.on_double_click(scene_pt, Mods())
             return
         gid = self._group_under(scene_pt)
         if gid is not None:
             self.enter_group(gid)
 
-    def _group_under(self, scene_pt: QPointF) -> uuid.UUID | None:
+    def _group_under(self, scene_pt: Point) -> uuid.UUID | None:
         """The non-active group whose member-bbox the point falls in, or None.
 
         Skips the active group (already inside it) and root.  Used by
@@ -1143,7 +1124,7 @@ class SelectTool(_Tool):
         """
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
-        px, py = scene_pt.x(), scene_pt.y()
+        px, py = scene_pt.x, scene_pt.y
         active = self._current_group_id
         tree = self._session.group_tree()
         best: uuid.UUID | None = None
@@ -1170,20 +1151,20 @@ class SelectTool(_Tool):
                     best, best_area = gid, area
         return best
 
-    def _is_click(self, scene_pt: QPointF) -> bool:
+    def _is_click(self, scene_pt: Point) -> bool:
         """True when the release is within the click threshold of the press."""
         start = self._press_pt
         if start is None:
             return False
-        dx = scene_pt.x() - start.x()
-        dy = scene_pt.y() - start.y()
+        dx = scene_pt.x - start.x
+        dy = scene_pt.y - start.y
         return dx * dx + dy * dy < _CLICK_THRESHOLD * _CLICK_THRESHOLD
 
     # -- arming gestures ----------------------------------------------------
 
     @traced()
-    def _arm_band(self, scene_pt: QPointF) -> RubberBandController:
-        press = Point(scene_pt.x(), scene_pt.y())
+    def _arm_band(self, scene_pt: Point) -> RubberBandController:
+        press = scene_pt
         return RubberBandController(
             press_pt=press,
             comp_ids=list(self._session.layout.placements),
@@ -1277,7 +1258,7 @@ class SelectTool(_Tool):
 
     @traced()
     def _arm_drag(
-        self, sel: Selectable, scene_pt: QPointF
+        self, sel: Selectable, scene_pt: Point
     ) -> DragController | None:
         """Build a drag for the current selection grabbed at *sel*.
 
@@ -1297,7 +1278,7 @@ class SelectTool(_Tool):
         if pl is None:
             return None
         anchor_pos = pl.position
-        press = Point(scene_pt.x(), scene_pt.y())
+        press = scene_pt
         # Grab offset: where the cursor sits relative to the anchor, so the
         # anchor snaps under the cursor's grab point (legacy anchor-snap).
         grab = (anchor_pos.x - press.x, anchor_pos.y - press.y)
@@ -1890,7 +1871,7 @@ class SelectTool(_Tool):
                 self._draw_redrag_overlay(cid)
                 self._status("Click a pad for the lead  ·  [Esc] Cancel", 0)
                 return None
-        return self._pick_at("pad", QPointF(pt.x, pt.y))
+        return self._pick_at("pad", pt)
 
     def _movable_pins(self, comp_id: uuid.UUID) -> set[int]:
         """The pins of *comp_id* whose lead can bend (free reach), package-aware.
@@ -2011,7 +1992,7 @@ class SelectTool(_Tool):
         def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
             if custom_resolve is not None:
                 return custom_resolve(pt, _mods)
-            return self._pick_at(kind, QPointF(pt.x, pt.y))
+            return self._pick_at(kind, pt)
 
         self._mouse = PointPickController(
             session,
@@ -2935,7 +2916,7 @@ class SelectTool(_Tool):
         if not isinstance(event, _QMouseEvent) or scene_pt is None:
             return False
         # False on empty canvas → falls through to the generic canvas menu.
-        return self.on_right_press(scene_pt)
+        return self.on_right_press(Point(scene_pt.x(), scene_pt.y()))
 
     def wants_wheel(self, event: QWheelEvent) -> bool:
         """Claim the wheel only when the armed sub-tool consumes it (rotate)."""
@@ -3345,9 +3326,9 @@ class SelectTool(_Tool):
 
     # -- wire-side ops / wire-pin eligibility / wire hit-test ---------------
 
-    def _hit_test_wire(self, scene_pt: QPointF) -> uuid.UUID | None:
+    def _hit_test_wire(self, scene_pt: Point) -> uuid.UUID | None:
         """Nearest wire id within ``WIRE_HIT_DIST`` (SimplifyTool's hook)."""
-        return self._hit_tester()._hit_wire(scene_pt.x(), scene_pt.y())
+        return self._hit_tester()._hit_wire(scene_pt.x, scene_pt.y)
 
     # -- right-click context menu ------------------------------------------
     #
@@ -3361,7 +3342,7 @@ class SelectTool(_Tool):
     # The tool-action + view section is added here too, so the contextual menu
     # *augments* the generic one rather than replacing it.
 
-    def on_right_press(self, scene_pt: QPointF) -> bool:
+    def on_right_press(self, scene_pt: Point) -> bool:
         """Show the unified context menu for the item under the cursor.
 
         Returns True when a menu was shown (item present), False on empty canvas
@@ -3384,7 +3365,7 @@ class SelectTool(_Tool):
         return True
 
     def _build_context_menu(
-        self, scene_pt: QPointF
+        self, scene_pt: Point
     ) -> tuple[object, dict[object, tuple[object, ...]]] | None:
         """Build the unified menu + its {QAction: data} map, or None on empty
         canvas.  Split from :meth:`on_right_press` so tests can inspect the
@@ -3405,18 +3386,18 @@ class SelectTool(_Tool):
         self._menu_add_wire_section(menu, items, wire_id)
         return menu, items
 
-    def _menu_comp_at(self, scene_pt: QPointF) -> uuid.UUID | None:
+    def _menu_comp_at(self, scene_pt: Point) -> uuid.UUID | None:
         """Component under the cursor (selected one wins, else hit-test)."""
         sel_comp = self._selected_id
         if sel_comp is not None:
             return sel_comp
-        hit = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
+        hit = self._hit_tester().hit(scene_pt.x, scene_pt.y, self._filters())
         if hit is not None and hit.to_hit().kind == "component":
             cid = hit.to_hit().id
             return cid if isinstance(cid, uuid.UUID) else None
         return None
 
-    def _menu_wire_at(self, scene_pt: QPointF) -> uuid.UUID | None:
+    def _menu_wire_at(self, scene_pt: Point) -> uuid.UUID | None:
         """Wire under the cursor (selected primary wins, else hit-test)."""
         sel_wires = self._selected_wire_ids
         if sel_wires:
@@ -3427,13 +3408,13 @@ class SelectTool(_Tool):
         self,
         menu: object,
         items: dict[object, tuple[object, ...]],
-        scene_pt: QPointF,
+        scene_pt: Point,
     ) -> None:
         from PySide6.QtWidgets import QMenu
 
         assert isinstance(menu, QMenu)
         act_center = menu.addAction("Center view here")
-        items[act_center] = ("view_center", from_qpointf(scene_pt))
+        items[act_center] = ("view_center", scene_pt)
         act_escape = menu.addAction("Cancel tool (Esc)")
         items[act_escape] = ("view_escape",)
         menu.addSeparator()
@@ -3455,7 +3436,7 @@ class SelectTool(_Tool):
                 lambda _checked=False, _a=action_id: view.trigger_tool_action(_a)
             )
 
-    def _hint_free_pin_under(self, sel: Selectable | None, scene_pt: QPointF) -> None:
+    def _hint_free_pin_under(self, sel: Selectable | None, scene_pt: Point) -> None:
         """Feedback when the press lands on a *free* (netless) pin-pad.
 
         A free pin carries no net context, so it gets neither selection-net
@@ -3493,7 +3474,7 @@ class SelectTool(_Tool):
             setter(free_pos)
 
     def _menu_clicked_pin(
-        self, scene_pt: QPointF, comp_id: uuid.UUID
+        self, scene_pt: Point, comp_id: uuid.UUID
     ) -> int | None:
         """Pin number of *comp_id* nearest the click (within a pad pitch), else
         None.  Lets the menu offer pin-aware entries (assign/disconnect) for the
@@ -3501,8 +3482,8 @@ class SelectTool(_Tool):
         best: int | None = None
         best_d = 0.6 * 0.6  # half-pitch², generous (the menu is forgiving)
         for pin_num, pos in self._session.iter_pin_positions(comp_id):
-            dx = pos.x - scene_pt.x()
-            dy = pos.y - scene_pt.y()
+            dx = pos.x - scene_pt.x
+            dy = pos.y - scene_pt.y
             d = dx * dx + dy * dy
             if d <= best_d:
                 best_d = d
@@ -3514,7 +3495,7 @@ class SelectTool(_Tool):
         menu: object,
         items: dict[object, tuple[object, ...]],
         comp_id: uuid.UUID | None,
-        scene_pt: QPointF,
+        scene_pt: Point,
     ) -> None:
         """Component entries — clicked-pin assign/disconnect, lock/unlock,
         export pins (inside a non-root group), autoroute group.  Mirrors the
@@ -3838,7 +3819,7 @@ class SelectTool(_Tool):
             items[act_merge] = ("merge_wire_fragments", target_ids)
 
     def _menu_dispatch(
-        self, data: tuple[object, ...], scene_pt: QPointF
+        self, data: tuple[object, ...], scene_pt: Point
     ) -> None:
         """Run the action encoded in a menu item's *data* tuple."""
         from typing import cast

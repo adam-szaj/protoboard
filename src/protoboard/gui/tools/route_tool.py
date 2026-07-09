@@ -17,14 +17,14 @@ from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.ports import StatusEvent
-from protoboard.gui.qt_geometry import from_qpointf
+from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
 from protoboard.gui.renderers.routing_overlay import render_routing_hints
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
+    from protoboard.gui.ports import PointerInput
 
 _log = structlog.get_logger(__name__)
 _PREVIEW_WIDTH = 0.12
@@ -76,10 +76,10 @@ class RouteTool(_Tool):
         self._clear_route_highlight()
         self._cancel()
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
-        if event.button() != Qt.MouseButton.LeftButton:
+    def on_press(self, inp: PointerInput) -> bool:
+        if inp.button != LEFT_BUTTON:
             return False
-        pt = from_qpointf(scene_pt)
+        pt = inp.scene_pos
         if self._view.is_locked_pin(pt):
             self._view.notify_status(StatusEvent(
                 "route.locked_pin",
@@ -103,11 +103,11 @@ class RouteTool(_Tool):
         self._add_live_line(snapped, snapped)
         return True
 
-    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_move(self, inp: PointerInput) -> None:
         if not self._points:
             return
         self._remove_live()
-        snapped = self._view.snap(from_qpointf(scene_pt))
+        snapped = self._view.snap(inp.scene_pos)
         self._add_live_line(self._points[-1], snapped)
 
     def on_key(self, event: QKeyEvent) -> None:

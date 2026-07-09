@@ -12,16 +12,14 @@ from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.route_tool import RouteTool
+from tests.gui.input_helpers import pointer
 
 
 def _press(board_view: BoardView, x: float, y: float) -> None:
     """Simulate a left-button press at scene coordinates (x, y)."""
     tool = board_view._active_tool
     assert tool is not None
-    tool.on_press(
-        _mouse_event(Qt.MouseButton.LeftButton),
-        QPointF(x, y),
-    )
+    tool.on_press(pointer(x, y))
 
 
 def _enter(board_view: BoardView) -> None:

@@ -15,6 +15,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.simplify_tool import SimplifyTool
+from tests.gui.input_helpers import pointer
 
 
 def _press(
@@ -26,14 +27,7 @@ def _press(
     tool = view._active_tool
     assert tool is not None
     mods = Qt.KeyboardModifier.ShiftModifier if shift else Qt.KeyboardModifier.NoModifier
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y), QPointF(x, y),
-            button, button, mods,
-        ),
-        QPointF(x, y),
-    )
+    tool.on_press(pointer(x, y, button=int(button.value), mods=mods))
 
 
 def _key(view: BoardView, key: Qt.Key) -> None:

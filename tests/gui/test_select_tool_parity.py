@@ -23,6 +23,8 @@ from __future__ import annotations
 import uuid
 
 from PySide6.QtCore import QPointF, Qt
+
+from protoboard.geometry import Point
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from protoboard.domain.components.instance import ComponentInstance
@@ -37,6 +39,7 @@ from protoboard.gui.selection_axes import (
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
+from tests.gui.input_helpers import pointer
 
 # ---------------------------------------------------------------------------
 # Helpers (mirrors of the deleted files', kept local to this parity suite)
@@ -49,15 +52,9 @@ def _place(
     board_view.set_tool(PlaceTool("R"))
     tool = board_view._active_tool
     assert isinstance(tool, PlaceTool)
-    ev = QMouseEvent(
-        QMouseEvent.Type.MouseButtonPress,
-        QPointF(x, y), QPointF(x, y),
-        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-    )
-    tool.on_press(ev, QPointF(x, y))
+    tool.on_press(pointer(x, y))
     while tool._phase == "drag_pin":
-        tool.on_press(ev, QPointF(x, y))
+        tool.on_press(pointer(x, y))
     return list(session.instances.values())[-1]
 
 
@@ -65,15 +62,7 @@ def _press(
     tool: SelectTool, x: float, y: float,
     modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y), QPointF(x, y),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-            modifiers,
-        ),
-        QPointF(x, y),
-    )
+    tool.on_press(pointer(x, y, mods=modifiers))
 
 
 def _v2(board_view: BoardView) -> SelectTool:
@@ -333,7 +322,7 @@ class TestDoubleClickEnterGroup:
         tool = _v2(board_view)
         assert tool._current_group_id == ROOT_GROUP_ID
 
-        tool.on_double_press(QPointF(2.5, 2.5))
+        tool.on_double_press(Point(2.5, 2.5))
         assert tool._current_group_id == gid  # stepped inside
 
     def test_double_click_empty_space_no_enter(
@@ -345,7 +334,7 @@ class TestDoubleClickEnterGroup:
         _make_group(session, [inst.id])
         board_view.refresh()
         tool = _v2(board_view)
-        tool.on_double_press(QPointF(9.0, 9.0))  # far from the group
+        tool.on_double_press(Point(9.0, 9.0))  # far from the group
         assert tool._current_group_id == ROOT_GROUP_ID  # stayed out
 
 

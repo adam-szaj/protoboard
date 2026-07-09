@@ -13,23 +13,16 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
+from tests.gui.input_helpers import pointer
 
 
 def _left_click(tool: PlaceTool, x: float, y: float) -> None:
     """Click once (anchor). If the tool enters drag_pin phase, click again to confirm."""
-    ev = QMouseEvent(
-        QMouseEvent.Type.MouseButtonPress,
-        QPointF(x, y),
-        QPointF(x, y),
-        Qt.MouseButton.LeftButton,
-        Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-    )
-    tool.on_press(ev, QPointF(x, y))
+    tool.on_press(pointer(x, y))
     # If the component has bendable pins, confirm each drag pin with a click at
     # the same position (accepts the default offset).
     while tool._phase == "drag_pin":
-        tool.on_press(ev, QPointF(x, y))
+        tool.on_press(pointer(x, y))
 
 
 def _key_r(tool: PlaceTool) -> None:
@@ -216,13 +209,7 @@ class TestPlaceToolSmdMount:
         board_view.set_tool(PlaceTool(name))
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
-        from PySide6.QtGui import QMouseEvent
-        ev = QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
-        tool.on_press(ev, QPointF(1, 1))
+        tool.on_press(pointer(1, 1))
         assert tool._phase == "drag_pin"
         assert tool._current_drag_pin == 2
 
@@ -235,15 +222,8 @@ class TestPlaceToolSmdMount:
         board_view.set_tool(PlaceTool(name))
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
-        from PySide6.QtGui import QMouseEvent
-
         def press(x: float, y: float) -> None:
-            ev = QMouseEvent(
-                QMouseEvent.Type.MouseButtonPress, QPointF(x, y), QPointF(x, y),
-                Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-                Qt.KeyboardModifier.NoModifier,
-            )
-            tool.on_press(ev, QPointF(x, y))
+            tool.on_press(pointer(x, y))
 
         press(1, 1)                       # anchor pin 1 at (1,1)
         assert tool._phase == "drag_pin"
@@ -279,14 +259,8 @@ class TestPlaceToolSmdMount:
         defn = view._session.components["R"]
         assert set(tool._bend_specs(defn).keys()) == {1, 2}
 
-        from PySide6.QtGui import QMouseEvent
-        ev = QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress, QPointF(5, 5), QPointF(5, 5),
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        )
         snapped = view.snap(Point(5, 5))
-        tool.on_press(ev, QPointF(5, 5))
+        tool.on_press(pointer(5, 5))
 
         # Pin 1 anchors — it is NOT the dragged pin; pin 2 is.
         assert tool._phase == "drag_pin"

@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+"""Shared builders for the seam input DTOs (qt-ports §2.2).
+
+Test suites drive tools through ``PointerInput`` instead of hand-built
+``QMouseEvent``s; Qt modifier flags are still accepted so call sites keep
+their historical ``mods=Qt.KeyboardModifier...`` arguments.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+
+from protoboard.geometry import Point
+from protoboard.gui.ports import LEFT_BUTTON, PointerInput
+from protoboard.gui.qt_inputs import mods_from_qt
+
+
+def pointer(
+    x: float,
+    y: float,
+    *,
+    button: int = LEFT_BUTTON,
+    mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> PointerInput:
+    """A PointerInput at scene == view position (x, y)."""
+    return PointerInput(
+        view_pos=Point(x, y),
+        scene_pos=Point(x, y),
+        button=int(button),
+        native_mods=int(mods.value),
+        mods=mods_from_qt(mods),
+    )

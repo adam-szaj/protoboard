@@ -38,6 +38,7 @@ from protoboard.gui.tools.drag_commit_decision import (
     DragSeverity,
 )
 from protoboard.gui.tools.place_tool import PlaceTool
+from tests.gui.input_helpers import pointer
 
 _NO_MODS = Mods()
 
@@ -56,15 +57,9 @@ def _place(
     board_view.set_tool(PlaceTool("R"))
     tool = board_view._active_tool
     assert isinstance(tool, PlaceTool)
-    ev = QMouseEvent(
-        QMouseEvent.Type.MouseButtonPress,
-        QPointF(x, y), QPointF(x, y),
-        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-    )
-    tool.on_press(ev, QPointF(x, y))
+    tool.on_press(pointer(x, y))
     while tool._phase == "drag_pin":
-        tool.on_press(ev, QPointF(x, y))
+        tool.on_press(pointer(x, y))
     return list(session.instances.values())[-1]
 
 
