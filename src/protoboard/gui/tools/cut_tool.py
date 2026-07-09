@@ -46,7 +46,7 @@ class CutTool(_Tool):
         # alone only re-renders components and wires.
         view = self._view
         if view is not None:
-            view._board_layer_dirty = True
+            view.mark_board_layer_dirty()
         self._session.layout_changed.emit()
         return True
 

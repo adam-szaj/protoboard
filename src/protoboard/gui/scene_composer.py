@@ -8,7 +8,7 @@ modifiers, ratsnest + group outlines, axis labels), the board-layer dirty
 flag, the refresh debounce timer, the drag-delta anchors and the live-drag
 group translation.  ``BoardView.refresh()`` delegates here; the composer
 talks to the canvas only through
-:class:`~protoboard.gui.board_view_tool.AbstractBoardView`.
+:class:`~protoboard.gui.board_view.BoardView`.
 """
 
 from __future__ import annotations
@@ -34,13 +34,13 @@ from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
-    from protoboard.gui.board_view_tool import AbstractBoardView
+    from protoboard.gui.board_view import BoardView
 
 
 class SceneComposer:
     """Scene (re)construction + live-drag group translation."""
 
-    def __init__(self, view: AbstractBoardView) -> None:
+    def __init__(self, view: BoardView) -> None:
         self._view = view
         # comp_id → QGraphicsItemGroup; persists across refreshes for reuse.
         self._comp_groups: dict[uuid.UUID, object] = {}

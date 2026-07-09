@@ -44,7 +44,7 @@ class ViewCamera:
         # and Qt processes the next tick without waiting for a paint.
         self._wheel_accum_delta: int = 0
         self._wheel_pivot_vp: Point | None = None
-        self._wheel_timer = QTimer(view)
+        self._wheel_timer = QTimer()
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.setInterval(16)  # ~1 frame
         self._wheel_timer.timeout.connect(self._flush_wheel_zoom)
@@ -52,7 +52,7 @@ class ViewCamera:
         # this timer is active we treat the view as in mid-pan and paint
         # the board pixmap by stretching the anchor instead of rebuilding.
         # When it fires (settle), the next paint rebuilds the cache fresh.
-        self._pan_burst_timer = QTimer(view)
+        self._pan_burst_timer = QTimer()
         self._pan_burst_timer.setSingleShot(True)
         self._pan_burst_timer.setInterval(120)
         self._pan_burst_timer.timeout.connect(self._on_pan_settled)

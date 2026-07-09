@@ -17,7 +17,7 @@ viewport-sized pixmap caches and the stale-blit anchor:
 
 The Qt overrides (``paintEvent`` / ``drawBackground``) stay on ``BoardView``
 and delegate here; the pipeline talks to the canvas only through
-:class:`~protoboard.gui.board_view_tool.AbstractBoardView`.
+:class:`~protoboard.gui.board_view.BoardView`.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QGraphicsItem
 
 if TYPE_CHECKING:
-    from protoboard.gui.board_view_tool import AbstractBoardView
+    from protoboard.gui.board_view import BoardView
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -46,7 +46,7 @@ _PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0
 class PaintPipeline:
     """Layered background composition + bg/back pixmap caches."""
 
-    def __init__(self, view: AbstractBoardView) -> None:
+    def __init__(self, view: BoardView) -> None:
         self._view = view
         # Board layer: rebuilt only when board geometry / theme / alpha changes.
         self._bg_cache: object | None = None  # QPixmap, kept loose-typed

@@ -11,12 +11,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
+    from PySide6.QtWidgets import QGraphicsScene
+
+    from protoboard.gui.board_view_tool import AbstractBoardView
 
 
 _Z = 60.0  # above DragConflictOverlay (50.0)
@@ -44,7 +45,7 @@ class DragCornerText:
     def show(
         self,
         scene: QGraphicsScene,
-        view: QGraphicsView,
+        view: AbstractBoardView,
         text: str,
         color: QColor,
     ) -> None:
@@ -70,27 +71,36 @@ class DragCornerText:
 
         self.update_position(view)
 
-    def update_position(self, view: QGraphicsView) -> None:
+    def update_position(self, view: AbstractBoardView) -> None:
         """Re-anchor the text + background to the view's top-left corner."""
         if self._text_item is None or self._bg_item is None:
             return
-        top_left_scene = view.mapToScene(QPoint(_MARGIN_PX, _MARGIN_PX))
-        self._text_item.setPos(top_left_scene)
+        from protoboard.geometry import Point
+
+        port = view.viewport_port
+        top_left_scene = port.map_view_to_scene(
+            Point(float(_MARGIN_PX), float(_MARGIN_PX))
+        )
+        self._text_item.setPos(top_left_scene.x, top_left_scene.y)
 
         # Background panel: text bounding rect + padding, also in scene coords.
         # The text item ignores transforms, but its boundingRect is in *its*
-        # local coordinate system (pixels). Convert padding via mapToScene.
+        # local coordinate system (pixels). Convert padding via the port.
         text_rect = self._text_item.boundingRect()
-        origin_scene = view.mapToScene(QPoint(0, 0))
-        pad_scene = view.mapToScene(QPoint(_PADDING_PX, _PADDING_PX)) - origin_scene
-        text_scene_size = view.mapToScene(
-            QPoint(int(round(text_rect.width())), int(round(text_rect.height())))
-        ) - origin_scene
+        origin_scene = port.map_view_to_scene(Point(0.0, 0.0))
+        pad = port.map_view_to_scene(
+            Point(float(_PADDING_PX), float(_PADDING_PX))
+        )
+        pad_x, pad_y = pad.x - origin_scene.x, pad.y - origin_scene.y
+        size = port.map_view_to_scene(Point(
+            float(round(text_rect.width())), float(round(text_rect.height()))
+        ))
+        size_x, size_y = size.x - origin_scene.x, size.y - origin_scene.y
         self._bg_item.setRect(
-            top_left_scene.x() - pad_scene.x(),
-            top_left_scene.y() - pad_scene.y(),
-            text_scene_size.x() + 2 * pad_scene.x(),
-            text_scene_size.y() + 2 * pad_scene.y(),
+            top_left_scene.x - pad_x,
+            top_left_scene.y - pad_y,
+            size_x + 2 * pad_x,
+            size_y + 2 * pad_y,
         )
 
     def hide(self, scene: QGraphicsScene) -> None:
@@ -108,7 +118,7 @@ class DragCornerText:
         self._last_color = None
 
     def rerender(
-        self, scene: QGraphicsScene | None, view: QGraphicsView | None
+        self, scene: QGraphicsScene | None, view: AbstractBoardView | None
     ) -> None:
         """Re-add items after a scene rebuild.  No-op if nothing to show."""
         if not self._last_text or scene is None or view is None:

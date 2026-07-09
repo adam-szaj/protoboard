@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — Stage 6: Protocol swap + HeadlessBoardView (2026-07-09)
+
+* **`AbstractBoardView` is a structural `Protocol`** — it no longer inherits
+  `QGraphicsView`; the `QtABCMeta` metaclass merge (and its "runtime never
+  enforces abstractmethods" trap) is deleted.  The concrete
+  `BoardView(QGraphicsView)` satisfies it structurally (pinned by a
+  TYPE_CHECKING conformance function).  The sanctioned surface now *equals*
+  the real surface; the two deliberate Qt touchpoints are `scene()` (D1 —
+  tools' transient items draw into a real `QGraphicsScene`) and `window()`
+  (dialog parenting only, D4 tracked).
+* The swap surfaced and fixed a latent 3a bug: SelectTool's RMB menu
+  positioning called `mapFromScene(Point)` (Qt-typed API with a domain
+  Point) — now routed through `viewport_port.map_scene_to_view`.
+* Heavy Qt mechanisms (paint pipeline, scene composer, highlight renderer)
+  now type against the concrete `BoardView` — they are Qt-side by design
+  (§3); `DragCornerText` maps through the port; ViewCamera's timers are
+  parentless so the camera runs against a non-QObject view.
+* **`HeadlessBoardView`** (`tests/fakes/board_view.py`): dict-backed double
+  with the CameraMath fake viewport, a real widget-less `QGraphicsScene`,
+  recorded notifications and a help-overlay recorder.
+  `tests/gui/test_headless_board_view.py` runs place→select flows, the key
+  ladder, camera zoom/fit/mirror math and context queries with **no
+  realized widget and no qtbot** (11 tests, ~2.5 s).
+
 ### Qt ports — Stage 5: context publication + HelpOverlayPort (2026-07-09)
 
 * **RMB = context publication, no port** (`docs/qt-ports.md` §2.4): the

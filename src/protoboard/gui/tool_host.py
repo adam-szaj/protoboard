@@ -20,7 +20,7 @@ from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.ports import KeyInput
 from protoboard.gui.ports.viewport import CursorKind
-from protoboard.gui.qt_geometry import from_qpointf
+from protoboard.gui.qt_geometry import from_qpointf, to_qpointf
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
@@ -380,7 +380,9 @@ class ToolHost:
 
     def handle_mouse_press(self, event: QMouseEvent) -> bool:
         view = self._view
-        scene_pt = view.mapToScene(event.pos())
+        scene_pt = to_qpointf(view.viewport_port.map_view_to_scene(
+            from_qpointf(event.position())
+        ))
         chord = mouse_button_chord(event.button(), event.modifiers())
         if chord is not None and self._dispatch_mouse_chord(
             chord, event, scene_pt
@@ -415,7 +417,9 @@ class ToolHost:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
             view.viewport_port.pan_by(Vector(-delta.x(), -delta.y()))
-        scene_pos = from_qpointf(view.mapToScene(event.pos()))
+        scene_pos = view.viewport_port.map_view_to_scene(
+            from_qpointf(event.position())
+        )
         view.notify_cursor_moved(scene_pos)
         if not self._panning and self._active_tool is not None:
             self._active_tool.on_move(pointer_input(event, scene_pos))
@@ -433,7 +437,9 @@ class ToolHost:
             self._ctrl_panning = False
             view.viewport_port.set_cursor(CursorKind.ARROW)
         elif self._active_tool is not None:
-            scene_pos = from_qpointf(view.mapToScene(event.pos()))
+            scene_pos = view.viewport_port.map_view_to_scene(
+            from_qpointf(event.position())
+        )
             self._active_tool.on_release(pointer_input(event, scene_pos))
         else:
             return False  # fall through to QGraphicsView
@@ -443,7 +449,9 @@ class ToolHost:
         view = self._view
         left = Qt.MouseButton.LeftButton
         if event.button() == left and self._active_tool is not None:
-            scene_pos = from_qpointf(view.mapToScene(event.pos()))
+            scene_pos = view.viewport_port.map_view_to_scene(
+            from_qpointf(event.position())
+        )
             handler = getattr(self._active_tool, "on_double_press", None)
             if handler is not None:
                 handler(scene_pos)

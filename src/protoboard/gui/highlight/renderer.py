@@ -9,7 +9,7 @@ the clicked-free-pad ring and the dashed selection bbox.
 
 Extracted from ``BoardView`` (phase 1 of the BoardView decomposition).  The
 renderer owns all highlight state and talks to the canvas only through
-:class:`~protoboard.gui.board_view_tool.AbstractBoardView` — everything it
+:class:`~protoboard.gui.board_view.BoardView` — everything it
 needs from the view is part of that sanctioned surface.
 """
 
@@ -33,7 +33,7 @@ from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
-    from protoboard.gui.board_view_tool import AbstractBoardView
+    from protoboard.gui.board_view import BoardView
     from protoboard.gui.theme import Theme
 
 _click_log = structlog.get_logger("protoboard.gui.highlight.click")
@@ -43,7 +43,7 @@ _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0
 class HighlightRenderer:
     """Scene-side highlight mechanism, driven by BoardView and the stack."""
 
-    def __init__(self, view: AbstractBoardView) -> None:
+    def __init__(self, view: BoardView) -> None:
         self._view = view
         # Net highlight: legacy fields kept for set_highlighted_net_silent().
         self._highlighted_net_id: uuid.UUID | None = None

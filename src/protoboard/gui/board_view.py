@@ -13,7 +13,12 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.gui.keymap import KeyMap
-    from protoboard.gui.ports import InteractionContext, StatusEvent
+    from protoboard.gui.ports import (
+        HelpOverlayPort,
+        InteractionContext,
+        StatusEvent,
+        ViewportPort,
+    )
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -44,7 +49,7 @@ from protoboard.gui.layer_state import (
     LayerState,
     layer_state_for_tool,
 )
-from protoboard.gui.board_view_tool import AbstractBoardView, _Tool
+from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.renderer import HighlightRenderer
 from protoboard.gui.paint_pipeline import PaintPipeline
 from protoboard.gui.renderers.board_renderer import BOARD_BG
@@ -59,8 +64,12 @@ from protoboard.gui.view_camera import ViewCamera
 from protoboard.services.debug_trace import traced
 
 
-class BoardView(AbstractBoardView):
+class BoardView(QGraphicsView):
     """Main board canvas. Handles zoom/pan and forwards mouse events to tools.
+
+    Satisfies :class:`~protoboard.gui.board_view_tool.AbstractBoardView`
+    *structurally* (Protocol; conformance pinned by ``_abv_conformance``
+    below) — the QtABCMeta metaclass merge is gone.
 
     Notification channel (docs/qt-ports.md §2.3): everything behind the seam
     publishes through the ``notify_*`` / ``escape_to_select`` methods of
@@ -72,6 +81,16 @@ class BoardView(AbstractBoardView):
     context_published = Signal(object)  # InteractionContext (RMB)
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     escape_tool = Signal()  # right-click or Esc — return to Select
+
+    # Composed services (assigned in __init__; declared so the type is
+    # explicit now that the QtABCMeta base carrying the declarations is gone).
+    highlight: HighlightRenderer
+    paint: PaintPipeline
+    camera: ViewCamera
+    tools: ToolHost
+    composer: SceneComposer
+    viewport_port: ViewportPort
+    help_overlay: HelpOverlayPort
 
     def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -889,3 +908,9 @@ class BoardView(AbstractBoardView):
 # GUI code reaches it through EditorSession.cached_wire_net_map().
 
 
+if TYPE_CHECKING:
+    from protoboard.gui.board_view_tool import AbstractBoardView
+
+    def _abv_conformance(view: BoardView) -> AbstractBoardView:
+        """Static-only: mypy/pyright verify BoardView satisfies the Protocol."""
+        return view

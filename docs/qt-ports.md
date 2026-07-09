@@ -449,7 +449,7 @@ None of this is decided. The choices that shape any implementation:
 
 Each phase green + committable; existing qtbot tests run unchanged throughout
 (nothing is swapped until the type-level Protocol change at the end).
-Progress: ☑ 1, ☑ 2, ☑ 3 (a/b/c), ☑ 4, ☑ 5 (2026-07-09; phase 2 landed first —
+Progress: ☑ 1, ☑ 2, ☑ 3 (a/b/c), ☑ 4, ☑ 5, ☑ 6 (2026-07-09; phase 2 landed first —
 the notification channel does not depend on the groundwork — and took
 `pad_clicked` deletion with it; `notify_cursor_moved` takes a `Point` — user
 feedback).  Phase deltas vs the plan: the port attribute is named
@@ -462,7 +462,10 @@ total, partial ticks round to ±1) and deliberately stays as-is;
 per-tool overlay of exactly the §3 kind, not seam surface.  Phase 5 landed
 for the *generic* canvas menu; SelectTool's item-aware RMB menu stays
 in-tool (parameterised data-tuple entries are not expressible as plain
-action-ids — parity nuance (b) is real; see todo.md).
+action-ids — parity nuance (b) is real; see todo.md).  Phase 6: the
+Protocol keeps two sanctioned Qt touchpoints — ``scene()`` (per D1) and
+``window()`` (dialog parenting, D4 debt); phase 7 (semantic previews,
+ExecutorPort, dialog prompts) remains optional/per-tool per §3 and todo.md.
 
 1. **Groundwork**: delete `pad_clicked`; add `gui/qt_geometry.py`
    (`Point/Rect/Transform2D ↔ QPointF/QRectF/QTransform`); the 4 Qt-typed ABC

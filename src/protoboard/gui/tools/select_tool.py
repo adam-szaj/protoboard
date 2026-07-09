@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from PySide6.QtGui import QKeyEvent
+    from PySide6.QtWidgets import QWidget
     from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.domain.components.definition import ComponentDefinition
@@ -357,6 +358,18 @@ class SelectTool(_Tool):
         if not self._group_stack:
             self._group_stack = [ROOT_GROUP_ID]
         return self._group_stack[-1]
+
+    def _view_widget(self) -> QWidget:
+        """The concrete view as a QWidget — Qt-side menu/dialog boundary only.
+
+        The seam is a Protocol without widget surface; the RMB menu and the
+        dialogs it opens still need a real parent widget (D4 tracked debt).
+        """
+        from typing import cast
+
+        from PySide6.QtWidgets import QWidget
+
+        return cast(QWidget, self._view)
 
     def _status(self, msg: str, timeout_ms: int = 3000) -> None:
         if self._view is None:
@@ -1892,7 +1905,7 @@ class SelectTool(_Tool):
         specs = effective_bend_specs(
             defn, inst, getattr(self._session, "package_families", None)
         )
-        return {pin for pin, spec in specs.items() if spec.is_free()}  # type: ignore[union-attr]
+        return {pin for pin, spec in specs.items() if spec.is_free()}
 
     def _selected_clicked_pin(self, comp_id: uuid.UUID) -> int | None:
         """The pin *comp_id* was selected by clicking, or ``None``.
@@ -3348,7 +3361,12 @@ class SelectTool(_Tool):
             return False
         menu, items = built
         assert isinstance(menu, QMenu)
-        global_pos = self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
+        from PySide6.QtCore import QPoint
+
+        view_pt = self._view.viewport_port.map_scene_to_view(scene_pt)
+        global_pos = self._view_widget().mapToGlobal(
+            QPoint(round(view_pt.x), round(view_pt.y))
+        )
         chosen = menu.exec(global_pos)
         if chosen is None:
             return True
@@ -3369,7 +3387,7 @@ class SelectTool(_Tool):
             return None
         from PySide6.QtWidgets import QMenu
 
-        menu = QMenu(self._view)
+        menu = QMenu(self._view_widget())
         items: dict[object, tuple[object, ...]] = {}
         self._menu_add_view_section(menu, items, scene_pt)
         self._menu_add_tool_actions(menu)
@@ -4192,10 +4210,14 @@ class SelectTool(_Tool):
         ]
 
         default_name = f"Group{len(groups) + 1}"
+        from typing import cast as _cast
+
+        from PySide6.QtWidgets import QWidget as _QWidget
+
         dlg = GroupTargetDialog(
             existing_groups=child_groups,
             default_name=default_name,
-            parent=self._view.window(),
+            parent=_cast("_QWidget | None", self._view.window()),
         )
         if dlg.exec() != GroupTargetDialog.DialogCode.Accepted:
             return None
@@ -4401,7 +4423,7 @@ class SelectTool(_Tool):
             return results
 
         worker_out = run_with_progress(
-            parent=self._view,
+            parent=self._view_widget(),
             title="Simplify",
             fn=_simplify_in_worker,
             label=f"Simplifying {len(wid_list)} wire(s)…",
@@ -4464,7 +4486,7 @@ class SelectTool(_Tool):
             )
 
         out = run_with_progress(
-            parent=self._view,
+            parent=self._view_widget(),
             title="Unweave",
             fn=_unweave_in_worker,
             label=f"Unweaving {len(targets)} wire(s)…",
