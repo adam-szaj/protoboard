@@ -126,13 +126,19 @@ class ScreenMetrics:
 
 class ViewportPort(Protocol):
     def map_view_to_scene(self, view_pt: Point) -> Point: ...
-    def map_scene_to_view(self, scene_pt: Point) -> Point: ...
+    def map_scene_to_view(self, scene_pt: Point) -> Point: ...  # verify need; may
+                                                                # drop with §2.4
     def view_scale(self) -> float: ...                  # |m11|
     def view_transform(self) -> Transform2D: ...
     def set_view_transform(self, t: Transform2D) -> None: ...
     def viewport_rect(self) -> Rect: ...
+    def visible_scene_rect(self) -> Rect: ...           # transform+scroll+size —
+                                                        # same pure function in Qt
+                                                        # adapter and in the fake
     def scroll_position(self) -> Vector: ...
     def set_scroll_position(self, v: Vector) -> None: ...
+    def pan_by(self, view_delta: Vector) -> None: ...   # absorbs direct scrollbar
+                                                        # juggling during drags
     def center_on(self, scene_pt: Point) -> None: ...
     def fit_in_view(self, scene_rect: Rect) -> None: ...
     def request_repaint(self) -> None: ...
@@ -140,15 +146,47 @@ class ViewportPort(Protocol):
     def screen_metrics(self) -> ScreenMetrics | None: ...
 ```
 
+**The split criterion** (settled on user feedback, and the rule that governs
+every port in this document): *policy and decisions stay on the testable
+side; only mechanism and data go behind the port.* Semantic camera commands
+(`zoom_by`, `zoom_in/out`, `fit_board/area/selection`, mirror toggles,
+`move_view_*` steps) are **not** port surface — behind them sits exactly the
+math this refactor wants to test headless (zoom clamping to screen limits,
+zoom-to-cursor pivot, wheel-burst accumulation, mirror/fit composition in
+`view_camera.py`). Putting `zoom_in` on the port would push that logic behind
+it — into the Qt adapter (untestable) or duplicated in the fake (drift). The
+two layers both already exist; the port merely closes off the bottom one:
+
+```
+BoardView / tools / MainWindow
+    │  semantics: zoom_by, fit_*, toggle_mirror, move_view_*  ← ViewCamera
+    ▼            (policy; headless side — tested against the fake)
+ViewCamera
+    │  mechanism: get/set transform, get/set scroll, pan_by,
+    ▼             viewport size, center_on, visible_scene_rect
+ViewportPort  (dumb, easy to fake)
+    │
+QtViewport(QGraphicsView) — the only code knowing QScrollBar/QTransform
+```
+
+Contrast with §2.4: there the *choice* is a user interaction, so it goes
+behind the port; here the *math* is application policy, so it stays in front.
+
 Absorbs every inherited-API call in `view_camera.py`, `tool_host.py`,
 `drag_corner_text.py` and `board_view.py` listed in §1.1 (mapping, transform,
-scrollbars, centerOn/fitInView, cursor, `window().screen()`). The adapter
-`QtViewport(view)` is the **only** QPointF/QTransform conversion site; the
-test fake implements the mapping with exact `Transform2D` affine math, which
-makes ViewCamera's zoom-clamp / fit / mirror arithmetic unit-testable with
-real numbers instead of mocks. The four Qt-typed ABC members (§1.1) switch to
-`Point` / hex `str` in the same breath — several tools already round-trip
-`Point(scene_pt.x(), scene_pt.y())` today, so this *removes* conversions.
+scrollbars — via `pan_by`/scroll primitives, centerOn/fitInView, cursor,
+`window().screen()`). Tools and BoardView never see scrollbars; keymap-bound
+`move_view_up/down/left/right` become trivial ViewCamera wrappers over
+`pan_by` with a policy-owned step. The adapter `QtViewport(view)` is the
+**only** QPointF/QTransform conversion site; the test fake implements the
+mapping with exact `Transform2D` affine math, which makes ViewCamera's
+zoom-clamp / fit / mirror arithmetic unit-testable with real numbers instead
+of mocks — `visible_scene_rect()` makes the fake a complete deterministic
+camera model ("after zoom-at-cursor the visible rect is R and the point under
+the cursor did not move"), and joins the Qt-vs-fake property test. The four
+Qt-typed ABC members (§1.1) switch to `Point` / hex `str` in the same
+breath — several tools already round-trip `Point(scene_pt.x(), scene_pt.y())`
+today, so this *removes* conversions.
 
 ### 2.2 Input DTOs — `PointerInput`, `WheelInput`, `KeyInput`
 
