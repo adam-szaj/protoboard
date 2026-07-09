@@ -191,27 +191,42 @@ armed sub-tools: `ArmedSubTool.on_key(KeyInput)` / `on_wheel(WheelInput)`;
 mouse_input doctrine already mandates "keys travel as intents, not keycodes").
 `_WHEEL_NOTCH` accumulation is arithmetic on `delta_y: int` and stays.
 
-### 2.3 `StatusPort` + view notification methods
+### 2.3 View notification channel — status as *events*, not display calls
+
+(Direction revised on user feedback: a `StatusPort.show_status(text)` push
+was considered and rejected — displaying is the consumer's job, not the
+seam's.) The view surface *publishes* notifications; the consumer
+(MainWindow, or a test double that merely records) decides what to do:
 
 ```python
-class StatusPort(Protocol):
-    def show_status(self, text: str, timeout_ms: int = 0) -> None: ...
-```
-
-No `WindowPort` and no signal bus — each `window()` use has a better-shaped
-home: `statusBar()` sites → `StatusPort`; key forwarding → bool returns
-(§2.2); `window()._keybindings` for the `[?]` overlay → a provider injected
-into ToolHost at wiring time; `window().screen()` → `ViewportPort`. The
-protocol gains two plain methods whose concrete implementation emits the
-existing Qt signals (MainWindow wiring unchanged):
-
-```python
+def notify_status(self, payload: Mapping[str, object]) -> None: ...
 def notify_cursor_moved(self, x: float, y: float) -> None: ...
 def escape_to_select(self) -> None: ...
 ```
 
-A headless double just records the calls. The dead `pad_clicked` is deleted.
-`session.py` keeps its QObject signals — out of scope here.
+- **Payload is a dict/Mapping** — extensible without touching the seam's
+  signature. Minimal convention: a `"kind"` discriminator
+  (`"route.progress"`, `"drag.conflict"`, `"select.count"`, …) plus
+  structural fields (`"net_id"`, `"count"`, `"length"`, `"timeout_ms"`…).
+  During migration a tool may include `"text"` with today's formatted string
+  for 1:1 parity; formatting can later move to the consumer.
+- **Consumption:** concrete `BoardView` re-emits as a Qt signal
+  (`status_changed = Signal(dict)`); MainWindow subscribes and calls its own
+  `statusBar().showMessage(...)` — the last reason for anything behind the
+  seam to touch `window()` disappears. The other `window()` uses get
+  better-shaped homes anyway: `_keybindings` for the `[?]` overlay → a
+  provider injected into ToolHost; `screen()` → `ViewportPort`; key
+  forwarding → bool returns (§2.2).
+- **Test win over the port variant:** tests assert structural fields
+  (`payload["kind"] == "drag.conflict"`, `payload["count"] == 3`) instead of
+  parsing formatted strings — robust against message wording changes.
+- **Trade-off (decision D7):** `Mapping[str, object]` is weakly typed under
+  `mypy --strict` (the repo prefers frozen dataclasses). Middle ground: a
+  thin `StatusEvent(kind: str, data: Mapping[str, object])` envelope — still
+  flexible, but with a typed discriminator.
+
+The dead `pad_clicked` is deleted. `session.py` keeps its QObject signals —
+out of scope here.
 
 ### 2.4 `MenuPort`
 
@@ -290,8 +305,8 @@ widget; MVC invalidates their fixtures wholesale.
 
 **Ports-only end state:** `AbstractBoardView` stops inheriting
 `QGraphicsView` and becomes a `Protocol` composing the existing ~25 Qt-free
-members + `viewport: ViewportPort` + `status: StatusPort` + `menus: MenuPort`
-+ `help_overlay: HelpOverlayPort` + the notification methods; the concrete
+members + `viewport: ViewportPort` + `menus: MenuPort` + `help_overlay:
+HelpOverlayPort` + the notification channel (§2.3); the concrete
 `BoardView(QGraphicsView)` satisfies it structurally. Wins:
 
 - **Kills the QtABCMeta trap**: today Shiboken skips the
@@ -325,6 +340,7 @@ None of this is decided. The choices that shape any implementation:
 | D4 | SelectTool dialogs (drag-disconnect/conflict, `parent=window()`) | in scope as injected `Callable[..., Decision]` prompts (drag_commit_decision.py pattern) / out of scope | +1 sub-phase vs tracked debt | in scope |
 | D5 | Doc location | this file + todo.md debt entries | — | as done |
 | D6 | `KeyMap.matches` modifiers typing | widen to `int` / convert at call sites | runtime-identical | widen to `int` |
+| D7 | `notify_status` payload shape | bare `Mapping[str, object]` / thin `StatusEvent(kind, data)` envelope | typing strictness vs flexibility (see §2.3) | bare dict (user's proposal) |
 
 ## 6. Appendix — non-binding migration sketch
 
@@ -334,8 +350,11 @@ Each phase green + committable; existing qtbot tests run unchanged throughout
 1. **Groundwork**: delete `pad_clicked`; add `gui/qt_geometry.py`
    (`Point/Rect/Transform2D ↔ QPointF/QRectF/QTransform`); the 4 Qt-typed ABC
    members switch to domain types.
-2. **StatusPort + notification methods** (~10 sites) — status messages become
-   assertable.
+2. **View notification channel** (~10 `statusBar()` sites →
+   `view.notify_status({...})`, today's texts kept in `"text"` for parity;
+   plus `notify_cursor_moved`/`escape_to_select` conversion and the
+   MainWindow subscription) — status becomes assertable by structural
+   fields.
 3. **Input DTOs + bool consumption** (the big mechanical phase; sub-commits
    pointer → wheel → key; key-fall-through parity tests FIRST; includes the
    armed/float_transform de-leak).
