@@ -64,6 +64,7 @@ display server.
 | DRC | [docs/drc.md](docs/drc.md) |
 | GUI, tools, multi-selection, wire editing | [docs/gui.md](docs/gui.md) |
 | Rendering (draw chain, Z-layers, LayerState, body dispatch) | [docs/rendering.md](docs/rendering.md) |
+| Qt ports analysis (headless BoardView testability — decision gate) | [docs/qt-ports.md](docs/qt-ports.md) |
 | Selection / highlight FSM (canonical) | [docs/highlight-state-machine.txt](docs/highlight-state-machine.txt) |
 | Pad / pin / wire / joint semantics (hard and soft rules) | [docs/pad-pin-wire-junction-semantics.md](docs/pad-pin-wire-junction-semantics.md) |
 | Drag pipeline architecture | [docs/drag-pipeline-architecture.md](docs/drag-pipeline-architecture.md) |

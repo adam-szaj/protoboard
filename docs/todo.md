@@ -5,6 +5,23 @@ Open follow-ups that don't fit into the closed plans archived under
 the work cold.  Completed entries are pruned (2026-07-04) — recover
 their full write-ups from this file's git history.
 
+## Qt ports — deferred pieces (added 2026-07-09)
+
+The Qt-ports analysis ([qt-ports.md](qt-ports.md)) is a decision gate; even
+if the ports-only refactor proceeds, these pieces are deliberately deferred:
+
+- **`ExecutorPort`** for the `gui/workers/` QThread harness — build only when
+  a tool flow that *launches* a worker must be tested end-to-end headless;
+  the compute is already snapshot-based (`RouteRequest`, `SimplifyInputs`)
+  and testable today.
+- **Semantic per-tool preview objects** (the `rubber_band_controller.DrawFn`
+  / `drag_conflict_overlay` pattern) replacing the tools' ~35 direct
+  `scene()` transient-item sites — optional polish, per tool, on demand
+  (route → place → simplify → select, hardest last).
+- **`selectable.draw_highlight -> list[QGraphicsItem]`** return-type opacity —
+  acceptable as TYPE_CHECKING-only today; tighten to an opaque handle only if
+  a headless consumer appears.
+
 ## Connector pin-name presets → generator config (added 2026-07-06)
 
 The parametric-connector rewrite (variable pin count chosen at placement;
