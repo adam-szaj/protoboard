@@ -39,7 +39,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.ports import InteractionContext, PointerInput, WheelInput
+    from protoboard.gui.ports import (
+        ActionOption,
+        InteractionContext,
+        PointerInput,
+        WheelInput,
+    )
 
 
 class ToolHost:
@@ -155,33 +160,18 @@ class ToolHost:
         ))
 
     @traced()
-    def add_tool_action_menu(self, menu: object) -> dict[object, str]:
-        """Add the active tool's actions to *menu*; return {QAction: action_id}.
+    def perform_context_action(self, option: ActionOption) -> None:
+        """Execute a chosen context option (qt-ports §2.4, variant 1).
 
-        Empty (no tool, or the tool declares no actions) → adds nothing.
+        A parameterised option (non-empty ``data``) goes to the active
+        tool's ``perform_context_action``; a plain one keeps the
+        synthesised-key parity path through :meth:`trigger_tool_action`.
         """
-        from PySide6.QtWidgets import QMenu
-        assert isinstance(menu, QMenu)
         tool = self._active_tool
-        if tool is None:
-            return {}
-        action_ids = tool.displayable_action_ids()
-        if not action_ids:
-            return {}
-        from protoboard.gui.shortcuts_help import (
-            category_label,
-            tool_shortcut_rows,
-        )
-        rows = tool_shortcut_rows(self.keymap, action_ids)
-        header = category_label(action_ids[0]) + " actions"
-        menu.addSection(header)
-        items: dict[object, str] = {}
-        for row in rows:
-            text = f"{row.label}\t{row.shortcut}" if row.shortcut else row.label
-            act = menu.addAction(text)
-            items[act] = row.action_id
-        menu.addSeparator()
-        return items
+        if option.data and tool is not None:
+            tool.perform_context_action(option.action_id, option.data)
+            return
+        self.trigger_tool_action(option.action_id)
 
     @traced()
     def get_context_at(self, scene_pos: Point, view_pos: Point) -> InteractionContext:

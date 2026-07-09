@@ -14,6 +14,7 @@ import structlog
 if TYPE_CHECKING:
     from protoboard.gui.keymap import KeyMap
     from protoboard.gui.ports import (
+        ActionOption,
         HelpOverlayPort,
         InteractionContext,
         StatusEvent,
@@ -770,9 +771,9 @@ class BoardView(QGraphicsView):
         ))
 
     @traced()
-    def _add_tool_action_menu(self, menu: object) -> dict[object, str]:
-        """Delegate to the tool host (SelectTool reaches this via getattr)."""
-        return self.tools.add_tool_action_menu(menu)
+    def perform_context_action(self, option: ActionOption) -> None:
+        """Execute a chosen context option (delegates to the tool host)."""
+        self.tools.perform_context_action(option)
 
     @traced()
     def trigger_tool_action(self, action_id: str) -> None:

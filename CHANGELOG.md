@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — SelectTool RMB menu as context publication (2026-07-09)
+
+* **The last QMenu behind the seam is gone** (§2.4 variant 1, user-approved):
+  `ActionOption` gained a structural ``data: Mapping`` payload (the same
+  envelope shape as `StatusEvent`, D7) plus ``submenu``/``tooltip``
+  presentation hints.  SelectTool's item-aware RMB menu is now
+  ``build_context(scene_pos, view_pos) -> InteractionContext`` — a pure
+  query composing the generic tool-action options with the component /
+  select-by-net / highlight / wire sections — published via
+  ``notify_context``; MainWindow renders sections and nested submenus and
+  executes the choice through the new seam hook
+  ``perform_context_action(option)`` (plain options keep the
+  synthesised-key path, parameterised ones reach
+  ``BoardViewTool.perform_context_action(action_id, data)``).
+* ``ToolHost.add_tool_action_menu`` (the QMenu-taking method) is deleted —
+  ToolHost is now fully widget-free; the todo.md debt entry is closed.
+* Deliberate UI delta: "Center view here" / "Cancel tool (Esc)" now sit at
+  the *bottom* of the item menu (consumer chrome, same as the canvas menu)
+  instead of the top.
+* `TestContextMenu` re-asserts every behaviour against
+  ``InteractionContext.actions`` + ``perform_context_action`` — no QMenu
+  inspection left.
+
 ### Qt ports — Stage 6: Protocol swap + HeadlessBoardView (2026-07-09)
 
 * **`AbstractBoardView` is a structural `Protocol`** — it no longer inherits

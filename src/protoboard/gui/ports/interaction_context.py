@@ -11,24 +11,37 @@ No blocking call ever crosses the seam.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from protoboard.geometry import Point
 
 
 @dataclass(frozen=True, slots=True)
 class ActionOption:
-    """One action executable in this context (presentation hints included)."""
+    """One action executable in this context (presentation hints included).
+
+    A plain option (empty ``data``) executes via ``trigger_tool_action``
+    (the KeyMap-synthesised dispatch); a parameterised option carries its
+    structural payload in ``data`` — the same envelope-with-Mapping shape
+    ``StatusEvent`` uses (D7) — and executes via the tool's
+    ``perform_context_action(action_id, data)``.
+    """
 
     action_id: str
-    """Executes via the existing ``trigger_tool_action`` dispatch."""
     label: str
     enabled: bool = True
     shortcut_hint: str = ""
     group: str = ""
-    """Semantic grouping (the consumer decides how to render it)."""
+    """Section grouping (the consumer decides how to render it)."""
+    submenu: str = ""
+    """Nested-menu title; empty = top level (presentation hint)."""
+    tooltip: str = ""
+    data: Mapping[str, object] = field(default_factory=dict)
+    """Structural parameters of the action (uuids, pin numbers, flags)."""
 
 
 @dataclass(frozen=True, slots=True)

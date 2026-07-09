@@ -37,7 +37,15 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.ports import LEFT_BUTTON, KeyInput, PointerInput, StatusEvent, WheelInput
+from protoboard.gui.ports import (
+    LEFT_BUTTON,
+    ActionOption,
+    InteractionContext,
+    KeyInput,
+    PointerInput,
+    StatusEvent,
+    WheelInput,
+)
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
@@ -50,6 +58,8 @@ _log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from collections.abc import Mapping
 
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QWidget
@@ -2922,7 +2932,7 @@ class SelectTool(_Tool):
         if not isinstance(inp, PointerInput):
             return False
         # False on empty canvas → falls through to the generic canvas menu.
-        return self.on_right_press(inp.scene_pos)
+        return self.on_right_press(inp.scene_pos, inp.view_pos)
 
     def wants_wheel(self, inp: WheelInput) -> bool:
         """Claim the wheel only when the armed sub-tool consumes it (rotate)."""
@@ -3348,54 +3358,55 @@ class SelectTool(_Tool):
     # The tool-action + view section is added here too, so the contextual menu
     # *augments* the generic one rather than replacing it.
 
-    def on_right_press(self, scene_pt: Point) -> bool:
-        """Show the unified context menu for the item under the cursor.
+    def on_right_press(self, scene_pt: Point, view_pos: Point) -> bool:
+        """Publish the item-aware interaction context under the cursor.
 
-        Returns True when a menu was shown (item present), False on empty canvas
-        so BoardView falls back to its generic tool-action menu.
+        No menu is built here (qt-ports §2.4, variant 1): the context is a
+        pure data snapshot; the consumer (MainWindow) renders it and executes
+        the chosen option through ``perform_context_action``.  Returns True
+        when a context was published (item present), False on empty canvas so
+        the chord falls through to the generic canvas context.
         """
-        from PySide6.QtWidgets import QMenu
-
-        built = self._build_context_menu(scene_pt)
-        if built is None:
+        ctx = self.build_context(scene_pt, view_pos)
+        if ctx is None:
             return False
-        menu, items = built
-        assert isinstance(menu, QMenu)
-        from PySide6.QtCore import QPoint
-
-        view_pt = self._view.viewport_port.map_scene_to_view(scene_pt)
-        global_pos = self._view_widget().mapToGlobal(
-            QPoint(round(view_pt.x), round(view_pt.y))
-        )
-        chosen = menu.exec(global_pos)
-        if chosen is None:
-            return True
-        data = items.get(chosen)
-        if data is not None:
-            self._menu_dispatch(data, scene_pt)
+        self._view.notify_context(ctx)
         return True
 
-    def _build_context_menu(
-        self, scene_pt: Point
-    ) -> tuple[object, dict[object, tuple[object, ...]]] | None:
-        """Build the unified menu + its {QAction: data} map, or None on empty
-        canvas.  Split from :meth:`on_right_press` so tests can inspect the
-        items without driving the un-mockable ``QMenu.exec``."""
+    def build_context(
+        self, scene_pt: Point, view_pos: Point
+    ) -> InteractionContext | None:
+        """The unified item context as pure data, or None on empty canvas.
+
+        Composes the generic tool-action options (shared with the canvas
+        context) with the item-aware sections; each parameterised option
+        carries its payload in ``ActionOption.data`` and executes through
+        :meth:`perform_context_action`.  Testable with no menu and no fake.
+        """
         comp_id = self._menu_comp_at(scene_pt)
         wire_id = self._menu_wire_at(scene_pt)
         if comp_id is None and wire_id is None:
             return None
-        from PySide6.QtWidgets import QMenu
-
-        menu = QMenu(self._view_widget())
-        items: dict[object, tuple[object, ...]] = {}
-        self._menu_add_view_section(menu, items, scene_pt)
-        self._menu_add_tool_actions(menu)
-        self._menu_add_component_section(menu, items, comp_id, scene_pt)
-        self._menu_add_select_section(menu, items, comp_id, wire_id)
-        self._menu_add_highlight_section(menu, items)
-        self._menu_add_wire_section(menu, items, wire_id)
-        return menu, items
+        options: list[ActionOption] = []
+        options += self._view.tools.get_context_at(scene_pt, view_pos).actions
+        options += self._ctx_component_options(comp_id, scene_pt)
+        options += self._ctx_select_options(comp_id, wire_id)
+        options += self._ctx_highlight_options()
+        options += self._ctx_wire_options(wire_id)
+        hit: tuple[str, uuid.UUID]
+        if comp_id is not None:
+            hit = ("component", comp_id)
+        else:
+            assert wire_id is not None
+            hit = ("wire", wire_id)
+        return InteractionContext(
+            scene_pos=scene_pt,
+            view_pos=view_pos,
+            hit=hit,
+            selection=tuple(self._selected_ids),
+            actions=tuple(options),
+            kind="selection" if comp_id is not None else "wire",
+        )
 
     def _menu_comp_at(self, scene_pt: Point) -> uuid.UUID | None:
         """Component under the cursor (selected one wins, else hit-test)."""
@@ -3414,38 +3425,6 @@ class SelectTool(_Tool):
         if sel_wires:
             return next(iter(sel_wires))
         return self._hit_test_wire(scene_pt)
-
-    def _menu_add_view_section(
-        self,
-        menu: object,
-        items: dict[object, tuple[object, ...]],
-        scene_pt: Point,
-    ) -> None:
-        from PySide6.QtWidgets import QMenu
-
-        assert isinstance(menu, QMenu)
-        act_center = menu.addAction("Center view here")
-        items[act_center] = ("view_center", scene_pt)
-        act_escape = menu.addAction("Cancel tool (Esc)")
-        items[act_escape] = ("view_escape",)
-        menu.addSeparator()
-
-    def _menu_add_tool_actions(self, menu: object) -> None:
-        """Delegate to BoardView's tool-action section (shared with the generic
-        canvas menu) so the contextual menu surfaces the same shortcuts."""
-        from PySide6.QtWidgets import QMenu
-
-        assert isinstance(menu, QMenu)
-        view = self._view
-        adder = getattr(view, "_add_tool_action_menu", None)
-        if adder is None:
-            return
-        tool_items = adder(menu)  # {QAction: action_id}
-        # Route triggers back through BoardView's synthesised-key dispatch.
-        for act, action_id in tool_items.items():
-            act.triggered.connect(
-                lambda _checked=False, _a=action_id: view.trigger_tool_action(_a)
-            )
 
     def _hint_free_pin_under(self, sel: Selectable | None, scene_pt: Point) -> None:
         """Feedback when the press lands on a *free* (netless) pin-pad.
@@ -3501,31 +3480,25 @@ class SelectTool(_Tool):
                 best = pin_num
         return best
 
-    def _menu_add_component_section(
-        self,
-        menu: object,
-        items: dict[object, tuple[object, ...]],
-        comp_id: uuid.UUID | None,
-        scene_pt: Point,
-    ) -> None:
-        """Component entries — clicked-pin assign/disconnect, lock/unlock,
-        export pins (inside a non-root group), autoroute group.  Mirrors the
-        legacy component section on v2's services."""
-        from PySide6.QtWidgets import QMenu
-
-        assert isinstance(menu, QMenu)
+    def _ctx_component_options(
+        self, comp_id: uuid.UUID | None, scene_pt: Point
+    ) -> list[ActionOption]:
+        """Component options — clicked-pin assign/disconnect, lock/unlock,
+        move-to-side, export pins (inside a non-root group), autoroute group.
+        Mirrors the legacy component section on v2's services."""
         if comp_id is None:
-            return
+            return []
         inst = self._session.instances.get(comp_id)
         defn = (
             self._session.components.get(inst.definition_ref)
             if inst is not None else None
         )
         if inst is None or defn is None:
-            return
+            return []
 
         from protoboard.domain.schematic.net import PinRef as _PinRef
 
+        out: list[ActionOption] = []
         clicked_pin = self._menu_clicked_pin(scene_pt, comp_id)
 
         # ── Clicked-pin actions (assign always; disconnect when netted) ───────
@@ -3534,16 +3507,20 @@ class SelectTool(_Tool):
             cp_net = self._session.schematic.net_for_pin(
                 _PinRef(component_id=comp_id, pin_number=clicked_pin)
             )
-            act_assign = menu.addAction(
-                f"Assign pin {clicked_pin} ({pin_name}) to net…"
-            )
-            items[act_assign] = ("assign_pin", comp_id, clicked_pin)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.assign_pin",
+                label=f"Assign pin {clicked_pin} ({pin_name}) to net…",
+                data={"component_id": comp_id, "pin": clicked_pin},
+            ))
             if cp_net is not None:
-                act_disc = menu.addAction(
-                    f"Disconnect pin {clicked_pin} ({pin_name})  ←  {cp_net.name}"
-                )
-                items[act_disc] = ("disconnect_pin", comp_id, clicked_pin)
-            menu.addSeparator()
+                out.append(ActionOption(
+                    action_id="select-tool.ctx.disconnect_pin",
+                    label=(
+                        f"Disconnect pin {clicked_pin} ({pin_name})"
+                        f"  ←  {cp_net.name}"
+                    ),
+                    data={"component_id": comp_id, "pin": clicked_pin},
+                ))
 
         # ── Lock / Unlock (whole current selection, falling back to clicked) ──
         lock_targets: set[uuid.UUID] = {comp_id} | set(self._selected_ids)
@@ -3554,53 +3531,56 @@ class SelectTool(_Tool):
             all_locked = all(placements[t].locked for t in present)
             if len(present) == 1:
                 locked = placements[present[0]].locked
-                act_lock = menu.addAction(
-                    f"\U0001f513 Unlock" if locked else f"\U0001f512 Lock"
-                )
-                items[act_lock] = ("lock", set(present), not locked)
+                out.append(ActionOption(
+                    action_id="select-tool.ctx.lock",
+                    label="\U0001f513 Unlock" if locked else "\U0001f512 Lock",
+                    data={"component_ids": frozenset(present),
+                          "locked": not locked},
+                ))
             else:
-                act_lock_all = menu.addAction(
-                    f"\U0001f512 Lock all ({len(present)})"
-                )
-                items[act_lock_all] = ("lock", set(present), True)
-                act_lock_all.setEnabled(not all_locked)
-                act_unlock_all = menu.addAction(
-                    f"\U0001f513 Unlock all ({len(present)})"
-                )
-                items[act_unlock_all] = ("lock", set(present), False)
-                act_unlock_all.setEnabled(any_locked)
+                out.append(ActionOption(
+                    action_id="select-tool.ctx.lock",
+                    label=f"\U0001f512 Lock all ({len(present)})",
+                    enabled=not all_locked,
+                    data={"component_ids": frozenset(present), "locked": True},
+                ))
+                out.append(ActionOption(
+                    action_id="select-tool.ctx.lock",
+                    label=f"\U0001f513 Unlock all ({len(present)})",
+                    enabled=any_locked,
+                    data={"component_ids": frozenset(present), "locked": False},
+                ))
 
         # ── Move to the other board side (top ↔ bottom) ──────────────────────
         cur_pl = placements.get(comp_id)
         if cur_pl is not None and not cur_pl.locked:
             other = "bottom" if cur_pl.side == "top" else "top"
-            act_side = menu.addAction(f"Move to {other} side")
-            items[act_side] = ("component_side", comp_id)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.component_side",
+                label=f"Move to {other} side",
+                data={"component_id": comp_id},
+            ))
 
         # ── Export pins + autoroute, inside a non-root active group ───────────
-        self._menu_add_export_section(menu, items, comp_id, defn, clicked_pin)
+        out += self._ctx_export_options(comp_id, defn, clicked_pin)
+        return out
 
-    def _menu_add_export_section(
+    def _ctx_export_options(
         self,
-        menu: object,
-        items: dict[object, tuple[object, ...]],
         comp_id: uuid.UUID,
         defn: object,
         clicked_pin: int | None,
-    ) -> None:
-        from PySide6.QtWidgets import QMenu
-
+    ) -> list[ActionOption]:
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.domain.schematic.net import PinRef as _PinRef
 
-        assert isinstance(menu, QMenu)
         active_gid = self._current_group_id
         if active_gid == ROOT_GROUP_ID:
-            return
+            return []
         active_grp = self._session.layout.groups.get(active_gid)
         if active_grp is None:
-            return
+            return []
 
+        out: list[ActionOption] = []
         is_direct = comp_id in active_grp.component_ids
         reexport_children = [
             (cid, self._session.layout.groups[cid])
@@ -3611,50 +3591,54 @@ class SelectTool(_Tool):
         if is_direct or reexport_children:
             inst = self._session.instances.get(comp_id)
             refdes = inst.refdes if inst is not None else "?"
-            sm = menu.addMenu(f"{refdes} — export/unexport pins…")
-            act_all = sm.addAction("Export all pins")
-            items[act_all] = ("export_all_pins", active_gid)
-            act_auto = sm.addAction("Export auto (pins on external nets)")
-            items[act_auto] = ("export_auto_pins", active_gid)
-            act_clear = sm.addAction("Unexport all pins")
-            items[act_clear] = ("clear_all_pins", active_gid)
-            sm.addSeparator()
+            submenu = f"{refdes} — export/unexport pins…"
+            out.append(ActionOption(
+                action_id="select-tool.ctx.export_all_pins",
+                label="Export all pins", submenu=submenu,
+                data={"group_id": active_gid},
+            ))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.export_auto_pins",
+                label="Export auto (pins on external nets)", submenu=submenu,
+                data={"group_id": active_gid},
+            ))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.clear_all_pins",
+                label="Unexport all pins", submenu=submenu,
+                data={"group_id": active_gid},
+            ))
             if is_direct:
-                for act, data in self._build_pin_export_actions(
-                    sm, comp_id, defn, active_gid, active_grp, clicked_pin
-                ):
-                    items[act] = data
+                out += self._ctx_pin_export_options(
+                    submenu, comp_id, defn, active_gid, active_grp, clicked_pin
+                )
 
-        act_ar = menu.addAction("Autoroute group (internal connections)")
-        items[act_ar] = ("autoroute_group", active_gid)
+        out.append(ActionOption(
+            action_id="select-tool.ctx.autoroute_group",
+            label="Autoroute group (internal connections)",
+            data={"group_id": active_gid},
+        ))
+        return out
 
-    def _build_pin_export_actions(
+    def _ctx_pin_export_options(
         self,
-        sm: object,
+        submenu: str,
         comp_id: uuid.UUID,
         defn: object,
         active_gid: uuid.UUID,
         active_grp: ComponentGroup,
         clicked_pin: int | None,
-    ) -> list[tuple[object, tuple[object, ...]]]:
-        """Per-pin export/unexport actions for a directly-grouped component.
-
-        Adds one action per pin to submenu *sm* (preserving insertion order) and
-        returns the ``(action, menu-item-data)`` pairs for the caller to register.
-        """
-        from PySide6.QtWidgets import QMenu
-
+    ) -> list[ActionOption]:
+        """Per-pin export/unexport options for a directly-grouped component."""
         from protoboard.domain.layout.pad_conflict import (
             resolved_footprint_or_default,
         )
         from protoboard.domain.schematic.net import PinRef as _PinRef
 
-        assert isinstance(sm, QMenu)
         inst = self._session.instances.get(comp_id)
         fp = resolved_footprint_or_default(defn, inst)  # type: ignore[arg-type]
         pin_count = fp.pin_count()
         pin_names = defn.pin_names  # type: ignore[attr-defined]
-        out: list[tuple[object, tuple[object, ...]]] = []
+        out: list[ActionOption] = []
         for pin_num in range(1, pin_count + 1):
             ep = _PinRef(component_id=comp_id, pin_number=pin_num)
             pin_name = pin_names.get(pin_num, str(pin_num))
@@ -3665,28 +3649,27 @@ class SelectTool(_Tool):
                 if already
                 else f"  Export pin {pin_num} ({pin_name}){marker}"
             )
-            act = sm.addAction(label)
-            out.append((act, ("export_pin", active_gid, ep, already)))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.export_pin",
+                label=label, submenu=submenu,
+                data={"group_id": active_gid, "pin_ref": ep,
+                      "exported": already},
+            ))
         return out
 
-    def _menu_add_select_section(
+    def _ctx_select_options(
         self,
-        menu: object,
-        items: dict[object, tuple[object, ...]],
         comp_id: uuid.UUID | None,
         wire_id: uuid.UUID | None,
-    ) -> None:
-        """Select-by-net entries — promote the click to its whole net(s).
+    ) -> list[ActionOption]:
+        """Select-by-net options — promote the click to its whole net(s).
 
         Built on v2's :class:`SessionConnQuery` (click → net ids) +
         :class:`SessionNetSource` (net → member comp/wire ids).  Simpler than
         the legacy section (no name-based global-net exclusion, no physical-vs-
         logical split) but covers the common "select the rest of this net"."""
-        from PySide6.QtWidgets import QMenu
-
         from protoboard.gui.selection.queries import SessionConnQuery
 
-        assert isinstance(menu, QMenu)
         conn = SessionConnQuery(self._session)
         net_ids: list[uuid.UUID] = []
         if comp_id is not None:
@@ -3696,68 +3679,87 @@ class SelectTool(_Tool):
             if nid is not None:
                 net_ids = [nid]
         if not net_ids:
-            return
+            return []
 
-        menu.addSection("Select")
         nets = self._session.schematic.nets
 
         def _net_name(nid: uuid.UUID) -> str:
             n = nets.get(nid)
             return n.name if n is not None else str(nid)[:8]
 
+        group = "Select"
+        out: list[ActionOption] = []
         if len(net_ids) == 1:
             nid = net_ids[0]
-            act_c = menu.addAction(f"Components in net '{_net_name(nid)}'")
-            items[act_c] = ("select_net_components", (nid,))
-            act_w = menu.addAction(f"Wires of net '{_net_name(nid)}'")
-            items[act_w] = ("select_net_wires", (nid,))
-            act_b = menu.addAction(f"Wires + components of net '{_net_name(nid)}'")
-            items[act_b] = ("select_net_all", (nid,))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.select_net_components",
+                label=f"Components in net '{_net_name(nid)}'", group=group,
+                data={"net_ids": (nid,)},
+            ))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.select_net_wires",
+                label=f"Wires of net '{_net_name(nid)}'", group=group,
+                data={"net_ids": (nid,)},
+            ))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.select_net_all",
+                label=f"Wires + components of net '{_net_name(nid)}'",
+                group=group, data={"net_ids": (nid,)},
+            ))
         else:
             ids_t = tuple(net_ids)
-            act_c = menu.addAction("Components in same nets")
-            items[act_c] = ("select_net_components", ids_t)
-            act_w = menu.addAction("Wires of same nets")
-            items[act_w] = ("select_net_wires", ids_t)
-            act_b = menu.addAction("Wires + components of all nets")
-            items[act_b] = ("select_net_all", ids_t)
-            sm = menu.addMenu("Net…")
+            out.append(ActionOption(
+                action_id="select-tool.ctx.select_net_components",
+                label="Components in same nets", group=group,
+                data={"net_ids": ids_t},
+            ))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.select_net_wires",
+                label="Wires of same nets", group=group,
+                data={"net_ids": ids_t},
+            ))
+            out.append(ActionOption(
+                action_id="select-tool.ctx.select_net_all",
+                label="Wires + components of all nets", group=group,
+                data={"net_ids": ids_t},
+            ))
             for nid in net_ids:
-                act = sm.addAction(_net_name(nid))
-                items[act] = ("select_net_all", (nid,))
+                out.append(ActionOption(
+                    action_id="select-tool.ctx.select_net_all",
+                    label=_net_name(nid), group=group, submenu="Net…",
+                    data={"net_ids": (nid,)},
+                ))
+        return out
 
-    def _menu_add_highlight_section(
-        self, menu: object, items: dict[object, tuple[object, ...]]
-    ) -> None:
-        """Persistent-highlight entries — push the selection at strong dimming,
+    def _ctx_highlight_options(self) -> list[ActionOption]:
+        """Persistent-highlight options — push the selection at strong dimming,
         or clear an active persistent highlight."""
-        from PySide6.QtWidgets import QMenu
+        group = "Highlight"
+        return [
+            ActionOption(
+                action_id="select-tool.ctx.highlight_selection",
+                label="Highlight selection (Dimmed #2)", group=group,
+                data={"kind": "push"},
+            ),
+            ActionOption(
+                action_id="select-tool.ctx.clear_highlight",
+                label="Clear highlight", group=group,
+                enabled=self._session.highlight_stack.has_persistent(),
+                data={"kind": "clear"},
+            ),
+        ]
 
-        assert isinstance(menu, QMenu)
-        menu.addSection("Highlight")
-        act_hl = menu.addAction("Highlight selection (Dimmed #2)")
-        items[act_hl] = ("highlight_selection",)
-        act_clear = menu.addAction("Clear highlight")
-        items[act_clear] = ("clear_highlight",)
-        act_clear.setEnabled(self._session.highlight_stack.has_persistent())
-
-    def _menu_add_wire_section(
-        self,
-        menu: object,
-        items: dict[object, tuple[object, ...]],
-        wire_id: uuid.UUID | None,
-    ) -> None:
-        """Wire mutation entries — bare/insulated, side, flip, simplify,
+    def _ctx_wire_options(
+        self, wire_id: uuid.UUID | None
+    ) -> list[ActionOption]:
+        """Wire mutation options — bare/insulated, side, flip, simplify,
         optimize, unweave, merge.  Mirrors the legacy wire section; the
         underlying helpers already exist on v2."""
-        from PySide6.QtWidgets import QMenu
-
-        assert isinstance(menu, QMenu)
         if wire_id is None:
-            return
+            return []
         wire = self._wire_by_id(wire_id)
         if wire is None:
-            return
+            return []
 
         # Operate on the multi-selection when the clicked wire is part of it.
         effective = set(self._selected_wire_ids)
@@ -3766,56 +3768,82 @@ class SelectTool(_Tool):
         )
         n = len(target_ids)
         ins_label = "insulated" if wire.insulated else "bare"
-        menu.addSection(
-            f"Wire{'s (' + str(n) + ')' if n > 1 else ''} — {ins_label}, {wire.side}"
+        group = (
+            f"Wire{'s (' + str(n) + ')' if n > 1 else ''}"
+            f" — {ins_label}, {wire.side}"
         )
+        wires = frozenset(target_ids)
+        out: list[ActionOption] = []
 
         if wire.insulated:
-            act = menu.addAction("Set bare (no insulation)")
-            items[act] = ("wire_insulated", target_ids, False)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.wire_insulated",
+                label="Set bare (no insulation)", group=group,
+                data={"wire_ids": wires, "insulated": False},
+            ))
         else:
-            act = menu.addAction("Set insulated (add insulation jacket)")
-            items[act] = ("wire_insulated", target_ids, True)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.wire_insulated",
+                label="Set insulated (add insulation jacket)", group=group,
+                data={"wire_ids": wires, "insulated": True},
+            ))
 
         other_side = "bottom" if wire.side == "top" else "top"
-        act_side = menu.addAction(f"Move to {other_side} layer")
-        items[act_side] = ("wire_side", target_ids, other_side)
+        out.append(ActionOption(
+            action_id="select-tool.ctx.wire_side",
+            label=f"Move to {other_side} layer", group=group,
+            data={"wire_ids": wires, "side": other_side},
+        ))
 
         if (
             wire.id in target_ids and len(target_ids) == 1
             and self._is_editing_wire()
         ):
-            act_flip = menu.addAction(f"Flip fragment to {other_side} layer  [F]")
-            items[act_flip] = ("flip_fragment", other_side)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.flip_fragment",
+                label=f"Flip fragment to {other_side} layer  [F]", group=group,
+                data={"side": other_side},
+            ))
 
-        act_simplify = menu.addAction(
-            f"Simplify wire{' paths' if n > 1 else ' path'}"
-        )
-        items[act_simplify] = ("simplify_wire", target_ids, None)
-        sm_simplify = menu.addMenu("Simplify with mode")
-        act_cheb = sm_simplify.addAction("Chebyshev (shortcut via diag)")
-        items[act_cheb] = ("simplify_wire", target_ids, "chebyshev")
-        act_parity = sm_simplify.addAction("Bare-parity (respect anti-short rule)")
-        items[act_parity] = ("simplify_wire", target_ids, "bare_parity")
+        out.append(ActionOption(
+            action_id="select-tool.ctx.simplify_wire",
+            label=f"Simplify wire{' paths' if n > 1 else ' path'}", group=group,
+            data={"wire_ids": wires, "mode": None},
+        ))
+        out.append(ActionOption(
+            action_id="select-tool.ctx.simplify_wire",
+            label="Chebyshev (shortcut via diag)", group=group,
+            submenu="Simplify with mode",
+            data={"wire_ids": wires, "mode": "chebyshev"},
+        ))
+        out.append(ActionOption(
+            action_id="select-tool.ctx.simplify_wire",
+            label="Bare-parity (respect anti-short rule)", group=group,
+            submenu="Simplify with mode",
+            data={"wire_ids": wires, "mode": "bare_parity"},
+        ))
 
         # Optimize-with: one entry per registered plugin (minus built-in simplify).
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
         from protoboard.services.routing.optimizer import registry as _opt_registry
 
-        opt_names = [n for n in _opt_registry.list_available() if n != "simplify"]
-        if opt_names:
-            sm_opt = menu.addMenu("Optimize with…")
-            for opt_name in opt_names:
-                opt = _opt_registry.get(opt_name)
-                act = sm_opt.addAction(getattr(opt, "display_name", opt_name))
-                caps = opt.capabilities()
-                if caps.notes:
-                    act.setToolTip(caps.notes)
-                items[act] = ("optimize_with", target_ids, opt_name)
+        opt_names = [o for o in _opt_registry.list_available() if o != "simplify"]
+        for opt_name in opt_names:
+            opt = _opt_registry.get(opt_name)
+            caps = opt.capabilities()
+            out.append(ActionOption(
+                action_id="select-tool.ctx.optimize_with",
+                label=getattr(opt, "display_name", opt_name), group=group,
+                submenu="Optimize with…", tooltip=caps.notes or "",
+                data={"wire_ids": wires, "optimizer": opt_name},
+            ))
 
         if n >= 2:
-            act_unweave = menu.addAction(f"Unweave {n} wires (topological)")
-            items[act_unweave] = ("unweave_wires", target_ids)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.unweave_wires",
+                label=f"Unweave {n} wires (topological)", group=group,
+                data={"wire_ids": wires},
+            ))
 
         mergeable = [
             w for w in self._session.layout.wires
@@ -3826,31 +3854,37 @@ class SelectTool(_Tool):
                 f"Merge same-side fragments"
                 f"{' (' + str(len(mergeable)) + ' wires)' if len(mergeable) > 1 else ''}"
             )
-            act_merge = menu.addAction(label)
-            items[act_merge] = ("merge_wire_fragments", target_ids)
+            out.append(ActionOption(
+                action_id="select-tool.ctx.merge_wire_fragments",
+                label=label, group=group,
+                data={"wire_ids": wires},
+            ))
+        return out
 
-    def _menu_dispatch(
-        self, data: tuple[object, ...], scene_pt: Point
+    def perform_context_action(
+        self, action_id: str, data: Mapping[str, object]
     ) -> None:
-        """Run the action encoded in a menu item's *data* tuple."""
+        """Run a parameterised option this tool published in its context.
+
+        The dispatch counterpart of :meth:`build_context` — same ladder the
+        old QMenu data-tuples drove, keyed by the option's ``action_id`` with
+        the structural payload in *data* (qt-ports §2.4, variant 1).
+        """
         from typing import cast
 
-        action = data[0]
-        if action == "view_center":
-            self._view.center_on_scene_point(cast("Point", data[1]))
-        elif action == "view_escape":
-            self._view.escape_to_select()
-        elif action == "lock":
+        action = action_id.removeprefix("select-tool.ctx.")
+        if action == "lock":
             self._menu_lock(
-                cast("set[uuid.UUID]", data[1]), cast(bool, data[2])
+                set(cast("frozenset[uuid.UUID]", data["component_ids"])),
+                cast(bool, data["locked"]),
             )
         elif action == "assign_pin":
             self._menu_assign_pin(
-                cast("uuid.UUID", data[1]), cast(int, data[2])
+                cast("uuid.UUID", data["component_id"]), cast(int, data["pin"])
             )
         elif action == "disconnect_pin":
             self._menu_disconnect_pin(
-                cast("uuid.UUID", data[1]), cast(int, data[2])
+                cast("uuid.UUID", data["component_id"]), cast(int, data["pin"])
             )
         elif action in (
             "export_pin", "export_all_pins", "export_auto_pins", "clear_all_pins"
@@ -3862,7 +3896,7 @@ class SelectTool(_Tool):
             "select_net_components", "select_net_wires", "select_net_all"
         ):
             self._menu_select_net(
-                action, cast("tuple[uuid.UUID, ...]", data[1])
+                action, cast("tuple[uuid.UUID, ...]", data["net_ids"])
             )
         elif action == "highlight_selection":
             self._menu_highlight_selection()
@@ -3870,30 +3904,37 @@ class SelectTool(_Tool):
             self._session.highlight_stack.clear()
         elif action == "wire_insulated":
             self._menu_set_wire_insulated(
-                cast("set[uuid.UUID]", data[1]), cast(bool, data[2])
+                set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
+                cast(bool, data["insulated"]),
             )
         elif action == "wire_side":
             self._menu_set_wire_side(
-                cast("set[uuid.UUID]", data[1]), cast(str, data[2])
+                set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
+                cast(str, data["side"]),
             )
         elif action == "component_side":
-            self._menu_flip_component_side(cast("uuid.UUID", data[1]))
+            self._menu_flip_component_side(
+                cast("uuid.UUID", data["component_id"])
+            )
         elif action == "flip_fragment":
-            self._flip_wire_fragment(cast("str", data[1]))
+            self._flip_wire_fragment(cast(str, data["side"]))
         elif action == "simplify_wire":
             self._simplify_wires(
-                cast("set[uuid.UUID]", data[1]),
-                mode_override=cast("str | None", data[2]),
+                set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
+                mode_override=cast("str | None", data["mode"]),
             )
         elif action == "optimize_with":
             self._optimize_selected_wires(
-                cast("set[uuid.UUID]", data[1]), cast(str, data[2])
+                set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
+                cast(str, data["optimizer"]),
             )
         elif action == "unweave_wires":
-            self._unweave_wires(cast("set[uuid.UUID]", data[1]))
+            self._unweave_wires(
+                set(cast("frozenset[uuid.UUID]", data["wire_ids"]))
+            )
         elif action == "merge_wire_fragments":
             self._merge_wires_and_fragments(
-                frozenset(cast("set[uuid.UUID]", data[1]))
+                frozenset(cast("frozenset[uuid.UUID]", data["wire_ids"]))
             )
 
     def _menu_set_wire_insulated(
@@ -4007,20 +4048,20 @@ class SelectTool(_Tool):
         )
         self._session.layout_changed.emit()
 
-    def _menu_export(self, action: object, data: tuple[object, ...]) -> None:
+    def _menu_export(self, action: str, data: Mapping[str, object]) -> None:
         from typing import cast
 
         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
         from protoboard.domain.schematic.net import PinRef
 
-        group_id = cast("uuid.UUID", data[1])
+        group_id = cast("uuid.UUID", data["group_id"])
         grp = self._session.layout.groups.get(group_id)
         if grp is None:
             return
         new_exported: frozenset[PinRef]
         if action == "export_pin":
-            ep = cast(PinRef, data[2])
-            already = cast(bool, data[3])
+            ep = cast(PinRef, data["pin_ref"])
+            already = cast(bool, data["exported"])
             new_exported = (
                 grp.exported_pins - {ep} if already
                 else grp.exported_pins | {ep}

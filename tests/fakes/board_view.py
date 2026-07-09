@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, cast
 
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.gui.layer_state import LayerOverrides, LayerState
-from protoboard.gui.ports import InteractionContext, StatusEvent
+from protoboard.gui.ports import (
+    HelpOverlayPort,
+    InteractionContext,
+    StatusEvent,
+    ViewportPort,
+)
 from protoboard.gui.ports.viewport import CursorKind, ScreenMetrics
 from protoboard.gui.ports.viewport_details import CameraMath
 from protoboard.gui.theme import DEFAULT_THEME, Theme
@@ -120,7 +125,7 @@ class _HighlightRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
 
-    def __getattr__(self, name: str):  # noqa: ANN204 — recorder catch-all
+    def __getattr__(self, name: str) -> object:
         def _record(*args: object, **kwargs: object) -> None:
             self.calls.append((name, args))
         return _record
@@ -157,8 +162,10 @@ class HeadlessBoardView:
         self.outline_overrides: list[str | None] = []
         self.clicked_free_pads: list[Point | None] = []
 
-        self.viewport_port = FakeViewport()
-        self.help_overlay = FakeHelpOverlay()
+        # Annotated with the port protocols — Protocol attributes are
+        # invariant, so the concrete fake types would fail conformance.
+        self.viewport_port: ViewportPort = FakeViewport()
+        self.help_overlay: HelpOverlayPort = FakeHelpOverlay()
         self.highlight = cast("HighlightRenderer", _HighlightRecorder())
         self.paint = cast("PaintPipeline", _HighlightRecorder())
         self.composer = cast("SceneComposer", _HighlightRecorder())
@@ -278,6 +285,12 @@ class HeadlessBoardView:
 
     def trigger_tool_action(self, action_id: str) -> None:
         self.tools.trigger_tool_action(action_id)
+
+    def perform_context_action(self, option: object) -> None:
+        from protoboard.gui.ports import ActionOption
+
+        assert isinstance(option, ActionOption)
+        self.tools.perform_context_action(option)
 
     # -- highlight / overlay API ---------------------------------------------------
 

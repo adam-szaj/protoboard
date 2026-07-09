@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from protoboard.geometry import Point
     from protoboard.gui.ports import (
+        ActionOption,
         HelpOverlayPort,
         InteractionContext,
         KeyInput,
@@ -203,6 +204,14 @@ class AbstractBoardView(Protocol):
     def notify_context(self, ctx: InteractionContext) -> None:
         """Publish an interaction context (RMB) for the consumer to render."""
 
+    def perform_context_action(self, option: ActionOption) -> None:
+        """Execute a chosen context option (qt-ports §2.4, variant 1).
+
+        Plain options route through ``trigger_tool_action`` (synthesised-key
+        parity); parameterised ones reach the active tool's
+        ``perform_context_action(action_id, data)``.
+        """
+
     def escape_to_select(self) -> None:
         """Ask the application to leave the current tool for Select."""
 
@@ -317,6 +326,17 @@ class BoardViewTool(ABC):
     @abstractmethod
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
+
+    @abstractmethod
+    def perform_context_action(
+        self, action_id: str, data: Mapping[str, object]
+    ) -> None:
+        """Execute a parameterised context-menu action this tool published.
+
+        *data* is the ``ActionOption.data`` payload the tool itself built in
+        its context query — the dispatch counterpart of the old QMenu
+        data-tuple ladder.  Default: no-op.
+        """
 
 
 class _Tool(BoardViewTool):
@@ -505,4 +525,12 @@ class _Tool(BoardViewTool):
     @traced()
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
+        pass
+
+    @override
+    @traced()
+    def perform_context_action(
+        self, action_id: str, data: Mapping[str, object]
+    ) -> None:
+        """Execute a parameterised context action.  Default: no-op."""
         pass

@@ -2173,46 +2173,49 @@ class TestNetContext:
 
 
 class TestContextMenu:
-    """Right-click rebuilds the unified item-aware menu (bug #2 regression).
+    """Right-click publishes the unified item-aware context (bug #2 regression).
 
     The v2 swap left only BoardView's generic tool-action menu; the item-aware
-    sections (wire ops, lock, assign/disconnect, select-by-net, highlight) were
-    gone.  We inspect the built menu's action→data map directly — QMenu.exec is
-    un-mockable in PySide6, so on_right_press is not driven headless.
+    sections (wire ops, lock, assign/disconnect, select-by-net, highlight)
+    were gone.  We inspect ``build_context``'s InteractionContext directly and
+    simulate the choice with ``perform_context_action`` — no QMenu, no exec
+    (qt-ports §2.4, variant 1).
     """
 
     @staticmethod
-    def _menu_datas(tool, x: float, y: float):  # type: ignore[no-untyped-def]
-        from PySide6.QtCore import QPointF
+    def _options(tool, x: float, y: float):  # type: ignore[no-untyped-def]
+        ctx = tool.build_context(Point(x, y), Point(0.0, 0.0))
+        assert ctx is not None, "expected a context over an item"
+        return list(ctx.actions)
 
-        built = tool._build_context_menu(Point(x, y))
-        assert built is not None, "expected a menu over an item"
-        _menu, items = built
-        return list(items.values())
+    @classmethod
+    def _ids(cls, tool, x: float, y: float) -> set:  # type: ignore[no-untyped-def]
+        return {
+            o.action_id.removeprefix("select-tool.ctx.")
+            for o in cls._options(tool, x, y)
+        }
 
-    def test_empty_canvas_returns_no_menu(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
+    @staticmethod
+    def _run(tool, option) -> None:  # type: ignore[no-untyped-def]
+        tool.perform_context_action(option.action_id, option.data)
 
+    def test_empty_canvas_returns_no_context(self, qtbot) -> None:
         _session, view = _wire_session(qtbot)
         tool = _v2(view)
-        # Far from any wire/component → no item menu (BoardView falls back).
-        assert tool._build_context_menu(Point(15.0, 15.0)) is None
+        # Far from any wire/component → no item context (falls back to the
+        # generic canvas context).
+        assert tool.build_context(Point(15.0, 15.0), Point(0.0, 0.0)) is None
 
     def test_wire_section_present_over_wire(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        actions = {d[0] for d in self._menu_datas(tool, 2.5, 1.5)}
-        # Wire-mutation entries + universal view section are all present.
+        actions = self._ids(tool, 2.5, 1.5)
         assert "wire_insulated" in actions
         assert "wire_side" in actions
         assert "simplify_wire" in actions
-        assert "view_center" in actions
-        assert "view_escape" in actions
 
     def test_wire_side_action_executes(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
-
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
@@ -2220,10 +2223,11 @@ class TestContextMenu:
         side_before = wire.side
         depth = _depth(session)
 
-        data = next(
-            d for d in self._menu_datas(tool, 2.5, 1.5) if d[0] == "wire_side"
+        opt = next(
+            o for o in self._options(tool, 2.5, 1.5)
+            if o.action_id == "select-tool.ctx.wire_side"
         )
-        tool._menu_dispatch(data, Point(2.5, 1.5))
+        self._run(tool, opt)
 
         assert _depth(session) == depth + 1  # a command ran
         wire_after = next(iter(session.layout.wires))
@@ -2232,38 +2236,36 @@ class TestContextMenu:
     def test_component_side_action_present_and_executes(
         self, board_view, session
     ) -> None:
-        from PySide6.QtCore import QPointF
-
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         _press(tool, 0.5, 0.5)  # select the component
         side_before = session.layout.placements[inst.id].side
         depth = _depth(session)
 
-        datas = self._menu_datas(tool, 0.5, 0.5)
-        assert any(d[0] == "component_side" for d in datas)
-        data = next(d for d in datas if d[0] == "component_side")
-        tool._menu_dispatch(data, Point(0.5, 0.5))
+        opts = self._options(tool, 0.5, 0.5)
+        opt = next(
+            o for o in opts
+            if o.action_id == "select-tool.ctx.component_side"
+        )
+        self._run(tool, opt)
 
         assert _depth(session) == depth + 1  # a command ran
         assert session.layout.placements[inst.id].side != side_before
 
-    def test_tool_actions_added_to_menu(self, qtbot) -> None:
-        """The menu augments — it carries the tool's own action shortcuts too."""
-        from PySide6.QtCore import QPointF
-        from PySide6.QtWidgets import QMenu
-
+    def test_tool_actions_in_context(self, qtbot) -> None:
+        """The context augments — the tool's own action shortcuts ride along."""
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        built = tool._build_context_menu(Point(2.5, 1.5))
-        assert built is not None
-        menu, items = built
-        assert isinstance(menu, QMenu)
-        # More QActions exist than the data-carrying ones we dispatch on —
-        # the extra ones are the tool-action section (augmentation).
-        all_actions = [a for a in menu.actions() if not a.isSeparator()]
-        assert len(all_actions) > len(items)
+        opts = self._options(tool, 2.5, 1.5)
+        generic = [
+            o for o in opts if o.action_id.startswith("select-tool.action.")
+        ]
+        parameterised = [o for o in opts if o.data]
+        assert generic, "generic tool-action section missing"
+        assert parameterised, "item-aware entries missing"
+        # Generic entries carry live shortcut hints (KeyMap-resolved).
+        assert any(o.shortcut_hint for o in generic)
 
     def test_component_lock_and_pin_entries(self, qtbot) -> None:
         """Over a component: lock + clicked-pin assign/disconnect appear."""
@@ -2273,14 +2275,12 @@ class TestContextMenu:
         # X1 is a 1-pin component at (1.5, 1.5), pin 1 bound to the wire's net.
         inst = next(iter(session.instances.values()))
         tool._select_primary(inst.id)
-        actions = {d[0] for d in self._menu_datas(tool, 1.5, 1.5)}
+        actions = self._ids(tool, 1.5, 1.5)
         assert "lock" in actions
         assert "assign_pin" in actions  # pin under cursor → assign offered
         assert "disconnect_pin" in actions  # pin 1 is netted → disconnect offered
 
     def test_lock_action_executes(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
-
         session, view = _wire_session(qtbot)
         view.refresh()
         tool = _v2(view)
@@ -2289,17 +2289,16 @@ class TestContextMenu:
         assert not session.layout.placements[inst.id].locked
         depth = _depth(session)
 
-        data = next(
-            d for d in self._menu_datas(tool, 1.5, 1.5) if d[0] == "lock"
+        opt = next(
+            o for o in self._options(tool, 1.5, 1.5)
+            if o.action_id == "select-tool.ctx.lock"
         )
-        tool._menu_dispatch(data, Point(1.5, 1.5))
+        self._run(tool, opt)
 
         assert _depth(session) == depth + 1
         assert session.layout.placements[inst.id].locked
 
     def test_disconnect_pin_executes(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
-
         from protoboard.domain.schematic.net import PinRef
 
         session, view = _wire_session(qtbot)
@@ -2310,25 +2309,24 @@ class TestContextMenu:
         ref = PinRef(component_id=inst.id, pin_number=1)
         assert session.schematic.net_for_pin(ref) is not None  # netted first
 
-        data = next(
-            d for d in self._menu_datas(tool, 1.5, 1.5) if d[0] == "disconnect_pin"
+        opt = next(
+            o for o in self._options(tool, 1.5, 1.5)
+            if o.action_id == "select-tool.ctx.disconnect_pin"
         )
-        tool._menu_dispatch(data, Point(1.5, 1.5))
+        self._run(tool, opt)
         assert session.schematic.net_for_pin(ref) is None  # now disconnected
 
     def test_select_section_present_over_wire(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        actions = {d[0] for d in self._menu_datas(tool, 2.5, 1.5)}
+        actions = self._ids(tool, 2.5, 1.5)
         # The wire is on a net → select-by-net entries appear.
         assert "select_net_components" in actions
         assert "select_net_wires" in actions
         assert "select_net_all" in actions
 
     def test_select_net_wires_promotes_selection(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
-
         session, view = _wire_session(qtbot)
         view.refresh()
         tool = _v2(view)
@@ -2337,34 +2335,44 @@ class TestContextMenu:
         tool._select_primary(inst.id)
         wire = next(iter(session.layout.wires))
 
-        data = next(
-            d for d in self._menu_datas(tool, 1.5, 1.5)
-            if d[0] == "select_net_wires"
+        opt = next(
+            o for o in self._options(tool, 1.5, 1.5)
+            if o.action_id == "select-tool.ctx.select_net_wires"
         )
-        tool._menu_dispatch(data, Point(1.5, 1.5))
+        self._run(tool, opt)
         assert wire.id in tool._selected_wire_ids
 
     def test_highlight_section_and_push(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
-
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        actions = {d[0] for d in self._menu_datas(tool, 2.5, 1.5)}
+        actions = self._ids(tool, 2.5, 1.5)
         assert "highlight_selection" in actions
         assert "clear_highlight" in actions
 
         assert not session.highlight_stack.has_persistent()
-        data = next(
-            d for d in self._menu_datas(tool, 2.5, 1.5)
-            if d[0] == "highlight_selection"
+        opt = next(
+            o for o in self._options(tool, 2.5, 1.5)
+            if o.action_id == "select-tool.ctx.highlight_selection"
         )
-        tool._menu_dispatch(data, Point(2.5, 1.5))
+        self._run(tool, opt)
         assert session.highlight_stack.has_persistent()  # selection spotlit
 
         # Clear removes it.
-        tool._menu_dispatch(("clear_highlight",), Point(2.5, 1.5))
+        tool.perform_context_action(
+            "select-tool.ctx.clear_highlight", {"kind": "clear"}
+        )
         assert not session.highlight_stack.has_persistent()
+
+    def test_right_press_publishes_context(self, qtbot) -> None:
+        """RMB over an item → notify_context (no menu behind the seam)."""
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        seen: list[object] = []
+        view.context_published.connect(seen.append)
+        assert tool.on_right_press(Point(2.5, 1.5), Point(10.0, 10.0)) is True
+        assert len(seen) == 1
 
 
 class TestDeleteSelectedWire:

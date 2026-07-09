@@ -241,13 +241,12 @@ class TestShortcutsHelp:
         # The rebound key, not the default, is shown.
         assert ">Q<" in ov.text() or "<code>Q</code>" in ov.text()
 
-    def test_tool_action_menu_items(self, board_view: BoardView) -> None:
-        from PySide6.QtWidgets import QMenu
+    def test_tool_action_context_items(self, board_view: BoardView) -> None:
+        # The tool-action section now travels as InteractionContext options
+        # (qt-ports §2.4) — same content the old QMenu section carried.
         board_view.set_tool(SelectTool())
-        menu = QMenu()
-        items = board_view._add_tool_action_menu(menu)
-        # Maps QAction -> action_id for each declared SelectTool action.
-        ids = set(items.values())
+        ctx = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
+        ids = {o.action_id for o in ctx.actions}
         assert "select-tool.action.reroute" in ids
         assert "select-tool.action.edit" in ids
 

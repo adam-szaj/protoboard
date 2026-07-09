@@ -3180,21 +3180,37 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QMenu
 
+        from protoboard.gui.ports import ActionOption
+
         view = self._board_view
         menu = QMenu(view)
-        by_action: dict[object, str] = {}
+        by_action: dict[object, ActionOption] = {}
         group: str | None = None
+        submenus: dict[tuple[str, str], QMenu] = {}
         for opt in ctx.actions:
-            if opt.group and opt.group != group:
-                menu.addSection(opt.group)
+            if opt.group != group:
+                if opt.group:
+                    menu.addSection(opt.group)
+                else:
+                    menu.addSeparator()
                 group = opt.group
+            parent = menu
+            if opt.submenu:
+                key = (opt.group, opt.submenu)
+                sub = submenus.get(key)
+                if sub is None:
+                    sub = menu.addMenu(opt.submenu)
+                    submenus[key] = sub
+                parent = sub
             text = (
                 f"{opt.label}\t{opt.shortcut_hint}" if opt.shortcut_hint
                 else opt.label
             )
-            act = menu.addAction(text)
+            act = parent.addAction(text)
             act.setEnabled(opt.enabled)
-            by_action[act] = opt.action_id
+            if opt.tooltip:
+                act.setToolTip(opt.tooltip)
+            by_action[act] = opt
         if ctx.actions:
             menu.addSeparator()
         act_center = menu.addAction("Center view here")
@@ -3209,7 +3225,7 @@ class MainWindow(QMainWindow):
         elif chosen is act_escape:
             self._tool_select()
         elif chosen in by_action:
-            view.trigger_tool_action(by_action[chosen])
+            view.perform_context_action(by_action[chosen])
 
     def _on_view_status(self, event: StatusEvent) -> None:
         """Render a view-surface status notification on the status bar.

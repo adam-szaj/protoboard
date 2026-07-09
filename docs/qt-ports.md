@@ -462,7 +462,9 @@ total, partial ticks round to ±1) and deliberately stays as-is;
 per-tool overlay of exactly the §3 kind, not seam surface.  Phase 5 landed
 for the *generic* canvas menu; SelectTool's item-aware RMB menu stays
 in-tool (parameterised data-tuple entries are not expressible as plain
-action-ids — parity nuance (b) is real; see todo.md).  Phase 6: the
+action-ids — closed later the same day by extending ``ActionOption`` with a
+structural ``data`` Mapping + ``perform_context_action`` on the seam,
+variant approved by the user).  Phase 6: the
 Protocol keeps two sanctioned Qt touchpoints — ``scene()`` (per D1) and
 ``window()`` (dialog parenting, D4 debt); phase 7 (semantic previews,
 ExecutorPort, dialog prompts) remains optional/per-tool per §3 and todo.md.
