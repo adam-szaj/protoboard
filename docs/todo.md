@@ -19,10 +19,10 @@ if the ports-only refactor proceeds, these pieces are deliberately deferred:
   SelectTool's `_menu_autoroute_group` reaching `window()._group_autoroute`
   (async launch from behind the seam — separate design: completion-callback
   job or a structural notification to MainWindow).
-- **Semantic per-tool preview objects** (the `rubber_band_controller.DrawFn`
-  / `drag_conflict_overlay` pattern) replacing the tools' ~35 direct
-  `scene()` transient-item sites — optional polish, per tool, on demand
-  (route → place → simplify → select, hardest last).
+- ~~**Semantic per-tool preview objects**~~ SHIPPED 2026-07-09 for all four
+  tools (`route_preview.py`, `place_preview.py`, `simplify_preview.py`,
+  `select_preview.py`; qt-ports.md §3 updated). Only `DragCornerText`'s two
+  scene-handle pass-throughs remain in SelectTool (already the pattern).
 - **`selectable.draw_highlight -> list[QGraphicsItem]`** return-type opacity —
   acceptable as TYPE_CHECKING-only today; tighten to an opaque handle only if
   a headless consumer appears.

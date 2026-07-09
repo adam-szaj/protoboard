@@ -378,16 +378,23 @@ applications here:
 
 ## 3. Deliberately rejected / deferred
 
-- **Generic `ScenePort` — rejected.** The heavy scene consumers (composer,
-  highlight renderer, paint pipeline) stay Qt-side by design; a port for the
-  tools' ~35 transient-item sites would grow a drawing vocabulary (pens,
-  ellipses, Z values) — a bad re-implementation of QPainter at the wrong
-  altitude, endangering the perf invariants. The repo already has the right
-  pattern twice (`rubber_band_controller.DrawFn`, `drag_conflict_overlay`,
-  `drag_corner_text`): **semantic per-tool preview objects**
-  (`RoutePreview.show_live_segment(a, b)`, `.clear()`), Qt concretions
-  injected at tool construction, fakes recording semantic calls. Extraction
-  is optional polish, per tool, on demand.
+- **Generic `ScenePort` — rejected; semantic previews SHIPPED 2026-07-09.**
+  The heavy scene consumers (composer, highlight renderer, paint pipeline)
+  stay Qt-side by design; a port for the tools' ~35 transient-item sites
+  would grow a drawing vocabulary (pens, ellipses, Z values) — a bad
+  re-implementation of QPainter at the wrong altitude, endangering the perf
+  invariants. The **semantic per-tool preview objects** shipped instead
+  (route → place → simplify → select): `gui/tools/route_preview.py`
+  (segments/live/hints/dim), `place_preview.py` (ghost + reach overlay),
+  `simplify_preview.py` (draft polyline), `select_preview.py` (pivots, band,
+  redrag, wire-edit, reroute — five item-owning classes behind one
+  `QtSelectPreview` facade). Qt concretions are built on `activate()` from
+  `view.scene` (a constructor-injected preview survives re-activation, for
+  recorders); policy stays in the tool, mechanism in the preview. The only
+  tool-side `scene()` calls left pass the handle to `DragCornerText`
+  (already this pattern). `scene()` stays a sanctioned Protocol touchpoint
+  (D1) — the previews and a headless double's real `QGraphicsScene` both
+  rely on it.
 - **`ExecutorPort` — SHIPPED 2026-07-09.** Workers (`gui/workers/`) already
   isolate compute behind immutable snapshots (`RouteRequest`,
   `SimplifyInputs`); only `operation_worker`'s QProgressDialog+QEventLoop

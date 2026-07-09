@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — semantic per-tool preview objects (2026-07-09)
+
+* **The tools' transient-item drawing left the tool bodies** (qt-ports §3;
+  the `DragConflictOverlay`/`DragCornerText` pattern, per tool in the
+  planned order route → place → simplify → select):
+  - `gui/tools/route_preview.py` — committed segments, live dashed segment,
+    routing hints, route-active background dim;
+  - `gui/tools/place_preview.py` — the placement ghost (built via
+    `make_ghost_item`, content passed as arguments) + the reach overlay
+    (green dots, dashed feedback line);
+  - `gui/tools/simplify_preview.py` — the Shift+LPM draft polyline;
+  - `gui/tools/select_preview.py` — five item-owning classes (armed-rotate
+    pivot markers, rubber band, re-drag landing overlay, wire-edit fragment
+    overlay, reroute waypoint preview) behind one `QtSelectPreview` facade.
+* Each tool accepts an injected preview (constructor arg, survives
+  re-activation — the seam for recording fakes); the default Qt concretion
+  binds `view.scene` on `activate()`.  Policy (which pads are feasible,
+  which vertices are marked, ghost content) stays in the tool; only the
+  `QGraphicsItem` mechanism moved.  Pens/brushes/Z-values moved verbatim —
+  no visual delta.
+* SelectTool keeps exactly two `scene()` calls, both passing the handle to
+  `DragCornerText` (deliberately kept, qt-ports.md §3); parity preserved:
+  `on_scene_cleared` drops band/wire-edit/reroute/pivot refs but (as
+  before) not the re-drag ones.
+* Tests repointed from tool item fields (`_committed_lines`, `_ghost`,
+  `_draft_items`, `_pivot_marker_items`, `_redrag_items`) to the previews'
+  state; full GUI suite green (1310).
+
 ### Qt ports — ExecutorPort (2026-07-09)
 
 * **Blocking worker jobs go behind the seam** (todo.md plan, approved
