@@ -29,7 +29,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
 
@@ -37,7 +37,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.ports import LEFT_BUTTON, PointerInput, StatusEvent
+from protoboard.gui.ports import LEFT_BUTTON, PointerInput, StatusEvent, WheelInput
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
@@ -51,7 +51,7 @@ _log = structlog.get_logger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
+    from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.domain.components.definition import ComponentDefinition
@@ -2892,7 +2892,7 @@ class SelectTool(_Tool):
         }
 
     def mouse_dispatch(self) -> tuple[
-        tuple[str, Callable[[QMouseEvent | QWheelEvent, QPointF | None], bool]],
+        tuple[str, Callable[[PointerInput | WheelInput], bool]],
         ...,
     ]:
         return (
@@ -2900,33 +2900,27 @@ class SelectTool(_Tool):
             (_ACT_CONTEXT_MENU, self._mouse_context_menu),
         )
 
-    def _mouse_wheel_rotate(
-        self, event: QMouseEvent | QWheelEvent, _scene_pt: QPointF | None
-    ) -> bool:
-        from PySide6.QtGui import QWheelEvent as _QWheelEvent
-        if not isinstance(event, _QWheelEvent) or not self.wants_wheel(event):
+    def _mouse_wheel_rotate(self, inp: PointerInput | WheelInput) -> bool:
+        if not isinstance(inp, WheelInput) or not self.wants_wheel(inp):
             return False  # not armed → the chord falls through to zoom
-        self.on_wheel(event)
+        self.on_wheel(inp)
         return True
 
-    def _mouse_context_menu(
-        self, event: QMouseEvent | QWheelEvent, scene_pt: QPointF | None
-    ) -> bool:
-        from PySide6.QtGui import QMouseEvent as _QMouseEvent
-        if not isinstance(event, _QMouseEvent) or scene_pt is None:
+    def _mouse_context_menu(self, inp: PointerInput | WheelInput) -> bool:
+        if not isinstance(inp, PointerInput):
             return False
         # False on empty canvas → falls through to the generic canvas menu.
-        return self.on_right_press(Point(scene_pt.x(), scene_pt.y()))
+        return self.on_right_press(inp.scene_pos)
 
-    def wants_wheel(self, event: QWheelEvent) -> bool:
+    def wants_wheel(self, inp: WheelInput) -> bool:
         """Claim the wheel only when the armed sub-tool consumes it (rotate)."""
-        return self._armed is not None and self._armed.wants_wheel(event)
+        return self._armed is not None and self._armed.wants_wheel(inp)
 
-    def on_wheel(self, event: QWheelEvent) -> None:
+    def on_wheel(self, inp: WheelInput) -> None:
         """Route a wheel tick to the armed sub-tool (it steps / declines)."""
         if self._armed is None:
             return
-        if self._armed.on_wheel(event) and self._armed.finished:
+        if self._armed.on_wheel(inp) and self._armed.finished:
             self._disarm()
 
     # -- rotate / flip ------------------------------------------------------

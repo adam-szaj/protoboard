@@ -38,9 +38,11 @@ from protoboard.domain.layout.placement import (
         PlacementMap,
     )
 from protoboard.geometry import Point, Vector
+from protoboard.gui.ports import WheelInput
+from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QKeyEvent, QWheelEvent
+    from PySide6.QtGui import QKeyEvent
 
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.layout.layout import Layout
@@ -56,9 +58,6 @@ if TYPE_CHECKING:
     StatusFn = Callable[[str], None]
     Matcher = Callable[["QKeyEvent", str], bool]
 
-
-# One mouse-wheel detent in Qt ``angleDelta`` units (15° × 8).
-_WHEEL_NOTCH = 120
 
 # Action ids this sub-tool reacts to (resolved against SelectTool's KeyMap via
 # the injected ``matches`` callback — same ids the old ArmedRotate/ArmedMove
@@ -122,7 +121,7 @@ class FloatTransform:
         self._resolve_sgroup = resolve_sgroup
         self._resolve_disconnect = resolve_disconnect
         self._finished = False
-        self._wheel_accum = 0
+        self._wheel = WheelNotchAccumulator()
         # Snapshot the pristine pose once — the baseline for cancel + undo.
         self._original = self._snapshot_original()
 
@@ -285,22 +284,13 @@ class FloatTransform:
                 return vec
         return None
 
-    def wants_wheel(self, event: QWheelEvent) -> bool:
+    def wants_wheel(self, inp: WheelInput) -> bool:
         return True  # the wheel rotates
 
-    def on_wheel(self, event: QWheelEvent) -> bool:
-        dy = event.angleDelta().y()
-        if dy == 0:
-            return True
-        if (dy > 0) != (self._wheel_accum >= 0):
-            self._wheel_accum = 0
-        self._wheel_accum += dy
-        while self._wheel_accum >= _WHEEL_NOTCH:
-            self._wheel_accum -= _WHEEL_NOTCH
-            self._rotate(90)
-        while self._wheel_accum <= -_WHEEL_NOTCH:
-            self._wheel_accum += _WHEEL_NOTCH
-            self._rotate(-90)
+    def on_wheel(self, inp: WheelInput) -> bool:
+        notches = self._wheel.add(inp.delta_y)
+        for _ in range(abs(notches)):
+            self._rotate(90 if notches > 0 else -90)
         return True
 
     def on_click(self, scene_pt: Point) -> bool:

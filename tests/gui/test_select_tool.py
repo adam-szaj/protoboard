@@ -18,7 +18,7 @@ from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
-from tests.gui.input_helpers import pointer
+from tests.gui.input_helpers import pointer, wheel
 
 
 def _place(
@@ -428,25 +428,19 @@ class TestArmedRotate:
         assert session.layout.placements[inst.id].rotation == base
 
     def test_wheel_steps_rotation(self, board_view, session) -> None:
-        from typing import cast
-
-        from PySide6.QtCore import QPoint
-        from PySide6.QtGui import QWheelEvent
-
         inst, tool = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation
-        # While armed the wheel-probe ignores the event; a dummy stands in.
-        assert tool.wants_wheel(cast(QWheelEvent, object()))
-        ev = QWheelEvent(
-            QPointF(0, 0), QPointF(0, 0), QPoint(0, 0), QPoint(0, 120),
-            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-            Qt.ScrollPhase.NoScrollPhase, False,
-        )
-        tool.on_wheel(ev)
+        # While armed the wheel-probe consumes regardless of the tick payload.
+        assert tool.wants_wheel(wheel(0))
+        tool.on_wheel(wheel(120))
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
     @staticmethod
     def _wheel(dy: int):
+        return wheel(dy)
+
+    @staticmethod
+    def _qt_wheel(dy: int):
         from PySide6.QtCore import QPoint
         from PySide6.QtGui import QWheelEvent
         return QWheelEvent(
@@ -479,7 +473,7 @@ class TestArmedRotate:
         # the tool's wheel_rotate shadows the zoom while armed.
         inst, tool = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation
-        board_view.wheelEvent(self._wheel(120))
+        board_view.wheelEvent(self._qt_wheel(120))
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
         assert board_view.camera._wheel_accum_delta == 0  # zoom untouched
 
@@ -487,7 +481,7 @@ class TestArmedRotate:
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         base = session.layout.placements[inst.id].rotation
-        board_view.wheelEvent(self._wheel(120))
+        board_view.wheelEvent(self._qt_wheel(120))
         # Not armed → the chord falls through the tool layer to view zoom.
         assert session.layout.placements[inst.id].rotation == base
         assert board_view.camera._wheel_accum_delta == 120

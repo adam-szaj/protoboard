@@ -18,7 +18,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.qt_geometry import from_qpointf
-from protoboard.gui.qt_inputs import pointer_input
+from protoboard.gui.qt_inputs import pointer_input, wheel_input
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
     VIEW_CANVAS_MENU,
@@ -34,6 +34,7 @@ from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view_tool import AbstractBoardView
+    from protoboard.gui.ports import PointerInput, WheelInput
 
 
 class ToolHost:
@@ -323,13 +324,21 @@ class ToolHost:
 
         Tool-layer handlers (``tool.mouse_dispatch``) shadow the base map's
         view gestures; a declining handler lets the chord fall through to the
-        next bound action — "unhandled returns to the BoardView".
+        next bound action — "unhandled returns to the BoardView".  Tool
+        handlers receive the seam DTO; the base map's own view gestures
+        (pan / menu / camera zoom) keep the raw Qt event.
         """
         tool = self._active_tool
         handlers = dict(tool.mouse_dispatch()) if tool is not None else {}
+        inp: PointerInput | WheelInput | None = None
+        if handlers:
+            if isinstance(event, QMouseEvent) and scene_pt is not None:
+                inp = pointer_input(event, from_qpointf(scene_pt))
+            elif isinstance(event, QWheelEvent):
+                inp = wheel_input(event)
         for action_id in self.keymap.mouse_lookup(chord):
             handler = handlers.get(action_id)
-            if handler is not None and handler(event, scene_pt):
+            if handler is not None and inp is not None and handler(inp):
                 return True
             if self._view_mouse_action(action_id, event, scene_pt):
                 return True

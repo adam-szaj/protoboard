@@ -16,8 +16,9 @@ The contract that makes this more than a mechanical merge:
 left a conflict the user cannot accept, the sub-tool **stays armed** and waits
 (the floating-drag feel).  ``cancel()`` always reverts and finishes.
 
-This module is Qt-light: it takes :class:`QKeyEvent` / wheel events at the
-boundary but holds no scene.  The single concrete implementation is
+This module is Qt-light: it takes :class:`QKeyEvent` at the boundary (the
+key DTO lands in qt-ports phase 3c) but holds no scene; wheel input arrives
+as the Qt-free :class:`~protoboard.gui.ports.WheelInput`.  The single concrete implementation is
 :class:`~protoboard.gui.selection.float_transform.FloatTransform`.
 """
 
@@ -26,9 +27,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QKeyEvent, QWheelEvent
+    from PySide6.QtGui import QKeyEvent
 
     from protoboard.geometry import Point
+    from protoboard.gui.ports import WheelInput
 
 
 @runtime_checkable
@@ -49,7 +51,7 @@ class ArmedSubTool(Protocol):
         """
         ...
 
-    def wants_wheel(self, event: QWheelEvent) -> bool:
+    def wants_wheel(self, inp: WheelInput) -> bool:
         """True when this sub-tool consumes the wheel (vs. letting it zoom).
 
         Lets SelectTool answer ``BoardView``'s pre-zoom probe accurately:
@@ -58,7 +60,7 @@ class ArmedSubTool(Protocol):
         """
         ...
 
-    def on_wheel(self, event: QWheelEvent) -> bool:
+    def on_wheel(self, inp: WheelInput) -> bool:
         """Handle a wheel tick while armed (e.g. rotate ±90°).  Consumed?"""
         ...
 

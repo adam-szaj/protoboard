@@ -16,7 +16,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, override
 
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QGraphicsView
 
 from protoboard.services.debug_trace import traced
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from protoboard.geometry import Point
-    from protoboard.gui.ports import PointerInput, StatusEvent
+    from protoboard.gui.ports import PointerInput, StatusEvent, WheelInput
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
     from protoboard.gui.layer_state import LayerState
@@ -305,7 +305,7 @@ class BoardViewTool(ABC):
 
     @abstractmethod
     def mouse_dispatch(self) -> tuple[
-        tuple[str, Callable[[QMouseEvent | QWheelEvent, QPointF | None], bool]],
+        tuple[str, Callable[[PointerInput | WheelInput], bool]],
         ...,
     ]:
         """Ordered ``(action_id, handler)`` table for mouse-chord dispatch.
@@ -313,8 +313,9 @@ class BoardViewTool(ABC):
         Unlike the key table, dispatch walks *all* actions bound to the chord
         (leaf-first): a declining handler lets the gesture fall through to the
         base map's view action — that is the "unhandled returns to the
-        BoardView" rule.  A handler gets the raw Qt event (wheel accumulation
-        etc. stay intact) plus the scene position (None for wheel).
+        BoardView" rule.  A handler gets the seam input DTO (``delta_y``
+        accumulation stays with the consumer; a pointer DTO carries its own
+        scene position).
         """
 
     @abstractmethod
@@ -473,7 +474,7 @@ class _Tool(BoardViewTool):
     @override
     @traced()
     def mouse_dispatch(self) -> tuple[
-        tuple[str, Callable[[QMouseEvent | QWheelEvent, QPointF | None], bool]],
+        tuple[str, Callable[[PointerInput | WheelInput], bool]],
         ...,
     ]:
         """Ordered ``(action_id, handler)`` mouse table.  Default: empty."""
