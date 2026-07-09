@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — D4 dialog prompts (2026-07-09)
+
+* **Modal decisions behind the seam are injected callables** (qt-ports
+  decision D4, the `drag_commit_decision.py` "pure decision" pattern):
+  - `placement_conflict.py`: `PlacementPrompts` (pad: accept shared-pad
+    placement? · wire: pick a `WireConflictAction` or cancel) with pure
+    `PadConflictRequest`/`WireConflictRequest` questions;
+    `check_and_resolve` takes `prompts` instead of `parent_widget`.  The
+    `WireConflictAction` enum moved here (Qt-free) and is re-exported by
+    `wire_conflict_dialog.py`.
+  - `wire_net_resolver.py`: `NetMergePrompt = (net_a, net_b) -> chosen
+    name | None`; `resolve_wire_nets` takes the prompt instead of a parent
+    widget.
+  - `gui/tools/select_prompts.py`: `GroupTargetRequest`/`GroupTargetChoice`
+    + `GroupTargetPrompt` for the Ctrl+G group flow.
+* Route/Place/SelectTool accept the prompts as constructor args (the seam
+  for canned test decisions); the Qt defaults — the same modal dialogs as
+  before, parented via `view.window()` — are wired on `activate()`.  The
+  last `QWidget` cast in SelectTool (`GroupTargetDialog` parent) is gone;
+  remaining `window()` uses are MainWindow-slot delegations (assign-pin,
+  group-autoroute, route status sync), not dialogs.
+* Driving tests: the Ctrl+G group flow runs end-to-end on
+  `HeadlessBoardView` with an injected prompt (accept + cancel); PlaceTool
+  pad-conflict accept/reject via injected `PlacementPrompts`; net-merge
+  accept/cancel through `_merge_nets` with a canned prompt.
+* Also: completed an in-flight working-tree edit to `view_camera.py`
+  (vector-arithmetic form of the two zoom `pan_by` compensations) — the
+  refactored expression yields a `Vector` already, so the redundant
+  re-wrap `Vector(-(Δ * scale))` (a one-argument `Vector` → `TypeError`
+  at runtime) was reduced to `pan_by(-(Δ * scale))`.
+
 ### Qt ports — `Selectable.draw_highlight` removed (2026-07-09)
 
 * The `draw_highlight(ctx) -> list[QGraphicsItem]` member was declared on the

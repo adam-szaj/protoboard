@@ -206,6 +206,79 @@ class TestExecutorHeadless:
         assert session.layout.wires[0].path == orig_path
 
 
+class TestGroupPromptHeadless:
+    """Ctrl+G group flow end-to-end with an injected prompt (qt-ports D4)."""
+
+    def _place_two(self, view: HeadlessBoardView) -> None:
+        from protoboard.gui.tools.place_tool import PlaceTool
+
+        for x in (0.5, 4.5):
+            view.tools.set_tool(PlaceTool("R"))
+            place = view.active_tool
+            assert isinstance(place, PlaceTool)
+            place.on_press(pointer(x, 0.5))
+            while place._phase == "drag_pin":
+                place.on_press(pointer(x, 0.5))
+
+    @staticmethod
+    def _select_all(tool: SelectTool, session: EditorSession) -> None:
+        """Select every placed component through the selection service."""
+        from protoboard.gui.selection.adapters import ComponentSelectable
+
+        tool._selection.set_many([
+            ComponentSelectable(component_id=cid, placement=pl)
+            for cid, pl in session.layout.placements.items()
+        ])
+
+    def test_group_for_selection_via_injected_prompt(
+        self, session: EditorSession
+    ) -> None:
+        from protoboard.gui.tools.select_prompts import (
+            GroupTargetChoice,
+            GroupTargetRequest,
+        )
+
+        view = _headless(session)
+        self._place_two(view)
+        assert len(session.layout.placements) == 2
+
+        asked: list[GroupTargetRequest] = []
+
+        def _prompt(req: GroupTargetRequest) -> GroupTargetChoice | None:
+            asked.append(req)
+            return GroupTargetChoice(
+                mode="new",
+                new_name="G-headless",
+                target_group_id=None,
+                auto_export_external=False,
+            )
+
+        tool = SelectTool(group_prompt=_prompt)
+        view.tools.set_tool(tool)
+        self._select_all(tool, session)
+
+        gid = tool._group_for_selection()
+        assert gid is not None
+        grp = session.layout.groups[gid]
+        assert grp.name == "G-headless"
+        assert len(grp.component_ids) == 2
+        assert asked and asked[0].default_name.startswith("Group")
+
+    def test_group_prompt_cancel_is_noop(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        self._place_two(view)
+        groups_before = set(session.layout.groups)
+
+        tool = SelectTool(group_prompt=lambda _req: None)
+        view.tools.set_tool(tool)
+        self._select_all(tool, session)
+
+        assert tool._group_for_selection() is None
+        assert set(session.layout.groups) == groups_before
+
+
 class TestContextHeadless:
     def test_get_context_at_needs_no_widget(
         self, session: EditorSession

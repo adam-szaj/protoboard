@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
     from protoboard.gui.ports import KeyInput, PointerInput
     from protoboard.gui.tools.route_preview import RoutePreview
+    from protoboard.gui.wire_net_resolver import NetMergePrompt
 
 _log = structlog.get_logger(__name__)
 
@@ -46,6 +47,7 @@ class RouteTool(_Tool):
         insulated: bool = False,
         side: str = "bottom",
         preview: RoutePreview | None = None,
+        merge_prompt: NetMergePrompt | None = None,
     ) -> None:
         super().__init__()
         self._insulated = insulated
@@ -57,6 +59,11 @@ class RouteTool(_Tool):
         # scene on activate().
         self._preview: RoutePreview | None = preview
         self._preview_injected = preview is not None
+        # The net-merge decision (qt-ports D4) — injected callable; the
+        # default Qt prompt (NetMergeDialog) binds the view's window on
+        # activate().
+        self._merge_prompt: NetMergePrompt | None = merge_prompt
+        self._merge_prompt_injected = merge_prompt is not None
         # Track whether the transient highlight + dim overlay are
         # currently pushed so commit/cancel can pop exactly once.
         self._route_highlight_active: bool = False
@@ -65,6 +72,12 @@ class RouteTool(_Tool):
         super().activate(session, view)  # type: ignore[arg-type]
         if not self._preview_injected:
             self._preview = QtRoutePreview(self._view.scene, self._theme)
+        if not self._merge_prompt_injected:
+            from protoboard.gui.wire_net_resolver import qt_net_merge_prompt
+
+            self._merge_prompt = qt_net_merge_prompt(
+                lambda: self._view.window()
+            )
         # No transient highlight on bare activation — RouteTool only
         # dims when the user is actively pulling a wire (i.e. after the
         # first click).  Standby mode keeps the normal view so the user
@@ -194,7 +207,7 @@ class RouteTool(_Tool):
         from protoboard.gui.wire_net_resolver import resolve_wire_nets
         cmd = AddWireWithNetsCommand(wire=wire)
         if not resolve_wire_nets(
-            self._session, wire, cmd, self._view.window()  # type: ignore[arg-type]
+            self._session, wire, cmd, self._merge_prompt
         ):
             _log.debug("route.cancelled", reason="net_merge_rejected")
             self._cancel()

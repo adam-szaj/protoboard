@@ -81,6 +81,7 @@ if TYPE_CHECKING:
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
     from protoboard.gui.tools.drag_corner_text import DragCornerText
     from protoboard.gui.tools.select_preview import SelectPreview
+    from protoboard.gui.tools.select_prompts import GroupTargetPrompt
 
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
@@ -157,7 +158,11 @@ def _segment_intersects_rect(
 class SelectTool(_Tool):
     """Selection tool built on the SelectionService / HitTester / Highlight stack."""
 
-    def __init__(self, preview: SelectPreview | None = None) -> None:
+    def __init__(
+        self,
+        preview: SelectPreview | None = None,
+        group_prompt: GroupTargetPrompt | None = None,
+    ) -> None:
         super().__init__()  # sets _session / _view to None up-front
         self._selection: SelectionService = None  # type: ignore[assignment]
         self._highlight: HighlightController = None  # type: ignore[assignment]
@@ -173,6 +178,11 @@ class SelectTool(_Tool):
         # activate().
         self._preview: SelectPreview | None = preview
         self._preview_injected = preview is not None
+        # The group-target decision (qt-ports D4) — injected callable; the
+        # default Qt prompt (GroupTargetDialog) binds the view's window on
+        # activate().
+        self._group_prompt: GroupTargetPrompt | None = group_prompt
+        self._group_prompt_injected = group_prompt is not None
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
         # (no drag), the release collapses the selection onto this entity — or
@@ -246,6 +256,14 @@ class SelectTool(_Tool):
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
             self._preview = QtSelectPreview(view.scene)
+        if not self._group_prompt_injected:
+            from protoboard.gui.tools.select_prompts import (
+                qt_group_target_prompt,
+            )
+
+            self._group_prompt = qt_group_target_prompt(
+                lambda: self._view.window()
+            )
         # SelectionService / HighlightController are per-session — reuse one
         # parked on the session if present, else create and park it.
         svc = getattr(session, "selection_service", None)
@@ -4047,7 +4065,7 @@ class SelectTool(_Tool):
             RemoveFromGroupCommand,
             SetExportedPinsCommand,
         )
-        from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
+        from protoboard.gui.tools.select_prompts import GroupTargetRequest
 
         groups = self._session.layout.groups
         active_gid = self._current_group_id
@@ -4059,26 +4077,24 @@ class SelectTool(_Tool):
         ]
 
         default_name = f"Group{len(groups) + 1}"
-        from typing import cast as _cast
-
-        from PySide6.QtWidgets import QWidget as _QWidget
-
-        dlg = GroupTargetDialog(
-            existing_groups=child_groups,
-            default_name=default_name,
-            parent=_cast("_QWidget | None", self._view.window()),
+        assert self._group_prompt is not None  # set by activate() / injection
+        choice = self._group_prompt(
+            GroupTargetRequest(
+                existing_groups=tuple(child_groups),
+                default_name=default_name,
+            )
         )
-        if dlg.exec() != GroupTargetDialog.DialogCode.Accepted:
+        if choice is None:
             return None
 
-        if dlg.mode == "new":
+        if choice.mode == "new":
             new_group, promoted_free, promoted_groups = (
                 self._prepare_new_group_promoted(
                     active_gid,
                     ids,
                     default_name,
-                    dlg.auto_export_external,
-                    dlg.new_name,
+                    choice.auto_export_external,
+                    choice.new_name,
                 )
             )
             return self._execute_group_promotion(
@@ -4086,7 +4102,7 @@ class SelectTool(_Tool):
             )
 
         # Add to an existing group.
-        target_id = dlg.target_group_id
+        target_id = choice.target_group_id
         if target_id is None:
             return None
         self._exec_command(
@@ -4096,7 +4112,7 @@ class SelectTool(_Tool):
             self._exec_command(
                 RemoveFromGroupCommand(group_id=active_gid, component_ids=ids)
             )
-        if dlg.auto_export_external:
+        if choice.auto_export_external:
             new_exported = self._session.group_tree().external_pins_for_group(
                 target_id, self._session.schematic
             )

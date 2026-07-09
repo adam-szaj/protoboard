@@ -431,3 +431,50 @@ class TestPlaceToolInitialValue:
         _left_click(tool, 0.5, 0.5)
         inst = list(session.instances.values())[0]
         assert inst.value == "?"
+
+
+class TestPlacementPromptSeam:
+    """Pad-conflict decisions flow through the injected prompts (qt-ports D4)."""
+
+    def _place_r(self, board_view: BoardView, x: float, y: float,
+                 prompts: "PlacementPrompts | None" = None) -> None:
+        board_view.set_tool(PlaceTool("R", prompts=prompts))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        _left_click(tool, x, y)
+
+    def test_pad_conflict_prompt_accept_places_shared(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.placement_conflict import (
+            PadConflictRequest,
+            PlacementPrompts,
+        )
+
+        self._place_r(board_view, 0.5, 0.5)
+        assert len(session.layout.placements) == 1
+
+        asked: list[PadConflictRequest] = []
+
+        def _pad(req: PadConflictRequest) -> bool:
+            asked.append(req)
+            return True
+
+        prompts = PlacementPrompts(pad=_pad, wire=lambda _req: None)
+        self._place_r(board_view, 0.5, 0.5, prompts=prompts)
+        # The prompt was consulted (both-unconnected shared pads) and the
+        # accept landed the second component — no dialog anywhere.
+        assert asked and asked[0].conflicts
+        assert len(session.layout.placements) == 2
+
+    def test_pad_conflict_prompt_reject_blocks(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.placement_conflict import PlacementPrompts
+
+        self._place_r(board_view, 0.5, 0.5)
+        prompts = PlacementPrompts(
+            pad=lambda _req: False, wire=lambda _req: None
+        )
+        self._place_r(board_view, 0.5, 0.5, prompts=prompts)
+        assert len(session.layout.placements) == 1

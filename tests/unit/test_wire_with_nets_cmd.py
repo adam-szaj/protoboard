@@ -314,3 +314,42 @@ class TestAddWireWithNetsViaStack:
         stack.redo(state)
         assert wire in state.layout.wires
         assert net_id in state.schematic.nets
+
+
+class TestNetMergePromptSeam:
+    """DIFFERENT_NETS resolution flows through the injected prompt (D4)."""
+
+    def _two_net_state(self) -> tuple[_FakeSchematicState, Net, Net]:
+        state = _FakeSchematicState()
+        net_a = Net(id=uuid.uuid4(), name="A",
+                    pins={PinRef(component_id=uuid.uuid4(), pin_number=1)})
+        net_b = Net(id=uuid.uuid4(), name="B",
+                    pins={PinRef(component_id=uuid.uuid4(), pin_number=1)})
+        state.schematic.nets = {net_a.id: net_a, net_b.id: net_b}
+        return state, net_a, net_b
+
+    def test_prompt_accept_merges_under_chosen_name(self) -> None:
+        from protoboard.gui.wire_net_resolver import _merge_nets
+
+        state, net_a, net_b = self._two_net_state()
+        cmd = AddWireWithNetsCommand(wire=_wire())
+        asked: list[tuple[str, str]] = []
+
+        def prompt(a: Net, b: Net) -> str | None:
+            asked.append((a.name, b.name))
+            return "MERGED"
+
+        assert _merge_nets(state, cmd, net_a, net_b, prompt) is True  # type: ignore[arg-type]
+        assert asked == [("A", "B")]
+        assert state.schematic.nets[net_a.id].name == "MERGED"
+        assert net_b.id not in state.schematic.nets
+
+    def test_prompt_cancel_leaves_nets_untouched(self) -> None:
+        from protoboard.gui.wire_net_resolver import _merge_nets
+
+        state, net_a, net_b = self._two_net_state()
+        cmd = AddWireWithNetsCommand(wire=_wire())
+
+        assert _merge_nets(state, cmd, net_a, net_b, lambda a, b: None) is False  # type: ignore[arg-type]
+        assert state.schematic.nets[net_a.id].name == "A"
+        assert net_b.id in state.schematic.nets

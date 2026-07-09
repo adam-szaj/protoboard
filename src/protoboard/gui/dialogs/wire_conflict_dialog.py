@@ -13,7 +13,6 @@ useful before the part lands on the board.
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
@@ -29,15 +28,15 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+# The decision enum lives with the (Qt-free) resolution policy in
+# placement_conflict.py; re-exported here so dialog-side imports keep
+# working (qt-ports D4).
+from protoboard.gui.placement_conflict import WireConflictAction
+
 if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import ConflictKind, PadConflict
 
-
-class WireConflictAction(Enum):
-    CANCEL = "cancel"
-    REMOVE_AND_REROUTE = "remove_and_reroute"
-    ADD_TO_NET = "add_to_net"
-    CREATE_NET = "create_net"
+__all__ = ["WireConflictAction", "WireConflictDialog"]
 
 
 class WireConflictDialog(QDialog):

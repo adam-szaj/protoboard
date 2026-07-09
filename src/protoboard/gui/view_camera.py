@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QTimer
 
-from protoboard.geometry import Point, Rect, Transform2D, Vector
+from protoboard.geometry import Point, Rect, Transform2D
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
@@ -359,10 +359,7 @@ class ViewCamera:
         else:
             new_scene = port.map_view_to_scene(pivot)
             new_scale = port.view_transform().a
-            port.pan_by(Vector(
-                -(new_scene.x - old_scene.x) * new_scale,
-                -(new_scene.y - old_scene.y) * new_scale,
-            ))
+            port.pan_by(-((new_scene - old_scene) * new_scale))
         # Zoom changed the world→viewport transform; the cached pixmap
         # was rendered for the previous mapping.  Keep the anchor so a
         # follow-up tick of the same burst can stretch-blit it instead
@@ -499,10 +496,7 @@ class ViewCamera:
         else:
             new_scene = port.map_view_to_scene(pivot_vp)
             new_scale = port.view_transform().a
-            port.pan_by(Vector(
-                -(new_scene.x - old_scene.x) * new_scale,
-                -(new_scene.y - old_scene.y) * new_scale,
-            ))
+            port.pan_by(-((new_scene - old_scene) * new_scale))
         # Ctrl+/- zoom: keep the anchor so successive presses paint
         # cheaply during the burst, then settle to a fresh pixmap.
         view.invalidate_bg_cache(keep_anchor=True)

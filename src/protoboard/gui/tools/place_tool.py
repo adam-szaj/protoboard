@@ -48,6 +48,7 @@ from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
+    from protoboard.gui.placement_conflict import PlacementPrompts
     from protoboard.gui.ports import KeyInput, PointerInput
     from protoboard.gui.tools.place_preview import PlacePreview
 
@@ -90,6 +91,7 @@ class PlaceTool(_Tool):
         pin_variant: str | None = None,
         package_variant: str | None = None,
         preview: PlacePreview | None = None,
+        prompts: PlacementPrompts | None = None,
     ) -> None:
         super().__init__()
         self._definition_ref = definition_ref
@@ -103,6 +105,11 @@ class PlaceTool(_Tool):
         # one binds the current view's scene on activate().
         self._preview: PlacePreview | None = preview
         self._preview_injected = preview is not None
+        # The pad/wire conflict decisions (qt-ports D4) — injected callables;
+        # the default Qt prompts (modal dialogs) bind the view's window on
+        # activate().
+        self._prompts: PlacementPrompts | None = prompts
+        self._prompts_injected = prompts is not None
         # Last snapped cursor position in the anchor phase — kept so the
         # ghost stays under the cursor across R / Shift+R rotations.
         self._last_cursor_pos: Point | None = None
@@ -137,6 +144,10 @@ class PlaceTool(_Tool):
         super().activate(session, view)  # type: ignore[arg-type]
         if not self._preview_injected:
             self._preview = QtPlacePreview(self._view.scene, self._theme)
+        if not self._prompts_injected:
+            from protoboard.gui.placement_conflict import qt_placement_prompts
+
+            self._prompts = qt_placement_prompts(lambda: self._view.window())
         self._reset_phase()
         self._rebuild_ghost()
 
@@ -608,7 +619,7 @@ class PlaceTool(_Tool):
                 placement=placement,
                 defn=defn,
                 instance_id=inst.id,
-                parent_widget=self._view.window(),
+                prompts=self._prompts,
                 instance=inst,
             )
             if resolved is None:

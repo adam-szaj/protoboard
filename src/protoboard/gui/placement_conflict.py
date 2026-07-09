@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import structlog
 from protoboard.domain.layout.pad_conflict import (
@@ -22,7 +22,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QWidget
+    from collections.abc import Callable
 
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
@@ -34,9 +34,102 @@ _log = structlog.get_logger(__name__)
 
 # Module-level alias keeping the legacy ``_round`` callsites within
 # this file working — single implementation now lives in geometry.py.
+from enum import Enum  # noqa: E402
+
 from protoboard.geometry import round_coord as _round  # noqa: E402
 
 from dataclasses import dataclass  # noqa: E402
+
+
+class WireConflictAction(Enum):
+    """What to do with wires colliding with a placed component.
+
+    The pure decision enum (qt-ports D4) — the Qt ``WireConflictDialog``
+    re-exports it for its UI, but headless prompts return it without
+    touching Qt.
+    """
+
+    CANCEL = "cancel"
+    REMOVE_AND_REROUTE = "remove_and_reroute"
+    ADD_TO_NET = "add_to_net"
+    CREATE_NET = "create_net"
+
+
+@dataclass(frozen=True)
+class PadConflictRequest:
+    """The pad-conflict question shown before a placement commits."""
+
+    conflicts: tuple[PadConflict, ...]
+    incoming_refdes: str
+    # conflict-identity (``id(conflict)``) → the existing component's refdes,
+    # the shape ``PadConflictDialog`` already consumes.
+    existing_refdes: dict[int, str]
+
+
+@dataclass(frozen=True)
+class WireConflictRequest:
+    """The wire-conflict question (three-way action choice)."""
+
+    conflicts: tuple[PadConflict, ...]
+    incoming_refdes: str
+
+
+@dataclass(frozen=True)
+class PlacementPrompts:
+    """The interactive surface of placement-conflict resolution (D4).
+
+    Two injected decisions: *pad* answers "accept the shared-pad
+    placement?" (also invoked, result ignored, to *inform* about a blocked
+    one), *wire* picks a :class:`WireConflictAction` or ``None`` on cancel.
+    The Qt defaults open the modal dialogs (:func:`qt_placement_prompts`);
+    tests inject canned callables and place components headlessly.
+    """
+
+    pad: Callable[[PadConflictRequest], bool]
+    wire: Callable[[WireConflictRequest], WireConflictAction | None]
+
+
+def qt_placement_prompts(parent: Callable[[], object]) -> PlacementPrompts:
+    """The default prompts: modal Pad/Wire conflict dialogs.
+
+    *parent* resolves the dialogs' parent widget lazily (PlaceTool passes
+    ``lambda: view.window()``).
+    """
+
+    def _ask_pad(req: PadConflictRequest) -> bool:
+        from PySide6.QtWidgets import QDialog
+
+        from protoboard.gui.dialogs.pad_conflict_dialog import (
+            PadConflictDialog,
+        )
+
+        dlg = PadConflictDialog(
+            conflicts=list(req.conflicts),
+            incoming_refdes=req.incoming_refdes,
+            existing_refdes_map=req.existing_refdes,
+            parent=parent(),
+        )
+        return dlg.exec() == QDialog.DialogCode.Accepted
+
+    def _ask_wire(req: WireConflictRequest) -> WireConflictAction | None:
+        from typing import cast
+
+        from PySide6.QtWidgets import QDialog, QWidget
+
+        from protoboard.gui.dialogs.wire_conflict_dialog import (
+            WireConflictDialog,
+        )
+
+        dlg = WireConflictDialog(
+            conflicts=list(req.conflicts),
+            incoming_refdes=req.incoming_refdes,
+            parent=cast("QWidget | None", parent()),
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dlg.chosen_action()
+
+    return PlacementPrompts(pad=_ask_pad, wire=_ask_wire)
 
 
 @dataclass(frozen=True)
@@ -58,7 +151,7 @@ def check_and_resolve(
     placement: ComponentPlacement,
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
-    parent_widget: object = None,
+    prompts: PlacementPrompts | None = None,
     instance: "ComponentInstance | None" = None,
 ) -> PlacementResolution | None:
     """Check pad conflicts for *placement* and resolve interactively.
@@ -70,12 +163,17 @@ def check_and_resolve(
     Side-effects when returning non-None:
     - Updates schematic (adds unconnected pins to nets) directly on session.
 
+    *prompts* carries the two user decisions (qt-ports D4); ``None`` falls
+    back to the parentless Qt dialogs.
+
     *instance* is the (preferably bound) incoming instance. At placement time it
     is not yet in ``session.instances``, so the caller must pass it — otherwise
     the incoming geometry falls back to the definition default footprint (wrong
     pin spacing for a chosen variant). When omitted, it is looked up by id (the
     move/re-check path, where the instance is already registered).
     """
+    if prompts is None:
+        prompts = qt_placement_prompts(lambda: None)
     # Body-overlap check: block if the incoming bbox intersects a placed component
     # AND no pin of the incoming component actually coincides with a pin of that
     # component (which would be a shared-pad case handled by pad-conflict below).
@@ -184,12 +282,14 @@ def check_and_resolve(
 
     if pad_blocked:
         _log.info("conflict.pad_blocked", kinds=[c.kind.name for c in pad_blocked])
-        _show_dialog(session, pad_blocked + pad_decision, placement, defn, instance_id, parent_widget)
+        _ask_pad_conflicts(
+            session, pad_blocked + pad_decision, defn, instance_id, prompts
+        )
         return None
 
     if pad_decision:
-        accepted = _show_dialog(
-            session, pure_pad, placement, defn, instance_id, parent_widget
+        accepted = _ask_pad_conflicts(
+            session, pure_pad, defn, instance_id, prompts
         )
         if not accepted:
             return None
@@ -213,7 +313,7 @@ def check_and_resolve(
                 placement=placement,
                 defn=defn,
                 instance_id=instance_id,
-                parent_widget=parent_widget,
+                prompts=prompts,
             )
             if result_pl is None:
                 # Revert shared_pins already applied to pad conflicts.
@@ -227,20 +327,19 @@ def check_and_resolve(
     )
 
 
-def _show_dialog(
+def _ask_pad_conflicts(
     session: EditorSession,
     conflicts: list[PadConflict],
-    placement: ComponentPlacement,  # noqa: ARG001
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
-    parent_widget: object,
+    prompts: PlacementPrompts,
 ) -> bool:
-    """Show the conflict dialog. Returns True if user accepted."""
-    from PySide6.QtWidgets import QDialog
+    """Ask the pad-conflict prompt. Returns True if the user accepted."""
+    # Same-net-only: auto-accept without asking.
+    if all(c.kind == ConflictKind.SAME_NET for c in conflicts):
+        return True
 
-    from protoboard.gui.dialogs.pad_conflict_dialog import PadConflictDialog
-
-    # Build refdes map: conflict.existing_comp_id → refdes string.
+    # Build refdes map: conflict-identity → the existing component's refdes.
     existing_refdes: dict[int, str] = {}
     for c in conflicts:
         inst = session.instances.get(c.existing_comp_id)
@@ -249,18 +348,13 @@ def _show_dialog(
     inst = session.instances.get(instance_id)
     incoming_refdes = inst.refdes if inst else defn.name
 
-    dlg = PadConflictDialog(
-        conflicts=conflicts,
-        incoming_refdes=incoming_refdes,
-        existing_refdes_map=existing_refdes,
-        parent=parent_widget,
+    return prompts.pad(
+        PadConflictRequest(
+            conflicts=tuple(conflicts),
+            incoming_refdes=incoming_refdes,
+            existing_refdes=existing_refdes,
+        )
     )
-
-    # Same-net-only: auto-accept without showing dialog.
-    if all(c.kind == ConflictKind.SAME_NET for c in conflicts):
-        return True
-
-    return dlg.exec() == QDialog.DialogCode.Accepted
 
 
 def _update_schematic(
@@ -321,35 +415,26 @@ def _resolve_wire_conflicts(
     placement: ComponentPlacement,
     defn: "ComponentDefinition",
     instance_id: uuid.UUID,
-    parent_widget: object,
+    prompts: PlacementPrompts,
 ) -> tuple[ComponentPlacement | None, list[object]]:
-    """Show WireConflictDialog and build commands for chosen action.
+    """Ask the wire-conflict prompt and build commands for the chosen action.
 
     Returns (resolved_placement, extra_commands) or (None, []) on cancel.
     """
     import uuid as _uuid
     from protoboard.domain.schematic.net import Net, PinRef
-    from protoboard.gui.dialogs.wire_conflict_dialog import (
-        WireConflictAction,
-        WireConflictDialog,
-    )
-    from PySide6.QtWidgets import QDialog
 
     inst = session.instances.get(instance_id)
     incoming_refdes = inst.refdes if inst else defn.name
 
-    dlg = WireConflictDialog(
-        conflicts=wire_conflicts,
-        incoming_refdes=incoming_refdes,
-        parent=cast("QWidget | None", parent_widget),
+    action = prompts.wire(
+        WireConflictRequest(
+            conflicts=tuple(wire_conflicts), incoming_refdes=incoming_refdes
+        )
     )
-    if dlg.exec() != QDialog.DialogCode.Accepted:
-        return None, []
-
-    action = dlg.chosen_action()
     cmds: list[object] = []
 
-    if action == WireConflictAction.CANCEL:
+    if action is None or action == WireConflictAction.CANCEL:
         return None, []
 
     if action == WireConflictAction.REMOVE_AND_REROUTE:

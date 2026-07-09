@@ -455,7 +455,7 @@ None of this is decided. The choices that shape any implementation:
 | D1 | Headless bar for the double | real `QGraphicsScene`, no widget / zero QtWidgets | A keeps preview extraction optional; B makes it mandatory and earlier (~20 scene sites in select_tool alone) | real scene, no widget |
 | D2 | Input-DTO landing order | per event type (3 commits) / per tool (5) | atomic ABC signature changes vs narrower diffs | per event type |
 | D3 | `Mapping[UUID, object]` group handles | keep `object` / marker `ItemGroupHandle` | doc-only | keep `object` |
-| D4 | SelectTool dialogs (drag-disconnect/conflict, `parent=window()`) | in scope as injected `Callable[..., Decision]` prompts (drag_commit_decision.py pattern) / out of scope | +1 sub-phase vs tracked debt | in scope |
+| D4 | SelectTool dialogs (drag-disconnect/conflict, `parent=window()`) | in scope as injected `Callable[..., Decision]` prompts (drag_commit_decision.py pattern) / out of scope | +1 sub-phase vs tracked debt | in scope — **SHIPPED 2026-07-09**: `PlacementPrompts` (pad + wire, `placement_conflict.py`), `NetMergePrompt` (`wire_net_resolver.py`), `GroupTargetPrompt` (`gui/tools/select_prompts.py`); Qt defaults bind `view.window()` on tool `activate()`, tests inject canned decisions.  Remaining `window()` reaches are MainWindow-slot delegations (assign-pin, group-autoroute, route status), not dialog prompts |
 | D5 | Doc location | this file + todo.md debt entries | — | as done |
 | D6 | `KeyMap.matches` modifiers typing | widen to `int` / convert at call sites | runtime-identical | widen to `int` |
 | D7 | `notify_status` payload shape | ~~bare dict / envelope~~ | **SETTLED**: `StatusEvent(kind, data)` envelope, by the concept-=-class rule (§2.6) | — |
@@ -481,8 +481,11 @@ action-ids — closed later the same day by extending ``ActionOption`` with a
 structural ``data`` Mapping + ``perform_context_action`` on the seam,
 variant approved by the user).  Phase 6: the
 Protocol keeps two sanctioned Qt touchpoints — ``scene()`` (per D1) and
-``window()`` (dialog parenting, D4 debt); phase 7 (semantic previews,
-ExecutorPort, dialog prompts) remains optional/per-tool per §3 and todo.md.
+``window()`` (dialog parenting, D4 debt); phase 7 SHIPPED in full
+2026-07-09 — semantic previews (§3), `ExecutorPort` (§3), and the D4
+dialog prompts (decision table): tools take injected decision callables,
+the Qt defaults (modal dialogs parented via ``view.window()``) are wired
+on ``activate()``.
 
 1. **Groundwork**: delete `pad_clicked`; add `gui/qt_geometry.py`
    (`Point/Rect/Transform2D ↔ QPointF/QRectF/QTransform`); the 4 Qt-typed ABC
@@ -504,3 +507,4 @@ ExecutorPort, dialog prompts) remains optional/per-tool per §3 and todo.md.
    deleted, `HeadlessBoardView` lands; the swap is type-level only.
 7. **Optional, per tool, on demand**: semantic previews (route → place →
    simplify → select, hardest last); `ExecutorPort`; dialog prompts (per D4).
+   ☑ all three, 2026-07-09.

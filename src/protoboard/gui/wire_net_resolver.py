@@ -16,6 +16,8 @@ from protoboard.domain.schematic.wire_net_ops import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.wire_net_ops import (
@@ -24,14 +26,39 @@ if TYPE_CHECKING:
     )
     from protoboard.gui.session import EditorSession
 
+    # The injectable merge prompt (qt-ports D4): given the two nets the new
+    # wire would fuse, return the survivor's name — or None on cancel.
+    NetMergePrompt = Callable[[Net, Net], str | None]
+
 _log = structlog.get_logger(__name__)
+
+
+def qt_net_merge_prompt(parent: Callable[[], object]) -> NetMergePrompt:
+    """The default prompt: the modal ``NetMergeDialog``.
+
+    *parent* resolves the dialog's parent widget lazily (RouteTool passes
+    ``lambda: view.window()``), so no widget is touched until the two-nets
+    case actually occurs.
+    """
+
+    def _ask(net_a: Net, net_b: Net) -> str | None:
+        from PySide6.QtWidgets import QDialog
+
+        from protoboard.gui.dialogs.net_merge_dialog import NetMergeDialog
+
+        dlg = NetMergeDialog(net_a=net_a, net_b=net_b, parent=parent())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dlg.chosen_name or net_a.name
+
+    return _ask
 
 
 def resolve_wire_nets(
     session: EditorSession,
     wire: Wire,
     cmd: AddWireWithNetsCommand,
-    parent_widget: object = None,
+    merge_prompt: NetMergePrompt | None = None,
 ) -> bool:
     """Classify wire endpoints and update session.schematic accordingly.
 
@@ -39,7 +66,8 @@ def resolve_wire_nets(
     that undo/redo work correctly.
 
     Returns True if the wire should be committed, False if the user cancelled
-    (only possible for DIFFERENT_NETS when the merge dialog is rejected).
+    (only possible for DIFFERENT_NETS when the merge prompt is rejected).
+    *merge_prompt* defaults to the parentless Qt dialog.
     """
     # EditorSession satisfies the _SessionLike protocol structurally, but its
     # ``layout`` is a read/write property rather than a plain attribute, so
@@ -61,10 +89,12 @@ def resolve_wire_nets(
         _extend_net(session, cmd, cl)
         return True
 
-    # DIFFERENT_NETS — show merge dialog
+    # DIFFERENT_NETS — ask the user (merge prompt)
     assert cl.kind == WireNetKind.DIFFERENT_NETS
     assert cl.net_a is not None and cl.net_b is not None
-    return _merge_nets(session, cmd, cl.net_a, cl.net_b, parent_widget)
+    if merge_prompt is None:
+        merge_prompt = qt_net_merge_prompt(lambda: None)
+    return _merge_nets(session, cmd, cl.net_a, cl.net_b, merge_prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -128,18 +158,14 @@ def _merge_nets(
     cmd: AddWireWithNetsCommand,
     net_a: Net,
     net_b: Net,
-    parent_widget: object,
+    merge_prompt: NetMergePrompt,
 ) -> bool:
-    from PySide6.QtWidgets import QDialog
-
-    from protoboard.gui.dialogs.net_merge_dialog import NetMergeDialog
-
-    dlg = NetMergeDialog(net_a=net_a, net_b=net_b, parent=parent_widget)
-    if dlg.exec() != QDialog.DialogCode.Accepted:
+    chosen = merge_prompt(net_a, net_b)
+    if chosen is None:
         _log.debug("wire_net.merge_cancelled", net_a=net_a.name, net_b=net_b.name)
         return False
 
-    chosen_name = dlg.chosen_name or net_a.name
+    chosen_name = chosen or net_a.name
     # Record snapshots before mutating.
     cmd.record_net_change(net_a.id, before=_snapshot(net_a), after=None)
     cmd.record_net_change(net_b.id, before=_snapshot(net_b), after=None)
