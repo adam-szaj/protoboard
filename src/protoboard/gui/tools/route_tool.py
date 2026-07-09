@@ -7,9 +7,7 @@ import uuid
 from typing import TYPE_CHECKING, cast
 
 import structlog
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
-from PySide6.QtWidgets import QGraphicsLineItem
+from PySide6.QtCore import Qt
 
 from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.connectivity.graph import ConnectivityGraph
@@ -18,16 +16,16 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
-from protoboard.gui.renderers.routing_overlay import render_routing_hints
+from protoboard.gui.tools.route_preview import QtRoutePreview
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
     from protoboard.gui.ports import KeyInput, PointerInput
+    from protoboard.gui.tools.route_preview import RoutePreview
 
 _log = structlog.get_logger(__name__)
-_PREVIEW_WIDTH = 0.12
 
 
 class RouteTool(_Tool):
@@ -47,30 +45,36 @@ class RouteTool(_Tool):
         self,
         insulated: bool = False,
         side: str = "bottom",
+        preview: RoutePreview | None = None,
     ) -> None:
         super().__init__()
         self._insulated = insulated
         self._side = side
         self._points: list[Point] = []
-        # Committed segments (between clicked points).
-        self._committed_lines: list[QGraphicsLineItem] = []
-        # Single live segment from last point to cursor — None when not active.
-        self._live_line: QGraphicsLineItem | None = None
-        self._hint_items: list[QGraphicsLineItem] = []
-        # Background dim overlay shown during active wire drag.  None
-        # while idle; QGraphicsRectItem after _set_route_highlight().
-        self._dim_overlay: object | None = None
+        # Transient overlay (committed segments, live segment, hints, dim)
+        # behind the semantic preview seam.  An injected preview (tests)
+        # survives re-activation; the default Qt one binds the current view's
+        # scene on activate().
+        self._preview: RoutePreview | None = preview
+        self._preview_injected = preview is not None
         # Track whether the transient highlight + dim overlay are
         # currently pushed so commit/cancel can pop exactly once.
         self._route_highlight_active: bool = False
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
+        if not self._preview_injected:
+            self._preview = QtRoutePreview(self._view.scene, self._theme)
         # No transient highlight on bare activation — RouteTool only
         # dims when the user is actively pulling a wire (i.e. after the
         # first click).  Standby mode keeps the normal view so the user
         # can scan the layout for the starting pad.
         self._route_highlight_active = False
+
+    @property
+    def preview(self) -> RoutePreview:
+        assert self._preview is not None  # set by activate() / injection
+        return self._preview
 
     def deactivate(self) -> None:
         self._clear_route_highlight()
@@ -93,22 +97,21 @@ class RouteTool(_Tool):
             self._show_routing_hints(snapped)
         # Turn the live segment into a committed segment.
         if len(self._points) >= 1:
-            self._remove_live()
-            self._add_committed_line(self._points[-1], snapped)
+            self.preview.clear_live()
+            self.preview.add_segment(self._points[-1], snapped)
         self._points.append(snapped)
         if len(self._points) == 1:
             _log.debug("route.started", start=(snapped.x, snapped.y), insulated=self._insulated, side=self._side)
             self._highlight_start_net(snapped)
         # Immediately show live segment from new point to current cursor.
-        self._add_live_line(snapped, snapped)
+        self.preview.show_live(snapped, snapped)
         return True
 
     def on_move(self, inp: PointerInput) -> None:
         if not self._points:
             return
-        self._remove_live()
         snapped = self._view.snap(inp.scene_pos)
-        self._add_live_line(self._points[-1], snapped)
+        self.preview.show_live(self._points[-1], snapped)
 
     def on_key(self, inp: KeyInput) -> bool:
         key = inp.key
@@ -198,9 +201,9 @@ class RouteTool(_Tool):
             return
 
         self._points.clear()
-        self._clear_committed()
-        self._remove_live()
-        self._clear_hints()
+        self.preview.clear_segments()
+        self.preview.clear_live()
+        self.preview.clear_hints()
         self._session.stack.execute(cmd, cast("ComponentState", self._session))
         _log.info("route.committed", wire_id=str(wire.id), points=len(wire.path),
                   insulated=wire.insulated)
@@ -210,9 +213,9 @@ class RouteTool(_Tool):
         # Clear state first so on_scene_cleared() (triggered by refresh below)
         # sees empty _points and does not try to redraw deleted C++ objects.
         self._points.clear()
-        self._clear_committed()
-        self._remove_live()
-        self._clear_hints()
+        self.preview.clear_segments()
+        self.preview.clear_live()
+        self.preview.clear_hints()
         self._clear_route_highlight()
         self._session.set_routing_net(None)
 
@@ -220,7 +223,7 @@ class RouteTool(_Tool):
         """Compute and render top-3 routing hint paths from source."""
         from protoboard.domain.components.package import resolved_footprint
 
-        self._clear_hints()
+        self.preview.clear_hints()
         session = self._session
         families = getattr(session, "package_families", None)
         graph = ConnectivityGraph(
@@ -284,9 +287,7 @@ class RouteTool(_Tool):
             active_net_id=self._session.routing_net_id,
         )
         _log.debug("route.hints", paths_found=len(results), targets=len(targets))
-        self._hint_items = render_routing_hints(
-            self._view.scene(), results, theme=self._theme(),
-        )
+        self.preview.show_hints(results)
 
     def _highlight_start_net(self, source: Point) -> None:
         """Mark the net of the starting pad as the active routing net.
@@ -343,7 +344,7 @@ class RouteTool(_Tool):
                 transient=True,
             )
         )
-        self._add_dim_overlay()
+        self.preview.show_dim()
         self._route_highlight_active = True
 
     def _clear_route_highlight(self) -> None:
@@ -351,95 +352,22 @@ class RouteTool(_Tool):
         if not self._route_highlight_active:
             return
         self._session.highlight_stack.pop_transient()  # type: ignore[attr-defined]
-        self._remove_dim_overlay()
+        self.preview.clear_dim()
         self._route_highlight_active = False
-
-    def _add_dim_overlay(self) -> None:
-        """Add a semi-transparent dark rectangle covering the whole scene.
-
-        Sits below the components/wires (z = -10) but above the board
-        background, so unrelated items dim further while the routed
-        items (already at higher z + boosted by bold highlight) remain
-        visible.  Removed by ``_remove_dim_overlay``.
-        """
-        from PySide6.QtWidgets import QGraphicsRectItem
-        from PySide6.QtGui import QBrush, QColor
-        from PySide6.QtCore import Qt as _Qt
-        scene = self._view.scene()
-        if scene is None:
-            return
-        rect_item = QGraphicsRectItem(scene.sceneRect())
-        # 50% black overlay — strong enough to push background away
-        # while the bold routed pads (z >> 0) stay legible above it.
-        rect_item.setBrush(QBrush(QColor(0, 0, 0, 128)))
-        rect_item.setPen(_Qt.PenStyle.NoPen)
-        # Z chosen by inspection of board_view layering: comp groups
-        # live around z=2, wires around z=1-3.  -0.5 puts the overlay
-        # above the board background (board z = -10) but below all
-        # interactive items.
-        rect_item.setZValue(-0.5)
-        scene.addItem(rect_item)
-        self._dim_overlay = rect_item
-
-    def _remove_dim_overlay(self) -> None:
-        if self._dim_overlay is None:
-            return
-        try:
-            self._view.scene().removeItem(self._dim_overlay)  # type: ignore[arg-type]
-        except RuntimeError:
-            pass  # scene already cleared
-        self._dim_overlay = None
 
     def on_scene_cleared(self) -> None:
         """Called after every refresh() — redraw committed lines from _points."""
-        self._committed_lines.clear()
-        self._live_line = None   # C++ object deleted by scene.clear(); drop ref
-        self._hint_items.clear()
-        # Background dim overlay is also a scene item — clear the
-        # reference so the next _add_dim_overlay() doesn't try to
-        # remove a freed C++ object.
-        self._dim_overlay = None
+        # Scene items were destroyed under us — the preview drops its refs,
+        # then the tool re-renders from its own state (_points is tool state).
+        self.preview.on_scene_cleared()
 
         # Redraw committed segments from stored point sequence.
         if len(self._points) >= 2:
             for i in range(len(self._points) - 1):
-                self._add_committed_line(self._points[i], self._points[i + 1])
+                self.preview.add_segment(self._points[i], self._points[i + 1])
         # Live line is NOT redrawn here — it will be recreated on the next
-        # mouseMoveEvent via on_move() → _add_live_line().
+        # mouseMoveEvent via on_move() → show_live().
         # Re-add the background dim overlay if a route is in flight; the
         # scene clear wiped it.
         if self._route_highlight_active:
-            self._add_dim_overlay()
-
-    def _clear_hints(self) -> None:
-        for item in self._hint_items:
-            self._view.scene().removeItem(item)
-        self._hint_items.clear()
-
-    def _add_committed_line(self, a: Point, b: Point) -> None:
-        pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
-        line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-        line.setPen(pen)
-        self._view.scene().addItem(line)
-        self._committed_lines.append(line)
-
-    def _add_live_line(self, a: Point, b: Point) -> None:
-        pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-        line.setPen(pen)
-        self._view.scene().addItem(line)
-        self._live_line = line
-
-    def _remove_live(self) -> None:
-        if self._live_line is not None:
-            try:
-                self._view.scene().removeItem(self._live_line)
-            except RuntimeError:
-                pass  # C++ object already deleted by scene.clear()
-            self._live_line = None
-
-    def _clear_committed(self) -> None:
-        for item in self._committed_lines:
-            self._view.scene().removeItem(item)
-        self._committed_lines.clear()
+            self.preview.show_dim()

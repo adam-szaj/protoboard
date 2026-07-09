@@ -11,6 +11,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
+from protoboard.gui.tools.route_preview import QtRoutePreview
 from protoboard.gui.tools.route_tool import RouteTool
 from tests.gui.input_helpers import key_inp, pointer
 
@@ -124,8 +125,10 @@ class TestRouteToolCommit:
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
         _enter(board_view)
-        assert tool._committed_lines == [] and tool._live_line is None
-        assert tool._hint_items == []
+        pv = tool.preview
+        assert isinstance(pv, QtRoutePreview)
+        assert pv._segments == [] and pv._live is None
+        assert pv._hints == []
 
     def test_fewer_than_two_points_does_not_commit(
         self, board_view: BoardView, session: EditorSession
@@ -191,7 +194,9 @@ class TestRouteToolCancel:
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
         _escape(board_view)
-        assert tool._committed_lines == [] and tool._live_line is None
+        pv = tool.preview
+        assert isinstance(pv, QtRoutePreview)
+        assert pv._segments == [] and pv._live is None
 
     def test_points_cleared_after_cancel(
         self, board_view: BoardView, session: EditorSession
