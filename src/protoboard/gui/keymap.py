@@ -500,6 +500,30 @@ class KeyMap(AbstractKeyMap):
         return self.resolve_action(action_id)
 
     @traced()
+    def lookup(self, key: int, modifiers: Qt.KeyboardModifier
+               ) -> tuple[str, ...]:
+        """Action ids whose *resolved* triggers match the key press.
+
+        The reverse of :meth:`matches`: walks the chain leaf-first (declaration
+        order within a map), so a tool layer's claims come before the base
+        map's — that ordering *is* the shadowing rule for dispatch.  Several
+        actions may share a trigger (e.g. an armed step and a tool op); the
+        caller's state gates pick the live one.
+        """
+        seen: set[str] = set()
+        ids: list[str] = []
+        node: AbstractKeyMap | None = self
+        while isinstance(node, KeyMap):
+            for action_id in node._actions:
+                if action_id in seen:
+                    continue
+                seen.add(action_id)
+                if self.matches(key, modifiers, action_id):
+                    ids.append(action_id)
+            node = node._parent
+        return tuple(ids)
+
+    @traced()
     def known_actions(self) -> tuple[KeyAction, ...]:
         """Every declared action, for UI / introspection."""
         return tuple(self._actions.values())

@@ -95,6 +95,39 @@ class TestFinalOnLayers:
             _base().set_override("x-tool.action.boom", "Esc")
 
 
+class TestLookup:
+    """Reverse lookup: event → action ids, leaf-first (the shadowing order)."""
+
+    def test_layer_claims_come_before_base(self) -> None:
+        base = _base()
+        base.register_tool_actions({"view.action.zoom": "K"})
+        layer = KeyMap.layer_over(base)
+        layer.register_tool_actions({"x-tool.action.spin": "K"})
+        assert layer.lookup(Qt.Key.Key_K.value, _NOMOD) == (
+            "x-tool.action.spin", "view.action.zoom")
+
+    def test_lookup_follows_overrides(self) -> None:
+        base = _base()
+        base.register_tool_actions({"view.action.zoom": "K"})
+        layer = KeyMap.layer_over(base)
+        layer.register_tool_actions({"x-tool.action.spin": "K"})
+        layer.set_override("x-tool.action.spin", "M")
+        assert layer.lookup(Qt.Key.Key_K.value, _NOMOD) == ("view.action.zoom",)
+        assert layer.lookup(Qt.Key.Key_M.value, _NOMOD) == ("x-tool.action.spin",)
+
+    def test_lookup_matches_any_alternative(self) -> None:
+        layer = KeyMap.layer_over(_base())
+        layer.register_tool_actions({"x-tool.action.step_up": "Up|W"})
+        assert layer.lookup(Qt.Key.Key_W.value, _NOMOD) == (
+            "x-tool.action.step_up",)
+        assert layer.lookup(Qt.Key.Key_Up.value, _NOMOD) == (
+            "x-tool.action.step_up",)
+
+    def test_lookup_unbound_key_is_empty(self) -> None:
+        assert KeyMap.layer_over(_base()).lookup(
+            Qt.Key.Key_F35.value, _NOMOD) == ()
+
+
 class _FakeTool(_Tool):
     def key_actions(self) -> dict[str, str | None]:
         return {

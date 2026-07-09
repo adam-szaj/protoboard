@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QGraphicsView
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from protoboard.geometry import Point
     from protoboard.gui.highlight.renderer import HighlightRenderer
@@ -256,11 +256,22 @@ class BoardViewTool(ABC):
     def on_key_release(self, event: QKeyEvent) -> None: ...
 
     @abstractmethod
+    def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
+        """``(action_id, state_gate)`` pairs driving the default ``wants_key``.
+
+        The tool claims a key *right now* when any pair's action id matches the
+        event through the KeyMap **and** its gate returns True (e.g. "the
+        armed transform is live", "a wire-edit fragment is selected").  Purely
+        declarative — no ``Qt.Key`` literals, rebinds honoured automatically.
+        """
+
+    @abstractmethod
     def wants_key(self, event: QKeyEvent) -> bool:
         """True when the tool wants to handle *event* itself this very moment.
 
         Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
         application shortcut whose key it needs contextually right now.
+        Default: derived from :meth:`key_claims`.
         """
 
     @abstractmethod
@@ -372,6 +383,15 @@ class _Tool(BoardViewTool):
 
     @override
     @traced()
+    def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
+        """``(action_id, state_gate)`` pairs driving the default ``wants_key``.
+
+        Default: no claims.
+        """
+        return ()
+
+    @override
+    @traced()
     def wants_key(self, event: QKeyEvent) -> bool:
         """True when the tool wants to handle *event* itself this very moment.
 
@@ -380,8 +400,37 @@ class _Tool(BoardViewTool):
         wire-edit fragment claiming ``[W]`` / ``[A]`` / ``Delete`` from the
         Route / Library / Delete actions).  Vetoing makes Qt deliver the key as
         an ordinary ``KeyPress`` to ``on_key`` instead of firing the QAction.
-        Default: claim nothing.
+        Derived from :meth:`key_claims` — a tool states *what* it claims and
+        *when*; the matching itself is uniform (KeyMap, rebind-safe).
         """
+        return any(
+            gate() and self._key_matches(event, action_id)
+            for action_id, gate in self.key_claims()
+        )
+
+    @traced()
+    def key_dispatch(self) -> tuple[tuple[str, Callable[[QKeyEvent], bool]], ...]:
+        """Ordered ``(action_id, handler)`` table for :meth:`_dispatch_key`.
+
+        A handler returns True when it consumed the key (the event is then
+        accepted).  Default: empty — tools opt in per action.
+        """
+        return ()
+
+    @traced()
+    def _dispatch_key(self, event: QKeyEvent) -> bool:
+        """Run *event* through :meth:`key_dispatch` (KeyMap-resolved, ordered).
+
+        Mirrors an ``elif`` ladder: the first entry whose action id matches
+        the event decides — its handler's verdict is final, later entries are
+        not offered the key even when the handler declines.
+        """
+        for action_id, handler in self.key_dispatch():
+            if self._key_matches(event, action_id):
+                consumed = handler(event)
+                if consumed:
+                    event.accept()
+                return consumed
         return False
 
     @override

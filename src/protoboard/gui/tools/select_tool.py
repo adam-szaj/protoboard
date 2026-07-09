@@ -2855,42 +2855,39 @@ class SelectTool(_Tool):
             _ACT_STEP_DOWN: "Down|S",
         }
 
-    def wants_key(self, event: QKeyEvent) -> bool:
-        """Claim keys the tool needs contextually, vetoing the global shortcut.
+    def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
+        """Contextual key claims (see :meth:`_Tool.wants_key` for the veto).
 
-        Without this, Qt fires the ``WindowShortcut`` QActions first (Route on
-        the reroute key, Library on the autoroute key, the global Delete), none
-        of which is wanted mid wire-edit or with something selected.  We decide
-        *dynamically* — by matching the event against the tool's action ids
-        resolved through the current :class:`KeyMap` — so rebinding any shortcut
-        is honoured.  Returning True on a ``ShortcutOverride`` makes Qt deliver
-        the key as a plain ``KeyPress`` to :meth:`on_key`.
+        - An armed transform (float-rotate / keyboard-move) claims its step +
+          action keys — so a global QAction (Route on the step-up/WASD key,
+          Select on 'S', …) never shadows the live mode.
+        - A selected wire-edit fragment claims its operation keys.
+        - Delete acts on the current selection — claimed so the global delete
+          action doesn't shadow the tool's handler.
 
         Pick-confirm / cancel / undo (Enter / Esc / Backspace) are raw,
         non-action keys that aren't global shortcuts, so they reach the tool
-        anyway and need no veto here.
+        anyway and need no claim here.
         """
-        # An armed transform (float-rotate / keyboard-move) claims its step +
-        # action keys, resolved through the KeyMap — so a global QAction (Route
-        # on the step-up/WASD key, Select on 'S', …) never shadows the live
-        # mode.  All ids, no raw Qt.Key literals.
-        if self._armed is not None and any(
-            self._key_matches(event, a) for a in _ARMED_ACTION_IDS
-        ):
-            return True
-        # A selected wire-edit fragment claims its operation keys.
-        if self._wire_edit is not None and (
-            self._key_matches(event, _ACT_REROUTE)
-            or self._key_matches(event, _ACT_AUTOROUTE)
-            or self._key_matches(event, _ACT_FLIP_FRAGMENT)
-            or self._key_matches(event, _ACT_DELETE)
-        ):
-            return True
-        # Delete acts on the current selection — claim it so the global delete
-        # action doesn't shadow the tool's handler.
-        if self._key_matches(event, _ACT_DELETE) and not self._selection.is_empty():
-            return True
-        return False
+        armed = self._is_armed
+        wire_edit = self._has_wire_edit
+        return (
+            *((a, armed) for a in _ARMED_ACTION_IDS),
+            (_ACT_REROUTE, wire_edit),
+            (_ACT_AUTOROUTE, wire_edit),
+            (_ACT_FLIP_FRAGMENT, wire_edit),
+            (_ACT_DELETE, wire_edit),
+            (_ACT_DELETE, self._has_selection),
+        )
+
+    def _is_armed(self) -> bool:
+        return self._armed is not None
+
+    def _has_wire_edit(self) -> bool:
+        return self._wire_edit is not None
+
+    def _has_selection(self) -> bool:
+        return not self._selection.is_empty()
 
     def wants_wheel(self, event: QWheelEvent) -> bool:
         """Claim the wheel only when the armed sub-tool consumes it (rotate)."""

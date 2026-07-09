@@ -55,3 +55,67 @@ class TestToolLayerLifecycle:
         assert board_view.keymap.resolve("global.action.edit") == "E"
         board_view.set_tool(_ToolA())
         assert board_view.keymap.resolve("global.action.edit") == "E"
+
+
+class _DispatchTool(_Tool):
+    """Two actions on one trigger — first table entry decides."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[str] = []
+        self.first_consumes = True
+
+    def key_actions(self) -> dict[str, str | None]:
+        return {"d-tool.action.first": "K", "d-tool.action.second": "K"}
+
+    def key_dispatch(self):  # type: ignore[override]
+        return (
+            ("d-tool.action.first", self._on_first),
+            ("d-tool.action.second", self._on_second),
+        )
+
+    def _on_first(self, _event) -> bool:
+        self.calls.append("first")
+        return self.first_consumes
+
+    def _on_second(self, _event) -> bool:
+        self.calls.append("second")
+        return True
+
+
+def _key_event(key):
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    return QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+
+
+class TestDispatchTable:
+    def test_first_matching_entry_wins(self, board_view: BoardView) -> None:
+        tool = _DispatchTool()
+        board_view.set_tool(tool)
+        from PySide6.QtCore import Qt
+        event = _key_event(Qt.Key.Key_K)
+        assert tool._dispatch_key(event) is True
+        assert tool.calls == ["first"]
+        assert event.isAccepted()
+
+    def test_declining_handler_ends_the_scan(
+        self, board_view: BoardView
+    ) -> None:
+        # elif-ladder parity: the first id match decides; a declined key is
+        # NOT offered to later entries sharing the trigger.
+        tool = _DispatchTool()
+        tool.first_consumes = False
+        board_view.set_tool(tool)
+        from PySide6.QtCore import Qt
+        assert tool._dispatch_key(_key_event(Qt.Key.Key_K)) is False
+        assert tool.calls == ["first"]
+
+    def test_unbound_key_dispatches_nothing(
+        self, board_view: BoardView
+    ) -> None:
+        tool = _DispatchTool()
+        board_view.set_tool(tool)
+        from PySide6.QtCore import Qt
+        assert tool._dispatch_key(_key_event(Qt.Key.Key_J)) is False
+        assert tool.calls == []

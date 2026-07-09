@@ -30,6 +30,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repointed at the chain and green again; new layer/lifecycle suites:
   `tests/unit/test_keymap_layers.py`, `tests/gui/test_keymap_layers.py`.
 
+### Per-tool KeyMap layer — Stage 1b: reverse lookup + dispatch tables (2026-07-09)
+
+* **`KeyMap.lookup(key, modifiers)`** — the reverse of `matches`: all action
+  ids bound to the pressed trigger, walking the chain leaf-first, so a tool
+  layer's claims come before the base map's (that ordering *is* the shadowing
+  rule for dispatch; groundwork for routing mouse gestures in Stage 2).
+* **Declarative `key_claims()`** (`(action_id, state_gate)` pairs) now drives
+  a uniform `wants_key` on `_Tool` — Select/Place no longer hand-roll the
+  boolean ladders for the ShortcutOverride veto.
+* **Ordered `key_dispatch()` table + `_dispatch_key()`** with elif-ladder
+  parity (first id match decides; a declining handler ends the scan).
+  PlaceTool's `on_key` ladder converted to named handlers; SelectTool's main
+  `on_key` pipeline deliberately stays imperative (raw-key intents and
+  modifier guards interleave with its ordering — see design doc §4).
+
 ### Declarative kind nodes — YAML-declared kinds, generator fills `auto` (2026-07-06)
 
 * **Kinds become hybrid: declared in YAML, computed by the generator.** New

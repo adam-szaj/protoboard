@@ -184,10 +184,19 @@ working unchanged until stage 2 lands.
    tests must pass unchanged; add tests for (a) layer popped on tool switch
    (previous tool's bindings no longer resolve), (b) user override beats a
    layer declaration, (c) final trigger collision rejected at construction.
-2. **Stage 1b — dispatch table.** `lookup()` on the chain;
-   `tool.dispatch`/`tool.wants(action_id)`; rewrite `wants_key`/`on_key`
-   ladders in Select/Place tools. Parity tests carry over (behaviour, not
-   internals).
+2. **Stage 1b — dispatch table.** `KeyMap.lookup(key, mods)` (reverse lookup,
+   leaf-first — the shadowing order); declarative `key_claims()`
+   (`(action_id, state_gate)` pairs) driving a uniform `wants_key`; ordered
+   `key_dispatch()` table + `_dispatch_key()` with elif-ladder parity (first
+   id match decides, a declining handler ends the scan). Parity tests carry
+   over (behaviour, not internals).
+   *Scope decision (2026-07-09):* both tools' `wants_key` ladders and
+   PlaceTool's `on_key` ladder converted; SelectTool's main `on_key` pipeline
+   is deliberately **kept imperative** — its ordering interleaves raw,
+   non-action keys (Enter/Esc/Backspace intents, pivot-Esc, Ctrl+R parity)
+   and per-branch modifier guards that a declarative table would have to
+   re-encode as event-aware gates, losing clarity, and its wire-edit
+   `_wire_edit_on_key` already is the op-table pattern.
 3. **Stage 2 — mouse triggers.** `Trigger` parsing, view gesture actions on
    the base map, wheel/RMB routed through the map, retire
    `wants_wheel`/`on_right_press` probing. Union-additions for final actions.

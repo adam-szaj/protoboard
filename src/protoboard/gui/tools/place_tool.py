@@ -24,6 +24,7 @@ Flow for components with bendable_pins (two-phase):
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from enum import StrEnum
 from typing import cast
 
@@ -261,15 +262,32 @@ class PlaceTool(_Tool):
         }
 
     @traced()
-    def wants_key(self, event: QKeyEvent) -> bool:
+    def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
         """Claim the transform keys so the (no-op while placing) globals don't
         shadow them.  Decided dynamically through the KeyMap — no key literals."""
-        return (self._key_matches(event, _ACT_ROTATE_CW)
-                or self._key_matches(event, _ACT_ROTATE_CCW)
-                or self._key_matches(event, _ACT_FLIP)
-                or self._key_matches(event, _ACT_REDRAG)
-                or self._key_matches(event, _ACT_CONFIRM)
-                or self._key_matches(event, _ACT_CANCEL))
+        always = self._always
+        return (
+            (_ACT_ROTATE_CW, always),
+            (_ACT_ROTATE_CCW, always),
+            (_ACT_FLIP, always),
+            (_ACT_REDRAG, always),
+            (_ACT_CONFIRM, always),
+            (_ACT_CANCEL, always),
+        )
+
+    @staticmethod
+    def _always() -> bool:
+        return True
+
+    @traced()
+    def key_dispatch(self) -> tuple[tuple[str, Callable[[QKeyEvent], bool]], ...]:
+        """Ghost-transform ops, dispatched by action id (rebind-safe)."""
+        return (
+            (_ACT_FLIP, self._key_flip_pin_pair),
+            (_ACT_ROTATE_CW, lambda _e: self._key_rotate(90)),
+            (_ACT_ROTATE_CCW, lambda _e: self._key_rotate(-90)),
+            (_ACT_REDRAG, self._key_redrag),
+        )
 
     @traced()
     def on_key(self, event: object) -> None:
@@ -277,7 +295,7 @@ class PlaceTool(_Tool):
             return
         key = event.key()
 
-        # Floating phase: Enter commits, Esc cancels.
+        # Floating phase: Enter commits, Esc cancels (raw keys, not actions).
         if self._is_phase(PhaseEnum.FLOATING):
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_floating_place()
@@ -288,78 +306,84 @@ class PlaceTool(_Tool):
                 event.accept()
             return
 
-        if self._key_matches(event, _ACT_FLIP) and self._is_phase(PhaseEnum.DRAG_PIN):
-            # Flip pin1/pin2 — anchor moves to old pin2 pad.
-            defn = self._session.components.get(self._definition_ref)
-            fp = self._resolved_footprint(defn) if defn else None
-            if (defn and fp is not None and fp.pin_count() == 2
-                    and self._anchor_pos is not None):
-                import uuid as _uuid
-                tmp_pl = ComponentPlacement(
-                    component_id=_uuid.UUID(int=0),
-                    position=self._anchor_pos,
-                    rotation=self._rotation,
-                    side="top",
-                    pin_offsets=dict(self._pin_offsets),
-                )
-                flipped = flip_component(fp, tmp_pl)
-                self._anchor_pos  = flipped.position
-                self._rotation    = flipped.rotation
-                self._pin_offsets = flipped.pin_offsets
-                self._rebuild_ghost_at_anchor()
-                self._update_reach_overlay()
-            event.accept()
+        if self._dispatch_key(event):
+            return
 
-        elif self._key_matches(event, _ACT_ROTATE_CW) or self._key_matches(
-            event, _ACT_ROTATE_CCW
-        ):
-            delta = -90 if self._key_matches(event, _ACT_ROTATE_CCW) else 90
-            self._rotation = (self._rotation + delta) % 360
-            if self._is_phase(PhaseEnum.DRAG_PIN):
-                self._rebuild_ghost_at_anchor()
-                self._update_reach_overlay()
-            else:
-                # Rebuild rebakes the body shape for the new rotation, then
-                # re-park the ghost under the cursor's last known position.
-                self._rebuild_ghost()
-                if self._last_cursor_pos is not None:
-                    self._move_ghost(
-                        self._last_cursor_pos.x, self._last_cursor_pos.y,
-                    )
-            event.accept()
-
-        elif self._key_matches(event, _ACT_REDRAG):
-            # Re-drag — restart drag for the current bendable pin from default.
-            defn = self._session.components.get(self._definition_ref)
-            specs = self._bend_specs(defn) if defn else {}
-            if not specs:
-                return
-            bendable = sorted(specs.keys())
-            if self._is_phase(PhaseEnum.ANCHOR) and self._anchor_pos is None:
-                return  # nothng to re-drag yet
-            if self._is_phase(PhaseEnum.ANCHOR):
-                # anchor already fixed (e.g. after phase reset), start drag
-                self._pin_offsets = {
-                    p: specs[p].default_offset for p in bendable
-                }
-                self._drag_pin_queue = bendable[1:]
-                self._current_drag_pin = bendable[0]
-                self._set_phase(PhaseEnum.DRAG_PIN)
-            else:
-                # Reset current drag pin to default
-                assert self._current_drag_pin is not None
-                spec = specs.get(self._current_drag_pin)
-                if spec:
-                    self._pin_offsets[self._current_drag_pin] = spec.default_offset
-            self._rebuild_ghost_at_anchor()
-            self._update_reach_overlay()
-            event.accept()
-
-        elif key == Qt.Key.Key_Escape and self._is_phase(PhaseEnum.DRAG_PIN):
+        if key == Qt.Key.Key_Escape and self._is_phase(PhaseEnum.DRAG_PIN):
             self._clear_reach_overlay()
             self._reset_phase()
             self._rebuild_ghost()
             event.accept()
+
+    @traced()
+    def _key_flip_pin_pair(self, _event: QKeyEvent) -> bool:
+        """Flip pin1/pin2 while dragging a pin — anchor moves to old pin2 pad."""
+        if not self._is_phase(PhaseEnum.DRAG_PIN):
+            return False
+        defn = self._session.components.get(self._definition_ref)
+        fp = self._resolved_footprint(defn) if defn else None
+        if (defn and fp is not None and fp.pin_count() == 2
+                and self._anchor_pos is not None):
+            import uuid as _uuid
+            tmp_pl = ComponentPlacement(
+                component_id=_uuid.UUID(int=0),
+                position=self._anchor_pos,
+                rotation=self._rotation,
+                side="top",
+                pin_offsets=dict(self._pin_offsets),
+            )
+            flipped = flip_component(fp, tmp_pl)
+            self._anchor_pos  = flipped.position
+            self._rotation    = flipped.rotation
+            self._pin_offsets = flipped.pin_offsets
+            self._rebuild_ghost_at_anchor()
+            self._update_reach_overlay()
+        return True
+
+    @traced()
+    def _key_rotate(self, delta: int) -> bool:
+        """Rotate the ghost by *delta* degrees (±90)."""
+        self._rotation = (self._rotation + delta) % 360
+        if self._is_phase(PhaseEnum.DRAG_PIN):
+            self._rebuild_ghost_at_anchor()
+            self._update_reach_overlay()
+        else:
+            # Rebuild rebakes the body shape for the new rotation, then
+            # re-park the ghost under the cursor's last known position.
+            self._rebuild_ghost()
+            if self._last_cursor_pos is not None:
+                self._move_ghost(
+                    self._last_cursor_pos.x, self._last_cursor_pos.y,
+                )
+        return True
+
+    @traced()
+    def _key_redrag(self, _event: QKeyEvent) -> bool:
+        """Re-drag — restart drag for the current bendable pin from default."""
+        defn = self._session.components.get(self._definition_ref)
+        specs = self._bend_specs(defn) if defn else {}
+        if not specs:
+            return False
+        bendable = sorted(specs.keys())
+        if self._is_phase(PhaseEnum.ANCHOR) and self._anchor_pos is None:
+            return False  # nothing to re-drag yet
+        if self._is_phase(PhaseEnum.ANCHOR):
+            # anchor already fixed (e.g. after phase reset), start drag
+            self._pin_offsets = {
+                p: specs[p].default_offset for p in bendable
+            }
+            self._drag_pin_queue = bendable[1:]
+            self._current_drag_pin = bendable[0]
+            self._set_phase(PhaseEnum.DRAG_PIN)
+        else:
+            # Reset current drag pin to default
+            assert self._current_drag_pin is not None
+            spec = specs.get(self._current_drag_pin)
+            if spec:
+                self._pin_offsets[self._current_drag_pin] = spec.default_offset
+        self._rebuild_ghost_at_anchor()
+        self._update_reach_overlay()
+        return True
 
     @traced()
     def on_scene_cleared(self) -> None:
