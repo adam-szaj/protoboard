@@ -52,6 +52,7 @@ from protoboard.gui.scene_composer import SceneComposer
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
+from protoboard.gui.qt_viewport import QtViewport
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX
 from protoboard.gui.view_camera import ViewCamera
 from protoboard.services.debug_trace import traced
@@ -122,6 +123,7 @@ class BoardView(AbstractBoardView):
         # Camera: zoom, pan-burst, mirror + fit — extracted service
         # (see gui/view_camera.py).  Owns the wheel/pan timers behind
         # ``in_transform_burst()``.
+        self.viewport_port = QtViewport(self)
         self.camera = ViewCamera(self)
         self._layer_overrides: LayerOverrides = LayerOverrides()
         self._pad_positions: list[Point] = []
@@ -729,15 +731,16 @@ class BoardView(AbstractBoardView):
     @traced()
     def center_on_scene_point(self, scene_pt: Point) -> None:
         """Scroll the view so that scene_pt appears at the centre of the viewport."""
-        vp = self.viewport()
-        cx = vp.width() / 2.0
-        cy = vp.height() / 2.0
-        current = self.mapToScene(int(cx), int(cy))
-        scale = self.transform().m11()
-        hbar = self.horizontalScrollBar()
-        vbar = self.verticalScrollBar()
-        hbar.setValue(hbar.value() + round((scene_pt.x - current.x()) * scale))
-        vbar.setValue(vbar.value() + round((scene_pt.y - current.y()) * scale))
+        from protoboard.geometry import Vector
+
+        port = self.viewport_port
+        centre = port.viewport_rect().center
+        current = port.map_view_to_scene(centre)
+        scale = port.view_transform().a
+        port.pan_by(Vector(
+            (scene_pt.x - current.x) * scale,
+            (scene_pt.y - current.y) * scale,
+        ))
 
     @traced()
     def _add_tool_action_menu(self, menu: object) -> dict[object, str]:

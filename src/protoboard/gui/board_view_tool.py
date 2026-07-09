@@ -25,7 +25,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from protoboard.geometry import Point
-    from protoboard.gui.ports import KeyInput, PointerInput, StatusEvent, WheelInput
+    from protoboard.gui.ports import (
+        KeyInput,
+        PointerInput,
+        StatusEvent,
+        ViewportPort,
+        WheelInput,
+    )
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
     from protoboard.gui.layer_state import LayerState
@@ -72,6 +78,9 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     camera: ViewCamera
     tools: ToolHost
     composer: SceneComposer
+    # The camera *mechanism* (qt-ports §2.1) — ViewCamera and services speak
+    # to the widget's transform/scroll/mapping only through this port.
+    viewport_port: ViewportPort
 
     # -- view state ----------------------------------------------------------
 

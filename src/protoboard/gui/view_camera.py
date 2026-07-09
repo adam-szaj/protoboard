@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QRectF, Qt, QTimer
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtCore import QTimer
 
+from protoboard.geometry import Point, Rect, Transform2D, Vector
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view_tool import AbstractBoardView
+    from protoboard.gui.ports import ViewportPort, WheelInput
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
 GRID_PX = 60.0  # initial pixels-per-raster-unit
@@ -31,6 +32,7 @@ class ViewCamera:
 
     def __init__(self, view: AbstractBoardView) -> None:
         self._view = view
+        self._port: ViewportPort = view.viewport_port
         # View state — camera side and visual transform are independent.
         self._camera_side: str = "top"           # "top" | "bottom"
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
@@ -41,7 +43,7 @@ class ViewCamera:
         # pass, so over SSH the wheel handler returns in microseconds
         # and Qt processes the next tick without waiting for a paint.
         self._wheel_accum_delta: int = 0
-        self._wheel_pivot_vp: QPoint | None = None
+        self._wheel_pivot_vp: Point | None = None
         self._wheel_timer = QTimer(view)
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.setInterval(16)  # ~1 frame
@@ -121,28 +123,28 @@ class ViewCamera:
 
     @traced()
     def _apply_view_transform(self) -> None:
-        """Recompute the QGraphicsView scale matrix from current state."""
+        """Recompute the view's scale matrix from current state."""
         view = self._view
+        port = self._port
         sx = -1.0 if self._has_mirror_h() else 1.0
         sy = -1.0 if self._has_mirror_v() else 1.0
         # Preserve current zoom magnitude, apply sign flips.  Clamp to
         # current viewport-derived limits so a window resize that shrank
         # the allowed window doesn't leave us out of range.
-        mag = abs(view.transform().m11()) or GRID_PX
+        mag = port.view_scale() or GRID_PX
         try:
             m11_min, m11_max = self._compute_zoom_limits()
             mag = max(m11_min, min(m11_max, mag))
         except Exception:  # noqa: BLE001 — session may be detached during shutdown
             pass
         # Remember the scene point currently at the viewport centre so we can
-        # restore it after setTransform (which resets scroll position).
-        vp = view.viewport()
-        cx, cy = vp.width() / 2, vp.height() / 2
-        center_scene = view.mapToScene(int(cx), int(cy))
-        from PySide6.QtGui import QTransform
-        view.setTransform(QTransform(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
+        # restore it after set_view_transform (which resets scroll position).
+        center_scene = port.map_view_to_scene(port.viewport_rect().center)
+        port.set_view_transform(
+            Transform2D(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0)
+        )
         # Re-centre on the same scene point.
-        view.centerOn(center_scene)
+        port.center_on(center_scene)
         # Transform changed → bg cache pixmap is in the wrong space, but
         # the pixmap *content* is still valid — the bridge transform
         # handles the mirror.  Keep the anchor for a smooth visual jump.
@@ -191,10 +193,7 @@ class ViewCamera:
         """Scale and center the view to fit the board bounds."""
         view = self._view
         b = view.session.board.bounds
-        view.fitInView(
-            QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
+        self._port.fit_in_view(Rect(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
         # fit_* / mirror: transform jumps but the pixmap content is still
         # valid — keep the anchor so the next paint can stretch-blit it
         # while the fresh rebuild happens.
@@ -232,12 +231,11 @@ class ViewCamera:
             return
 
         margin = 1.0
-        view.fitInView(
-            QRectF(min(xs) - margin, min(ys) - margin,
-                   max(xs) - min(xs) + 2 * margin,
-                   max(ys) - min(ys) + 2 * margin),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
+        self._port.fit_in_view(Rect(
+            min(xs) - margin, min(ys) - margin,
+            max(xs) - min(xs) + 2 * margin,
+            max(ys) - min(ys) + 2 * margin,
+        ))
         # fit_* / mirror: transform jumps but the pixmap content is still
         # valid — keep the anchor so the next paint can stretch-blit it
         # while the fresh rebuild happens.
@@ -280,12 +278,11 @@ class ViewCamera:
             return
 
         margin = 1.0
-        view.fitInView(
-            QRectF(min(xs) - margin, min(ys) - margin,
-                   max(xs) - min(xs) + 2 * margin,
-                   max(ys) - min(ys) + 2 * margin),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
+        self._port.fit_in_view(Rect(
+            min(xs) - margin, min(ys) - margin,
+            max(xs) - min(xs) + 2 * margin,
+            max(ys) - min(ys) + 2 * margin,
+        ))
         # fit_* / mirror: transform jumps but the pixmap content is still
         # valid — keep the anchor so the next paint can stretch-blit it
         # while the fresh rebuild happens.
@@ -294,7 +291,7 @@ class ViewCamera:
 
     # -- wheel zoom -------------------------------------------------------------------
 
-    def on_wheel(self, event: QWheelEvent) -> None:
+    def on_wheel(self, inp: WheelInput) -> None:
         """Accumulate wheel ticks; defer the scale + scroll to a timer.
 
         Each ``view.scale()`` triggers a QGraphicsScene repaint, and at
@@ -309,8 +306,8 @@ class ViewCamera:
         the wheel intends to zoom around wherever the cursor currently
         is, not the position where the burst started.
         """
-        self._wheel_accum_delta += event.angleDelta().y()
-        self._wheel_pivot_vp = event.position().toPoint()
+        self._wheel_accum_delta += inp.delta_y
+        self._wheel_pivot_vp = inp.view_pos
         if not self._wheel_timer.isActive():
             self._wheel_timer.start()
 
@@ -351,21 +348,21 @@ class ViewCamera:
         if abs(factor - 1.0) < 1e-6 and not hit_floor:
             return  # at limit — no scale change, no scroll-bar correction needed
 
-        old_scene = view.mapToScene(pivot)
-        view.scale(factor, factor)
+        port = self._port
+        old_scene = port.map_view_to_scene(pivot)
+        self._scale_by(factor)
         if hit_floor:
             # Snap to the board's centre on the zoom-out floor so the
             # user doesn't end up parked over canvas margin.
             b = view.session.board.bounds
-            view.centerOn(b.x + b.width / 2.0, b.y + b.height / 2.0)
+            port.center_on(Point(b.x + b.width / 2.0, b.y + b.height / 2.0))
         else:
-            new_scene = view.mapToScene(pivot)
-            delta_scene = new_scene - old_scene
-            new_scale = view.transform().m11()
-            hbar = view.horizontalScrollBar()
-            vbar = view.verticalScrollBar()
-            hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
-            vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
+            new_scene = port.map_view_to_scene(pivot)
+            new_scale = port.view_transform().a
+            port.pan_by(Vector(
+                -(new_scene.x - old_scene.x) * new_scale,
+                -(new_scene.y - old_scene.y) * new_scale,
+            ))
         # Zoom changed the world→viewport transform; the cached pixmap
         # was rendered for the previous mapping.  Keep the anchor so a
         # follow-up tick of the same burst can stretch-blit it instead
@@ -374,6 +371,18 @@ class ViewCamera:
         # Defer the O(scene items) visibility sweep — same reasoning
         # as before, just relative to the (now batched) zoom paint.
         view.apply_label_visibility(deferred=True)
+
+    def _scale_by(self, factor: float) -> None:
+        """Multiply the view transform's linear part by *factor*.
+
+        Equivalent to Qt's ``view.scale(factor, factor)`` (right-multiplied
+        diagonal): scroll position is untouched — callers apply their own
+        pivot correction via :meth:`ViewportPort.pan_by`.
+        """
+        t = self._port.view_transform()
+        self._port.set_view_transform(Transform2D(
+            t.a * factor, t.b * factor, t.c * factor, t.d * factor, t.tx, t.ty,
+        ))
 
     # ------------------------------------------------------------------
     # Zoom limits — derived from physical DPI + board bounds
@@ -400,15 +409,9 @@ class ViewCamera:
     def _compute_zoom_limits(self) -> tuple[float, float]:
         """Return ``(m11_min, m11_max)`` for the current viewport + board."""
         view = self._view
-        screen = view.screen() or (
-            view.window().screen() if view.window() else None
-        )
-        # ``physicalDotsPerInch`` reports the *true* hardware DPI Qt can
-        # see; falls back to logicalDpi if unavailable (e.g. headless).
-        if screen is not None:
-            phys_dpi = float(screen.physicalDotsPerInch() or 96.0)
-        else:
-            phys_dpi = 96.0
+        metrics = self._port.screen_metrics()
+        # Physical DPI when the platform reports one; 96 headless.
+        phys_dpi = metrics.dpi if metrics is not None else 96.0
         pitch_mm = float(view.session.board.raster_pitch_mm)
         px_per_mm = phys_dpi / 25.4
         # m11 such that 1 cell == pitch_mm × px_per_mm (real size).
@@ -426,9 +429,9 @@ class ViewCamera:
         b = view.session.board.bounds
         board_w = max(float(b.width), 1.0)
         board_h = max(float(b.height), 1.0)
-        vp = view.viewport().rect()
-        vp_w = max(vp.width(), 1)
-        vp_h = max(vp.height(), 1)
+        vp = self._port.viewport_rect()
+        vp_w = max(vp.width, 1.0)
+        vp_h = max(vp.height, 1.0)
         m11_fit = min(vp_w / board_w, vp_h / board_h)
         m11_half = 0.5 * m11_fit
 
@@ -452,10 +455,9 @@ class ViewCamera:
         scale.  Callers use that to auto-centre the board so the viewport
         doesn't end up parked over the canvas-margin area.
         """
-        view = self._view
         if factor <= 0.0:
             return 1.0, False
-        current = abs(view.transform().m11()) or GRID_PX
+        current = self._port.view_scale() or GRID_PX
         target = current * factor
         m11_min, m11_max = self._compute_zoom_limits()
         hit_floor = False
@@ -481,27 +483,26 @@ class ViewCamera:
         items rescale.
         """
         view = self._view
+        port = self._port
         if factor <= 0.0:
             return
         factor, hit_floor = self._clamp_zoom_factor(factor)
         if abs(factor - 1.0) < 1e-6 and not hit_floor:
             return  # already at limit — no-op
-        vp = view.viewport().rect()
-        pivot_vp = vp.center()
-        old_scene = view.mapToScene(pivot_vp)
-        view.scale(factor, factor)
+        pivot_vp = port.viewport_rect().center
+        old_scene = port.map_view_to_scene(pivot_vp)
+        self._scale_by(factor)
         if hit_floor:
             # Snap to board centre when hitting the zoom-out floor.
             b = view.session.board.bounds
-            view.centerOn(b.x + b.width / 2.0, b.y + b.height / 2.0)
+            port.center_on(Point(b.x + b.width / 2.0, b.y + b.height / 2.0))
         else:
-            new_scene = view.mapToScene(pivot_vp)
-            delta_scene = new_scene - old_scene
-            new_scale = view.transform().m11()
-            hbar = view.horizontalScrollBar()
-            vbar = view.verticalScrollBar()
-            hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
-            vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
+            new_scene = port.map_view_to_scene(pivot_vp)
+            new_scale = port.view_transform().a
+            port.pan_by(Vector(
+                -(new_scene.x - old_scene.x) * new_scale,
+                -(new_scene.y - old_scene.y) * new_scale,
+            ))
         # Ctrl+/- zoom: keep the anchor so successive presses paint
         # cheaply during the burst, then settle to a fresh pixmap.
         view.invalidate_bg_cache(keep_anchor=True)
@@ -517,7 +518,7 @@ class ViewCamera:
         """Force a paint right after a pan burst ends so the user sees the
         fresh full-quality pixmap immediately instead of waiting for the
         next event-driven repaint."""
-        self._view.viewport().update()
+        self._port.request_repaint()
 
     def on_resize(self) -> None:
         """Snap zoom back inside the (viewport-derived) limit window.
@@ -526,10 +527,9 @@ class ViewCamera:
         current zoom has slid below the new floor, snap back to it so
         the user doesn't end up with a board lost in canvas chrome.
         """
-        view = self._view
         try:
             m11_min, m11_max = self._compute_zoom_limits()
-            current = abs(view.transform().m11())
+            current = self._port.view_scale()
             if current and (current < m11_min - 1e-6 or current > m11_max + 1e-6):
                 self._apply_view_transform()
         except Exception:  # noqa: BLE001

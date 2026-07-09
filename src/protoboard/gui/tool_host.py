@@ -16,8 +16,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
+from protoboard.geometry import Vector
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.ports import KeyInput
+from protoboard.gui.ports.viewport import CursorKind
 from protoboard.gui.qt_geometry import from_qpointf
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
 from protoboard.gui.keymap import (
@@ -366,7 +368,7 @@ class ToolHost:
             self._ctrl_panning = ctrl_variant
             self._panning = True
             self._pan_start = event.position()
-            view.setCursor(Qt.CursorShape.ClosedHandCursor)
+            view.viewport_port.set_cursor(CursorKind.CLOSED_HAND)
             return True
         if action_id == VIEW_CANVAS_MENU and isinstance(event, QMouseEvent):
             assert scene_pt is not None
@@ -374,7 +376,7 @@ class ToolHost:
             return True
         if (action_id in (VIEW_ZOOM_IN, VIEW_ZOOM_OUT)
                 and isinstance(event, QWheelEvent)):
-            view.camera.on_wheel(event)
+            view.camera.on_wheel(wheel_input(event))
             return True
         return False
 
@@ -407,19 +409,14 @@ class ToolHost:
             return
         # Legacy fallback: modified / horizontal wheels keep their historic
         # camera behaviour even though no action is bound to them.
-        self._view.camera.on_wheel(event)
+        self._view.camera.on_wheel(wheel_input(event))
 
     def handle_mouse_move(self, event: QMouseEvent) -> bool:
         view = self._view
         if self._panning:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
-            view.horizontalScrollBar().setValue(
-                int(view.horizontalScrollBar().value() - delta.x())
-            )
-            view.verticalScrollBar().setValue(
-                int(view.verticalScrollBar().value() - delta.y())
-            )
+            view.viewport_port.pan_by(Vector(-delta.x(), -delta.y()))
         scene_pos = from_qpointf(view.mapToScene(event.pos()))
         view.notify_cursor_moved(scene_pos)
         if not self._panning and self._active_tool is not None:
@@ -432,11 +429,11 @@ class ToolHost:
         view = self._view
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
             self._panning = False
-            view.setCursor(Qt.CursorShape.ArrowCursor)
+            view.viewport_port.set_cursor(CursorKind.ARROW)
         elif event.button() == Qt.MouseButton.LeftButton and self._ctrl_panning:
             self._panning = False
             self._ctrl_panning = False
-            view.setCursor(Qt.CursorShape.ArrowCursor)
+            view.viewport_port.set_cursor(CursorKind.ARROW)
         elif self._active_tool is not None:
             scene_pos = from_qpointf(view.mapToScene(event.pos()))
             self._active_tool.on_release(pointer_input(event, scene_pos))
@@ -514,24 +511,16 @@ class ToolHost:
             Qt.Key.Key_Up, Qt.Key.Key_Down,
         ):
             # Convert 1 raster unit to viewport pixels using current transform.
-            px = max(int(view.transform().m11()), 1)
-            py = max(int(view.transform().m22()), 1)
-            if key == Qt.Key.Key_Left:
-                view.horizontalScrollBar().setValue(
-                    view.horizontalScrollBar().value() - px
-                )
-            elif key == Qt.Key.Key_Right:
-                view.horizontalScrollBar().setValue(
-                    view.horizontalScrollBar().value() + px
-                )
-            elif key == Qt.Key.Key_Up:
-                view.verticalScrollBar().setValue(
-                    view.verticalScrollBar().value() - py
-                )
-            elif key == Qt.Key.Key_Down:
-                view.verticalScrollBar().setValue(
-                    view.verticalScrollBar().value() + py
-                )
+            t = view.viewport_port.view_transform()
+            px = float(max(int(t.a), 1))
+            py = float(max(int(t.d), 1))
+            step = {
+                Qt.Key.Key_Left: Vector(-px, 0.0),
+                Qt.Key.Key_Right: Vector(px, 0.0),
+                Qt.Key.Key_Up: Vector(0.0, -py),
+                Qt.Key.Key_Down: Vector(0.0, py),
+            }[Qt.Key(key)]
+            view.viewport_port.pan_by(step)
             return
         if self._active_tool is not None and self._active_tool.on_key(inp):
             # Consumed exclusively by the tool — accept so the key neither

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — Stages 3+4: input DTOs, bool consumption, ViewportPort (2026-07-09)
+
+* **Input DTOs** (`gui/ports/inputs.py` + Qt factories in `gui/qt_inputs.py`):
+  tools receive `PointerInput` / `WheelInput` / `KeyInput` instead of raw Qt
+  events; `on_key` returns *consumed* (the `event.accept()` protocol left the
+  seam — parity pinned by `tests/gui/test_key_dispatch_parity.py`); the dead
+  `window().keyPressEvent` forward in ToolHost is gone.  `Mods`/`Intent`
+  moved to `gui/ports` (re-exported from `selection/mouse_input.py`).
+  Armed sub-tools are de-leaked: Enter/Esc reach `FloatTransform` as
+  `accept()`/`cancel()` calls (Intent translation in SelectTool), the wheel
+  as whole notches via the shared `WheelNotchAccumulator`; the module is now
+  fully Qt-free.  KeyMap `matches`/`event_to_sequence` widened to accept the
+  raw int modifier mask (D6).
+* **`ViewportPort`** (`gui/ports/viewport.py`): mapping/transform/scroll/
+  viewport as one mechanism port; `QtViewport` (`gui/qt_viewport.py`) is the
+  only QPointF/QTransform conversion site; `CameraMath`
+  (`ports/viewport_details.py`) is the pure model the headless fake will
+  reuse — a Qt-vs-fake property test pins the adapter to it.  `ViewCamera`
+  (zoom clamp, pivot correction, fit, mirror) and ToolHost pan/arrow-scroll/
+  cursors now speak only the port; camera wheel input arrives as
+  `WheelInput`.
+
 ### Qt ports — Stage 1: groundwork (2026-07-09)
 
 * **New `gui/qt_geometry.py`** — the canonical

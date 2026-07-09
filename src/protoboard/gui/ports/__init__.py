@@ -16,8 +16,16 @@ from protoboard.gui.ports.inputs import (
     WheelInput,
 )
 from protoboard.gui.ports.status_event import StatusEvent
+from protoboard.gui.ports.viewport import (
+    CursorKind,
+    ScreenMetrics,
+    ViewportPort,
+)
 
 __all__ = [
+    "CursorKind",
+    "ScreenMetrics",
+    "ViewportPort",
     "Intent",
     "KeyInput",
     "LEFT_BUTTON",
