@@ -150,6 +150,11 @@ src/protoboard/
 
 - `mypy --strict` must pass. No `Any` outside documented escape hatches.
 - `frozen=True` dataclasses wherever practical. `@property` for derived values.
+- **One concept = one class.** A group of variables that always move together
+  (accumulator + threshold, flags + timers of one mode, transform + scroll +
+  size) is one concept: give it a small class with readable methods instead of
+  scattering fields mutated chorally across call sites. Companion-file
+  convention for such extractions: `file.py → file_details.py`.
 - Pure functions in `domain/`; side effects live in `services/persistence`,
   `services/recording`, `services/export`, and `gui/`.
 - Naming: `snake_case` functions, `PascalCase` classes, `SCREAMING_SNAKE` constants.

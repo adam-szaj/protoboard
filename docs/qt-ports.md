@@ -258,10 +258,11 @@ def escape_to_select(self) -> None: ...
 - **Test win over the port variant:** tests assert structural fields
   (`payload["kind"] == "drag.conflict"`, `payload["count"] == 3`) instead of
   parsing formatted strings — robust against message wording changes.
-- **Trade-off (decision D7):** `Mapping[str, object]` is weakly typed under
-  `mypy --strict` (the repo prefers frozen dataclasses). Middle ground: a
-  thin `StatusEvent(kind: str, data: Mapping[str, object])` envelope — still
-  flexible, but with a typed discriminator.
+- **Payload shape (D7 — settled):** a thin envelope
+  `StatusEvent(kind: str, data: Mapping[str, object])` — decided by the
+  user's own concept-=-class rule (§2.6): the payload conventions (`kind`,
+  `text`, `timeout_ms`) are "several variables of one concept", so they get
+  a class with a typed discriminator, while `data` stays a flexible Mapping.
 
 The dead `pad_clicked` is deleted. `session.py` keeps its QObject signals —
 out of scope here.
@@ -333,7 +334,36 @@ Moves the `[?]` QLabel lifecycle out of ToolHost (`_render_shortcuts_html` is
 already pure and stays). Low value alone, but it is the *last* widget API in
 ToolHost after §2.1–2.4 — with it, ToolHost becomes fully headless-drivable.
 
-### 2.6 Colour
+### 2.6 Implementation guideline — one concept = one class (`_details.py`)
+
+Settled on user feedback as a general rule for this refactor (and recorded
+in CLAUDE.md §6): *a group of variables that move together is one concept
+and gets one small class with readable methods — never scattered fields
+mutated chorally across call sites.* Companion file convention:
+`file.py → file_details.py` for such extracted concept classes. Concrete
+applications here:
+
+- **`CameraMath`** (`ports/viewport_details.py`): the
+  transform + scroll + viewport-size triple is one concept, today smeared
+  across `mapToScene`/scrollbar/`viewport().rect()` call sites. A pure class
+  with `map_view_to_scene()`, `visible_scene_rect()`, `pan_by()` becomes
+  **the entire implementation of the viewport fake** — the fake stops being
+  a second ad-hoc copy of the math; it *is* the math, and the Qt-vs-fake
+  property test pins the adapter to it.
+- **`WheelNotchAccumulator`**: the `_wheel_accum` + `±_WHEEL_NOTCH` loop
+  exists in `float_transform.py` and in ViewCamera's burst handling — one
+  small class `add(delta_y) -> int` (whole notches), reused by both
+  (natural moment: the wheel-DTO phase).
+- **`TransformBurst`** (`view_camera_details.py`): the zoom/pan burst
+  flags-and-timers (`in_transform_burst`, pan-settled bookkeeping) are one
+  "a transform series is live" concept — `note_wheel()`, `note_pan()`,
+  `active`, `settled()`.
+- **`StatusEvent`** (§2.3) — the same rule settles D7.
+- **`HeadlessBoardView` state**: recorded notifications, group registries and
+  highlight state grouped into small recorder classes instead of loose dicts
+  on the double.
+
+### 2.7 Colour
 
 `set_selection_outline_override(str | None)` — hex `#AARRGGBB`, matching how
 `Theme` already stores colours; the QColor conversion happens in
@@ -406,7 +436,7 @@ None of this is decided. The choices that shape any implementation:
 | D4 | SelectTool dialogs (drag-disconnect/conflict, `parent=window()`) | in scope as injected `Callable[..., Decision]` prompts (drag_commit_decision.py pattern) / out of scope | +1 sub-phase vs tracked debt | in scope |
 | D5 | Doc location | this file + todo.md debt entries | — | as done |
 | D6 | `KeyMap.matches` modifiers typing | widen to `int` / convert at call sites | runtime-identical | widen to `int` |
-| D7 | `notify_status` payload shape | bare `Mapping[str, object]` / thin `StatusEvent(kind, data)` envelope | typing strictness vs flexibility (see §2.3) | bare dict (user's proposal) |
+| D7 | `notify_status` payload shape | ~~bare dict / envelope~~ | **SETTLED**: `StatusEvent(kind, data)` envelope, by the concept-=-class rule (§2.6) | — |
 
 ## 6. Appendix — non-binding migration sketch
 
