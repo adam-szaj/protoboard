@@ -89,6 +89,67 @@ def _key_event(key):
     return QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
 
 
+def _mouse_press(button, modifiers=None):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+        button, button, modifiers or Qt.KeyboardModifier.NoModifier,
+    )
+
+
+class TestMouseChordRouting:
+    def test_middle_button_starts_pan(self, board_view: BoardView) -> None:
+        from PySide6.QtCore import Qt
+        host = board_view.tools
+        assert host._panning is False
+        assert host.handle_mouse_press(
+            _mouse_press(Qt.MouseButton.MiddleButton)) is True
+        assert host._panning is True
+        assert host._ctrl_panning is False
+
+    def test_ctrl_lmb_pans_when_tool_declines(
+        self, board_view: BoardView
+    ) -> None:
+        from PySide6.QtCore import Qt
+        board_view.set_tool(_ToolA())  # declines every press (default False)
+        host = board_view.tools
+        assert host.handle_mouse_press(_mouse_press(
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier,
+        )) is True
+        assert host._panning is True
+        assert host._ctrl_panning is True
+
+    def test_ctrl_lmb_tool_first_refusal(self, board_view: BoardView) -> None:
+        from PySide6.QtCore import Qt
+
+        class _Grabby(_ToolA):
+            def on_press(self, event, scene_pt) -> bool:
+                return True  # consumes (component drag)
+
+        board_view.set_tool(_Grabby())
+        host = board_view.tools
+        assert host.handle_mouse_press(_mouse_press(
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.ControlModifier,
+        )) is True
+        assert host._panning is False  # the tool ate it — no pan
+
+    def test_plain_lmb_stays_a_stream(self, board_view: BoardView) -> None:
+        from PySide6.QtCore import Qt
+        pressed: list[bool] = []
+
+        class _Probe(_ToolA):
+            def on_press(self, event, scene_pt) -> bool:
+                pressed.append(True)
+                return True
+
+        board_view.set_tool(_Probe())
+        board_view.tools.handle_mouse_press(
+            _mouse_press(Qt.MouseButton.LeftButton))
+        assert pressed == [True]
+        assert board_view.tools._panning is False
+
+
 class TestDispatchTable:
     def test_first_matching_entry_wins(self, board_view: BoardView) -> None:
         tool = _DispatchTool()

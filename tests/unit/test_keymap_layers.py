@@ -128,6 +128,53 @@ class TestLookup:
             Qt.Key.Key_F35.value, _NOMOD) == ()
 
 
+class TestMouseChords:
+    """Stage 2: mouse chords live in the same alternatives strings as keys."""
+
+    def test_chord_builders(self) -> None:
+        from protoboard.gui.keymap import mouse_button_chord, wheel_chord
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        assert mouse_button_chord(Qt.MouseButton.LeftButton, ctrl) == "Ctrl+LMB"
+        assert mouse_button_chord(Qt.MouseButton.RightButton, _NOMOD) == "RMB"
+        assert mouse_button_chord(Qt.MouseButton.MiddleButton, _NOMOD) == "MMB"
+        assert wheel_chord(120, _NOMOD) == "WheelUp"
+        assert wheel_chord(-40, _NOMOD) == "WheelDown"
+        assert wheel_chord(0, _NOMOD) is None
+
+    def _base_with_view(self) -> KeyMap:
+        from protoboard.gui.keymap import VIEW_ACTIONS
+        base = _base()
+        base.declare(VIEW_ACTIONS)
+        return base
+
+    def test_layer_shadows_view_gesture(self) -> None:
+        from protoboard.gui.keymap import VIEW_ZOOM_IN
+        layer = KeyMap.layer_over(self._base_with_view())
+        layer.register_tool_actions(
+            {"x-tool.action.wheel_rotate": "WheelUp|WheelDown"})
+        assert layer.mouse_lookup("WheelUp") == (
+            "x-tool.action.wheel_rotate", VIEW_ZOOM_IN)
+
+    def test_final_action_gains_mouse_trigger(self) -> None:
+        # The user-facing point of additive-final: RMB can fire cancel in a
+        # tool without Esc ever losing the job.
+        from protoboard.gui.keymap import VIEW_CANVAS_MENU
+        layer = KeyMap.layer_over(self._base_with_view())
+        layer.register_tool_actions({"global.action.cancel": "RMB"})
+        assert layer.resolve("global.action.cancel") == "Esc|RMB"
+        assert layer.mouse_matches("RMB", "global.action.cancel")
+        assert layer.matches(
+            Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
+        assert layer.mouse_lookup("RMB") == (
+            "global.action.cancel", VIEW_CANVAS_MENU)
+
+    def test_key_matcher_skips_mouse_alternatives(self) -> None:
+        layer = KeyMap.layer_over(self._base_with_view())
+        layer.register_tool_actions({"x-tool.action.zap": "Z|WheelUp"})
+        assert layer.matches(Qt.Key.Key_Z.value, _NOMOD, "x-tool.action.zap")
+        assert layer.mouse_matches("WheelUp", "x-tool.action.zap")
+
+
 class _FakeTool(_Tool):
     def key_actions(self) -> dict[str, str | None]:
         return {

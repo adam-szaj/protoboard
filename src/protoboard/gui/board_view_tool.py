@@ -275,16 +275,29 @@ class BoardViewTool(ABC):
         """
 
     @abstractmethod
-    def wants_wheel(self, event: QWheelEvent) -> bool:
-        """True when the tool consumes the wheel *right now* instead of zooming."""
-
-    @abstractmethod
-    def on_wheel(self, event: QWheelEvent) -> None:
-        """Handle a wheel tick the tool claimed via :meth:`wants_wheel`."""
-
-    @abstractmethod
     def key_actions(self) -> dict[str, str | None]:
         """The keyboard actions this tool declares (namespaced keybindings)."""
+
+    @abstractmethod
+    def mouse_actions(self) -> dict[str, str | None]:
+        """The mouse-chord actions this tool declares (``"WheelUp"``, ``"RMB"``,
+        ``"Ctrl+LMB"``, …).  Registered into the tool's key-map layer alongside
+        :meth:`key_actions`; a declaration shadows the base map's view gesture
+        (zoom / pan / canvas menu) for the span of the activation."""
+
+    @abstractmethod
+    def mouse_dispatch(self) -> tuple[
+        tuple[str, Callable[[QMouseEvent | QWheelEvent, QPointF | None], bool]],
+        ...,
+    ]:
+        """Ordered ``(action_id, handler)`` table for mouse-chord dispatch.
+
+        Unlike the key table, dispatch walks *all* actions bound to the chord
+        (leaf-first): a declining handler lets the gesture fall through to the
+        base map's view action — that is the "unhandled returns to the
+        BoardView" rule.  A handler gets the raw Qt event (wheel accumulation
+        etc. stay intact) plus the scene position (None for wheel).
+        """
 
     @abstractmethod
     def make_key_map(self, parent: AbstractKeyMap) -> KeyMap:
@@ -435,21 +448,18 @@ class _Tool(BoardViewTool):
 
     @override
     @traced()
-    def wants_wheel(self, event: QWheelEvent) -> bool:
-        """True when the tool consumes the wheel *right now* instead of zooming.
-
-        Consulted by :meth:`BoardView.wheelEvent` before its zoom accumulation:
-        an armed float-rotate uses the wheel to step the rotation ±90°, so it
-        claims the wheel while armed and lets it zoom otherwise.  Default: never
-        — every tool/state keeps the wheel zooming unless it opts in here.
-        """
-        return False
+    def mouse_actions(self) -> dict[str, str | None]:
+        """The mouse-chord actions this tool declares.  Default: none."""
+        return {}
 
     @override
     @traced()
-    def on_wheel(self, event: QWheelEvent) -> None:
-        """Handle a wheel tick the tool claimed via :meth:`wants_wheel`."""
-        pass
+    def mouse_dispatch(self) -> tuple[
+        tuple[str, Callable[[QMouseEvent | QWheelEvent, QPointF | None], bool]],
+        ...,
+    ]:
+        """Ordered ``(action_id, handler)`` mouse table.  Default: empty."""
+        return ()
 
     @override
     @traced()
@@ -469,14 +479,15 @@ class _Tool(BoardViewTool):
     def make_key_map(self, parent: AbstractKeyMap) -> KeyMap:
         """Build this tool's key-map layer chained onto *parent*.
 
-        Registers :meth:`key_actions` into a fresh layer sharing *parent*'s
-        user-overrides store.  Best-effort per entry: a declaration colliding
-        with a ``final`` action's trigger is logged and skipped rather than
-        crashing the tool switch.
+        Registers :meth:`key_actions` + :meth:`mouse_actions` into a fresh
+        layer sharing *parent*'s user-overrides store.  Best-effort per entry:
+        a declaration colliding with a ``final`` action's trigger is logged
+        and skipped rather than crashing the tool switch.
         """
         from protoboard.gui.keymap import FinalShortcutError, KeyMap
         km = KeyMap.layer_over(parent)
-        for action_id, shortcut in self.key_actions().items():
+        for action_id, shortcut in {**self.key_actions(),
+                                    **self.mouse_actions()}.items():
             try:
                 km.register_tool_actions({action_id: shortcut})
             except FinalShortcutError as exc:

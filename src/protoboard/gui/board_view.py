@@ -731,18 +731,13 @@ class BoardView(AbstractBoardView):
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Tool wheel veto, then camera zoom accumulation.
+        """Wheel ticks route through the KeyMap (tool layer may shadow zoom).
 
-        An armed tool (e.g. float-rotate) may claim the wheel to step its
-        own state instead of zooming — consulted before any accumulation so
-        the zoom path is byte-for-byte unchanged when no tool opts in.
+        The bound action only selects the handler — the raw event reaches it,
+        so sub-detent accumulation (armed rotate, smooth zoom) is unchanged;
+        unbound chords keep the historic camera behaviour.
         """
-        tool = self._active_tool
-        if tool is not None and tool.wants_wheel(event):
-            tool.on_wheel(event)
-            event.accept()
-            return
-        self.camera.on_wheel(event)
+        self.tools.handle_wheel(event)
 
     def zoom_by(self, factor: float) -> None:
         """Keyboard / toolbar zoom (delegates to the camera)."""

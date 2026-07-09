@@ -14,10 +14,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.keymap import GlobalKeyMap, KeyMap
+from protoboard.gui.keymap import (
+    VIEW_ACTIONS,
+    VIEW_CANVAS_MENU,
+    VIEW_PAN,
+    VIEW_ZOOM_IN,
+    VIEW_ZOOM_OUT,
+    GlobalKeyMap,
+    KeyMap,
+    mouse_button_chord,
+    wheel_chord,
+)
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
@@ -40,6 +50,10 @@ class ToolHost:
         # (tool.make_key_map) is pushed on activate and popped on
         # deactivate — ``keymap`` always returns the current head.
         self._base_keymap = KeyMap(GlobalKeyMap.with_globals())
+        # The canvas's own mouse gestures (zoom / pan / canvas menu) are real
+        # actions on the base map, so a tool layer can shadow them while
+        # active (e.g. an armed rotate claiming the wheel).
+        self._base_keymap.declare(VIEW_ACTIONS)
         self._tool_keymap: KeyMap | None = None
         # ``[?]`` shortcut-help overlay — a QLabel parked over the viewport,
         # built lazily on first toggle.
@@ -290,38 +304,83 @@ class ToolHost:
     # the event was consumed; False tells the view to fall through to the
     # QGraphicsView default behaviour.
 
+    def _dispatch_mouse_chord(
+        self, chord: str, event: QMouseEvent | QWheelEvent,
+        scene_pt: QPointF | None,
+    ) -> bool:
+        """Offer a mouse chord to every action bound to it, leaf-first.
+
+        Tool-layer handlers (``tool.mouse_dispatch``) shadow the base map's
+        view gestures; a declining handler lets the chord fall through to the
+        next bound action — "unhandled returns to the BoardView".
+        """
+        tool = self._active_tool
+        handlers = dict(tool.mouse_dispatch()) if tool is not None else {}
+        for action_id in self.keymap.mouse_lookup(chord):
+            handler = handlers.get(action_id)
+            if handler is not None and handler(event, scene_pt):
+                return True
+            if self._view_mouse_action(action_id, event, scene_pt):
+                return True
+        return False
+
+    def _view_mouse_action(
+        self, action_id: str, event: QMouseEvent | QWheelEvent,
+        scene_pt: QPointF | None,
+    ) -> bool:
+        """Run one of the base map's view gestures; True when it consumed."""
+        view = self._view
+        if action_id == VIEW_PAN and isinstance(event, QMouseEvent):
+            ctrl_variant = event.button() == Qt.MouseButton.LeftButton
+            if ctrl_variant and scene_pt is not None:
+                # Ctrl+LMB keeps the tool's first refusal (component drag);
+                # a consuming tool suppresses the pan.
+                tool = self._active_tool
+                if tool is not None and tool.on_press(event, scene_pt):
+                    return True
+            self._ctrl_panning = ctrl_variant
+            self._panning = True
+            self._pan_start = event.position()
+            view.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return True
+        if action_id == VIEW_CANVAS_MENU and isinstance(event, QMouseEvent):
+            assert scene_pt is not None
+            self.show_canvas_menu(event.pos(), scene_pt)
+            return True
+        if (action_id in (VIEW_ZOOM_IN, VIEW_ZOOM_OUT)
+                and isinstance(event, QWheelEvent)):
+            view.camera.on_wheel(event)
+            return True
+        return False
+
     def handle_mouse_press(self, event: QMouseEvent) -> bool:
         view = self._view
-        ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        if event.button() == Qt.MouseButton.MiddleButton:
-            self._panning = True
-            self._pan_start = event.position()
-            view.setCursor(Qt.CursorShape.ClosedHandCursor)
-        elif event.button() == Qt.MouseButton.LeftButton and ctrl:
-            # Ctrl+LeftButton: check if tool wants to handle it first (component
-            # drag); if the tool consumed it (returns True), skip view pan.
-            scene_pt = view.mapToScene(event.pos())
-            if self._active_tool is not None and self._active_tool.on_press(
-                event, scene_pt
-            ):
-                return True
-            # No tool consumed it — pan the view.
-            self._ctrl_panning = True
-            self._panning = True
-            self._pan_start = event.position()
-            view.setCursor(Qt.CursorShape.ClosedHandCursor)
-        elif event.button() == Qt.MouseButton.RightButton:
-            scene_pt = view.mapToScene(event.pos())
-            handler = getattr(self._active_tool, "on_right_press", None)
-            consumed = handler(scene_pt) if handler is not None else False
-            if not consumed:
-                self.show_canvas_menu(event.pos(), scene_pt)
-        elif self._active_tool is not None:
-            scene_pt = view.mapToScene(event.pos())
+        scene_pt = view.mapToScene(event.pos())
+        chord = mouse_button_chord(event.button(), event.modifiers())
+        if chord is not None and self._dispatch_mouse_chord(
+            chord, event, scene_pt
+        ):
+            return True
+        # Not a bound gesture — the press belongs to the tool's input stream.
+        if self._active_tool is not None:
             self._active_tool.on_press(event, scene_pt)
-        else:
-            return False  # fall through to QGraphicsView
-        return True
+            return True
+        return False  # fall through to QGraphicsView
+
+    def handle_wheel(self, event: QWheelEvent) -> None:
+        """Route a wheel tick through the KeyMap; unbound chords keep zooming.
+
+        The bound action only *selects* the handler — the handler receives the
+        raw event, so sub-detent accumulation (armed rotate, smooth zoom)
+        works exactly as before.
+        """
+        chord = wheel_chord(event.angleDelta().y(), event.modifiers())
+        if chord is not None and self._dispatch_mouse_chord(chord, event, None):
+            event.accept()
+            return
+        # Legacy fallback: modified / horizontal wheels keep their historic
+        # camera behaviour even though no action is bound to them.
+        self._view.camera.on_wheel(event)
 
     def handle_mouse_move(self, event: QMouseEvent) -> bool:
         view = self._view

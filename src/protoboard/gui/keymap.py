@@ -34,6 +34,7 @@ global action is rejected (raises :class:`FinalShortcutError`).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import override
 
@@ -49,9 +50,17 @@ __all__ = [
     "KeyMap",
     "FinalShortcutError",
     "GLOBAL_ACTIONS",
+    "VIEW_ACTIONS",
+    "VIEW_ZOOM_IN",
+    "VIEW_ZOOM_OUT",
+    "VIEW_PAN",
+    "VIEW_CANVAS_MENU",
     "category_of",
     "name_of",
     "event_to_sequence",
+    "is_mouse_trigger",
+    "mouse_button_chord",
+    "wheel_chord",
 ]
 
 
@@ -95,6 +104,67 @@ def _alternatives(shortcuts: list[str] | str | None) -> set[str]:
     """The set of individual triggers of a stored shortcut value."""
     text = _shortcut_text(shortcuts)
     return {a for a in text.split("|") if a} if text else set()
+
+
+# ---------------------------------------------------------------------------
+# Mouse chords (Stage 2)
+# ---------------------------------------------------------------------------
+#
+# A trigger is either a key chord (``QKeySequence`` syntax) or a mouse chord:
+# ``[Ctrl+][Alt+][Shift+]<atom>`` with an atom from :data:`_MOUSE_ATOMS`.
+# Mouse chords live in the same ``"A|B"`` alternatives strings as key chords;
+# the key matcher skips them and :meth:`KeyMap.mouse_matches` handles them.
+# Mouse *move* is deliberately not bindable — a stream is not a trigger.
+
+_MOUSE_ATOMS = ("LMB", "RMB", "MMB", "WheelUp", "WheelDown")
+
+# Canonical modifier order (mirrors QKeySequence's text order).
+_MOD_PREFIXES: tuple[tuple[Qt.KeyboardModifier, str], ...] = (
+    (Qt.KeyboardModifier.ControlModifier, "Ctrl"),
+    (Qt.KeyboardModifier.AltModifier, "Alt"),
+    (Qt.KeyboardModifier.ShiftModifier, "Shift"),
+    (Qt.KeyboardModifier.MetaModifier, "Meta"),
+)
+
+
+def is_mouse_trigger(alt: str) -> bool:
+    """True when a single trigger alternative is a mouse chord."""
+    return alt.rsplit("+", 1)[-1] in _MOUSE_ATOMS
+
+
+def _chord(atom: str, modifiers: Qt.KeyboardModifier) -> str:
+    parts = [name for mod, name in _MOD_PREFIXES if modifiers & mod]
+    parts.append(atom)
+    return "+".join(parts)
+
+
+def mouse_button_chord(button: Qt.MouseButton,
+                       modifiers: Qt.KeyboardModifier) -> str | None:
+    """The canonical chord of a button press, or None for unbindable buttons."""
+    atom = {
+        Qt.MouseButton.LeftButton: "LMB",
+        Qt.MouseButton.RightButton: "RMB",
+        Qt.MouseButton.MiddleButton: "MMB",
+    }.get(button)
+    return _chord(atom, modifiers) if atom else None
+
+
+def wheel_chord(angle_delta_y: int,
+                modifiers: Qt.KeyboardModifier) -> str | None:
+    """The canonical chord of a wheel tick (None for a pure horizontal one)."""
+    if angle_delta_y == 0:
+        return None
+    return _chord("WheelUp" if angle_delta_y > 0 else "WheelDown", modifiers)
+
+
+# ---------------------------------------------------------------------------
+# View gesture actions (Stage 2) — the base map's mouse bindings.
+# ---------------------------------------------------------------------------
+
+VIEW_ZOOM_IN = "view.action.zoom_in"
+VIEW_ZOOM_OUT = "view.action.zoom_out"
+VIEW_PAN = "view.action.pan"
+VIEW_CANVAS_MENU = "view.action.canvas_menu"
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +234,18 @@ GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
     KeyAction("session.action.save_as", ["Ctrl+Shift+S"],
               "Save As",
               final=True),
+)
+
+
+# The board canvas's own mouse gestures, declared on the base map so a tool
+# layer can *shadow* them for the span of its activation (e.g. an armed
+# rotate claiming the wheel).  Unbound chords fall back to the legacy
+# handlers, so rebinding these never bricks the canvas.
+VIEW_ACTIONS: tuple[KeyAction, ...] = (
+    KeyAction(VIEW_ZOOM_IN, ["WheelUp"], "Zoom In"),
+    KeyAction(VIEW_ZOOM_OUT, ["WheelDown"], "Zoom Out"),
+    KeyAction(VIEW_PAN, ["MMB", "Ctrl+LMB"], "Pan"),
+    KeyAction(VIEW_CANVAS_MENU, ["RMB"], "Canvas Menu"),
 )
 
 
@@ -443,9 +525,10 @@ class KeyMap(AbstractKeyMap):
             return False
         # A binding may carry several alternatives separated by ``|`` (e.g.
         # ``"Up|W"`` — arrow OR WASD step); the press matches if it equals ANY.
+        # Mouse chords in the list belong to :meth:`mouse_matches` — skipped.
         return any(
             self._seq_matches(key, modifiers, alt)
-            for alt in shortcut.split("|") if alt)
+            for alt in shortcut.split("|") if alt and not is_mouse_trigger(alt))
 
     @staticmethod
     @traced()
@@ -500,6 +583,16 @@ class KeyMap(AbstractKeyMap):
         return self.resolve_action(action_id)
 
     @traced()
+    def declare(self, actions: tuple[KeyAction, ...]) -> None:
+        """Declare fully-specified actions (display / ``final`` kept) here.
+
+        Unlike :meth:`register_tool_actions` this takes ready
+        :class:`KeyAction` objects — used for the built-in view gesture set.
+        """
+        for action in actions:
+            self._actions[action.id] = action.clone()
+
+    @traced()
     def lookup(self, key: int, modifiers: Qt.KeyboardModifier
                ) -> tuple[str, ...]:
         """Action ids whose *resolved* triggers match the key press.
@@ -510,6 +603,25 @@ class KeyMap(AbstractKeyMap):
         actions may share a trigger (e.g. an armed step and a tool op); the
         caller's state gates pick the live one.
         """
+        return self._lookup(
+            lambda action_id: self.matches(key, modifiers, action_id))
+
+    @traced()
+    def mouse_matches(self, chord: str, action_id: str) -> bool:
+        """True when the canonical mouse *chord* is among the resolved triggers.
+
+        The mouse twin of :meth:`matches` — see :func:`mouse_button_chord` /
+        :func:`wheel_chord` for building the chord from a Qt event.
+        """
+        return chord in _alternatives(self.resolve(action_id))
+
+    @traced()
+    def mouse_lookup(self, chord: str) -> tuple[str, ...]:
+        """Action ids bound to the mouse *chord*, leaf-first (shadowing order)."""
+        return self._lookup(
+            lambda action_id: self.mouse_matches(chord, action_id))
+
+    def _lookup(self, pred: Callable[[str], bool]) -> tuple[str, ...]:
         seen: set[str] = set()
         ids: list[str] = []
         node: AbstractKeyMap | None = self
@@ -518,7 +630,7 @@ class KeyMap(AbstractKeyMap):
                 if action_id in seen:
                     continue
                 seen.add(action_id)
-                if self.matches(key, modifiers, action_id):
+                if pred(action_id):
                     ids.append(action_id)
             node = node._parent
         return tuple(ids)

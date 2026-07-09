@@ -100,6 +100,11 @@ _ACT_STEP_LEFT = "select-tool.action.step_left"
 _ACT_STEP_RIGHT = "select-tool.action.step_right"
 _ACT_STEP_UP = "select-tool.action.step_up"
 _ACT_STEP_DOWN = "select-tool.action.step_down"
+
+# Mouse-chord actions (Stage 2): the armed transform's wheel stepping and the
+# unified RMB context menu, layered over the view's zoom / canvas-menu.
+_ACT_WHEEL_ROTATE = "select-tool.action.wheel_rotate"
+_ACT_CONTEXT_MENU = "select-tool.action.context_menu"
 # Global relation-cycle actions (backtick / Shift+backtick) — the ids live in
 # keybindings.py with their own defaults; the tool dispatches them in on_key.
 _ACT_RELATION_CYCLE = "highlight_cycle"
@@ -2888,6 +2893,46 @@ class SelectTool(_Tool):
 
     def _has_selection(self) -> bool:
         return not self._selection.is_empty()
+
+    def mouse_actions(self) -> dict[str, str | None]:
+        """Mouse chords this tool layers over the view gestures.
+
+        ``wheel_rotate`` shadows the zoom while an armed transform is live
+        (both directions — the accumulator inside FloatTransform decides the
+        step sign from raw deltas); ``context_menu`` shadows the generic
+        canvas menu with the unified item menu when the cursor hits something.
+        """
+        return {
+            _ACT_WHEEL_ROTATE: "WheelUp|WheelDown",
+            _ACT_CONTEXT_MENU: "RMB",
+        }
+
+    def mouse_dispatch(self) -> tuple[
+        tuple[str, Callable[[QMouseEvent | QWheelEvent, QPointF | None], bool]],
+        ...,
+    ]:
+        return (
+            (_ACT_WHEEL_ROTATE, self._mouse_wheel_rotate),
+            (_ACT_CONTEXT_MENU, self._mouse_context_menu),
+        )
+
+    def _mouse_wheel_rotate(
+        self, event: QMouseEvent | QWheelEvent, _scene_pt: QPointF | None
+    ) -> bool:
+        from PySide6.QtGui import QWheelEvent as _QWheelEvent
+        if not isinstance(event, _QWheelEvent) or not self.wants_wheel(event):
+            return False  # not armed → the chord falls through to zoom
+        self.on_wheel(event)
+        return True
+
+    def _mouse_context_menu(
+        self, event: QMouseEvent | QWheelEvent, scene_pt: QPointF | None
+    ) -> bool:
+        from PySide6.QtGui import QMouseEvent as _QMouseEvent
+        if not isinstance(event, _QMouseEvent) or scene_pt is None:
+            return False
+        # False on empty canvas → falls through to the generic canvas menu.
+        return self.on_right_press(scene_pt)
 
     def wants_wheel(self, event: QWheelEvent) -> bool:
         """Claim the wheel only when the armed sub-tool consumes it (rotate)."""

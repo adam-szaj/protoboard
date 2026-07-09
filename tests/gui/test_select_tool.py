@@ -510,6 +510,24 @@ class TestArmedRotate:
         tool.on_wheel(self._wheel(240))  # two notches
         assert session.layout.placements[inst.id].rotation == (base + 180) % 360
 
+    def test_view_wheel_routes_to_armed_rotate(self, board_view, session) -> None:
+        # The real user path: BoardView.wheelEvent → KeyMap chord dispatch →
+        # the tool's wheel_rotate shadows the zoom while armed.
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        board_view.wheelEvent(self._wheel(120))
+        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        assert board_view.camera._wheel_accum_delta == 0  # zoom untouched
+
+    def test_view_wheel_zooms_when_not_armed(self, board_view, session) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        base = session.layout.placements[inst.id].rotation
+        board_view.wheelEvent(self._wheel(120))
+        # Not armed → the chord falls through the tool layer to view zoom.
+        assert session.layout.placements[inst.id].rotation == base
+        assert board_view.camera._wheel_accum_delta == 120
+
     def test_esc_cancels_whole_session(self, board_view, session) -> None:
         inst, tool = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation

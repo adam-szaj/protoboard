@@ -30,6 +30,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repointed at the chain and green again; new layer/lifecycle suites:
   `tests/unit/test_keymap_layers.py`, `tests/gui/test_keymap_layers.py`.
 
+### Per-tool KeyMap layer — Stage 2: mouse chords in the KeyMap (2026-07-09)
+
+* **Mouse chords are triggers.** `"WheelUp"`, `"WheelDown"`, `"LMB"`,
+  `"RMB"`, `"MMB"` (with `Ctrl+`/`Alt+`/`Shift+` prefixes) live in the same
+  `"A|B"` alternatives strings as key chords; `KeyMap.mouse_matches` /
+  `mouse_lookup` are the mouse twins of `matches` / `lookup`. Mouse *move* is
+  deliberately not bindable.
+* **The canvas's own gestures are real actions on the base map** —
+  `view.action.zoom_in/zoom_out` (wheel), `view.action.pan`
+  (`MMB|Ctrl+LMB`), `view.action.canvas_menu` (`RMB`) — so a tool layer can
+  shadow them for the span of its activation. Wheel and button presses route
+  through `ToolHost._dispatch_mouse_chord`: tool-layer handlers first
+  (leaf-first), then the view gesture; a declining handler lets the chord
+  fall through ("unhandled returns to the BoardView"). Unbound chords keep
+  the historic camera behaviour.
+* **Tools declare mouse chords** via `mouse_actions()` + `mouse_dispatch()`.
+  SelectTool layers `wheel_rotate` (`WheelUp|WheelDown`, live only while an
+  armed transform is up — the raw event reaches FloatTransform, so
+  sub-detent accumulation is untouched) and `context_menu` (`RMB`, falls
+  through to the generic canvas menu on empty canvas). The
+  `wants_wheel`/`on_wheel` hooks left the tool interface;
+  `on_right_press` is now dispatched by chord instead of a getattr probe.
+* Behaviour note: `Ctrl+Shift+LMB` used to enter the Ctrl-pan path; chords
+  match exactly, so it now reaches the tool's press stream instead.
+* A final action can gain a mouse trigger in a layer (`global.action.cancel`
+  → `"Esc|RMB"`): Esc keeps working everywhere, RMB fires cancel only while
+  that tool is active.
+
 ### Per-tool KeyMap layer — Stage 1b: reverse lookup + dispatch tables (2026-07-09)
 
 * **`KeyMap.lookup(key, modifiers)`** — the reverse of `matches`: all action
