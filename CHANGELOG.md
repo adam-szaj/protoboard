@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — Stage 1: groundwork (2026-07-09)
+
+* **New `gui/qt_geometry.py`** — the canonical
+  `Point/Rect/Transform2D ↔ QPointF/QRectF/QTransform` bridge (the transform
+  bridge documents Qt's transposed linear part; pinned by a
+  `Transform2D.apply` vs `QTransform.map` parity test).
+  `renderers/packages/base._qtransform` now delegates to it.
+* **The 4 Qt-typed `AbstractBoardView` members speak domain types**:
+  `snap(Point)`, `is_locked_pin(Point)`, `center_on_scene_point(Point)`,
+  `set_selection_outline_override(str | None)` (hex `#AARRGGBB`, the format
+  `Theme` already uses; QColor conversion lives in `highlight/renderer.py`).
+  Several `Point → QPointF → Point` round-trips at call sites disappeared
+  (SelectTool `_snap`/`_snap_free`, PlaceTool pin-drag, DRC center-on-issue).
+
 ### Qt ports — Stage 2: view notification channel (2026-07-09)
 
 * **Status is published, not displayed, from behind the board-view seam**

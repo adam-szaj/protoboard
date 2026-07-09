@@ -38,6 +38,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
 from protoboard.gui.ports import StatusEvent
+from protoboard.gui.qt_geometry import from_qpointf
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
@@ -390,7 +391,7 @@ class SelectTool(_Tool):
 
         # 1. Pivot-capture mode (rotate-around-point) wins everything.
         if self._pivot_capture_pending:
-            self._rotate_pivot = self._view.snap(scene_pt)
+            self._rotate_pivot = self._view.snap(from_qpointf(scene_pt))
             self._pivot_capture_pending = False
             self._status(
                 "Pivot set — Rotate CW/CCW to rotate around it  ·  [Esc] Clear", 0
@@ -1394,10 +1395,13 @@ class SelectTool(_Tool):
         # Flip the selection-outline colour to match the conflict severity —
         # red HARD / amber SOFT — so the dragged bodies' own highlight signals
         # the drop's consequence (replaces the legacy dashed conflict overlay).
-        self._set_drag_outline(color)
+        self._set_drag_outline(color.name(QColor.NameFormat.HexArgb))
 
-    def _set_drag_outline(self, color: object) -> None:
-        """Drive BoardView's selection-outline override (None → back to cyan)."""
+    def _set_drag_outline(self, color: str | None) -> None:
+        """Drive BoardView's selection-outline override (None → back to cyan).
+
+        *color* is hex ``#AARRGGBB`` — the seam's colour format (qt-ports §2.7).
+        """
         view = self._view
         setter = getattr(view, "set_selection_outline_override", None)
         if setter is not None:
@@ -1620,10 +1624,7 @@ class SelectTool(_Tool):
         return next(iter(ids), None)
 
     def _snap(self, raw: Point, exclude: frozenset[uuid.UUID]) -> Point:
-        from PySide6.QtCore import QPointF as _QPointF
-
-        snapped = self._view.snap(_QPointF(raw.x, raw.y), exclude_ids=exclude)
-        return Point(snapped.x, snapped.y)
+        return self._view.snap(raw, exclude_ids=exclude)
 
     def _execute_command(self, cmd: object) -> bool:
         from typing import cast
@@ -3090,9 +3091,7 @@ class SelectTool(_Tool):
         """Snap a click to the grid for the rotate pivot (no exclusions)."""
         if self._view is None:
             return None
-        from PySide6.QtCore import QPointF
-
-        return self._view.snap(QPointF(raw.x, raw.y))
+        return self._view.snap(raw)
 
     @traced()
     def arm_move(self) -> None:
@@ -3434,7 +3433,7 @@ class SelectTool(_Tool):
 
         assert isinstance(menu, QMenu)
         act_center = menu.addAction("Center view here")
-        items[act_center] = ("view_center", scene_pt)
+        items[act_center] = ("view_center", from_qpointf(scene_pt))
         act_escape = menu.addAction("Cancel tool (Esc)")
         items[act_escape] = ("view_escape",)
         menu.addSeparator()
@@ -3846,7 +3845,7 @@ class SelectTool(_Tool):
 
         action = data[0]
         if action == "view_center":
-            self._view.center_on_scene_point(cast("QPointF", data[1]))
+            self._view.center_on_scene_point(cast("Point", data[1]))
         elif action == "view_escape":
             self._view.escape_to_select()
         elif action == "lock":

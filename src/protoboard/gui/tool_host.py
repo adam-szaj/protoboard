@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
-from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.qt_geometry import from_qpointf
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
     VIEW_CANVAS_MENU,
@@ -191,7 +191,7 @@ class ToolHost:
         if chosen is None:
             return
         if chosen is act_center:
-            view.center_on_scene_point(scene_pt)
+            view.center_on_scene_point(from_qpointf(scene_pt))
         elif chosen is act_escape:
             view.escape_to_select()
         elif chosen in tool_action_items:
@@ -404,7 +404,7 @@ class ToolHost:
                 int(view.verticalScrollBar().value() - delta.y())
             )
         scene_pt = view.mapToScene(event.pos())
-        view.notify_cursor_moved(Point(scene_pt.x(), scene_pt.y()))
+        view.notify_cursor_moved(from_qpointf(scene_pt))
         if not self._panning and self._active_tool is not None:
             self._active_tool.on_move(event, scene_pt)
         elif not self._panning:

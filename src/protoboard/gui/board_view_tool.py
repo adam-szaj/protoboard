@@ -16,7 +16,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, override
 
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QWheelEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QGraphicsView
 
 from protoboard.services.debug_trace import traced
@@ -170,12 +170,12 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
 
     @abstractmethod
     def snap(
-        self, scene_pt: QPointF, exclude_ids: frozenset[uuid.UUID] | None = None
+        self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None
     ) -> Point:
         """Snap *scene_pt* to the nearest board pad centre."""
 
     @abstractmethod
-    def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
+    def is_locked_pin(self, scene_pt: Point, tol: float = 0.6) -> bool:
         """True when *scene_pt* hits a pin of a locked component."""
 
     @abstractmethod
@@ -189,7 +189,7 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
         """Rebuild the scene from the session."""
 
     @abstractmethod
-    def center_on_scene_point(self, scene_pt: QPointF) -> None:
+    def center_on_scene_point(self, scene_pt: Point) -> None:
         """Scroll so *scene_pt* lands in the viewport centre."""
 
     @abstractmethod
@@ -215,8 +215,12 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
         """Apply per-wire drag ghosting (``"drop" | "disconnect" | "normal"``)."""
 
     @abstractmethod
-    def set_selection_outline_override(self, color: QColor | None) -> None:
-        """Override the selection-outline colour (drag-conflict signalling)."""
+    def set_selection_outline_override(self, color: str | None) -> None:
+        """Override the selection-outline colour (drag-conflict signalling).
+
+        *color* is hex ``#AARRGGBB`` — the format :class:`Theme` already
+        uses; the QColor conversion happens Qt-side in the highlight renderer.
+        """
 
     # -- notification channel (docs/qt-ports.md §2.3) --------------------------
     # The view surface *publishes* notifications; the consumer (MainWindow, or

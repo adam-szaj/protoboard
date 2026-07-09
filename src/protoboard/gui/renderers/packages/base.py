@@ -72,6 +72,7 @@ from protoboard.gui.renderers.packages.canvas import (
     _body_pen,
     qcolor_from_css,
 )
+from protoboard.gui.qt_geometry import to_qtransform
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.services.debug_trace import traced
@@ -93,13 +94,9 @@ _log = structlog.get_logger(__name__)
 def _qtransform(t: Transform2D) -> QTransform:
     """Bridge a domain :class:`Transform2D` to a Qt ``QTransform``.
 
-    Qt's constructor takes column-major ``(m11, m12, m21, m22, dx, dy)`` mapping
-    ``x' = m11·x + m21·y + dx``, ``y' = m12·x + m22·y + dy``.  Our coefficients
-    ``(a, b, c, d, tx, ty)`` map ``x' = a·x + b·y + tx``, ``y' = c·x + d·y + ty``
-    — the transpose of the linear part, so the arguments interleave as below.
+    Delegates to the canonical seam bridge in ``gui.qt_geometry``.
     """
-    a, b, c, d, tx, ty = t.coeffs()
-    return QTransform(a, c, b, d, tx, ty)
+    return to_qtransform(t)
 
 
 def _lead_pen(theme: Theme, alpha: float) -> QPen:

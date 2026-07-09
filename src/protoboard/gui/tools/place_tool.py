@@ -50,6 +50,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItemGroup
 
 from protoboard.gui.ports import StatusEvent
+from protoboard.gui.qt_geometry import from_qpointf
 from protoboard.services.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
@@ -176,7 +177,7 @@ class PlaceTool(_Tool):
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
-        snapped = self._view.snap(scene_pt)
+        snapped = self._view.snap(from_qpointf(scene_pt))
 
         if self._is_phase(PhaseEnum.FLOATING):
             self._commit_floating_place()
@@ -234,7 +235,7 @@ class PlaceTool(_Tool):
 
     @traced()
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        snapped = self._view.snap(scene_pt)
+        snapped = self._view.snap(from_qpointf(scene_pt))
         if self._is_phase(PhaseEnum.ANCHOR):
             self._last_cursor_pos = snapped
             self._move_ghost(snapped.x, snapped.y)
@@ -583,7 +584,7 @@ class PlaceTool(_Tool):
 
         if spec.is_free():
             # Snap to nearest board pad; reject if outside reach from origin.
-            snapped = self._view.snap(QPointF(cursor.x, cursor.y))
+            snapped = self._view.snap(cursor)
             if not spec.is_reachable_from_origin(self._anchor_pos, snapped):
                 return None
             # Convert world position of snapped pad to local offset for pin.

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QGraphicsItemGroup
 from pytestqt.qtbot import QtBot
 
@@ -18,15 +17,15 @@ from protoboard.gui.tools.select_tool import SelectTool
 class TestSnap:
     def test_snap_returns_nearest_pad(self, board_view: BoardView) -> None:
         # Board is 5×5, gap=0, so pads at (0.5,0.5), (1.5,0.5) etc.
-        result = board_view.snap(QPointF(0.4, 0.4))
+        result = board_view.snap(Point(0.4, 0.4))
         assert result == Point(0.5, 0.5)
 
     def test_snap_far_from_origin(self, board_view: BoardView) -> None:
-        result = board_view.snap(QPointF(3.6, 3.6))
+        result = board_view.snap(Point(3.6, 3.6))
         assert result == Point(3.5, 3.5)
 
     def test_snap_exact_pad_center(self, board_view: BoardView) -> None:
-        result = board_view.snap(QPointF(2.5, 2.5))
+        result = board_view.snap(Point(2.5, 2.5))
         assert result == Point(2.5, 2.5)
 
 

@@ -276,8 +276,8 @@ class BoardView(AbstractBoardView):
         self.highlight.set_highlighted_net(net_id)
 
     @traced()
-    def set_selection_outline_override(self, color: QColor | None) -> None:
-        """Delegate the drag-conflict outline colour to the renderer."""
+    def set_selection_outline_override(self, color: str | None) -> None:
+        """Delegate the drag-conflict outline colour (hex ``#AARRGGBB``)."""
         self.highlight.set_selection_outline_override(color)
 
     @traced()
@@ -618,7 +618,7 @@ class BoardView(AbstractBoardView):
         tool._notify_selection()
 
     @traced()
-    def snap(self, scene_pt: QPointF, exclude_ids: frozenset[uuid.UUID] | None = None) -> Point:
+    def snap(self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None) -> Point:
         """Snap scene-space point to nearest accessible pad or component pin.
 
         Pins belonging to child groups are only accessible if they are exported.
@@ -642,7 +642,7 @@ class BoardView(AbstractBoardView):
                 for ep in child_group.exported_pins:
                     exported_pins.add((ep.component_id, ep.pin_number))
 
-        sx, sy = scene_pt.x(), scene_pt.y()
+        sx, sy = scene_pt.x, scene_pt.y
         best: Point | None = None
         best_d = math.inf
 
@@ -698,7 +698,7 @@ class BoardView(AbstractBoardView):
         return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
 
     @traced()
-    def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
+    def is_locked_pin(self, scene_pt: Point, tol: float = 0.6) -> bool:
         """Return True if *scene_pt* is near a pin locked inside a child group
         (i.e. not exported). Used by RouteTool to show a status message."""
         groups = self._session.layout.groups
@@ -722,23 +722,22 @@ class BoardView(AbstractBoardView):
             for pin_num, p in self._session.iter_pin_positions(comp_id):
                 if (comp_id, pin_num) in exported_pins:
                     continue
-                if (scene_pt.x() - p.x) ** 2 + (scene_pt.y() - p.y) ** 2 < tol ** 2:
+                if (scene_pt.x - p.x) ** 2 + (scene_pt.y - p.y) ** 2 < tol ** 2:
                     return True
         return False
 
     @traced()
-    def center_on_scene_point(self, scene_pt: QPointF) -> None:
+    def center_on_scene_point(self, scene_pt: Point) -> None:
         """Scroll the view so that scene_pt appears at the centre of the viewport."""
         vp = self.viewport()
         cx = vp.width() / 2.0
         cy = vp.height() / 2.0
         current = self.mapToScene(int(cx), int(cy))
-        delta_scene = scene_pt - current
         scale = self.transform().m11()
         hbar = self.horizontalScrollBar()
         vbar = self.verticalScrollBar()
-        hbar.setValue(hbar.value() + round(delta_scene.x() * scale))
-        vbar.setValue(vbar.value() + round(delta_scene.y() * scale))
+        hbar.setValue(hbar.value() + round((scene_pt.x - current.x()) * scale))
+        vbar.setValue(vbar.value() + round((scene_pt.y - current.y()) * scale))
 
     @traced()
     def _add_tool_action_menu(self, menu: object) -> dict[object, str]:

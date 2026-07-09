@@ -18,6 +18,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.ports import StatusEvent
+from protoboard.gui.qt_geometry import from_qpointf
 from protoboard.gui.renderers.routing_overlay import render_routing_hints
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -78,14 +79,15 @@ class RouteTool(_Tool):
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
-        if self._view.is_locked_pin(scene_pt):
+        pt = from_qpointf(scene_pt)
+        if self._view.is_locked_pin(pt):
             self._view.notify_status(StatusEvent(
                 "route.locked_pin",
                 {"text": "Pad belongs to a group — export it first (right-click → Export pin)",
                  "timeout_ms": 3000},
             ))
             return True  # consume event, block routing
-        snapped = self._view.snap(scene_pt)
+        snapped = self._view.snap(pt)
 
         if len(self._points) == 1:
             self._show_routing_hints(snapped)
@@ -105,7 +107,7 @@ class RouteTool(_Tool):
         if not self._points:
             return
         self._remove_live()
-        snapped = self._view.snap(scene_pt)
+        snapped = self._view.snap(from_qpointf(scene_pt))
         self._add_live_line(self._points[-1], snapped)
 
     def on_key(self, event: QKeyEvent) -> None:

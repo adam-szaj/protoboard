@@ -449,9 +449,9 @@ None of this is decided. The choices that shape any implementation:
 
 Each phase green + committable; existing qtbot tests run unchanged throughout
 (nothing is swapped until the type-level Protocol change at the end).
-Progress: ☑ 2 (2026-07-09; also deleted `pad_clicked` from phase 1, and
-`notify_cursor_moved` takes a `Point` — user feedback). Phase order 2-before-1
-was deliberate: the notification channel does not depend on the groundwork.
+Progress: ☑ 1, ☑ 2 (2026-07-09; phase 2 landed first — the notification
+channel does not depend on the groundwork — and took `pad_clicked` deletion
+with it; `notify_cursor_moved` takes a `Point` — user feedback).
 
 1. **Groundwork**: delete `pad_clicked`; add `gui/qt_geometry.py`
    (`Point/Rect/Transform2D ↔ QPointF/QRectF/QTransform`); the 4 Qt-typed ABC

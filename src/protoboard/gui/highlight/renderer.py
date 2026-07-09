@@ -186,22 +186,25 @@ class HighlightRenderer:
         self.apply()
 
     @traced()
-    def set_selection_outline_override(self, color: QColor | None) -> None:
+    def set_selection_outline_override(self, color: str | None) -> None:
         """Override the selection-outline colour (None → back to theme cyan).
 
-        Used by SelectTool during a drag: amber for a SOFT (removable) conflict,
-        red for a HARD (blocked) one, so the selection highlight itself shows the
-        drop's consequence — instead of a separate overlay.  Re-runs the
+        *color* is hex ``#AARRGGBB`` — the seam's colour format (qt-ports
+        §2.7); the QColor conversion happens here, Qt-side.  Used by
+        SelectTool during a drag: amber for a SOFT (removable) conflict,
+        red for a HARD (blocked) one, so the selection highlight itself shows
+        the drop's consequence — instead of a separate overlay.  Re-runs the
         highlight pass so the change paints immediately.
         """
-        new_rgb = color.rgb() & 0x00FFFFFF if color is not None else None
+        qcolor = QColor(color) if color is not None else None
+        new_rgb = qcolor.rgb() & 0x00FFFFFF if qcolor is not None else None
         cur_rgb = (
             self._select_outline_override.rgb() & 0x00FFFFFF
             if self._select_outline_override is not None else None
         )
         if new_rgb == cur_rgb:
             return  # no change → skip the repaint
-        self._select_outline_override = QColor(color) if color is not None else None
+        self._select_outline_override = qcolor
         self.apply()
 
     @traced()

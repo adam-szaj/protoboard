@@ -2713,9 +2713,7 @@ class MainWindow(QMainWindow):
         )
 
         if issue.locations:
-            from PySide6.QtCore import QPointF
-            p = issue.locations[0]
-            self._board_view.center_on_scene_point(QPointF(p.x, p.y))
+            self._board_view.center_on_scene_point(issue.locations[0])
 
     def _update_stats(self) -> None:
         """Update the permanent status-bar stats label."""

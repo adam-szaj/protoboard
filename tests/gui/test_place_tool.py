@@ -9,6 +9,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from protoboard.domain.commands.base import ComponentState
+from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
@@ -284,7 +285,7 @@ class TestPlaceToolSmdMount:
             Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
             Qt.KeyboardModifier.NoModifier,
         )
-        snapped = view.snap(QPointF(5, 5))
+        snapped = view.snap(Point(5, 5))
         tool.on_press(ev, QPointF(5, 5))
 
         # Pin 1 anchors — it is NOT the dragged pin; pin 2 is.
