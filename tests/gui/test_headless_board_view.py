@@ -9,12 +9,14 @@ CameraMath viewport, recorded notifications — without qtbot or an event loop
 
 from __future__ import annotations
 
+import uuid
+
 from PySide6.QtCore import Qt
 
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.select_tool import SelectTool
-from tests.fakes.board_view import HeadlessBoardView
+from tests.fakes.board_view import FakeExecutor, HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
 
 
@@ -137,6 +139,71 @@ class TestCameraMathHeadless:
         view.camera.toggle_mirror_h()
         assert view.viewport_port.view_transform().a < 0
         assert view.camera.mirror_flags() == (True, False)
+
+
+class TestExecutorHeadless:
+    """Worker-backed wire ops run end-to-end through ExecutorPort (§3 trigger)."""
+
+    @staticmethod
+    def _add_l_shape_wire(session: EditorSession) -> uuid.UUID:
+        """L-shape (0.5,0.5)→(2.5,0.5)→(2.5,2.5); simplify shortens it."""
+        from protoboard.domain.layout.wire import Wire
+
+        w = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5)],
+            insulated=True,
+            side="top",
+        )
+        session.layout.wires.append(w)
+        session.invalidate_graph()
+        session.layout_changed.emit()
+        return w.id
+
+    def test_simplify_wires_end_to_end(self, session: EditorSession) -> None:
+        view = _headless(session)
+        tool = SelectTool()
+        view.tools.set_tool(tool)
+        wid = self._add_l_shape_wire(session)
+        orig_path = list(session.layout.wires[0].path)
+
+        tool.perform_context_action(
+            "simplify_wire", {"wire_ids": frozenset({wid}), "mode": None}
+        )
+
+        executor = view.executor
+        assert isinstance(executor, FakeExecutor)
+        assert [j.title for j in executor.jobs] == ["Simplify"]
+        assert executor.jobs[0].with_progress
+
+        def _length(path: list[Point]) -> float:
+            import math
+
+            return sum(
+                math.hypot(b.x - a.x, b.y - a.y)
+                for a, b in zip(path, path[1:])
+            )
+
+        new_path = session.layout.wires[0].path
+        assert new_path != orig_path
+        assert _length(new_path) < _length(orig_path)
+
+    def test_cancelled_job_changes_nothing(self, session: EditorSession) -> None:
+        view = _headless(session)
+        tool = SelectTool()
+        view.tools.set_tool(tool)
+        wid = self._add_l_shape_wire(session)
+        orig_path = list(session.layout.wires[0].path)
+
+        executor = view.executor
+        assert isinstance(executor, FakeExecutor)
+        executor.cancel_next = True
+        tool.perform_context_action(
+            "simplify_wire", {"wire_ids": frozenset({wid}), "mode": None}
+        )
+
+        assert [j.title for j in executor.jobs] == ["Simplify"]
+        assert session.layout.wires[0].path == orig_path
 
 
 class TestContextHeadless:

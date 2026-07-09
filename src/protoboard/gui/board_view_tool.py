@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.gui.ports import (
         ActionOption,
+        ExecutorPort,
         HelpOverlayPort,
         InteractionContext,
         KeyInput,
@@ -70,6 +71,8 @@ class AbstractBoardView(Protocol):
     viewport_port: ViewportPort
     # The [?] shortcut-help surface (qt-ports §2.5).
     help_overlay: HelpOverlayPort
+    # Blocking background jobs (worker + modal progress) behind the seam.
+    executor: ExecutorPort
 
     # -- view state ----------------------------------------------------------
 

@@ -388,11 +388,15 @@ applications here:
   (`RoutePreview.show_live_segment(a, b)`, `.clear()`), Qt concretions
   injected at tool construction, fakes recording semantic calls. Extraction
   is optional polish, per tool, on demand.
-- **`ExecutorPort` — deferred.** Workers (`gui/workers/`) already isolate
-  compute behind immutable snapshots (`RouteRequest`, `SimplifyInputs`) that
-  are testable today; only `operation_worker`'s QProgressDialog+QEventLoop
-  harness is Qt-bound. Build the port only when a tool flow that *launches* a
-  worker must be tested end-to-end. Tracked in todo.md.
+- **`ExecutorPort` — SHIPPED 2026-07-09.** Workers (`gui/workers/`) already
+  isolate compute behind immutable snapshots (`RouteRequest`,
+  `SimplifyInputs`); only `operation_worker`'s QProgressDialog+QEventLoop
+  harness is Qt-bound. The §3 trigger fired (simplify/unweave end-to-end on
+  `HeadlessBoardView`): `ports/executor.py` (`BlockingJob` +
+  `ExecutorPort.run_blocking`, `None` = cancelled/error) + `gui/qt_executor.py`
+  adapter + `executor` seam attr + synchronous `FakeExecutor`. MainWindow's
+  direct `run_with_progress` calls and the async workers stay Qt-side
+  (residue in todo.md).
 - **`draw_highlight -> list[QGraphicsItem]`** — acceptable as-is
   (TYPE_CHECKING-only; adapters are Qt-side concretions). Tighten to an opaque
   handle only if a headless consumer ever appears. Tracked in todo.md.

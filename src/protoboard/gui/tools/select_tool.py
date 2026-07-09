@@ -62,7 +62,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from PySide6.QtGui import QKeyEvent
-    from PySide6.QtWidgets import QWidget
     from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.domain.components.definition import ComponentDefinition
@@ -368,18 +367,6 @@ class SelectTool(_Tool):
         if not self._group_stack:
             self._group_stack = [ROOT_GROUP_ID]
         return self._group_stack[-1]
-
-    def _view_widget(self) -> QWidget:
-        """The concrete view as a QWidget — Qt-side menu/dialog boundary only.
-
-        The seam is a Protocol without widget surface; the RMB menu and the
-        dialogs it opens still need a real parent widget (D4 tracked debt).
-        """
-        from typing import cast
-
-        from PySide6.QtWidgets import QWidget
-
-        return cast(QWidget, self._view)
 
     def _status(self, msg: str, timeout_ms: int = 3000) -> None:
         if self._view is None:
@@ -4417,8 +4404,10 @@ class SelectTool(_Tool):
         mode_override: str | None = None,
     ) -> None:
         """Run generic_simplify_wire on each wire id (in a worker), apply changes."""
+        from typing import cast
+
+        from protoboard.gui.ports import BlockingJob
         from protoboard.gui.selection.wire_ops import build_simplify_inputs
-        from protoboard.gui.workers.operation_worker import run_with_progress
         from protoboard.services.routing.postprocess import (
             SimplifyMode,
             generic_simplify_wire,
@@ -4463,12 +4452,16 @@ class SelectTool(_Tool):
                 progress_cb(i + 1, n)
             return results
 
-        worker_out = run_with_progress(
-            parent=self._view_widget(),
-            title="Simplify",
-            fn=_simplify_in_worker,
-            label=f"Simplifying {len(wid_list)} wire(s)…",
-            with_progress=True,
+        worker_out = cast(
+            "list[tuple[uuid.UUID, list[Point], list[Point]]] | None",
+            self._view.executor.run_blocking(
+                BlockingJob(
+                    title="Simplify",
+                    label=f"Simplifying {len(wid_list)} wire(s)…",
+                    fn=_simplify_in_worker,
+                    with_progress=True,
+                )
+            ),
         )
         if worker_out is None:
             return
@@ -4492,11 +4485,13 @@ class SelectTool(_Tool):
         self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]
     ) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
+        from typing import cast
+
         from protoboard.domain.commands.component_cmds import (
             AddWireCommand,
             RemoveWireCommand,
         )
-        from protoboard.gui.workers.operation_worker import run_with_progress
+        from protoboard.gui.ports import BlockingJob
         from protoboard.services.routing.unweave import (
             count_mutual_crossings,
             unweave_wires,
@@ -4526,11 +4521,15 @@ class SelectTool(_Tool):
                 allow_side_flip=allow_side_flip,
             )
 
-        out = run_with_progress(
-            parent=self._view_widget(),
-            title="Unweave",
-            fn=_unweave_in_worker,
-            label=f"Unweaving {len(targets)} wire(s)…",
+        out = cast(
+            "list[Wire] | None",
+            self._view.executor.run_blocking(
+                BlockingJob(
+                    title="Unweave",
+                    label=f"Unweaving {len(targets)} wire(s)…",
+                    fn=_unweave_in_worker,
+                )
+            ),
         )
         if out is None:
             return

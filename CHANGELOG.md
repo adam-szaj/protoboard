@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — ExecutorPort (2026-07-09)
+
+* **Blocking worker jobs go behind the seam** (todo.md plan, approved
+  2026-07-09): `gui/ports/executor.py` adds a frozen ``BlockingJob(title,
+  label, fn, with_progress)`` + ``ExecutorPort.run_blocking(job) -> object |
+  None`` (``None`` = cancelled/error — the exact `run_with_progress`
+  contract); `gui/qt_executor.py` wraps the existing
+  QThread+QProgressDialog+QEventLoop harness, holding the parent widget so
+  callers never touch a QWidget.  Seam attr ``executor: ExecutorPort`` on
+  `AbstractBoardView` + `BoardView`; `tests/fakes/board_view.py` gains a
+  synchronous ``FakeExecutor`` (no-op progress callback, job log,
+  scriptable ``cancel_next``).
+* SelectTool's two worker call sites — ``_simplify_wires`` and
+  ``_unweave_wires`` (the plan named `_optimize_selected_wires`, but that
+  method is synchronous and never used the worker; unweave was the actual
+  second site) — now go through ``self._view.executor``, which kills the
+  ``_view_widget()`` QWidget cast entirely (the GroupTargetDialog parent
+  uses its own inline ``window()`` cast — D4, unchanged).
+* Driving tests (the qt-ports §3 trigger): the simplify-wires flow runs
+  end-to-end on ``HeadlessBoardView``, including the user-cancel path.
+* Out of scope (still Qt-side, tracked in todo.md): MainWindow's 3 direct
+  `run_with_progress` calls; async AutorouteWorker/DrcWorker;
+  ``_menu_autoroute_group`` reaching ``window()._group_autoroute``.
+
 ### Qt ports — SelectTool RMB menu as context publication (2026-07-09)
 
 * **The last QMenu behind the seam is gone** (§2.4 variant 1, user-approved):

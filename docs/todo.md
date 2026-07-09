@@ -11,28 +11,14 @@ The Qt-ports analysis ([qt-ports.md](qt-ports.md)) is a decision gate; even
 if the ports-only refactor proceeds, these pieces are deliberately deferred:
 
 
-- **`ExecutorPort`** for the `gui/workers/` QThread harness — APPROVED
-  2026-07-09, plan agreed (implement next, plan-first):
-  1. `ports/executor.py`: `ExecutorPort.run_blocking(job) -> object | None`
-     + frozen `BlockingJob(title, label, fn, with_progress)`; contract
-     `None` = cancelled/error, unchanged from `run_with_progress`.
-  2. `gui/qt_executor.py`: adapter wrapping the existing
-     `run_with_progress` (QProgressDialog+QEventLoop), parent widget held
-     by the adapter (constructed by BoardView).
-  3. Seam attr `executor: ExecutorPort` on the Protocol + BoardView +
-     a synchronous fake in `tests/fakes/board_view.py` (no-op progress
-     callback, job log, optionally scriptable cancel).
-  4. Convert the ONLY two behind-the-seam call sites: SelectTool
-     `_simplify_wires` / `_optimize_selected_wires` — this removes 2 of the
-     3 remaining `_view_widget()` casts (the third is the GroupTargetDialog
-     parent — D4, out of scope).
-  5. Driving test (the §3 trigger): optimize/simplify-wires flow on
-     `HeadlessBoardView` end-to-end.
-  Out of scope: MainWindow's 3 direct `run_with_progress` calls (Qt
-  consumer); async AutorouteWorker/DrcWorker; SelectTool's
-  `_menu_autoroute_group` reaching `window()._group_autoroute` (async
-  launch from behind the seam — separate design: completion-callback job
-  or a structural notification to MainWindow).
+- **`ExecutorPort` residue** (the port itself SHIPPED 2026-07-09:
+  `ports/executor.py` + `gui/qt_executor.py` + seam attr + `FakeExecutor`;
+  SelectTool `_simplify_wires`/`_unweave_wires` converted, `_view_widget()`
+  deleted).  Deliberately left Qt-side: MainWindow's 3 direct
+  `run_with_progress` calls (Qt consumer); async AutorouteWorker/DrcWorker;
+  SelectTool's `_menu_autoroute_group` reaching `window()._group_autoroute`
+  (async launch from behind the seam — separate design: completion-callback
+  job or a structural notification to MainWindow).
 - **Semantic per-tool preview objects** (the `rubber_band_controller.DrawFn`
   / `drag_conflict_overlay` pattern) replacing the tools' ~35 direct
   `scene()` transient-item sites — optional polish, per tool, on demand

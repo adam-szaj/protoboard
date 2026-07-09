@@ -15,6 +15,7 @@ from protoboard.gui.ports.inputs import (
     PointerInput,
     WheelInput,
 )
+from protoboard.gui.ports.executor import BlockingJob, ExecutorPort
 from protoboard.gui.ports.help_overlay import HelpOverlayPort
 from protoboard.gui.ports.interaction_context import (
     ActionOption,
@@ -29,7 +30,9 @@ from protoboard.gui.ports.viewport import (
 
 __all__ = [
     "ActionOption",
+    "BlockingJob",
     "CursorKind",
+    "ExecutorPort",
     "HelpOverlayPort",
     "InteractionContext",
     "ScreenMetrics",

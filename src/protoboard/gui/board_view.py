@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from protoboard.gui.keymap import KeyMap
     from protoboard.gui.ports import (
         ActionOption,
+        ExecutorPort,
         HelpOverlayPort,
         InteractionContext,
         StatusEvent,
@@ -58,6 +59,7 @@ from protoboard.gui.scene_composer import SceneComposer
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
+from protoboard.gui.qt_executor import QtExecutor
 from protoboard.gui.qt_help_overlay import QtHelpOverlay
 from protoboard.gui.qt_viewport import QtViewport
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX
@@ -92,6 +94,7 @@ class BoardView(QGraphicsView):
     composer: SceneComposer
     viewport_port: ViewportPort
     help_overlay: HelpOverlayPort
+    executor: ExecutorPort
 
     def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -147,6 +150,7 @@ class BoardView(QGraphicsView):
         # ``in_transform_burst()``.
         self.viewport_port = QtViewport(self)
         self.help_overlay = QtHelpOverlay(self)
+        self.executor = QtExecutor(self)
         self.camera = ViewCamera(self)
         self._layer_overrides: LayerOverrides = LayerOverrides()
         self._pad_positions: list[Point] = []

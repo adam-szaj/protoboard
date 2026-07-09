@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, cast
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.gui.layer_state import LayerOverrides, LayerState
 from protoboard.gui.ports import (
+    BlockingJob,
+    ExecutorPort,
     HelpOverlayPort,
     InteractionContext,
     StatusEvent,
@@ -119,6 +121,31 @@ class FakeHelpOverlay:
         return self._visible
 
 
+class FakeExecutor:
+    """ExecutorPort that runs the job synchronously on the calling thread.
+
+    No worker, no dialog, no event loop: ``run_blocking`` invokes the job
+    inline (progress callback is a no-op) and logs it in ``jobs``.  Set
+    ``cancel_next`` to simulate the user cancelling the next job (the job
+    fn is NOT run — matching a dialog cancelled before the worker finishes).
+    A raising job propagates (loud test failure) instead of the production
+    log-and-return-None.
+    """
+
+    def __init__(self) -> None:
+        self.jobs: list[BlockingJob] = []
+        self.cancel_next = False
+
+    def run_blocking(self, job: BlockingJob) -> object | None:
+        self.jobs.append(job)
+        if self.cancel_next:
+            self.cancel_next = False
+            return None
+        if job.with_progress:
+            return job.fn(lambda current, total: None)
+        return job.fn()
+
+
 class _HighlightRecorder:
     """Records the highlight calls tools/services make through the seam."""
 
@@ -166,6 +193,7 @@ class HeadlessBoardView:
         # invariant, so the concrete fake types would fail conformance.
         self.viewport_port: ViewportPort = FakeViewport()
         self.help_overlay: HelpOverlayPort = FakeHelpOverlay()
+        self.executor: ExecutorPort = FakeExecutor()
         self.highlight = cast("HighlightRenderer", _HighlightRecorder())
         self.paint = cast("PaintPipeline", _HighlightRecorder())
         self.composer = cast("SceneComposer", _HighlightRecorder())
