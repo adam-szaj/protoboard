@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
     from protoboard.geometry import Point
     from protoboard.gui.highlight.renderer import HighlightRenderer
-    from protoboard.gui.keymap import KeyMap
+    from protoboard.gui.keymap import AbstractKeyMap, KeyMap
     from protoboard.gui.layer_state import LayerState
     from protoboard.gui.layer_state import LayerOverrides
     from protoboard.gui.paint_pipeline import PaintPipeline
@@ -276,6 +276,16 @@ class BoardViewTool(ABC):
         """The keyboard actions this tool declares (namespaced keybindings)."""
 
     @abstractmethod
+    def make_key_map(self, parent: AbstractKeyMap) -> KeyMap:
+        """Build this tool's key-map layer chained onto *parent*.
+
+        Called by :class:`~protoboard.gui.tool_host.ToolHost` on activate; the
+        layer is dropped on deactivate (ephemeral — nothing to unregister).
+        The default implementation registers :meth:`key_actions` into a fresh
+        layer sharing *parent*'s user-overrides store.
+        """
+
+    @abstractmethod
     def displayable_action_ids(self) -> list[str]:
         """Ordered action ids to surface in the ``[?]`` overlay / RMB menu.
 
@@ -404,6 +414,28 @@ class _Tool(BoardViewTool):
         (dynamically, by current binding) for the shortcut veto.  Default: none.
         """
         return {}
+
+    @override
+    @traced()
+    def make_key_map(self, parent: AbstractKeyMap) -> KeyMap:
+        """Build this tool's key-map layer chained onto *parent*.
+
+        Registers :meth:`key_actions` into a fresh layer sharing *parent*'s
+        user-overrides store.  Best-effort per entry: a declaration colliding
+        with a ``final`` action's trigger is logged and skipped rather than
+        crashing the tool switch.
+        """
+        from protoboard.gui.keymap import FinalShortcutError, KeyMap
+        km = KeyMap.layer_over(parent)
+        for action_id, shortcut in self.key_actions().items():
+            try:
+                km.register_tool_actions({action_id: shortcut})
+            except FinalShortcutError as exc:
+                import structlog
+                structlog.get_logger(__name__).warning(
+                    "keymap.tool_action_rejected", error=str(exc)
+                )
+        return km
 
     @override
     @traced()

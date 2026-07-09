@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Per-tool KeyMap layer — Stage 1: lifecycle (2026-07-09)
+
+* **Every tool now owns an ephemeral KeyMap layer** built by the new
+  `BoardViewTool.make_key_map(parent)` factory: `ToolHost.set_tool` pushes it
+  over the permanent base map on activate and pops it on deactivate/detach —
+  the previous tool's bindings no longer linger in a shared leaf, and
+  `ToolHost.keymap` always returns the current head of the chain.
+  Design: `docs/keymap-per-tool-layer.md`.
+* **User overrides live in one store shared by reference** across the base map
+  and every layer (`KeyMap.layer_over`), so a rebind beats a layer's literal
+  declaration and survives re-layering; persistence is unchanged
+  (`KEYBINDINGS_V2_FILE`).
+* **`final` is enforced — and means the trigger, not the action.** A layer or
+  override claiming a `final` action's trigger for a different action raises
+  `FinalShortcutError` (tool registration stays best-effort per entry); a
+  layer declaring the final action id itself *extends* it with additional
+  triggers (union — `Esc` can never be shadowed away). `final` actions cannot
+  be rebound. `global.action.delete` is demoted from `final` — rebinding the
+  global Delete is an asserted user behaviour.
+* Stale `tests/unit/test_keymap.py` (pre-chain `KeyMap.with_globals` API)
+  repointed at the chain and green again; new layer/lifecycle suites:
+  `tests/unit/test_keymap_layers.py`, `tests/gui/test_keymap_layers.py`.
+
 ### Declarative kind nodes — YAML-declared kinds, generator fills `auto` (2026-07-06)
 
 * **Kinds become hybrid: declared in YAML, computed by the generator.** New

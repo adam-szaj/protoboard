@@ -33,11 +33,14 @@ class ToolHost:
         # Tools always notified on scene_cleared, active or not (MainWindow
         # parks the long-lived SelectTool here).
         self.permanent_tools: list[_Tool] = []
-        # Namespaced keybindings (Stage 1).  Owned here so a tool always has a
-        # KeyMap to consult for the contextual shortcut veto, even headless
-        # (BoardView without a MainWindow).  MainWindow loads user overrides
-        # into it; tools register their own actions on activate().
-        self._keymap = KeyMap(GlobalKeyMap.with_globals())
+        # Namespaced keybindings.  The permanent base map is owned here so a
+        # tool always has a KeyMap to consult for the contextual shortcut
+        # veto, even headless (BoardView without a MainWindow); MainWindow
+        # loads user overrides into its store.  The active tool's own layer
+        # (tool.make_key_map) is pushed on activate and popped on
+        # deactivate — ``keymap`` always returns the current head.
+        self._base_keymap = KeyMap(GlobalKeyMap.with_globals())
+        self._tool_keymap: KeyMap | None = None
         # ``[?]`` shortcut-help overlay — a QLabel parked over the viewport,
         # built lazily on first toggle.
         self._shortcuts_overlay: object | None = None
@@ -55,8 +58,8 @@ class ToolHost:
 
     @property
     def keymap(self) -> KeyMap:
-        """The namespaced keybindings the active tool consults for the veto."""
-        return self._keymap
+        """The current head of the key-map chain (tool layer, else base)."""
+        return self._tool_keymap or self._base_keymap
 
     @traced()
     def set_tool(self, tool: _Tool | None) -> None:
@@ -71,13 +74,14 @@ class ToolHost:
                 tool = None
         if self._active_tool is not None:
             self._active_tool.deactivate()
+        self._tool_keymap = None  # pop the old tool's layer
         self._active_tool = tool
         view.highlight.set_highlighted_net_silent(None)
         # Tool change may affect board_alpha (e.g. ghost mode) — rebuild board layer.
         view.mark_board_layer_dirty()
         if tool is not None:
             tool.activate(view.session, view)
-            self._register_tool_keymap(tool)
+            self._tool_keymap = tool.make_key_map(self._base_keymap)
         view.refresh()
 
     @traced()
@@ -86,25 +90,7 @@ class ToolHost:
         if self._active_tool is not None:
             self._active_tool.deactivate()
             self._active_tool = None
-
-    @traced()
-    def _register_tool_keymap(self, tool: _Tool) -> None:
-        """Merge a tool's declared key actions into the KeyMap.
-
-        Best-effort: a binding that collides with a ``final`` global action is
-        logged and skipped rather than crashing the tool switch.
-        """
-        actions = tool.key_actions()
-        if not actions:
-            return
-        from protoboard.gui.keymap import FinalShortcutError
-        try:
-            self._keymap.register_tool_actions(actions)
-        except FinalShortcutError as exc:
-            import structlog
-            structlog.get_logger(__name__).warning(
-                "keymap.tool_action_rejected", error=str(exc)
-            )
+            self._tool_keymap = None  # pop its layer
 
     @traced()
     def fire_on_scene_cleared(self) -> None:
@@ -125,7 +111,7 @@ class ToolHost:
         tool = self._active_tool
         if tool is None:
             return
-        decoded = shortcut_to_key_mods(self._keymap.resolve(action_id))
+        decoded = shortcut_to_key_mods(self.keymap.resolve(action_id))
         if decoded is None:
             return
         key, mods = decoded
@@ -152,7 +138,7 @@ class ToolHost:
             category_label,
             tool_shortcut_rows,
         )
-        rows = tool_shortcut_rows(self._keymap, action_ids)
+        rows = tool_shortcut_rows(self.keymap, action_ids)
         header = category_label(action_ids[0]) + " actions"
         menu.addSection(header)
         items: dict[object, str] = {}
@@ -253,7 +239,7 @@ class ToolHost:
             if tool_ids:
                 sections.append((
                     category_label(tool_ids[0]),
-                    list(tool_shortcut_rows(self._keymap, tool_ids)),
+                    list(tool_shortcut_rows(self.keymap, tool_ids)),
                 ))
 
         html = self._render_shortcuts_html(sections)
@@ -407,7 +393,7 @@ class ToolHost:
         key = event.key()
         # ``?`` toggles the shortcut-help overlay (resolved through the KeyMap,
         # so a rebind moves it).  Esc closes it before anything else.
-        if self._keymap.matches(
+        if self.keymap.matches(
             key, event.modifiers(), "global.action.show_shortcuts"
         ):
             self._toggle_shortcuts_overlay()

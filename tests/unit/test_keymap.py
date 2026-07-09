@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt
 
 from protoboard.gui.keymap import (
     FinalShortcutError,
+    GlobalKeyMap,
     KeyMap,
     category_of,
     name_of,
@@ -21,8 +22,13 @@ from protoboard.gui.keymap import (
 _NOMOD = Qt.KeyboardModifier.NoModifier
 
 
+def _chain() -> KeyMap:
+    """A leaf over the built-in globals — the app's base-map shape."""
+    return KeyMap(GlobalKeyMap.with_globals())
+
+
 def _tool_map() -> KeyMap:
-    km = KeyMap.with_globals()
+    km = _chain()
     km.register_tool_actions(
         {
             "select-tool.action.edit": None,       # inherit global.action.edit
@@ -88,22 +94,22 @@ class TestMatches:
 
 class TestFinal:
     def test_rejects_tool_binding_colliding_with_final(self) -> None:
-        km = KeyMap.with_globals()  # session.action.save_as = Ctrl+Shift+S, final
+        km = _chain()  # session.action.save_as = Ctrl+Shift+S, final
         with pytest.raises(FinalShortcutError):
             km.register_tool_actions({"wire.action.simplify": "Ctrl+Shift+S"})
 
     def test_none_binding_never_rejected(self) -> None:
-        km = KeyMap.with_globals()
+        km = _chain()
         # None inherits — can't collide with a final shortcut.
         km.register_tool_actions({"wire.action.whatever": None})
 
     def test_non_final_shortcut_is_allowed(self) -> None:
-        km = KeyMap.with_globals()
+        km = _chain()
         km.register_tool_actions({"wire.action.simplify": "Ctrl+Shift+Y"})
         assert km.resolve("wire.action.simplify") == "Ctrl+Shift+Y"
 
     def test_is_final_flag(self) -> None:
-        km = KeyMap.with_globals()
+        km = _chain()
         assert km.is_final("session.action.save_as") is True
         assert km.is_final("global.action.delete") is False
 
@@ -112,14 +118,14 @@ class TestGlobalTransformActions:
     """The generic rotate/flip/redrag globals two tools inherit (Stage 1)."""
 
     def test_transform_defaults_match_legacy(self) -> None:
-        km = KeyMap.with_globals()
+        km = _chain()
         assert km.resolve("global.action.rotate_cw") == "R"
         assert km.resolve("global.action.rotate_ccw") == "Shift+R"
         assert km.resolve("global.action.flip") == "Alt+R"
         assert km.resolve("global.action.redrag") == "Ctrl+R"
 
     def test_tool_inherits_transform_global(self) -> None:
-        km = KeyMap.with_globals()
+        km = _chain()
         km.register_tool_actions({"place-tool.action.rotate_cw": None})
         assert km.resolve("place-tool.action.rotate_cw") == "R"
         km.set_override("global.action.rotate_cw", "K")

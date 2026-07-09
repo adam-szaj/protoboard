@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: MIT
+"""Per-tool KeyMap layer semantics (docs/keymap-per-tool-layer.md).
+
+Pure model tests: layering (``KeyMap.layer_over``), the shared overrides
+store, shadowing vs. the additive union on ``final`` actions, and the
+``_Tool.make_key_map`` factory's best-effort registration.
+"""
+
+from __future__ import annotations
+
+import pytest
+from PySide6.QtCore import Qt
+
+from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.keymap import (
+    FinalShortcutError,
+    GlobalKeyMap,
+    KeyMap,
+)
+
+_NOMOD = Qt.KeyboardModifier.NoModifier
+
+
+def _base() -> KeyMap:
+    """The app's base-map shape: a leaf over the built-in globals."""
+    return KeyMap(GlobalKeyMap.with_globals())
+
+
+class TestLayerOver:
+    def test_layer_declaration_shadows_parent(self) -> None:
+        base = _base()
+        base.register_tool_actions({"x-tool.action.zap": "Z"})
+        layer = KeyMap.layer_over(base)
+        layer.register_tool_actions({"x-tool.action.zap": "Y"})
+        assert layer.resolve("x-tool.action.zap") == "Y"
+        # The base itself is untouched — pop restores the old binding.
+        assert base.resolve("x-tool.action.zap") == "Z"
+
+    def test_undeclared_falls_through_to_parent(self) -> None:
+        base = _base()
+        base.register_tool_actions({"view.action.zoom_in": "Ctrl++"})
+        layer = KeyMap.layer_over(base)
+        assert layer.resolve("view.action.zoom_in") == "Ctrl++"
+        assert layer.resolve("global.action.edit") == "E"
+
+    def test_user_override_beats_layer_declaration(self) -> None:
+        # The trap layer_over exists for: a fresh layer's literal declaration
+        # must not shadow a user rebind living on the base map.
+        base = _base()
+        base.set_override("a-tool.action.reroute", "Q")
+        layer = KeyMap.layer_over(base)
+        layer.register_tool_actions({"a-tool.action.reroute": "W"})
+        assert layer.resolve("a-tool.action.reroute") == "Q"
+
+    def test_override_set_via_layer_lands_in_shared_store(self) -> None:
+        base = _base()
+        layer = KeyMap.layer_over(base)
+        layer.register_tool_actions({"a-tool.action.reroute": "W"})
+        layer.set_override("a-tool.action.reroute", "Q")
+        # Visible from the base (persistence lives there) …
+        assert base.overrides_store["a-tool.action.reroute"] == "Q"
+        # … and from a *future* layer of the same tool.
+        relayer = KeyMap.layer_over(base)
+        relayer.register_tool_actions({"a-tool.action.reroute": "W"})
+        assert relayer.resolve("a-tool.action.reroute") == "Q"
+
+
+class TestFinalOnLayers:
+    def test_layer_may_not_claim_final_trigger(self) -> None:
+        layer = KeyMap.layer_over(_base())
+        with pytest.raises(FinalShortcutError):
+            layer.register_tool_actions({"x-tool.action.boom": "Esc"})
+
+    def test_layer_extends_final_action_with_new_trigger(self) -> None:
+        layer = KeyMap.layer_over(_base())
+        layer.register_tool_actions({"global.action.cancel": "Q"})
+        # Union, base trigger first — Esc can never be shadowed away.
+        assert layer.resolve("global.action.cancel") == "Esc|Q"
+        assert layer.matches(
+            Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
+        assert layer.matches(
+            Qt.Key.Key_Q.value, _NOMOD, "global.action.cancel")
+
+    def test_extended_final_action_stays_final(self) -> None:
+        layer = KeyMap.layer_over(_base())
+        layer.register_tool_actions({"global.action.cancel": "Q"})
+        assert layer.is_final("global.action.cancel") is True
+
+    def test_final_action_cannot_be_rebound(self) -> None:
+        with pytest.raises(FinalShortcutError):
+            _base().set_override("global.action.cancel", "Q")
+
+    def test_override_may_not_claim_final_trigger(self) -> None:
+        with pytest.raises(FinalShortcutError):
+            _base().set_override("x-tool.action.boom", "Esc")
+
+
+class _FakeTool(_Tool):
+    def key_actions(self) -> dict[str, str | None]:
+        return {
+            "fake-tool.action.zap": "Z",
+            "fake-tool.action.bad": "Esc",  # collides with final cancel
+            "fake-tool.action.edit": None,  # inherits global.action.edit
+        }
+
+
+class TestMakeKeyMapFactory:
+    def test_registers_declared_actions(self) -> None:
+        layer = _FakeTool().make_key_map(_base())
+        assert layer.resolve("fake-tool.action.zap") == "Z"
+        assert layer.resolve("fake-tool.action.edit") == "E"
+
+    def test_final_collision_skipped_not_fatal(self) -> None:
+        layer = _FakeTool().make_key_map(_base())  # must not raise
+        # The offending entry is dropped; Esc keeps meaning cancel.
+        assert layer.resolve("fake-tool.action.bad") == ""
+        assert layer.matches(
+            Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
+
+    def test_layer_shares_parent_store(self) -> None:
+        base = _base()
+        base.set_override("fake-tool.action.zap", "K")
+        layer = _FakeTool().make_key_map(base)
+        assert layer.resolve("fake-tool.action.zap") == "K"

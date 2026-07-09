@@ -91,6 +91,12 @@ def _shortcut_text(shortcuts: list[str] | str | None) -> str | None:
     return "|".join(shortcuts)
 
 
+def _alternatives(shortcuts: list[str] | str | None) -> set[str]:
+    """The set of individual triggers of a stored shortcut value."""
+    text = _shortcut_text(shortcuts)
+    return {a for a in text.split("|") if a} if text else set()
+
+
 # ---------------------------------------------------------------------------
 # KeyAction
 # ---------------------------------------------------------------------------
@@ -137,7 +143,9 @@ class KeyAction:
 
 
 GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
-    KeyAction(_global_id("delete"), ["Del"], "Delete", final=True),
+    # Not final: rebinding the global Delete is an asserted user behaviour
+    # (see TestDynamicRebind) — tools inherit whatever the user picks.
+    KeyAction(_global_id("delete"), ["Del"], "Delete"),
     KeyAction(_global_id("cancel"), ["Esc"], "Cancel", final=True),
     KeyAction(_global_id("confirm"), ["Return", "Space"],
               "Confirm",
@@ -203,6 +211,12 @@ def _is_symbol_key(key: int) -> bool:
 
 
 class AbstractKeyMap(ABC):
+
+    @property
+    @abstractmethod
+    def overrides_store(self) -> dict[str, str]:
+        """The live user-overrides dict (shared by reference across layers)."""
+        ...
 
     @abstractmethod
     def register_tool_actions(
@@ -281,6 +295,28 @@ class KeyMap(AbstractKeyMap):
             json_repr[action_id] = key_action.__json_repr__()
         return json_repr
 
+    # -- layering -----------------------------------------------------------
+
+    @property
+    @override
+    def overrides_store(self) -> dict[str, str]:
+        """The live user-overrides dict (shared by reference across layers)."""
+        return self._overrides
+
+    @classmethod
+    @traced()
+    def layer_over(cls, parent: AbstractKeyMap) -> KeyMap:
+        """A fresh layer chained onto *parent*, sharing its overrides store.
+
+        The store is shared *by reference* so a user rebind is honoured no
+        matter which layer declares the action — a layer's literal declaration
+        would otherwise shadow an override living on the base map (``resolve``
+        never reaches the parent once it finds its own declaration).
+        """
+        km = cls(parent)
+        km._overrides = parent.overrides_store
+        return km
+
     # -- registration -------------------------------------------------------
     @traced()
     @override
@@ -290,17 +326,36 @@ class KeyMap(AbstractKeyMap):
         *actions* maps ``"<category>.action.<name>" -> shortcut | None``.  A
         ``None`` value inherits the matching ``global.action.<name>`` default; a
         literal shortcut overrides for that tool.  A literal shortcut that
-        collides with a ``final`` global action is rejected.
+        collides with a ``final`` action's trigger is rejected — unless it is
+        declared on that final action id itself, which *extends* the action
+        with additional triggers (see :meth:`resolve`).
         """
         for action_id, shortcut in actions.items():
-            # if shortcut is not None and self._is_final_shortcut(shortcut):
-            #     raise FinalShortcutError(
-            #         f"{action_id!r} cannot bind {shortcut!r}: reserved by a "
-            #         f"final global action")
+            if shortcut is not None:
+                owner = self._final_shortcut_owner(_alternatives(shortcut))
+                if owner is not None and owner != action_id:
+                    raise FinalShortcutError(
+                        f"{action_id!r} cannot bind {shortcut!r}: reserved by "
+                        f"final action {owner!r}")
             display = self._inherited_display(action_id)
             self._actions[action_id] = KeyAction(id=action_id,
                                                  shortcuts=shortcut,
                                                  display=display)
+
+    @traced()
+    def _final_shortcut_owner(self, alternatives: set[str]) -> str | None:
+        """Id of the ``final`` action owning any of *alternatives*, if one does.
+
+        Walks the whole chain.  Final actions cannot be rebound, so their
+        *declared* triggers are their effective ones.
+        """
+        for action in self._actions.values():
+            if action.final and alternatives & _alternatives(action.shortcuts):
+                return action.id
+        parent = self._parent
+        if isinstance(parent, KeyMap):
+            return parent._final_shortcut_owner(alternatives)
+        return None
 
     @traced()
     def _inherited_display(self, action_id: str) -> str:
@@ -329,6 +384,16 @@ class KeyMap(AbstractKeyMap):
             return self._parent.resolve(action_id) if self._parent else ""
         text = _shortcut_text(action.shortcuts)
         if text is not None:
+            # A layer declaration on a *final* action id extends the action
+            # with additional triggers (union, parent first) — the protected
+            # base trigger can never be shadowed away, only added to.
+            parent = self._parent
+            if parent is not None and not action.final \
+                    and parent.is_final(action_id):
+                base = parent.resolve(action_id)
+                extra = [a for a in text.split("|")
+                         if a and a not in _alternatives(base)]
+                return "|".join([base, *extra]) if base else text
             return text
         gid = _global_id(name_of(action_id))
         if gid == action_id:
@@ -344,8 +409,16 @@ class KeyMap(AbstractKeyMap):
 
     @traced()
     def is_final(self, action_id: str) -> bool:
+        """True when *action_id* is declared ``final`` anywhere in the chain.
+
+        Chain-aware on purpose: a layer that extends a final action registers
+        a plain (non-final) copy, which must not launder the protection away.
+        """
         action = self._get_action(action_id)
-        return action is not None and action.final
+        if action is not None and action.final:
+            return True
+        parent = self._parent
+        return parent.is_final(action_id) if parent is not None else False
 
     @traced()
     def _non_final_shortcut(self, shortcut: list[str]) -> list[QKeySequence]:
@@ -410,7 +483,19 @@ class KeyMap(AbstractKeyMap):
         The override sticks even when the action is not registered yet (a
         tool registers its actions on activate) and survives re-registration.
         Returns the declared action if one is known anywhere in the chain.
+
+        A ``final`` action cannot be rebound, and no override may claim a
+        ``final`` action's trigger for a different action — both raise
+        :class:`FinalShortcutError`.
         """
+        if self.is_final(action_id):
+            raise FinalShortcutError(
+                f"{action_id!r} is final and cannot be rebound")
+        owner = self._final_shortcut_owner(_alternatives(shortcuts))
+        if owner is not None:
+            raise FinalShortcutError(
+                f"{action_id!r} cannot bind {_shortcut_text(shortcuts)!r}: "
+                f"reserved by final action {owner!r}")
         self._overrides[action_id] = _shortcut_text(shortcuts) or ""
         return self.resolve_action(action_id)
 
