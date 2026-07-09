@@ -75,9 +75,9 @@ abstraction is therefore small and closed.
   was deliberately migrated *off* scene items.
 - Remaining leaks: `armed.py` / `float_transform.py` take raw
   `QKeyEvent`/`QWheelEvent` (hard-coded `Qt.Key_Return/Escape` compares,
-  `angleDelta` unpacking, `Matcher = Callable[[QKeyEvent, str], bool]`);
-  `selectable.draw_highlight(ctx) -> list[QGraphicsItem]` (TYPE_CHECKING-only
-  import; `HighlightCtx` already returns opaque `object` pens/positions).
+  `angleDelta` unpacking, `Matcher = Callable[[QKeyEvent, str], bool]`).
+  (`selectable.draw_highlight` — the other leak listed here — was removed
+  2026-07-09: never implemented, never called; see §3.)
 
 ### 1.4 Scene identity and paint are already half-decoupled
 
@@ -404,9 +404,13 @@ applications here:
   adapter + `executor` seam attr + synchronous `FakeExecutor`. MainWindow's
   direct `run_with_progress` calls and the async workers stay Qt-side
   (residue in todo.md).
-- **`draw_highlight -> list[QGraphicsItem]`** — acceptable as-is
-  (TYPE_CHECKING-only; adapters are Qt-side concretions). Tighten to an opaque
-  handle only if a headless consumer ever appears. Tracked in todo.md.
+- **`draw_highlight -> list[QGraphicsItem]` — REMOVED 2026-07-09.** The
+  member was declared on `Selectable` but never implemented (every adapter
+  raised `NotImplementedError`) and never called — highlight rendering went
+  the `HighlightStack` dimming route instead. Deleted from the protocol and
+  adapters (with the orphaned `HighlightCtx`) on user decision, rather than
+  tightened to an opaque handle; the `Selectable` protocol is now fully
+  Qt-free.
 
 ## 4. Recommendation: ports-only, not full MVC
 

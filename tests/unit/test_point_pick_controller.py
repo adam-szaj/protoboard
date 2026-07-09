@@ -23,9 +23,7 @@ from protoboard.gui.selection.service import PickSession
 from protoboard.gui.selection_fsm import Hit
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QGraphicsItem
-
-    from protoboard.gui.selection.selectable import ConnQuery, HighlightCtx
+    from protoboard.gui.selection.selectable import ConnQuery
     from protoboard.types import NetId
 
 _NO_MODS = Mods()
@@ -53,9 +51,6 @@ class _FakeSel:
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         return frozenset()
-
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        return []
 
     def to_drag_member(self) -> object | None:
         return None

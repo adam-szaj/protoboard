@@ -12,9 +12,11 @@ The adapters live in the GUI layer (selection is a GUI concern) and wrap the
 pure domain value objects (:class:`ComponentPlacement`, :class:`Wire`,
 :class:`ComponentGroup`, :class:`PinRef`) without pulling Qt into the domain.
 
-Only :meth:`Selectable.draw_highlight` touches Qt; the rest of the protocol
-is pure so :class:`~protoboard.gui.selection.service.SelectionService` and
-its pick machinery stay headless-testable.
+The protocol is pure (no Qt), so
+:class:`~protoboard.gui.selection.service.SelectionService` and its pick
+machinery stay headless-testable.  Highlight *rendering* is not a member:
+it goes through the :class:`HighlightStack` dimming pipeline
+(``gui/highlight/``), keyed by :meth:`identity` / :meth:`net_ids`.
 """
 
 from __future__ import annotations
@@ -24,8 +26,6 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.geometry import Rect
     from protoboard.gui.selection_fsm import Hit
@@ -84,14 +84,6 @@ class Selectable(Protocol):
         """
         ...
 
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        """Create (but do not add) the highlight overlay items for this entity.
-
-        The only Qt-touching member.  :class:`HighlightController` owns adding
-        them to the scene and their lifetime.
-        """
-        ...
-
     def to_drag_member(self) -> object | None:
         """A drag-set member for this entity, or ``None`` if it can't be dragged."""
         ...
@@ -112,22 +104,6 @@ class ConnQuery(Protocol):
         ...
 
     def net_for_wire(self, wire_id: object) -> NetId | None:
-        ...
-
-
-@runtime_checkable
-class HighlightCtx(Protocol):
-    """Drawing context passed to :meth:`Selectable.draw_highlight`.
-
-    Carries the pens/brushes/Z-values and the geometry resolvers an adapter
-    needs to render itself, without each adapter reaching into the view or
-    theme singletons.  Concretised by :class:`HighlightController` (Phase 1).
-    """
-
-    def pen_for(self, role: str) -> object:
-        ...
-
-    def scene_pos(self, world: object) -> object:
         ...
 
 

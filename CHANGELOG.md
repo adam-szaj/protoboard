@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — `Selectable.draw_highlight` removed (2026-07-09)
+
+* The `draw_highlight(ctx) -> list[QGraphicsItem]` member was declared on the
+  `Selectable` protocol but never implemented (every adapter raised
+  `NotImplementedError(_PHASE1)`) and never called — highlight rendering
+  shipped through the `HighlightStack` dimming pipeline instead.  Removed
+  from the protocol and all six adapters, together with the orphaned
+  `HighlightCtx` protocol (its only purpose was the `ctx` parameter); the
+  `Selectable` protocol is now fully Qt-free, statically included.  todo.md's
+  "return-type opacity" watch-item is closed by deletion (user decision).
+
 ### Qt ports — semantic per-tool preview objects (2026-07-09)
 
 * **The tools' transient-item drawing left the tool bodies** (qt-ports §3;

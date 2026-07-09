@@ -23,9 +23,11 @@ if the ports-only refactor proceeds, these pieces are deliberately deferred:
   tools (`route_preview.py`, `place_preview.py`, `simplify_preview.py`,
   `select_preview.py`; qt-ports.md §3 updated). Only `DragCornerText`'s two
   scene-handle pass-throughs remain in SelectTool (already the pattern).
-- **`selectable.draw_highlight -> list[QGraphicsItem]`** return-type opacity —
-  acceptable as TYPE_CHECKING-only today; tighten to an opaque handle only if
-  a headless consumer appears.
+- ~~**`selectable.draw_highlight -> list[QGraphicsItem]`**~~ REMOVED
+  2026-07-09 (user decision): the member never gained an implementation or a
+  caller — highlight rendering went the ``HighlightStack`` dimming route
+  instead — so it was deleted from the protocol and adapters rather than
+  tightened to an opaque handle.
 
 ## Connector pin-name presets → generator config (added 2026-07-06)
 

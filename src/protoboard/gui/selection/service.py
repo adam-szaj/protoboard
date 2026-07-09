@@ -17,9 +17,9 @@ Two ways to consume selection:
 
 The service wraps the pure :class:`~protoboard.gui.selection_fsm.SelectionFSM`
 for the passive selection state, and owns the pick machinery itself.  It holds
-no Qt — :meth:`Selectable.draw_highlight` is the only Qt seam and the service
-never calls it (that's :class:`HighlightController`'s job).  This keeps the
-service and its pick state machine headless-testable.
+no Qt — highlighting is :class:`HighlightController`'s job (the stack-based
+dimming pipeline), never the service's.  This keeps the service and its pick
+state machine headless-testable.
 """
 
 from __future__ import annotations

@@ -11,9 +11,7 @@ highlighted" and the existing pipeline does the rest.
 
 Each controller owns one ``source_id`` on the stack's auto tier (at most one
 auto entry per source — see :meth:`HighlightStack.push_auto`).  :meth:`show`
-replaces it; :meth:`clear` removes it.  The QGraphicsItem overlay drawing
-(``Selectable.draw_highlight``) is deferred to Phase 2, when the new SelectTool
-becomes its first consumer.
+replaces it; :meth:`clear` removes it.
 
 The controller is headless: it constructs pure ``HighlightEntry`` /
 ``HighlightProfile`` values and calls the stack; no QApplication needed to test

@@ -6,10 +6,11 @@
 SelectTool is its default client, but any tool that needs to highlight entities
 (RouteTool's target net, a DRC error focus) can drive it.
 
-Phase 1 covers the dimming side only: turning a set of :class:`Selectable`
+The controller covers the dimming side: turning a set of :class:`Selectable`
 entities into the stack's auto-tier ``HighlightEntry`` so ``BoardView`` dims the
-rest.  The QGraphicsItem overlay drawing (``Selectable.draw_highlight``) lands
-in Phase 2 with the new SelectTool, its first consumer.
+rest.  (A per-selectable ``draw_highlight`` overlay member was once planned on
+the ``Selectable`` protocol; it never gained a consumer and was removed
+2026-07-09 — the stack pipeline is the highlight mechanism.)
 """
 
 from __future__ import annotations

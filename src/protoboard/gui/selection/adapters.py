@@ -10,9 +10,8 @@ Phase 0 implements the two members the selection core needs now:
 * :meth:`identity` — the dedup/equality key, and
 * :meth:`to_hit` — the bridge to the still-unchanged pure FSM.
 
-The remaining members (:meth:`bbox`, :meth:`net_ids`, :meth:`draw_highlight`,
-:meth:`to_drag_member`) gain bodies when their first consumer lands —
-``draw_highlight`` with HighlightController (Phase 1), ``bbox`` with rubber-band
+The remaining members (:meth:`bbox`, :meth:`net_ids`, :meth:`to_drag_member`)
+gain bodies when their first consumer lands — ``bbox`` with rubber-band
 hit-test (Phase 2), ``to_drag_member`` with the drag mode (Phase 3).  Until
 then they raise :class:`NotImplementedError`, so an adapter is structurally a
 ``Selectable`` (every signature present) and a premature call fails loudly
@@ -29,8 +28,6 @@ from protoboard.geometry import Point
 from protoboard.gui.selection_fsm import Hit
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QGraphicsItem
-
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
@@ -38,12 +35,10 @@ if TYPE_CHECKING:
     from protoboard.geometry import Rect
     from protoboard.gui.selection.selectable import (
         ConnQuery,
-        HighlightCtx,
         SelectableKey,
     )
     from protoboard.types import NetId
 
-_PHASE1 = "Selectable.draw_highlight lands with HighlightController (Phase 1)"
 _PHASE2 = "Selectable.bbox lands with rubber-band hit-test (Phase 2)"
 _PHASE3 = "Selectable.to_drag_member lands with the drag mode (Phase 3)"
 _PICK_ONLY = "PointSelectable is a pick-only coordinate — read .point, not this"
@@ -74,9 +69,6 @@ class ComponentSelectable:
             return conn.nets_for_pin(self.component_id, self.pin_number)
         return conn.nets_for_component(self.component_id)
 
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        raise NotImplementedError(_PHASE1)
-
     def to_drag_member(self) -> object | None:
         raise NotImplementedError(_PHASE3)
 
@@ -99,9 +91,6 @@ class WireSelectable:
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         nid = conn.net_for_wire(self.wire.id)
         return frozenset({nid}) if nid is not None else frozenset()
-
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        raise NotImplementedError(_PHASE1)
 
     def to_drag_member(self) -> object | None:
         raise NotImplementedError(_PHASE3)
@@ -131,9 +120,6 @@ class GroupSelectable:
             out |= conn.nets_for_component(cid)
         return out
 
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        raise NotImplementedError(_PHASE1)
-
     def to_drag_member(self) -> object | None:
         raise NotImplementedError(_PHASE3)
 
@@ -159,9 +145,6 @@ class PinSelectable:
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         return conn.nets_for_pin(self.pin.component_id, self.pin.pin_number)
-
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        raise NotImplementedError(_PHASE1)
 
     def to_drag_member(self) -> object | None:
         raise NotImplementedError(_PHASE3)
@@ -192,9 +175,6 @@ class WireVertexSelectable:
         nid = conn.net_for_wire(self.wire_id)
         return frozenset({nid}) if nid is not None else frozenset()
 
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
-        raise NotImplementedError(_PHASE1)
-
     def to_drag_member(self) -> object | None:
         raise NotImplementedError(_PHASE3)
 
@@ -222,9 +202,6 @@ class PointSelectable:
         raise NotImplementedError(_PICK_ONLY)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
-        raise NotImplementedError(_PICK_ONLY)
-
-    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
         raise NotImplementedError(_PICK_ONLY)
 
     def to_drag_member(self) -> object | None:
