@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from protoboard.geometry import Point
-    from protoboard.gui.ports import PointerInput, StatusEvent, WheelInput
+    from protoboard.gui.ports import KeyInput, PointerInput, StatusEvent, WheelInput
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
     from protoboard.gui.layer_state import LayerState
@@ -268,10 +268,11 @@ class BoardViewTool(ABC):
     def on_release(self, inp: PointerInput) -> None: ...
 
     @abstractmethod
-    def on_key(self, event: QKeyEvent) -> None: ...
+    def on_key(self, inp: KeyInput) -> bool:
+        """Handle a key press.  Return True when the key was consumed."""
 
     @abstractmethod
-    def on_key_release(self, event: QKeyEvent) -> None: ...
+    def on_key_release(self, inp: KeyInput) -> None: ...
 
     @abstractmethod
     def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
@@ -284,8 +285,8 @@ class BoardViewTool(ABC):
         """
 
     @abstractmethod
-    def wants_key(self, event: QKeyEvent) -> bool:
-        """True when the tool wants to handle *event* itself this very moment.
+    def wants_key(self, inp: KeyInput) -> bool:
+        """True when the tool wants to handle *inp* itself this very moment.
 
         Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
         application shortcut whose key it needs contextually right now.
@@ -370,8 +371,8 @@ class _Tool(BoardViewTool):
         self._view = None  # type: ignore[assignment]
 
     @traced()
-    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
-        """True when *event* equals *action_id*'s currently-resolved shortcut.
+    def _key_matches(self, inp: KeyInput, action_id: str) -> bool:
+        """True when *inp* equals *action_id*'s currently-resolved shortcut.
 
         Resolves through the view's :class:`KeyMap`, so a tool dispatches and
         vetoes keys by *action id* — never by hard-coded ``Qt.Key`` literals.
@@ -380,7 +381,7 @@ class _Tool(BoardViewTool):
         view = self._view
         if view is None:
             return False
-        return view.keymap.matches(event.key(), event.modifiers(), action_id)
+        return view.keymap.matches(inp.key, inp.native_mods, action_id)
 
     def _theme(self) -> Theme:
         from protoboard.gui.theme import DEFAULT_THEME, Theme
@@ -405,12 +406,12 @@ class _Tool(BoardViewTool):
 
     @override
     @traced()
-    def on_key(self, event: QKeyEvent) -> None:
-        pass
+    def on_key(self, inp: KeyInput) -> bool:
+        return False
 
     @override
     @traced()
-    def on_key_release(self, event: QKeyEvent) -> None:
+    def on_key_release(self, inp: KeyInput) -> None:
         pass
 
     @override
@@ -424,8 +425,8 @@ class _Tool(BoardViewTool):
 
     @override
     @traced()
-    def wants_key(self, event: QKeyEvent) -> bool:
-        """True when the tool wants to handle *event* itself this very moment.
+    def wants_key(self, inp: KeyInput) -> bool:
+        """True when the tool wants to handle *inp* itself this very moment.
 
         Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
         application shortcut whose key it needs contextually right now (e.g. a
@@ -436,33 +437,30 @@ class _Tool(BoardViewTool):
         *when*; the matching itself is uniform (KeyMap, rebind-safe).
         """
         return any(
-            gate() and self._key_matches(event, action_id)
+            gate() and self._key_matches(inp, action_id)
             for action_id, gate in self.key_claims()
         )
 
     @traced()
-    def key_dispatch(self) -> tuple[tuple[str, Callable[[QKeyEvent], bool]], ...]:
+    def key_dispatch(self) -> tuple[tuple[str, Callable[[KeyInput], bool]], ...]:
         """Ordered ``(action_id, handler)`` table for :meth:`_dispatch_key`.
 
-        A handler returns True when it consumed the key (the event is then
-        accepted).  Default: empty — tools opt in per action.
+        A handler returns True when it consumed the key.  Default: empty —
+        tools opt in per action.
         """
         return ()
 
     @traced()
-    def _dispatch_key(self, event: QKeyEvent) -> bool:
-        """Run *event* through :meth:`key_dispatch` (KeyMap-resolved, ordered).
+    def _dispatch_key(self, inp: KeyInput) -> bool:
+        """Run *inp* through :meth:`key_dispatch` (KeyMap-resolved, ordered).
 
         Mirrors an ``elif`` ladder: the first entry whose action id matches
-        the event decides — its handler's verdict is final, later entries are
+        the key decides — its handler's verdict is final, later entries are
         not offered the key even when the handler declines.
         """
         for action_id, handler in self.key_dispatch():
-            if self._key_matches(event, action_id):
-                consumed = handler(event)
-                if consumed:
-                    event.accept()
-                return consumed
+            if self._key_matches(inp, action_id):
+                return handler(inp)
         return False
 
     @override

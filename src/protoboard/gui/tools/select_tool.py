@@ -37,7 +37,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.ports import LEFT_BUTTON, PointerInput, StatusEvent, WheelInput
+from protoboard.gui.ports import LEFT_BUTTON, KeyInput, PointerInput, StatusEvent, WheelInput
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
@@ -2384,7 +2384,7 @@ class SelectTool(_Tool):
             0,
         )
 
-    def _wire_edit_on_key(self, event: QKeyEvent) -> bool:
+    def _wire_edit_on_key(self, inp: KeyInput) -> bool:
         """Op-table for the selected fragment — one entry per operation.
 
         Dispatches by *action id* resolved through the KeyMap (not by hard-coded
@@ -2392,20 +2392,19 @@ class SelectTool(_Tool):
         on raw Esc / Backspace too, since those are not global shortcuts.
         Returns True when the key was consumed.
         """
-        key = event.key()
-        if self._key_matches(event, _ACT_REROUTE):
+        key = inp.key
+        if self._key_matches(inp, _ACT_REROUTE):
             self._begin_reroute()
-        elif self._key_matches(event, _ACT_AUTOROUTE):
+        elif self._key_matches(inp, _ACT_AUTOROUTE):
             self._autoroute_fragment()
-        elif self._key_matches(event, _ACT_FLIP_FRAGMENT):
+        elif self._key_matches(inp, _ACT_FLIP_FRAGMENT):
             self._flip_wire_fragment()
-        elif self._key_matches(event, _ACT_DELETE) or key == Qt.Key.Key_Backspace:
+        elif self._key_matches(inp, _ACT_DELETE) or key == Qt.Key.Key_Backspace:
             self._delete_fragment()
-        elif self._key_matches(event, _ACT_CANCEL) or key == Qt.Key.Key_Escape:
+        elif self._key_matches(inp, _ACT_CANCEL) or key == Qt.Key.Key_Escape:
             self._wire_edit_clear()
         else:
             return False
-        event.accept()
         return True
 
     def _begin_reroute(self) -> None:
@@ -2713,29 +2712,38 @@ class SelectTool(_Tool):
     # -- keys ---------------------------------------------------------------
 
     @traced()
-    def on_key(self, event: QKeyEvent) -> None:
-        key = event.key()
-        mods = event.modifiers()
-        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-        alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+    def on_key(self, inp: KeyInput) -> bool:
+        key = inp.key
+        ctrl = inp.mods.ctrl
+        shift = inp.mods.shift
+        alt = inp.mods.alt
 
         # An armed sub-tool (float-rotate / keyboard-move) owns its keys first:
-        # one uniform dispatch — step / accept / cancel live on the sub-tool, no
-        # branching on which mode it is.  Drop it once it reports finished.
-        if self._armed is not None and self._armed.on_key(event):
-            if self._armed.finished:
-                self._disarm()
-            event.accept()
-            return
+        # one uniform dispatch, no branching on which mode it is.  Enter / Esc
+        # travel as intents (accept / cancel calls — the sub-tool never sees a
+        # keycode); step / mode keys go through on_key.  Drop the sub-tool once
+        # it reports finished.
+        if self._armed is not None:
+            intent = self._key_to_intent(key)
+            if intent is Intent.CONFIRM:
+                self._armed.accept()
+                consumed = True
+            elif intent is Intent.CANCEL:
+                self._armed.cancel()
+                consumed = True
+            else:
+                consumed = self._armed.on_key(inp)
+            if consumed:
+                if self._armed.finished:
+                    self._disarm()
+                return True
 
         # Pivot mode: Esc clears it first.
         if (self._pivot_capture_pending or self._rotate_pivot is not None):
             if key == Qt.Key.Key_Escape:
                 self._clear_pivot()
                 self._status("Pivot cleared")
-                event.accept()
-                return
+                return True
 
         # Translate the key into a semantic intent and offer it to the active
         # mouse interaction (a floating drag, or a pick via PointPickController:
@@ -2745,66 +2753,56 @@ class SelectTool(_Tool):
         # route to the pick before the op-keys get a turn.
         intent = self._key_to_intent(key)
         if intent is not None and self._dispatch_intent(intent):
-            event.accept()
-            return
+            return True
 
         # Fragment selected and no pick in flight → the op-keys act on it
         # ([W] reroute · [A] autoroute · [Del] delete · [Esc] cancel).  This is
         # the "operations are actions on the selected fragment" branch.
         if self._wire_edit is not None and self._mouse is None:
-            if self._wire_edit_on_key(event):
-                return
+            if self._wire_edit_on_key(inp):
+                return True
 
         # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
         # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it
         # works headless where the KeyMap may be absent.
-        if self._key_matches(event, _ACT_RELATION_CYCLE_BACK) or (
+        if self._key_matches(inp, _ACT_RELATION_CYCLE_BACK) or (
             key == Qt.Key.Key_QuoteLeft and shift
         ):
             self._cycle_relation(forward=False)
-            event.accept()
-            return
-        if self._key_matches(event, _ACT_RELATION_CYCLE) or (
+            return True
+        if self._key_matches(inp, _ACT_RELATION_CYCLE) or (
             key == Qt.Key.Key_QuoteLeft and not shift
         ):
             self._cycle_relation(forward=True)
-            event.accept()
-            return
+            return True
 
         if (
-            self._key_matches(event, _ACT_DELETE)
+            self._key_matches(inp, _ACT_DELETE)
             or (key == Qt.Key.Key_Backspace and not ctrl)
         ):
-            if self._delete_selection(force=shift):
-                event.accept()
-            return
+            return self._delete_selection(force=shift)
 
-        if self._key_matches(event, _ACT_EDIT):
+        if self._key_matches(inp, _ACT_EDIT):
             self._begin_edit_selected()  # edit the selected object
-            event.accept()
-            return
+            return True
 
         if key == Qt.Key.Key_R and ctrl:
             self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
-            event.accept()
-            return
+            return True
 
-        if self._key_matches(event, _ACT_MOVE) and not self._selection.is_empty():
+        if self._key_matches(inp, _ACT_MOVE) and not self._selection.is_empty():
             self.arm_move()  # [G] — keyboard float-move (arrows / WSAD)
-            event.accept()
-            return
+            return True
 
         # Alt+R flips (immediate 2-pin flip, kept as a one-shot until flip joins
         # the armed transform mode); the bare rotate action arms float-rotate.
-        if self._key_matches(event, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
+        if self._key_matches(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
             self._flip_selected()
-            event.accept()
-            return
+            return True
 
-        if self._key_matches(event, _ACT_ROTATE) and not ctrl:
+        if self._key_matches(inp, _ACT_ROTATE) and not ctrl:
             self.arm_rotate()
-            event.accept()
-            return
+            return True
 
         if key == Qt.Key.Key_Escape:
             if len(self._group_stack) > 1:
@@ -2814,9 +2812,10 @@ class SelectTool(_Tool):
                 self._context_net_id = None  # deselect drops the net context
                 self._clear_free_pad_ring()
                 self._refresh_highlight()
-            event.accept()
+            return True
+        return False
 
-    def on_key_release(self, event: QKeyEvent) -> None:
+    def on_key_release(self, inp: KeyInput) -> None:
         pass
 
     def key_actions(self) -> dict[str, str | None]:

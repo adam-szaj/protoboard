@@ -1761,11 +1761,12 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        from PySide6.QtGui import QKeyEvent
-        from PySide6.QtCore import QEvent
+        from protoboard.gui.ports import KeyInput, Mods
         # Simulate Del key through SelectTool's handler.
-        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
-        tool.on_key(event)
+        tool.on_key(KeyInput(
+            key=int(Qt.Key.Key_Delete), native_mods=0,
+            is_auto_repeat=False, mods=Mods(),
+        ))
 
     def _focus_nets_panel(self) -> None:
         """Switch the left dock to the Nets tab and give it focus.

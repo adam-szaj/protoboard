@@ -31,8 +31,6 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, cast
 
-from PySide6.QtCore import Qt
-
 from protoboard.domain.layout.placement import (
         ComponentPlacement,
         PlacementMap,
@@ -42,8 +40,6 @@ from protoboard.gui.ports import WheelInput
 from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QKeyEvent
-
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment
@@ -53,10 +49,12 @@ if TYPE_CHECKING:
     from protoboard.gui.selection.drop_resolution import ResolveFn
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
 
+    from protoboard.gui.ports import KeyInput
+
     SnapFn = Callable[[Point], "Point | None"]
     ExecuteFn = Callable[["Command[ComponentState]"], bool]
     StatusFn = Callable[[str], None]
-    Matcher = Callable[["QKeyEvent", str], bool]
+    Matcher = Callable[["KeyInput", str], bool]
 
 
 # Action ids this sub-tool reacts to (resolved against SelectTool's KeyMap via
@@ -226,30 +224,25 @@ class FloatTransform:
 
     # -- input --------------------------------------------------------------
 
-    def on_key(self, event: QKeyEvent) -> bool:
-        key = event.key()
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.accept()
-            return True
-        if key == Qt.Key.Key_Escape:
-            self.cancel()
-            return True
-        if self._matches(event, _ACT_FLIP):
+    def on_key(self, inp: KeyInput) -> bool:
+        # Accept / cancel do NOT live here: the owner (SelectTool) translates
+        # Enter / Esc through its Intent map and calls accept() / cancel().
+        if self._matches(inp, _ACT_FLIP):
             self._flip()
             return True
         # [R] arms the rotate sub-mode; pressed *while already* rotating it
         # steps CW.  [G] arms move.  Switching sub-mode never commits and
         # keeps the float pose (it just re-aims the arrow keys).
-        if self._matches(event, _ACT_ROTATE):
+        if self._matches(inp, _ACT_ROTATE):
             if not self._enter_mode("rotate"):
                 self._rotate(90)
             return True
-        if self._matches(event, _ACT_MOVE):
+        if self._matches(inp, _ACT_MOVE):
             self._enter_mode("move")
             return True
         # Arrow / WASD keys: rotate-step (up = CW, down = CCW) or nudge,
         # by the active sub-mode.
-        step = self._step_for(event)
+        step = self._step_for(inp)
         if step is not None:
             dx, dy = step
             if self._mode == "rotate":
@@ -278,9 +271,9 @@ class FloatTransform:
             self._status(self.status_hint())
         return True
 
-    def _step_for(self, event: QKeyEvent) -> tuple[float, float] | None:
+    def _step_for(self, inp: KeyInput) -> tuple[float, float] | None:
         for action_id, vec in _STEP_VECTORS.items():
-            if self._matches(event, action_id):
+            if self._matches(inp, action_id):
                 return vec
         return None
 

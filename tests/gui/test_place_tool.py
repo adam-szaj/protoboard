@@ -13,7 +13,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
-from tests.gui.input_helpers import pointer
+from tests.gui.input_helpers import key_inp, pointer
 
 
 def _left_click(tool: PlaceTool, x: float, y: float) -> None:
@@ -26,13 +26,7 @@ def _left_click(tool: PlaceTool, x: float, y: float) -> None:
 
 
 def _key_r(tool: PlaceTool) -> None:
-    tool.on_key(
-        QKeyEvent(
-            QKeyEvent.Type.KeyPress,
-            Qt.Key.Key_R,
-            Qt.KeyboardModifier.NoModifier,
-        )
-    )
+    tool.on_key(key_inp(Qt.Key.Key_R))
 
 
 class TestPlaceToolPlacement:
@@ -343,8 +337,8 @@ class TestPlaceToolRotation:
 
 def _key_event(
     key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
-) -> QKeyEvent:
-    return QKeyEvent(QKeyEvent.Type.KeyPress, key, mods)
+):
+    return key_inp(key, mods)
 
 
 class TestPlaceToolKeymap:

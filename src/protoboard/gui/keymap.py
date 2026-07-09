@@ -254,13 +254,16 @@ VIEW_ACTIONS: tuple[KeyAction, ...] = (
 # ---------------------------------------------------------------------------
 @traced()
 def event_to_sequence(key: int,
-                      modifiers: Qt.KeyboardModifier) -> QKeySequence:
+                      modifiers: int | Qt.KeyboardModifier) -> QKeySequence:
     """Build the :class:`QKeySequence` a key press represents.
 
     ``QKeySequence(int(modifiers) | int(key))`` is the canonical construction;
-    Qt normalises it so ``Del`` and ``Delete`` compare equal.
+    Qt normalises it so ``Del`` and ``Delete`` compare equal.  *modifiers*
+    may be the raw int mask (the seam's ``KeyInput.native_mods``) or the Qt
+    flag — runtime-identical (D6).
     """
-    return QKeySequence(int(modifiers.value) | int(key))
+    mask = modifiers if isinstance(modifiers, int) else int(modifiers.value)
+    return QKeySequence(mask | int(key))
 
 
 @traced()
@@ -322,7 +325,7 @@ class AbstractKeyMap(ABC):
         ...
 
     @abstractmethod
-    def matches(self, key: int, modifiers: Qt.KeyboardModifier,
+    def matches(self, key: int, modifiers: int | Qt.KeyboardModifier,
                 action_id: str) -> bool:
         ...
 
@@ -507,7 +510,7 @@ class KeyMap(AbstractKeyMap):
         return []
 
     @traced()
-    def matches(self, key: int, modifiers: Qt.KeyboardModifier,
+    def matches(self, key: int, modifiers: int | Qt.KeyboardModifier,
                 action_id: str) -> bool:
         """True when a key press equals *action_id*'s resolved shortcut.
 
@@ -532,7 +535,7 @@ class KeyMap(AbstractKeyMap):
 
     @staticmethod
     @traced()
-    def _seq_matches(key: int, modifiers: Qt.KeyboardModifier,
+    def _seq_matches(key: int, modifiers: int | Qt.KeyboardModifier,
                      shortcut: str) -> bool:
         """True when a key press equals one (single, non-``|``) shortcut string.
 
@@ -545,12 +548,14 @@ class KeyMap(AbstractKeyMap):
         symbol keycode* — for a letter/digit, Shift is a deliberate, additive
         modifier, so ``Shift+R`` must stay distinct from ``R``.
         """
+        mods = (Qt.KeyboardModifier(modifiers)
+                if isinstance(modifiers, int) else modifiers)
         target = QKeySequence(shortcut)
-        if event_to_sequence(key, modifiers) == target:
+        if event_to_sequence(key, mods) == target:
             return True
-        if (modifiers & Qt.KeyboardModifier.ShiftModifier
+        if (mods & Qt.KeyboardModifier.ShiftModifier
                 and _is_symbol_key(key) and not _has_shift(target)):
-            without_shift = modifiers & ~Qt.KeyboardModifier.ShiftModifier
+            without_shift = mods & ~Qt.KeyboardModifier.ShiftModifier
             if event_to_sequence(key, without_shift) == target:
                 return True
         return False

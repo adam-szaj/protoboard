@@ -85,9 +85,8 @@ class _DispatchTool(_Tool):
 
 
 def _key_event(key):
-    from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtGui import QKeyEvent
-    return QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+    from tests.gui.input_helpers import key_inp
+    return key_inp(key)
 
 
 def _mouse_press(button, modifiers=None):
@@ -156,10 +155,9 @@ class TestDispatchTable:
         tool = _DispatchTool()
         board_view.set_tool(tool)
         from PySide6.QtCore import Qt
-        event = _key_event(Qt.Key.Key_K)
-        assert tool._dispatch_key(event) is True
+        inp = _key_event(Qt.Key.Key_K)
+        assert tool._dispatch_key(inp) is True
         assert tool.calls == ["first"]
-        assert event.isAccepted()
 
     def test_declining_handler_ends_the_scan(
         self, board_view: BoardView

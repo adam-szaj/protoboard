@@ -53,7 +53,7 @@ from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.gui.ports import PointerInput
+    from protoboard.gui.ports import KeyInput, PointerInput
 
 _log = structlog.get_logger(__name__)
 _REACH_PAD_RADIUS = 0.18
@@ -284,43 +284,42 @@ class PlaceTool(_Tool):
         return True
 
     @traced()
-    def key_dispatch(self) -> tuple[tuple[str, Callable[[QKeyEvent], bool]], ...]:
+    def key_dispatch(self) -> tuple[tuple[str, Callable[[KeyInput], bool]], ...]:
         """Ghost-transform ops, dispatched by action id (rebind-safe)."""
         return (
             (_ACT_FLIP, self._key_flip_pin_pair),
-            (_ACT_ROTATE_CW, lambda _e: self._key_rotate(90)),
-            (_ACT_ROTATE_CCW, lambda _e: self._key_rotate(-90)),
+            (_ACT_ROTATE_CW, lambda _i: self._key_rotate(90)),
+            (_ACT_ROTATE_CCW, lambda _i: self._key_rotate(-90)),
             (_ACT_REDRAG, self._key_redrag),
         )
 
     @traced()
-    def on_key(self, event: object) -> None:
-        if not isinstance(event, QKeyEvent):
-            return
-        key = event.key()
+    def on_key(self, inp: KeyInput) -> bool:
+        key = inp.key
 
         # Floating phase: Enter commits, Esc cancels (raw keys, not actions).
         if self._is_phase(PhaseEnum.FLOATING):
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_floating_place()
-                event.accept()
-            elif key == Qt.Key.Key_Escape:
+                return True
+            if key == Qt.Key.Key_Escape:
                 self._cancel_floating_place()
                 self._rebuild_ghost()
-                event.accept()
-            return
+                return True
+            return False
 
-        if self._dispatch_key(event):
-            return
+        if self._dispatch_key(inp):
+            return True
 
         if key == Qt.Key.Key_Escape and self._is_phase(PhaseEnum.DRAG_PIN):
             self._clear_reach_overlay()
             self._reset_phase()
             self._rebuild_ghost()
-            event.accept()
+            return True
+        return False
 
     @traced()
-    def _key_flip_pin_pair(self, _event: QKeyEvent) -> bool:
+    def _key_flip_pin_pair(self, _inp: KeyInput) -> bool:
         """Flip pin1/pin2 while dragging a pin — anchor moves to old pin2 pad."""
         if not self._is_phase(PhaseEnum.DRAG_PIN):
             return False
@@ -362,7 +361,7 @@ class PlaceTool(_Tool):
         return True
 
     @traced()
-    def _key_redrag(self, _event: QKeyEvent) -> bool:
+    def _key_redrag(self, _inp: KeyInput) -> bool:
         """Re-drag — restart drag for the current bendable pin from default."""
         defn = self._session.components.get(self._definition_ref)
         specs = self._bend_specs(defn) if defn else {}

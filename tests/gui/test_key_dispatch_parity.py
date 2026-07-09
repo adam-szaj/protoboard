@@ -41,20 +41,19 @@ class _RecordingWindow:
 
 
 class _ClaimingTool(_Tool):
-    """Consumes the keys in *claimed* (accepts the event) and records calls."""
+    """Consumes the keys in *claimed* and records calls."""
 
     def __init__(self, claimed: set[Qt.Key]) -> None:
         super().__init__()
         self._claimed = claimed
         self.seen: list[int] = []
 
-    def wants_key(self, event: QKeyEvent) -> bool:
-        return event.key() in self._claimed
+    def wants_key(self, inp) -> bool:  # type: ignore[override]
+        return inp.key in self._claimed
 
-    def on_key(self, event: QKeyEvent) -> None:
-        self.seen.append(event.key())
-        if event.key() in self._claimed:
-            event.accept()
+    def on_key(self, inp) -> bool:  # type: ignore[override]
+        self.seen.append(inp.key)
+        return inp.key in self._claimed
 
 
 def _install(board_view: BoardView, tool: _Tool, monkeypatch) -> _RecordingWindow:

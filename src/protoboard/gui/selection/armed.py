@@ -16,9 +16,9 @@ The contract that makes this more than a mechanical merge:
 left a conflict the user cannot accept, the sub-tool **stays armed** and waits
 (the floating-drag feel).  ``cancel()`` always reverts and finishes.
 
-This module is Qt-light: it takes :class:`QKeyEvent` at the boundary (the
-key DTO lands in qt-ports phase 3c) but holds no scene; wheel input arrives
-as the Qt-free :class:`~protoboard.gui.ports.WheelInput`.  The single concrete implementation is
+This module is Qt-free: input arrives as the seam DTOs
+(:class:`~protoboard.gui.ports.KeyInput` / ``WheelInput``); accept / cancel
+arrive as calls (the owner translates Enter / Esc through its Intent map).  The single concrete implementation is
 :class:`~protoboard.gui.selection.float_transform.FloatTransform`.
 """
 
@@ -27,10 +27,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QKeyEvent
-
     from protoboard.geometry import Point
-    from protoboard.gui.ports import WheelInput
+    from protoboard.gui.ports import KeyInput, WheelInput
 
 
 @runtime_checkable
@@ -43,11 +41,13 @@ class ArmedSubTool(Protocol):
     flow*, not the operations.
     """
 
-    def on_key(self, event: QKeyEvent) -> bool:
+    def on_key(self, inp: KeyInput) -> bool:
         """Handle a key while armed.  Return True when the key was consumed.
 
-        Step / accept / cancel keys live here.  A consumed accept or cancel sets
-        :attr:`finished`; the caller checks it after every consumed key.
+        Step / mode keys live here; accept and cancel arrive as
+        :meth:`accept` / :meth:`cancel` calls (the owner translates
+        Enter / Esc into intents).  A consumed key may set :attr:`finished`;
+        the caller checks it after every consumed key.
         """
         ...
 

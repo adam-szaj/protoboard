@@ -15,7 +15,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.simplify_tool import SimplifyTool
-from tests.gui.input_helpers import pointer
+from tests.gui.input_helpers import key_inp, pointer
 
 
 def _press(
@@ -33,9 +33,7 @@ def _press(
 def _key(view: BoardView, key: Qt.Key) -> None:
     tool = view._active_tool
     assert tool is not None
-    tool.on_key(
-        QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
-    )
+    tool.on_key(key_inp(key))
 
 
 def _add_l_shape_wire(session: EditorSession) -> uuid.UUID:

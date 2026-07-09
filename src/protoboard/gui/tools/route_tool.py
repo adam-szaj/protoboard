@@ -24,7 +24,7 @@ from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
-    from protoboard.gui.ports import PointerInput
+    from protoboard.gui.ports import KeyInput, PointerInput
 
 _log = structlog.get_logger(__name__)
 _PREVIEW_WIDTH = 0.12
@@ -110,20 +110,21 @@ class RouteTool(_Tool):
         snapped = self._view.snap(inp.scene_pos)
         self._add_live_line(self._points[-1], snapped)
 
-    def on_key(self, event: QKeyEvent) -> None:
-        key = event.key()
+    def on_key(self, inp: KeyInput) -> bool:
+        key = inp.key
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._commit()
-            event.accept()
         elif key == Qt.Key.Key_Escape:
             self._cancel()
-            event.accept()
         elif key == Qt.Key.Key_I:
             self._set_insulated(not self._insulated)
         elif key == Qt.Key.Key_T:
             self._set_side("top")
         elif key == Qt.Key.Key_B:
             self._set_side("bottom")
+        else:
+            return False
+        return True
 
     def _set_insulated(self, insulated: bool) -> None:
         """Flip insulation via the window so the choice is remembered and

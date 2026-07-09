@@ -12,7 +12,7 @@ from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.route_tool import RouteTool
-from tests.gui.input_helpers import pointer
+from tests.gui.input_helpers import key_inp, pointer
 
 
 def _press(board_view: BoardView, x: float, y: float) -> None:
@@ -45,8 +45,8 @@ def _mouse_event(button: Qt.MouseButton) -> QMouseEvent:
     )
 
 
-def _key_event(key: Qt.Key) -> QKeyEvent:
-    return QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+def _key_event(key: Qt.Key):
+    return key_inp(key)
 
 
 class TestRouteToolCommit:

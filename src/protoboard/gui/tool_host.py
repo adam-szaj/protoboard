@@ -17,8 +17,9 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.ports import KeyInput
 from protoboard.gui.qt_geometry import from_qpointf
-from protoboard.gui.qt_inputs import pointer_input, wheel_input
+from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
     VIEW_CANVAS_MENU,
@@ -141,10 +142,12 @@ class ToolHost:
         if decoded is None:
             return
         key, mods = decoded
-        event = QKeyEvent(
-            QEvent.Type.KeyPress, key, Qt.KeyboardModifier(mods)
-        )
-        tool.on_key(event)
+        tool.on_key(KeyInput(
+            key=int(key),
+            native_mods=int(mods),
+            is_auto_repeat=False,
+            mods=mods_from_qt(Qt.KeyboardModifier(mods)),
+        ))
 
     @traced()
     def add_tool_action_menu(self, menu: object) -> dict[object, str]:
@@ -465,7 +468,7 @@ class ToolHost:
         return (
             tool is not None
             and isinstance(event, QKeyEvent)
-            and tool.wants_key(event)
+            and tool.wants_key(key_input(event))
         )
 
     def handle_key_press(self, event: QKeyEvent) -> None:
@@ -474,10 +477,11 @@ class ToolHost:
             event.ignore()
             return
         key = event.key()
+        inp = key_input(event)
         # ``?`` toggles the shortcut-help overlay (resolved through the KeyMap,
         # so a rebind moves it).  Esc closes it before anything else.
         if self.keymap.matches(
-            key, event.modifiers(), "global.action.show_shortcuts"
+            key, inp.native_mods, "global.action.show_shortcuts"
         ):
             self._toggle_shortcuts_overlay()
             event.accept()
@@ -487,18 +491,21 @@ class ToolHost:
                 self._hide_shortcuts_overlay()
                 event.accept()
                 return
+            consumed = False
             if self._active_tool is not None:
-                self._active_tool.on_key(event)
+                consumed = self._active_tool.on_key(inp)
             view.escape_to_select()
+            if consumed:
+                event.accept()
             return
         # An armed tool (float-rotate / keyboard-move) claims arrows for
         # stepping — give it first crack BEFORE the arrow-scroll fallback, else
         # the view scrolls instead.  Gated on wants_key (the tool decides by
         # action id), so an idle tool still scrolls on arrows as before.
         tool = self._active_tool
-        if tool is not None and tool.wants_key(event):
-            tool.on_key(event)
-            if event.isAccepted():
+        if tool is not None and tool.wants_key(inp):
+            if tool.on_key(inp):
+                event.accept()
                 return
 
         # Arrow keys — scroll by one raster unit (only without modifier).
@@ -526,14 +533,16 @@ class ToolHost:
                     view.verticalScrollBar().value() + py
                 )
             return
-        if self._active_tool is not None:
-            self._active_tool.on_key(event)
-        # Forward to MainWindow so global shortcuts (S/W/C/H/F5/F6/Ctrl+0…) work
-        # regardless of which widget has focus.  Tools call event.accept() for keys
-        # they handle exclusively (R, Del, A, Enter, F) to prevent double-dispatch.
-        if not event.isAccepted():
-            view.window().keyPressEvent(event)
+        if self._active_tool is not None and self._active_tool.on_key(inp):
+            # Consumed exclusively by the tool — accept so the key neither
+            # reaches Qt's fall-through nor double-dispatches a global action.
+            event.accept()
+        # An unconsumed key stays ignored: Qt propagates it to the parent
+        # widgets natively (global WindowShortcut QActions were already
+        # offered the key on ShortcutOverride).  The old explicit
+        # ``window().keyPressEvent(event)`` forward was a no-op — MainWindow's
+        # keyPressEvent is a plain passthrough — and is gone.
 
     def handle_key_release(self, event: QKeyEvent) -> None:
         if self._active_tool is not None:
-            self._active_tool.on_key_release(event)
+            self._active_tool.on_key_release(key_input(event))

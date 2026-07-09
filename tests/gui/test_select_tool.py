@@ -18,7 +18,7 @@ from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
-from tests.gui.input_helpers import pointer, wheel
+from tests.gui.input_helpers import key_inp, pointer, wheel
 
 
 def _place(
@@ -61,7 +61,7 @@ def _key(
     tool: SelectTool, key: Qt.Key,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
-    tool.on_key(QKeyEvent(QKeyEvent.Type.KeyPress, key, mods))
+    tool.on_key(key_inp(key, mods))
 
 
 def _v2(board_view: BoardView) -> SelectTool:
@@ -597,9 +597,7 @@ class TestArmedAtomic:
 
     def _step_cw(self, armed) -> None:
         # The Up arrow is one CW step on the armed sub-tool's public input.
-        armed.on_key(QKeyEvent(
-            QKeyEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier,
-        ))
+        armed.on_key(key_inp(Qt.Key.Key_Up))
 
     def test_atomic_rotate_commits_and_disarms(self, board_view, session) -> None:
         inst = _place(board_view, session, 0.5, 0.5)
@@ -1662,8 +1660,8 @@ class TestWireEdit:
         assert KB.DEFAULTS[KB.ACTION_WIRE_EDIT] == ""
 
 
-def _key_event(key: Qt.Key) -> QKeyEvent:
-    return QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+def _key_event(key: Qt.Key):
+    return key_inp(key)
 
 
 class TestWireAndPadHighlight:

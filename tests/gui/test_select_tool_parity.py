@@ -39,7 +39,7 @@ from protoboard.gui.selection_axes import (
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
-from tests.gui.input_helpers import pointer
+from tests.gui.input_helpers import key_inp, pointer
 
 # ---------------------------------------------------------------------------
 # Helpers (mirrors of the deleted files', kept local to this parity suite)
@@ -124,8 +124,8 @@ class TestAxesState:
         tool = _v2(board_view)
         relations = list(RelationClass)
         start = relations.index(tool.relation)
-        tool.on_key(QKeyEvent(
-            QKeyEvent.Type.KeyPress, Qt.Key.Key_QuoteLeft,
+        tool.on_key(key_inp(
+            Qt.Key.Key_QuoteLeft,
             Qt.KeyboardModifier.NoModifier,
         ))
         assert tool.relation == relations[(start + 1) % len(relations)]

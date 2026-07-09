@@ -29,7 +29,7 @@ from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsComman
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
-from protoboard.gui.ports import LEFT_BUTTON, PointerInput
+from protoboard.gui.ports import LEFT_BUTTON, KeyInput, PointerInput
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
@@ -152,10 +152,10 @@ class SimplifyTool(SelectTool):
         self._clear_draft()
         return super().on_press(inp)
 
-    def on_key(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Escape:
+    def on_key(self, inp: KeyInput) -> bool:
+        if inp.key == Qt.Key.Key_Escape:
             self._clear_draft()
-        super().on_key(event)
+        return super().on_key(inp)
 
     # ------------------------------------------------------------------
     # Preview + apply
