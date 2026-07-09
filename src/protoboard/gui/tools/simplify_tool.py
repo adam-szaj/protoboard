@@ -20,10 +20,9 @@ fall through to the parent.
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QKeyEvent, QPen
-from PySide6.QtWidgets import QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.layout.wire import Wire
@@ -31,12 +30,14 @@ from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
 from protoboard.gui.ports import LEFT_BUTTON, KeyInput, PointerInput
 from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
     generic_simplify_wire,
 )
 
-_PREVIEW_WIDTH = 0.12
+if TYPE_CHECKING:
+    from protoboard.gui.tools.simplify_preview import SimplifyPreview
 
 
 def compute_simplified_wire(
@@ -113,15 +114,31 @@ def compute_simplified_wire(
 class SimplifyTool(SelectTool):
     """SelectTool extension with Shift+LPM draft/apply on wires."""
 
-    def __init__(self) -> None:
+    def __init__(self, draft_preview: SimplifyPreview | None = None) -> None:
         super().__init__()
         self._draft_wire_id: uuid.UUID | None = None
         self._draft_path: list[Point] | None = None
-        self._draft_items: list[QGraphicsLineItem] = []
+        # The dashed draft overlay behind the semantic preview seam.  An
+        # injected preview (tests) survives re-activation; the default Qt
+        # one binds the current view's scene on activate().
+        self._draft_preview: SimplifyPreview | None = draft_preview
+        self._draft_preview_injected = draft_preview is not None
+
+    @property
+    def draft_preview(self) -> SimplifyPreview:
+        assert self._draft_preview is not None  # set by activate() / injection
+        return self._draft_preview
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def activate(self, session: object, view: object) -> None:
+        super().activate(session, view)  # type: ignore[arg-type]
+        if not self._draft_preview_injected:
+            self._draft_preview = QtSimplifyPreview(
+                self._view.scene, self._theme
+            )
 
     def deactivate(self) -> None:
         self._clear_draft()
@@ -129,7 +146,7 @@ class SimplifyTool(SelectTool):
 
     def on_scene_cleared(self) -> None:
         # Scene items were destroyed under us — drop dangling refs.
-        self._draft_items.clear()
+        self.draft_preview.on_scene_cleared()
         self._draft_wire_id = None
         self._draft_path = None
         super().on_scene_cleared()
@@ -169,7 +186,7 @@ class SimplifyTool(SelectTool):
             return True
         self._draft_wire_id = wire_id
         self._draft_path = list(new_wire.path)
-        self._draw_draft_overlay(self._draft_path)
+        self.draft_preview.show_draft(self._draft_path)
         self._status_msg(
             "Simplify: draft ready — Shift+LPM again on the wire to apply,"
             " ESC or LPM elsewhere to cancel."
@@ -206,33 +223,8 @@ class SimplifyTool(SelectTool):
         self._status_msg("Simplify: applied.")
         return True
 
-    # ------------------------------------------------------------------
-    # Overlay drawing
-    # ------------------------------------------------------------------
-
-    def _draw_draft_overlay(self, path: list[Point]) -> None:
-        scene = self._view.scene()
-        if scene is None:
-            return
-        color = QColor(self._theme().routing_preview_color)
-        pen = QPen(color, _PREVIEW_WIDTH)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        pen.setCosmetic(False)
-        for a, b in zip(path, path[1:]):
-            line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-            line.setPen(pen)
-            line.setZValue(1000.0)
-            scene.addItem(line)
-            self._draft_items.append(line)
-
     def _clear_draft(self) -> None:
-        scene = self._view.scene() if self._view is not None else None
-        for item in self._draft_items:
-            if scene is not None:
-                try:
-                    scene.removeItem(item)
-                except RuntimeError:
-                    pass  # C++ object already gone
-        self._draft_items.clear()
+        if self._draft_preview is not None:
+            self._draft_preview.clear_draft()
         self._draft_wire_id = None
         self._draft_path = None

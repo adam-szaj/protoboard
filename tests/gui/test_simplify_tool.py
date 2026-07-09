@@ -14,8 +14,16 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
+from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
 from protoboard.gui.tools.simplify_tool import SimplifyTool
 from tests.gui.input_helpers import key_inp, pointer
+
+
+def _draft_items(tool: SimplifyTool) -> list[object]:
+    """The live draft-overlay items (via the Qt preview)."""
+    pv = tool.draft_preview
+    assert isinstance(pv, QtSimplifyPreview)
+    return list(pv.items)
 
 
 def _press(
@@ -67,7 +75,7 @@ class TestSimplifyToolDraft:
         _press(board_view, 2.5, 0.5, shift=True)
         assert tool._draft_wire_id == wid
         assert tool._draft_path is not None
-        assert len(tool._draft_items) > 0
+        assert len(_draft_items(tool)) > 0
         # Wire NOT yet modified.
         assert session.layout.wires[0].path == [
             Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5),
@@ -83,7 +91,7 @@ class TestSimplifyToolDraft:
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5)
         assert tool._draft_path is None
-        assert tool._draft_items == []
+        assert _draft_items(tool) == []
 
     def test_escape_clears_draft(
         self, board_view: BoardView, session: EditorSession,
@@ -96,7 +104,7 @@ class TestSimplifyToolDraft:
         assert tool._draft_path is not None
         _key(board_view, Qt.Key.Key_Escape)
         assert tool._draft_path is None
-        assert tool._draft_items == []
+        assert _draft_items(tool) == []
 
     def test_plain_lpm_after_draft_clears_it(
         self, board_view: BoardView, session: EditorSession,
@@ -119,11 +127,11 @@ class TestSimplifyToolDraft:
         tool = board_view._active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
-        assert tool._draft_items
+        assert _draft_items(tool)
         from protoboard.gui.tools.select_tool import SelectTool
         board_view.set_tool(SelectTool())
         assert tool._draft_path is None
-        assert tool._draft_items == []
+        assert _draft_items(tool) == []
 
 
 class TestSimplifyToolApply:
@@ -156,7 +164,7 @@ class TestSimplifyToolApply:
         _press(board_view, 2.5, 0.5, shift=True)
         assert tool._draft_path is None
         assert tool._draft_wire_id is None
-        assert tool._draft_items == []
+        assert _draft_items(tool) == []
 
     def test_apply_undoable(
         self, board_view: BoardView, session: EditorSession,
@@ -220,4 +228,4 @@ class TestSimplifyToolNoopWire:
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 1.5, 1.5, shift=True)
         assert tool._draft_path is None
-        assert tool._draft_items == []
+        assert _draft_items(tool) == []
