@@ -105,9 +105,7 @@ class QtRoutePreview:
         from protoboard.gui.renderers.routing_overlay import render_routing_hints
 
         self.clear_hints()
-        self._hints = render_routing_hints(
-            self._scene(), results, theme=self._theme()
-        )
+        self._hints = render_routing_hints(self._scene(), results, theme=self._theme())
 
     def clear_hints(self) -> None:
         for item in self._hints:

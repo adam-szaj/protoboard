@@ -30,8 +30,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPen
-from PySide6.QtWidgets import QGraphicsRectItem
+from PySide6.QtGui import QColor
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
@@ -81,6 +80,7 @@ if TYPE_CHECKING:
     from protoboard.gui.session import EditorSession
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
     from protoboard.gui.tools.drag_corner_text import DragCornerText
+    from protoboard.gui.tools.select_preview import SelectPreview
 
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
@@ -154,32 +154,10 @@ def _segment_intersects_rect(
     return True
 
 
-# Rubber-band visuals (match the legacy tool's cyan band).
-_BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)
-_BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)
-_BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
-_BAND_FILL_LR = QColor(0, 200, 255, 20)
-_BAND_FILL_RL = QColor(0, 200, 255, 10)
-
-# Wire-edit visuals (copied verbatim from the legacy SelectTool).  The cyan
-# segment colour signals "edit mode"; the start/end vertices are marked red, and
-# hand-drawn reroute waypoints preview as a dashed orange polyline.
-_WIRE_EDIT_PEN = QPen(QColor(0, 204, 255, 220), 0.42)
-_WIRE_EDIT_PEN.setCapStyle(Qt.PenCapStyle.RoundCap)
-_WIRE_EDIT_PEN.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-_NODE_EDIT_PEN = QPen(QColor(0, 204, 255, 255), 0.05)
-_NODE_EDIT_BRUSH = QColor(0, 204, 255, 220)
-_NODE_SELECTED_PEN = QPen(Qt.GlobalColor.red, 0.06)
-_NODE_SELECTED_BRUSH = QColor(255, 80, 0, 230)
-_EDIT_PREVIEW_PEN = QPen(QColor(255, 120, 0, 200), 0.12)
-_EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
-_NODE_RADIUS = 0.13
-
-
 class SelectTool(_Tool):
     """Selection tool built on the SelectionService / HitTester / Highlight stack."""
 
-    def __init__(self) -> None:
+    def __init__(self, preview: SelectPreview | None = None) -> None:
         super().__init__()  # sets _session / _view to None up-front
         self._selection: SelectionService = None  # type: ignore[assignment]
         self._highlight: HighlightController = None  # type: ignore[assignment]
@@ -189,7 +167,12 @@ class SelectTool(_Tool):
         # its own start threshold and outcome.
         self._mouse: MouseInputController | None = None
         self._press_pt: Point | None = None
-        self._band_item: QGraphicsRectItem | None = None
+        # Transient overlays (pivots, band, redrag, wire-edit, reroute) behind
+        # the semantic preview seam.  An injected preview (tests) survives
+        # re-activation; the default Qt one binds the current view's scene on
+        # activate().
+        self._preview: SelectPreview | None = preview
+        self._preview_injected = preview is not None
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
         # (no drag), the release collapses the selection onto this entity — or
@@ -219,18 +202,9 @@ class SelectTool(_Tool):
         # preview/glide path is shared with a mouse drag.
         self._armed: ArmedSubTool | None = None
         # Re-drag (bendable lead reposition) — a request_pick client; the
-        # overlay items live here, the pick state lives in the service.
+        # overlay lives in the preview, the pick state lives in the service.
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin: int | None = None
-        self._redrag_items: list[QGraphicsItem] = []
-        # Live validity-tint marker under the cursor during a re-drag pad pick;
-        # cleared and redrawn on each pointer move.
-        self._redrag_live: QGraphicsItem | None = None
-        # Armed-rotate pivot markers: re-drawn after each preview refresh (which
-        # rebuilds the scene), so a rotating selection visibly shows *what it
-        # spins around* — one marker per object (per-object pivot) or one on the
-        # shared pad.  Cleared on disarm + scene-clear.
-        self._pivot_marker_items: list[QGraphicsItem] = []
         # Wire-edit: the selected fragment (tool-local, like _rotate_pivot) plus
         # the cluster-cycle state threaded through the wire-vertex pick.  The
         # operations on the fragment (reroute / autoroute / delete) are actions
@@ -241,9 +215,6 @@ class SelectTool(_Tool):
         self._wire_edit_cycle: WireEditCycle = WireEditCycle()
         self._wire_edit_wire_id: uuid.UUID | None = None  # wire [E] armed on
         self._wire_edit_start: WireVertexSelectable | None = None  # first vertex
-        self._wire_edit_items: list[QGraphicsItem] = []  # cyan overlay + dots
-        self._reroute_items: list[QGraphicsItem] = []  # orange waypoint preview
-        self._reroute_live: QGraphicsItem | None = None  # live cursor segment
         # Wires currently ghost-dimmed during a drag (drop / disconnect preview).
         # Tracked so a wire that stops being a drop-candidate — or the drag end —
         # is reset to full opacity, not left dimmed.
@@ -262,10 +233,19 @@ class SelectTool(_Tool):
 
     # -- _Tool lifecycle ----------------------------------------------------
 
+    @property
+    def preview(self) -> SelectPreview:
+        assert self._preview is not None  # set by activate() / injection
+        return self._preview
+
     @traced()
     def activate(self, session: EditorSession, view: AbstractBoardView) -> None:
         self._session = session
         self._view = view
+        if not self._preview_injected:
+            from protoboard.gui.tools.select_preview import QtSelectPreview
+
+            self._preview = QtSelectPreview(view.scene)
         # SelectionService / HighlightController are per-session — reuse one
         # parked on the session if present, else create and park it.
         svc = getattr(session, "selection_service", None)
@@ -290,13 +270,9 @@ class SelectTool(_Tool):
         self._wire_edit_clear()
 
     def on_scene_cleared(self) -> None:
-        self._band_item = None
         # The scene was rebuilt — our overlay QGraphicsItems are gone; drop the
         # stale references so a later clear doesn't touch freed items.
-        self._wire_edit_items = []
-        self._reroute_items = []
-        self._reroute_live = None
-        self._pivot_marker_items = []
+        self.preview.on_scene_cleared()
         self._drag_corner = None
 
     # -- helpers ------------------------------------------------------------
@@ -1437,35 +1413,11 @@ class SelectTool(_Tool):
                     self._add_pivot_marker(pl.position, shared=False)
 
     def _add_pivot_marker(self, pos: Point, *, shared: bool) -> None:
-        """Add one pivot marker (a ⊕ glyph) at *pos*; track it for cleanup."""
-        from PySide6.QtGui import QPen
-        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
-
-        # Shared pivot is bigger + brighter (it governs the whole selection);
-        # per-object markers are small.  Orange = "transforming" (distinct from
-        # the cyan static-selection outline).
-        orange = QColor(255, 150, 0, 230)
-        r = 0.34 if shared else 0.18
-        pen = QPen(orange, 0.06 if shared else 0.04)
-        ring = QGraphicsEllipseItem(pos.x - r, pos.y - r, 2 * r, 2 * r)
-        ring.setPen(pen)
-        ring.setZValue(21.0)
-        self._view.scene().addItem(ring)
-        self._pivot_marker_items.append(ring)
-        for dx, dy in ((-r, 0.0), (r, 0.0), (0.0, -r), (0.0, r)):
-            cross = QGraphicsLineItem(pos.x, pos.y, pos.x + dx, pos.y + dy)
-            cross.setPen(pen)
-            cross.setZValue(21.0)
-            self._view.scene().addItem(cross)
-            self._pivot_marker_items.append(cross)
+        """Add one pivot marker (a ⊕ glyph) at *pos*."""
+        self.preview.show_pivot(pos, shared=shared)
 
     def _clear_pivot_markers(self) -> None:
-        for item in self._pivot_marker_items:
-            try:
-                self._view.scene().removeItem(item)
-            except RuntimeError:
-                pass
-        self._pivot_marker_items = []
+        self.preview.clear_pivots()
 
     def _show_drag_corner(self, text: str, color: QColor) -> None:
         from protoboard.gui.tools.drag_corner_text import DragCornerText
@@ -1639,20 +1591,7 @@ class SelectTool(_Tool):
     # -- rubber-band Qt seams ----------------------------------------------
 
     def _draw_band(self, a: Point, b: Point, ltr: bool) -> None:
-        from PySide6.QtCore import QRectF
-
-        x0, y0 = min(a.x, b.x), min(a.y, b.y)
-        rect = QRectF(x0, y0, abs(b.x - a.x), abs(b.y - a.y))
-        if self._band_item is None:
-            item = QGraphicsRectItem(rect)
-            item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
-            item.setBrush(_BAND_FILL_LR if ltr else _BAND_FILL_RL)
-            self._view.scene().addItem(item)
-            self._band_item = item
-        else:
-            self._band_item.setRect(rect)
-            self._band_item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
-            self._band_item.setBrush(_BAND_FILL_LR if ltr else _BAND_FILL_RL)
+        self.preview.show_band(a, b, ltr)
 
     def _band_select(self, hit: object, mods: object) -> None:
         """Commit a rubber-band result under the decoded modifier op.
@@ -1767,12 +1706,7 @@ class SelectTool(_Tool):
         self._dispatch_intent(Intent.CANCEL)
 
     def _clear_band(self) -> None:
-        if self._band_item is not None:
-            try:
-                self._view.scene().removeItem(self._band_item)
-            except RuntimeError:
-                pass
-            self._band_item = None
+        self.preview.clear_band()
 
     # -- re-drag (bendable lead reposition, a request_pick client) ----------
 
@@ -2109,18 +2043,6 @@ class SelectTool(_Tool):
             for p in self._view.board_pad_positions()
         )
 
-    def _add_redrag_pad_marker(self, pt: Point, r: float, green: QColor) -> None:
-        """Add one filled green landing-pad dot to the redrag overlay."""
-        from PySide6.QtGui import QBrush, QPen
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
-        item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
-        item.setBrush(QBrush(green))
-        item.setPen(QPen(Qt.GlobalColor.transparent, 0))
-        item.setZValue(20.0)
-        self._view.scene().addItem(item)
-        self._redrag_items.append(item)
-
     def _draw_reach_disc_outline(
         self,
         defn: ComponentDefinition,
@@ -2133,9 +2055,6 @@ class SelectTool(_Tool):
         Only drawn for a bendable (free) grab with a positive reach; a no-op
         otherwise.
         """
-        from PySide6.QtGui import QBrush, QPen
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
         from protoboard.domain.components.package import (
             effective_bend_specs,
             resolved_footprint,
@@ -2153,15 +2072,7 @@ class SelectTool(_Tool):
         centre = pin_world_position(
             resolved_footprint(defn, inst, families), temp, pin
         )
-        rad = spec.max_reach
-        ring = QGraphicsEllipseItem(
-            centre.x - rad, centre.y - rad, 2 * rad, 2 * rad
-        )
-        ring.setBrush(QBrush(Qt.GlobalColor.transparent))
-        ring.setPen(QPen(QColor(0, 200, 80, 160), 0))
-        ring.setZValue(19.5)
-        self._view.scene().addItem(ring)
-        self._redrag_items.append(ring)
+        self.preview.show_reach_disc(centre, spec.max_reach)
 
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
         """Light every legal landing pad + outline the grabbed pin's reach disc.
@@ -2181,14 +2092,11 @@ class SelectTool(_Tool):
         if defn is None:
             return
 
-        r = 0.18
-        green = QColor(0, 200, 80, 120)
-
         # Legal landing pads — feasibility per pad (overlay == commit).
         for pt in self._view.board_pad_positions():
             result = self._redrag_feasibility(comp_id, pin, pt)
             if result is not None and result.ok:
-                self._add_redrag_pad_marker(pt, r, green)
+                self.preview.show_redrag_pad(pt)
 
         # Reach-disc outline for a bendable grab, centred on the pin's default.
         self._draw_reach_disc_outline(defn, inst, pl, pin)
@@ -2200,10 +2108,6 @@ class SelectTool(_Tool):
         cross = illegal.  The cross is a non-colour cue so the legal/illegal
         signal does not rely on colour alone (accessibility).
         """
-        from PySide6.QtGui import QBrush, QPen
-        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
-        from PySide6.QtWidgets import QGraphicsItemGroup
-
         self._clear_redrag_live()
         cid, pin = self._redrag_comp_id, self._redrag_pin
         if cid is None or pin is None:
@@ -2215,26 +2119,7 @@ class SelectTool(_Tool):
         snapped = self._snap(scene_pt, frozenset())
         result = self._redrag_feasibility(cid, pin, snapped)
         ok = result is not None and result.ok
-        r = 0.28
-        group = QGraphicsItemGroup()
-        colour = QColor(0, 200, 80, 200) if ok else QColor(220, 40, 40, 200)
-        ring = QGraphicsEllipseItem(snapped.x - r, snapped.y - r, 2 * r, 2 * r)
-        ring.setBrush(QBrush(Qt.GlobalColor.transparent))
-        ring.setPen(QPen(colour, 0))
-        group.addToGroup(ring)
-        if not ok:
-            # Non-colour cue: an "X" through the ring marks "no drop here".
-            c = r * 0.6
-            for x1, y1, x2, y2 in (
-                (snapped.x - c, snapped.y - c, snapped.x + c, snapped.y + c),
-                (snapped.x - c, snapped.y + c, snapped.x + c, snapped.y - c),
-            ):
-                ln = QGraphicsLineItem(x1, y1, x2, y2)
-                ln.setPen(QPen(colour, 0))
-                group.addToGroup(ln)
-        group.setZValue(21.0)
-        self._view.scene().addItem(group)
-        self._redrag_live = group
+        self.preview.show_redrag_live(snapped, ok)
 
     def _redrag_clear(self) -> None:
         self._clear_redrag_overlay()
@@ -2242,21 +2127,10 @@ class SelectTool(_Tool):
         self._redrag_pin = None
 
     def _clear_redrag_overlay(self) -> None:
-        self._clear_redrag_live()
-        for item in self._redrag_items:
-            try:
-                self._view.scene().removeItem(item)
-            except RuntimeError:
-                pass
-        self._redrag_items = []
+        self.preview.clear_redrag()
 
     def _clear_redrag_live(self) -> None:
-        if self._redrag_live is not None:
-            try:
-                self._view.scene().removeItem(self._redrag_live)
-            except RuntimeError:
-                pass
-            self._redrag_live = None
+        self.preview.clear_redrag_live()
 
     # -- wire-edit (fragment = selection, operations = actions) -------------
 
@@ -2450,18 +2324,12 @@ class SelectTool(_Tool):
 
     def _reroute_preview(self, scene_pt: Point, _mods: Mods) -> None:
         """Live rubber-band from the last anchor to the cursor (snapped)."""
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         self._clear_reroute_live()
         anchor = self._reroute_anchor()
         if anchor is None:
             return
         snapped = self._snap(scene_pt, frozenset())
-        line = QGraphicsLineItem(anchor.x, anchor.y, snapped.x, snapped.y)
-        line.setPen(_EDIT_PREVIEW_PEN)
-        line.setZValue(20.0)
-        self._view.scene().addItem(line)
-        self._reroute_live = line
+        self.preview.show_reroute_live(anchor, snapped)
 
     def _reroute_anchor(self) -> Point | None:
         """The point a new reroute segment starts from (last waypoint or start).
@@ -2622,9 +2490,6 @@ class SelectTool(_Tool):
 
     def _draw_wire_edit_overlay(self) -> None:
         """Cyan segments for the armed wire + red dots at the range endpoints."""
-        from PySide6.QtGui import QBrush
-        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
-
         self._clear_wire_edit_overlay()
         # The wire(s) to outline: the armed wire, plus the end wire of a cross-
         # wire fragment once both endpoints are picked.
@@ -2649,33 +2514,12 @@ class SelectTool(_Tool):
             wire = self._wire_by_id(wid)
             if wire is None:
                 continue
-            pts = wire.path
-            for i in range(len(pts) - 1):
-                seg = QGraphicsLineItem(
-                    pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
-                )
-                seg.setPen(_WIRE_EDIT_PEN)
-                seg.setZValue(9.0)
-                self._view.scene().addItem(seg)
-                self._wire_edit_items.append(seg)
-            marked_idx = marked.get(wid, set())
-            for i, pt in enumerate(pts):
-                r = _NODE_RADIUS
-                dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
-                if i in marked_idx:
-                    dot.setPen(_NODE_SELECTED_PEN)
-                    dot.setBrush(QBrush(_NODE_SELECTED_BRUSH))
-                else:
-                    dot.setPen(_NODE_EDIT_PEN)
-                    dot.setBrush(QBrush(_NODE_EDIT_BRUSH))
-                dot.setZValue(10.0)
-                self._view.scene().addItem(dot)
-                self._wire_edit_items.append(dot)
+            self.preview.show_wire_edit_wire(
+                list(wire.path), marked.get(wid, set())
+            )
 
     def _draw_reroute_preview(self, waypoints: list[Point]) -> None:
         """Dashed orange polyline from the fragment start through the waypoints."""
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         self._clear_reroute_overlay()
         anchor = None
         state = self._wire_edit
@@ -2685,39 +2529,16 @@ class SelectTool(_Tool):
                 anchor = wire.path[state.start_idx]
         if anchor is None:
             return
-        prev = anchor
-        for wp in waypoints:
-            line = QGraphicsLineItem(prev.x, prev.y, wp.x, wp.y)
-            line.setPen(_EDIT_PREVIEW_PEN)
-            line.setZValue(20.0)
-            self._view.scene().addItem(line)
-            self._reroute_items.append(line)
-            prev = wp
+        self.preview.show_reroute_path([anchor, *waypoints])
 
     def _clear_wire_edit_overlay(self) -> None:
-        for item in self._wire_edit_items:
-            try:
-                self._view.scene().removeItem(item)
-            except RuntimeError:
-                pass
-        self._wire_edit_items = []
+        self.preview.clear_wire_edit()
 
     def _clear_reroute_overlay(self) -> None:
-        self._clear_reroute_live()
-        for item in self._reroute_items:
-            try:
-                self._view.scene().removeItem(item)
-            except RuntimeError:
-                pass
-        self._reroute_items = []
+        self.preview.clear_reroute()
 
     def _clear_reroute_live(self) -> None:
-        if self._reroute_live is not None:
-            try:
-                self._view.scene().removeItem(self._reroute_live)
-            except RuntimeError:
-                pass
-            self._reroute_live = None
+        self.preview.clear_reroute_live()
 
     # -- keys ---------------------------------------------------------------
 

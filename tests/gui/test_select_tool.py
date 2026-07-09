@@ -17,8 +17,15 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
+from protoboard.gui.tools.select_preview import QtSelectPreview
 from protoboard.gui.tools.select_tool import SelectTool
 from tests.gui.input_helpers import key_inp, pointer, wheel
+
+
+def _qt_preview(tool: SelectTool) -> QtSelectPreview:
+    pv = tool.preview
+    assert isinstance(pv, QtSelectPreview)
+    return pv
 
 
 def _place(
@@ -522,13 +529,13 @@ class TestArmedRotate:
 
         # Visual feedback: arming draws pivot marker(s); disarm clears them.
         inst, tool = self._armed(board_view, session)
-        assert tool._pivot_marker_items  # per-object marker drawn on arm
+        assert _qt_preview(tool).pivots.items  # per-object marker drawn on arm
         _press(tool, 3.0, 3.0)  # shared pad pivot
         assert isinstance(tool._armed, FloatTransform) and tool._armed.pivot is not None
-        assert tool._pivot_marker_items  # re-drawn on the shared pad
+        assert _qt_preview(tool).pivots.items  # re-drawn on the shared pad
         _key(tool, Qt.Key.Key_Escape)  # cancel → disarm
         assert tool._armed is None
-        assert tool._pivot_marker_items == []  # markers cleared
+        assert _qt_preview(tool).pivots.items == []  # markers cleared
 
     def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
         # Conditional-disarm contract: an accept that cannot commit (HARD
@@ -1271,7 +1278,7 @@ class TestRedrag:
         ]
         # The overlay drew one green dot per feasible pad (plus the disc ring).
         assert len(feasible) > 0
-        assert len(tool._redrag_items) == len(feasible) + 1  # dots + disc outline
+        assert len(_qt_preview(tool).redrag.items) == len(feasible) + 1  # dots + disc outline
 
 
 class TestPickRouting:

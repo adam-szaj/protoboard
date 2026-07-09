@@ -106,7 +106,10 @@ class QtPlacePreview:
 
         self.clear_ghost()
         ghost = make_ghost_item(
-            defn, rotation=rotation, theme=theme, pin_offsets=pin_offsets,
+            defn,
+            rotation=rotation,
+            theme=theme,
+            pin_offsets=pin_offsets,
             package_variant=package_variant,
         )
         # Z=20 puts the ghost above all back-side scene items (Z<Z_BOARD=3.0)
