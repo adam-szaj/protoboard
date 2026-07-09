@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: MIT
+"""Tests for the view notification channel (docs/qt-ports.md §2.3).
+
+The seam publishes ``notify_status`` / ``notify_cursor_moved`` /
+``escape_to_select``; the concrete BoardView re-emits them as Qt signals the
+consumer (MainWindow, or a recording test double) subscribes to.  Tests
+assert *structural* payload fields, not formatted strings.
+"""
+
+from __future__ import annotations
+
+from protoboard.geometry import Point
+from protoboard.gui.board_view import BoardView
+from protoboard.gui.ports import StatusEvent
+from protoboard.gui.tools.select_tool import SelectTool
+
+
+class TestStatusEvent:
+    def test_text_and_timeout_read_from_data(self) -> None:
+        evt = StatusEvent("select.status", {"text": "hi", "timeout_ms": 500})
+        assert evt.kind == "select.status"
+        assert evt.text == "hi"
+        assert evt.timeout_ms == 500
+
+    def test_defaults_are_empty(self) -> None:
+        evt = StatusEvent("place.floating.cleared")
+        assert evt.text == ""
+        assert evt.timeout_ms == 0
+
+
+class TestNotificationChannel:
+    def test_notify_status_reemits_status_changed(
+        self, board_view: BoardView
+    ) -> None:
+        events: list[StatusEvent] = []
+        board_view.status_changed.connect(events.append)
+        evt = StatusEvent("route.locked_pin", {"text": "x", "timeout_ms": 3000})
+        board_view.notify_status(evt)
+        assert events == [evt]
+
+    def test_notify_cursor_moved_reemits_cursor_moved(
+        self, board_view: BoardView
+    ) -> None:
+        seen: list[tuple[float, float]] = []
+        board_view.cursor_moved.connect(lambda x, y: seen.append((x, y)))
+        board_view.notify_cursor_moved(Point(1.5, 2.5))
+        assert seen == [(1.5, 2.5)]
+
+    def test_escape_to_select_reemits_escape_tool(
+        self, board_view: BoardView
+    ) -> None:
+        fired: list[bool] = []
+        board_view.escape_tool.connect(lambda: fired.append(True))
+        board_view.escape_to_select()
+        assert fired == [True]
+
+
+class TestToolStatusPublication:
+    def test_select_tool_status_publishes_structural_event(
+        self, board_view: BoardView
+    ) -> None:
+        events: list[StatusEvent] = []
+        board_view.status_changed.connect(events.append)
+        tool = SelectTool()
+        board_view.set_tool(tool)
+        tool._status("Entered group — [Esc] to leave", 4000)
+        assert len(events) == 1
+        assert events[0].kind == "select.status"
+        assert events[0].data["text"] == "Entered group — [Esc] to leave"
+        assert events[0].data["timeout_ms"] == 4000

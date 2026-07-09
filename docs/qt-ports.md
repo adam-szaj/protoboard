@@ -1,10 +1,9 @@
 # Qt Ports — analysis: making BoardView & friends testable headless
 
-Status: **analysis / decision gate** (2026-07-09). No implementation decision has
-been taken; this document inventories the Qt coupling of the board canvas and
-proposes the abstract, Qt-independent interfaces ("ports") that would make the
-BoardView ecosystem — the view, its tools and its controllers — testable
-without a realized `QGraphicsView`.
+Status: **implementation in progress** (2026-07-09). The analysis below was
+accepted and the migration sketch in §6 is being executed phase by phase —
+progress is tracked in the §6 checklist. Original analysis kept as written;
+per-phase deltas are noted inline where reality diverged.
 
 Related: [gui.md](gui.md), [benchmarks.md](benchmarks.md) (perf invariants),
 [keymap-per-tool-layer.md](keymap-per-tool-layer.md) (chord model the input
@@ -449,7 +448,10 @@ None of this is decided. The choices that shape any implementation:
 ## 6. Appendix — non-binding migration sketch
 
 Each phase green + committable; existing qtbot tests run unchanged throughout
-(nothing is swapped until the type-level Protocol change at the end):
+(nothing is swapped until the type-level Protocol change at the end).
+Progress: ☑ 2 (2026-07-09; also deleted `pad_clicked` from phase 1, and
+`notify_cursor_moved` takes a `Point` — user feedback). Phase order 2-before-1
+was deliberate: the notification channel does not depend on the groundwork.
 
 1. **Groundwork**: delete `pad_clicked`; add `gui/qt_geometry.py`
    (`Point/Rect/Transform2D ↔ QPointF/QRectF/QTransform`); the 4 Qt-typed ABC

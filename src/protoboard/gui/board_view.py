@@ -13,6 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.gui.keymap import KeyMap
+    from protoboard.gui.ports import StatusEvent
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -20,7 +21,7 @@ _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -59,9 +60,15 @@ from protoboard.services.debug_trace import traced
 class BoardView(AbstractBoardView):
     """Main board canvas. Handles zoom/pan and forwards mouse events to tools.
 
-    The ``cursor_moved`` / ``pad_clicked`` / ``escape_tool`` signals are
-    declared on :class:`AbstractBoardView`.
+    Notification channel (docs/qt-ports.md §2.3): everything behind the seam
+    publishes through the ``notify_*`` / ``escape_to_select`` methods of
+    :class:`AbstractBoardView`; these Qt signals are the concrete transport
+    MainWindow subscribes to.
     """
+
+    status_changed = Signal(object)  # StatusEvent
+    cursor_moved = Signal(float, float)  # raster x, y of cursor
+    escape_tool = Signal()  # right-click or Esc — return to Select
 
     def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -277,6 +284,23 @@ class BoardView(AbstractBoardView):
     def set_clicked_free_pad(self, pos: Point | None) -> None:
         """Delegate the clicked free-pad ring to the renderer."""
         self.highlight.set_clicked_free_pad(pos)
+
+    # -- notification channel (docs/qt-ports.md §2.3) ----------------------
+
+    @traced()
+    def notify_status(self, event: StatusEvent) -> None:
+        """Re-emit a seam status notification as ``status_changed``."""
+        self.status_changed.emit(event)
+
+    @traced()
+    def notify_cursor_moved(self, pos: Point) -> None:
+        """Re-emit the cursor position as ``cursor_moved`` (float pair)."""
+        self.cursor_moved.emit(pos.x, pos.y)
+
+    @traced()
+    def escape_to_select(self) -> None:
+        """Re-emit the return-to-Select request as ``escape_tool``."""
+        self.escape_tool.emit()
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 

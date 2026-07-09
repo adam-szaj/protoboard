@@ -15,7 +15,7 @@ import uuid
 from abc import ABC, ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, override
 
-from PySide6.QtCore import QPointF, Signal
+from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QGraphicsView
 
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from protoboard.geometry import Point
+    from protoboard.gui.ports import StatusEvent
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
     from protoboard.gui.layer_state import LayerState
@@ -63,10 +64,6 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     Everything a tool needs beyond plain :class:`QGraphicsView` behaviour
     (``scene()``, ``window()``, ``mapToScene`` …) must be declared here.
     """
-
-    cursor_moved = Signal(float, float)  # raster x, y of cursor
-    pad_clicked = Signal(float, float)  # snapped raster x, y
-    escape_tool = Signal()  # right-click or Esc — return to Select
 
     # Composed services — the extracted BoardView collaborators (declared as
     # typed attributes so services can reach each other through this surface).
@@ -220,6 +217,23 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     @abstractmethod
     def set_selection_outline_override(self, color: QColor | None) -> None:
         """Override the selection-outline colour (drag-conflict signalling)."""
+
+    # -- notification channel (docs/qt-ports.md §2.3) --------------------------
+    # The view surface *publishes* notifications; the consumer (MainWindow, or
+    # a test double that merely records) decides what to do with them.  Tools
+    # never touch ``window()``/``statusBar()`` directly.
+
+    @abstractmethod
+    def notify_status(self, event: StatusEvent) -> None:
+        """Publish a status notification (structural payload, see StatusEvent)."""
+
+    @abstractmethod
+    def notify_cursor_moved(self, pos: Point) -> None:
+        """Publish the cursor's raster (scene) position; fires per mouse move."""
+
+    @abstractmethod
+    def escape_to_select(self) -> None:
+        """Ask the application to leave the current tool for Select."""
 
 
 class BoardViewTool(ABC):

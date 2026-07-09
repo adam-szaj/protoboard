@@ -37,6 +37,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
+from protoboard.gui.ports import StatusEvent
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
@@ -360,10 +361,11 @@ class SelectTool(_Tool):
         return self._group_stack[-1]
 
     def _status(self, msg: str, timeout_ms: int = 3000) -> None:
-        win = self._view.window()
-        bar = getattr(win, "statusBar", None)
-        if callable(bar):
-            bar().showMessage(msg, timeout_ms)
+        if self._view is None:
+            return
+        self._view.notify_status(
+            StatusEvent("select.status", {"text": msg, "timeout_ms": timeout_ms})
+        )
 
     @staticmethod
     def _decode_modifiers(event: QMouseEvent) -> tuple[BasisScope, SetOp]:
@@ -3846,7 +3848,7 @@ class SelectTool(_Tool):
         if action == "view_center":
             self._view.center_on_scene_point(cast("QPointF", data[1]))
         elif action == "view_escape":
-            self._view.escape_tool.emit()
+            self._view.escape_to_select()
         elif action == "lock":
             self._menu_lock(
                 cast("set[uuid.UUID]", data[1]), cast(bool, data[2])

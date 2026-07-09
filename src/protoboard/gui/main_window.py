@@ -13,6 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.gui.ports import StatusEvent
 
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
@@ -318,6 +319,7 @@ class MainWindow(QMainWindow):
         self._panels_timer.timeout.connect(self._refresh_panels)
 
         # Signals.
+        self._board_view.status_changed.connect(self._on_view_status)
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
@@ -3161,6 +3163,18 @@ class MainWindow(QMainWindow):
         self._board_view.set_show_selection_bbox(settings.show_selection_bbox)
         self._board_view.set_ratsnest_mode(settings.ratsnest_mode)
         self._board_view.refresh()
+
+    def _on_view_status(self, event: StatusEvent) -> None:
+        """Render a view-surface status notification on the status bar.
+
+        Parity with the pre-ports behaviour: show ``event.text`` for
+        ``event.timeout_ms``; an event without text clears the transient
+        message (PlaceTool leaving the floating phase).
+        """
+        if event.text:
+            self.statusBar().showMessage(event.text, event.timeout_ms)
+        else:
+            self.statusBar().clearMessage()
 
     def _on_cursor_moved(self, x: float, y: float) -> None:
         """Park the latest cursor pt; the throttle timer renders it.

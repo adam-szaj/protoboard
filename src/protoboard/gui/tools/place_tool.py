@@ -47,8 +47,9 @@ from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.renderers.component_renderer import make_ghost_item
 
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGraphicsItemGroup, QMainWindow
+from PySide6.QtWidgets import QGraphicsItemGroup
 
+from protoboard.gui.ports import StatusEvent
 from protoboard.services.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
@@ -671,10 +672,12 @@ class PlaceTool(_Tool):
             self._session.instances[inst.id] = inst
             self._set_phase(PhaseEnum.FLOATING)
             self._session.layout_changed.emit()
-            win = self._view.window() if self._view is not None else None
-            sb = cast(QMainWindow, win).statusBar() if win is not None else None
-            if sb is not None:
-                sb.showMessage("[Enter] Accept placement  ·  [Esc] Cancel", 0)
+            if self._view is not None:
+                self._view.notify_status(StatusEvent(
+                    "place.floating",
+                    {"text": "[Enter] Accept placement  ·  [Esc] Cancel",
+                     "timeout_ms": 0},
+                ))
 
     @traced()
     def _do_place(
@@ -722,10 +725,8 @@ class PlaceTool(_Tool):
                        self._pending_wire_cmds)
         self._reset_pending()
         self._set_phase(PhaseEnum.ANCHOR)
-        win = self._view.window() if self._view is not None else None
-        sb = cast(QMainWindow, win).statusBar() if win is not None else None
-        if sb is not None:
-            sb.clearMessage()
+        if self._view is not None:
+            self._view.notify_status(StatusEvent("place.floating.cleared"))
 
     @traced()
     def _cancel_floating_place(self) -> None:
@@ -737,10 +738,8 @@ class PlaceTool(_Tool):
             self._session.layout_changed.emit()
         self._reset_pending()
         self._set_phase(PhaseEnum.ANCHOR)
-        win = self._view.window() if self._view is not None else None
-        sb = cast(QMainWindow, win).statusBar() if win is not None else None
-        if sb is not None:
-            sb.clearMessage()
+        if self._view is not None:
+            self._view.notify_status(StatusEvent("place.floating.cleared"))
 
     @traced()
     def _reset_phase(self) -> None:

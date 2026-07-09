@@ -17,13 +17,12 @@ from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.ports import StatusEvent
 from protoboard.gui.renderers.routing_overlay import render_routing_hints
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QMainWindow
-
     from protoboard.domain.commands.base import ComponentState
 
 _log = structlog.get_logger(__name__)
@@ -80,9 +79,11 @@ class RouteTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         if self._view.is_locked_pin(scene_pt):
-            sb = cast("QMainWindow", self._view.window()).statusBar()
-            if sb is not None:
-                sb.showMessage("Pad belongs to a group — export it first (right-click → Export pin)", 3000)
+            self._view.notify_status(StatusEvent(
+                "route.locked_pin",
+                {"text": "Pad belongs to a group — export it first (right-click → Export pin)",
+                 "timeout_ms": 3000},
+            ))
             return True  # consume event, block routing
         snapped = self._view.snap(scene_pt)
 

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
+from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
@@ -192,7 +193,7 @@ class ToolHost:
         if chosen is act_center:
             view.center_on_scene_point(scene_pt)
         elif chosen is act_escape:
-            view.escape_tool.emit()
+            view.escape_to_select()
         elif chosen in tool_action_items:
             self.trigger_tool_action(tool_action_items[chosen])
 
@@ -403,7 +404,7 @@ class ToolHost:
                 int(view.verticalScrollBar().value() - delta.y())
             )
         scene_pt = view.mapToScene(event.pos())
-        view.cursor_moved.emit(scene_pt.x(), scene_pt.y())
+        view.notify_cursor_moved(Point(scene_pt.x(), scene_pt.y()))
         if not self._panning and self._active_tool is not None:
             self._active_tool.on_move(event, scene_pt)
         elif not self._panning:
@@ -474,7 +475,7 @@ class ToolHost:
                 return
             if self._active_tool is not None:
                 self._active_tool.on_key(event)
-            view.escape_tool.emit()
+            view.escape_to_select()
             return
         # An armed tool (float-rotate / keyboard-move) claims arrows for
         # stepping — give it first crack BEFORE the arrow-scroll fallback, else

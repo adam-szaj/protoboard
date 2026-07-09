@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — Stage 2: view notification channel (2026-07-09)
+
+* **Status is published, not displayed, from behind the board-view seam**
+  (`docs/qt-ports.md` §2.3): tools call
+  `view.notify_status(StatusEvent(kind, data))` instead of reaching for
+  `window().statusBar()`. New Qt-free package `gui/ports/` hosts the
+  `StatusEvent(kind, data)` envelope (D7); today's formatted texts ride in
+  `data["text"]` for 1:1 parity, `data["timeout_ms"]` keeps the display time.
+  Converted: SelectTool `_status` (~35 messages), PlaceTool floating-phase
+  hint + clear, RouteTool locked-pin hint.
+* **`cursor_moved` / `escape_tool` become seam methods**
+  (`notify_cursor_moved(Point)`, `escape_to_select()`): the Qt signals move
+  off `AbstractBoardView` onto the concrete `BoardView` (plus the new
+  `status_changed`), which re-emits them; MainWindow subscribes and renders
+  the status bar itself.
+* **Dead `pad_clicked` signal deleted** (declared, never emitted, never
+  connected).
+* New tests: `tests/gui/test_view_notifications.py` — channel re-emission and
+  structural payload assertions (`kind` / `data`, not formatted strings).
+
 ### Per-tool KeyMap layer — Stage 1: lifecycle (2026-07-09)
 
 * **Every tool now owns an ephemeral KeyMap layer** built by the new
