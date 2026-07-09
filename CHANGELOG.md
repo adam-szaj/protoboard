@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Qt ports — Stage 5: context publication + HelpOverlayPort (2026-07-09)
+
+* **RMB = context publication, no port** (`docs/qt-ports.md` §2.4): the
+  generic canvas menu no longer `exec()`s inside ToolHost.
+  `ToolHost.get_context_at(scene_pos, view_pos)` answers a pure
+  `InteractionContext` (the active tool's actions with live shortcut hints);
+  right-click publishes it via `view.notify_context` → the
+  `context_published` signal; **MainWindow** renders the QMenu and executes
+  the chosen `action_id` through the existing `trigger_tool_action` path
+  (center-here / cancel are consumer chrome).  SelectTool's item-aware RMB
+  menu (parameterised entries) stays in-tool — tracked in `docs/todo.md`.
+* **`HelpOverlayPort`** (§2.5): the `[?]` QLabel moved out of ToolHost into
+  the `QtHelpOverlay` adapter owned by BoardView; ToolHost renders the HTML
+  (pure) and only calls `show_help`/`hide_help`/`help_visible`.
+* **Keybindings provider**: the overlay's global section reads the live
+  `KeyBindings` through a provider injected by MainWindow — the last
+  `window()` reach-around in ToolHost is gone.
+
 ### Qt ports — Stages 3+4: input DTOs, bool consumption, ViewportPort (2026-07-09)
 
 * **Input DTOs** (`gui/ports/inputs.py` + Qt factories in `gui/qt_inputs.py`):

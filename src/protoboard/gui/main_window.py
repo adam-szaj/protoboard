@@ -13,7 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.gui.ports import StatusEvent
+    from protoboard.gui.ports import InteractionContext, StatusEvent
 
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
@@ -320,6 +320,11 @@ class MainWindow(QMainWindow):
 
         # Signals.
         self._board_view.status_changed.connect(self._on_view_status)
+        self._board_view.context_published.connect(self._on_view_context)
+        # The [?] overlay's global section reads the live KeyBindings.
+        self._board_view.tools.set_keybindings_provider(
+            lambda: self._keybindings
+        )
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
@@ -3162,6 +3167,49 @@ class MainWindow(QMainWindow):
         self._board_view.set_show_selection_bbox(settings.show_selection_bbox)
         self._board_view.set_ratsnest_mode(settings.ratsnest_mode)
         self._board_view.refresh()
+
+    def _on_view_context(self, ctx: InteractionContext) -> None:
+        """Render the published interaction context as the canvas QMenu.
+
+        The seam publishes *what can be done here* (qt-ports §2.4); showing a
+        modal menu is this consumer's choice.  The tool-action section comes
+        from ``ctx.actions`` and executes through the existing
+        ``trigger_tool_action`` path; center-here / cancel are view chrome
+        this window adds itself (parity with the old ToolHost canvas menu).
+        """
+        from PySide6.QtCore import QPoint
+        from PySide6.QtWidgets import QMenu
+
+        view = self._board_view
+        menu = QMenu(view)
+        by_action: dict[object, str] = {}
+        group: str | None = None
+        for opt in ctx.actions:
+            if opt.group and opt.group != group:
+                menu.addSection(opt.group)
+                group = opt.group
+            text = (
+                f"{opt.label}\t{opt.shortcut_hint}" if opt.shortcut_hint
+                else opt.label
+            )
+            act = menu.addAction(text)
+            act.setEnabled(opt.enabled)
+            by_action[act] = opt.action_id
+        if ctx.actions:
+            menu.addSeparator()
+        act_center = menu.addAction("Center view here")
+        act_escape = menu.addAction("Cancel tool (Esc)")
+        chosen = menu.exec(view.mapToGlobal(
+            QPoint(round(ctx.view_pos.x), round(ctx.view_pos.y))
+        ))
+        if chosen is None:
+            return
+        if chosen is act_center:
+            view.center_on_scene_point(ctx.scene_pos)
+        elif chosen is act_escape:
+            self._tool_select()
+        elif chosen in by_action:
+            view.trigger_tool_action(by_action[chosen])
 
     def _on_view_status(self, event: StatusEvent) -> None:
         """Render a view-surface status notification on the status bar.

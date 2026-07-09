@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
-from protoboard.geometry import Vector
+from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.ports import KeyInput
 from protoboard.gui.ports.viewport import CursorKind
@@ -36,8 +36,10 @@ from protoboard.gui.keymap import (
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.ports import PointerInput, WheelInput
+    from protoboard.gui.ports import InteractionContext, PointerInput, WheelInput
 
 
 class ToolHost:
@@ -61,9 +63,10 @@ class ToolHost:
         # active (e.g. an armed rotate claiming the wheel).
         self._base_keymap.declare(VIEW_ACTIONS)
         self._tool_keymap: KeyMap | None = None
-        # ``[?]`` shortcut-help overlay — a QLabel parked over the viewport,
-        # built lazily on first toggle.
-        self._shortcuts_overlay: object | None = None
+        # Live KeyBindings provider — injected by MainWindow so the [?]
+        # overlay's global section reflects real, currently-bound shortcuts
+        # without the host reaching for ``window()``.  None ⇒ shipped defaults.
+        self._keybindings_provider: Callable[[], object | None] = lambda: None
         # Mouse-pan state (middle button, or Ctrl+LMB the tool declined).
         self._panning = False
         self._ctrl_panning = False
@@ -181,39 +184,50 @@ class ToolHost:
         return items
 
     @traced()
-    def show_canvas_menu(self, vp_pos: QPoint, scene_pt: QPointF) -> None:
-        """Generic right-click canvas menu (no tool consumed the press)."""
-        from PySide6.QtWidgets import QMenu
+    def get_context_at(self, scene_pos: Point, view_pos: Point) -> InteractionContext:
+        """The actions executable at *scene_pos* right now (qt-ports §2.4).
 
-        view = self._view
-        menu = QMenu(view)
-        # The active tool's own actions, with their current shortcuts, so the
-        # keyboard operations are discoverable + clickable.  Triggering one
-        # synthesises its resolved key and feeds it back through on_key — the
-        # real dispatch path, never duplicated behaviour.
-        tool_action_items = self.add_tool_action_menu(menu)
-        act_center = menu.addAction("Center view here")
-        act_escape = menu.addAction("Cancel tool (Esc)")
-        chosen = menu.exec(view.mapToGlobal(vp_pos))
-        if chosen is None:
-            return
-        if chosen is act_center:
-            view.center_on_scene_point(from_qpointf(scene_pt))
-        elif chosen is act_escape:
-            view.escape_to_select()
-        elif chosen in tool_action_items:
-            self.trigger_tool_action(tool_action_items[chosen])
+        A pure query of state — equally usable by the RMB publication, a
+        test (which simulates the choice with ``trigger_tool_action``) or an
+        interactive CLI.  The generic canvas context carries the active
+        tool's own actions with their live shortcuts; the consumer adds its
+        view chrome (center-here / cancel) itself.
+        """
+        from protoboard.gui.ports import ActionOption, InteractionContext
+        from protoboard.gui.shortcuts_help import (
+            category_label,
+            tool_shortcut_rows,
+        )
+
+        options: list[ActionOption] = []
+        tool = self._active_tool
+        if tool is not None:
+            action_ids = tool.displayable_action_ids()
+            if action_ids:
+                group = category_label(action_ids[0]) + " actions"
+                options = [
+                    ActionOption(
+                        action_id=row.action_id,
+                        label=row.label,
+                        shortcut_hint=row.shortcut,
+                        group=group,
+                    )
+                    for row in tool_shortcut_rows(self.keymap, action_ids)
+                ]
+        return InteractionContext(
+            scene_pos=scene_pos,
+            view_pos=view_pos,
+            hit=None,
+            selection=(),
+            actions=tuple(options),
+            kind="canvas",
+        )
 
     # -- [?] shortcut-help overlay -----------------------------------------
 
     @traced()
     def _shortcuts_overlay_visible(self) -> bool:
-        # Track shown-state via ``isHidden()`` (False once ``show()`` is called)
-        # rather than ``isVisible()`` — the latter is False in a headless test
-        # whose parent viewport is never mapped.
-        from PySide6.QtWidgets import QLabel
-        ov = self._shortcuts_overlay
-        return isinstance(ov, QLabel) and not ov.isHidden()
+        return self._view.help_overlay.help_visible
 
     @traced()
     def _toggle_shortcuts_overlay(self) -> None:
@@ -224,20 +238,20 @@ class ToolHost:
 
     @traced()
     def _hide_shortcuts_overlay(self) -> None:
-        from PySide6.QtWidgets import QLabel
-        ov = self._shortcuts_overlay
-        if isinstance(ov, QLabel):
-            ov.hide()
+        self._view.help_overlay.hide_help()
+
+    def set_keybindings_provider(
+        self, provider: Callable[[], object | None]
+    ) -> None:
+        """Inject the live ``KeyBindings`` source (MainWindow owns it)."""
+        self._keybindings_provider = provider
 
     def _app_keybindings(self) -> object | None:
         """The live ``KeyBindings`` table (with user overrides), or None.
 
-        Held by the MainWindow; the overlay reaches it through ``window()`` so
-        the global section reflects real, currently-bound shortcuts.  None ⇒
-        ``app_shortcut_sections`` falls back to the shipped defaults.
+        None ⇒ ``app_shortcut_sections`` falls back to the shipped defaults.
         """
-        win = self._view.window()
-        return getattr(win, "_keybindings", None)
+        return self._keybindings_provider()
 
     @traced()
     def _show_shortcuts_overlay(self) -> None:
@@ -246,16 +260,12 @@ class ToolHost:
         Reads the live :class:`KeyMap`, so the panel always reflects the user's
         current bindings.  Global rows first, then the active tool's actions.
         """
-        from PySide6.QtCore import Qt as _Qt
-        from PySide6.QtWidgets import QLabel
-
         from protoboard.gui.shortcuts_help import (
             app_shortcut_sections,
             category_label,
             tool_shortcut_rows,
         )
 
-        view = self._view
         # Application shortcuts straight from the authoritative registry +
         # the live KeyBindings (user overrides included), grouped by menu —
         # replaces the old hand-maintained "Stage 1" id list.
@@ -273,22 +283,7 @@ class ToolHost:
                     list(tool_shortcut_rows(self.keymap, tool_ids)),
                 ))
 
-        html = self._render_shortcuts_html(sections)
-        ov = self._shortcuts_overlay
-        if not isinstance(ov, QLabel):
-            ov = QLabel(view.viewport())
-            ov.setTextFormat(_Qt.TextFormat.RichText)
-            ov.setStyleSheet(
-                "QLabel { background: rgba(20,22,28,235); color: #E6E6E6; "
-                "border: 1px solid #4A5060; border-radius: 6px; padding: 10px; }"
-            )
-            self._shortcuts_overlay = ov
-        ov.setText(html)
-        ov.adjustSize()
-        margin = 12
-        ov.move(view.viewport().width() - ov.width() - margin, margin)
-        ov.show()
-        ov.raise_()
+        self._view.help_overlay.show_help(self._render_shortcuts_html(sections))
 
     @staticmethod
     def _render_shortcuts_html(
@@ -372,7 +367,10 @@ class ToolHost:
             return True
         if action_id == VIEW_CANVAS_MENU and isinstance(event, QMouseEvent):
             assert scene_pt is not None
-            self.show_canvas_menu(event.pos(), scene_pt)
+            pos = event.position()
+            view.notify_context(self.get_context_at(
+                from_qpointf(scene_pt), Point(pos.x(), pos.y()),
+            ))
             return True
         if (action_id in (VIEW_ZOOM_IN, VIEW_ZOOM_OUT)
                 and isinstance(event, QWheelEvent)):

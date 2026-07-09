@@ -15,6 +15,11 @@ from protoboard.gui.ports.inputs import (
     PointerInput,
     WheelInput,
 )
+from protoboard.gui.ports.help_overlay import HelpOverlayPort
+from protoboard.gui.ports.interaction_context import (
+    ActionOption,
+    InteractionContext,
+)
 from protoboard.gui.ports.status_event import StatusEvent
 from protoboard.gui.ports.viewport import (
     CursorKind,
@@ -23,7 +28,10 @@ from protoboard.gui.ports.viewport import (
 )
 
 __all__ = [
+    "ActionOption",
     "CursorKind",
+    "HelpOverlayPort",
+    "InteractionContext",
     "ScreenMetrics",
     "ViewportPort",
     "Intent",

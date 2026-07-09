@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
     from protoboard.geometry import Point
     from protoboard.gui.ports import (
+        HelpOverlayPort,
+        InteractionContext,
         KeyInput,
         PointerInput,
         StatusEvent,
@@ -81,6 +83,8 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     # The camera *mechanism* (qt-ports §2.1) — ViewCamera and services speak
     # to the widget's transform/scroll/mapping only through this port.
     viewport_port: ViewportPort
+    # The [?] shortcut-help surface (qt-ports §2.5).
+    help_overlay: HelpOverlayPort
 
     # -- view state ----------------------------------------------------------
 
@@ -243,6 +247,10 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     @abstractmethod
     def notify_cursor_moved(self, pos: Point) -> None:
         """Publish the cursor's raster (scene) position; fires per mouse move."""
+
+    @abstractmethod
+    def notify_context(self, ctx: InteractionContext) -> None:
+        """Publish an interaction context (RMB) for the consumer to render."""
 
     @abstractmethod
     def escape_to_select(self) -> None:

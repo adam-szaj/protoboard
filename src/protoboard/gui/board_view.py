@@ -13,7 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.gui.keymap import KeyMap
-    from protoboard.gui.ports import StatusEvent
+    from protoboard.gui.ports import InteractionContext, StatusEvent
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -52,6 +52,7 @@ from protoboard.gui.scene_composer import SceneComposer
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
+from protoboard.gui.qt_help_overlay import QtHelpOverlay
 from protoboard.gui.qt_viewport import QtViewport
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX
 from protoboard.gui.view_camera import ViewCamera
@@ -68,6 +69,7 @@ class BoardView(AbstractBoardView):
     """
 
     status_changed = Signal(object)  # StatusEvent
+    context_published = Signal(object)  # InteractionContext (RMB)
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     escape_tool = Signal()  # right-click or Esc — return to Select
 
@@ -124,6 +126,7 @@ class BoardView(AbstractBoardView):
         # (see gui/view_camera.py).  Owns the wheel/pan timers behind
         # ``in_transform_burst()``.
         self.viewport_port = QtViewport(self)
+        self.help_overlay = QtHelpOverlay(self)
         self.camera = ViewCamera(self)
         self._layer_overrides: LayerOverrides = LayerOverrides()
         self._pad_positions: list[Point] = []
@@ -298,6 +301,11 @@ class BoardView(AbstractBoardView):
     def notify_cursor_moved(self, pos: Point) -> None:
         """Re-emit the cursor position as ``cursor_moved`` (float pair)."""
         self.cursor_moved.emit(pos.x, pos.y)
+
+    @traced()
+    def notify_context(self, ctx: InteractionContext) -> None:
+        """Re-emit an interaction context as ``context_published``."""
+        self.context_published.emit(ctx)
 
     @traced()
     def escape_to_select(self) -> None:

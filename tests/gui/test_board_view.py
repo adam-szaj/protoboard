@@ -210,7 +210,7 @@ class TestShortcutsHelp:
         from PySide6.QtWidgets import QLabel
         board_view.set_tool(SelectTool())
         board_view.tools._show_shortcuts_overlay()
-        ov = board_view.tools._shortcuts_overlay
+        ov = board_view.help_overlay._label
         assert isinstance(ov, QLabel)
         text = ov.text()
         # A SelectTool action and its shortcut appear.
@@ -224,7 +224,7 @@ class TestShortcutsHelp:
         from PySide6.QtWidgets import QLabel
         board_view.set_tool(SelectTool())
         board_view.tools._show_shortcuts_overlay()
-        ov = board_view.tools._shortcuts_overlay
+        ov = board_view.help_overlay._label
         assert isinstance(ov, QLabel)
         text = ov.text()
         assert "Save" in text and "Ctrl+S" in text  # File
@@ -236,7 +236,7 @@ class TestShortcutsHelp:
         board_view.keymap.set_override("select-tool.action.reroute", "Q")
         board_view.set_tool(SelectTool())
         board_view.tools._show_shortcuts_overlay()
-        ov = board_view.tools._shortcuts_overlay
+        ov = board_view.help_overlay._label
         assert isinstance(ov, QLabel)
         # The rebound key, not the default, is shown.
         assert ">Q<" in ov.text() or "<code>Q</code>" in ov.text()

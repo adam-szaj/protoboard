@@ -91,3 +91,42 @@ class TestWheelNotchAccumulator:
         acc = WheelNotchAccumulator()
         assert acc.add(100) == 0    # residue +100
         assert acc.add(-120) == -1  # flip: residue dropped, clean notch down
+
+
+class TestInteractionContext:
+    def test_get_context_at_lists_tool_actions(
+        self, board_view: BoardView
+    ) -> None:
+        # A pure query — no menu, no fake, no exec (qt-ports §2.4).
+        board_view.set_tool(SelectTool())
+        ctx = board_view.tools.get_context_at(Point(2.5, 1.5), Point(10.0, 20.0))
+        assert ctx.kind == "canvas"
+        assert ctx.scene_pos == Point(2.5, 1.5)
+        ids = [opt.action_id for opt in ctx.actions]
+        assert "select-tool.action.reroute" in ids
+        reroute = next(
+            o for o in ctx.actions
+            if o.action_id == "select-tool.action.reroute"
+        )
+        assert reroute.shortcut_hint == "W"
+
+    def test_notify_context_reemits_context_published(
+        self, board_view: BoardView
+    ) -> None:
+        from protoboard.gui.ports import InteractionContext
+
+        seen: list[InteractionContext] = []
+        board_view.context_published.connect(seen.append)
+        ctx = board_view.tools.get_context_at(Point(0.5, 0.5), Point(1.0, 1.0))
+        board_view.notify_context(ctx)
+        assert seen == [ctx]
+
+    def test_context_reflects_rebind(self, board_view: BoardView) -> None:
+        board_view.keymap.set_override("select-tool.action.reroute", "Q")
+        board_view.set_tool(SelectTool())
+        ctx = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
+        reroute = next(
+            o for o in ctx.actions
+            if o.action_id == "select-tool.action.reroute"
+        )
+        assert reroute.shortcut_hint == "Q"

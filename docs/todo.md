@@ -10,6 +10,18 @@ their full write-ups from this file's git history.
 The Qt-ports analysis ([qt-ports.md](qt-ports.md)) is a decision gate; even
 if the ports-only refactor proceeds, these pieces are deliberately deferred:
 
+- **SelectTool's item-aware RMB menu as context publication** (deferred
+  2026-07-09, phase-5 commit): the *generic* canvas menu now flows through
+  `get_context_at` + `notify_context` (rendered by MainWindow), but
+  SelectTool's `_build_context_menu` / `_menu_dispatch` still builds its own
+  QMenu inside the tool — its entries are parameterised data tuples
+  (`("assign_pin", comp_id, pin)`, merge target-id lists, …), not plain
+  action-ids, so expressing them as `ActionOption`s needs a parameterised
+  action vocabulary first (§2.4 parity nuance (b) does **not** close for
+  them).  Until then `ToolHost.add_tool_action_menu` also keeps its QMenu
+  parameter (the tool menu reuses it), so ToolHost is widget-free *except*
+  this one method.
+
 - **`ExecutorPort`** for the `gui/workers/` QThread harness — build only when
   a tool flow that *launches* a worker must be tested end-to-end headless;
   the compute is already snapshot-based (`RouteRequest`, `SimplifyInputs`)
