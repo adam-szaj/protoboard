@@ -203,6 +203,14 @@ working unchanged until stage 2 lands.
 4. **Stage 3 — UI.** Preferences sub-tabs per category (one layer = one
    sub-tab; final actions shown read-only), `[?]` overlay reads the head
    chain directly.
+   *Shipped 2026-07-09:* Preferences ► Shortcuts = Application (legacy
+   KeyBindings table) + Global + View + per-tool tabs; bindings edit as text
+   (alternatives + mouse chords); **same-map conflict steal** — assigning a
+   trigger owned by another action on the same map removes that alternative
+   from the previous owner (both systems); `final` rows read-only. The tool
+   tabs enumerate via `tool.make_key_map(base)` display layers sharing the
+   live store, so MainWindow passes its long-lived tool instances
+   (`keymap_tools`). The `[?]` overlay work is still open.
 
 ## 5. Open questions
 

@@ -3098,6 +3098,8 @@ class MainWindow(QMainWindow):
             on_paths_applied=self._on_paths_applied,
             on_axis_labels_applied=self._on_axis_labels_applied,
             session=self._session,
+            keymap=self._board_view.tools.base_keymap,
+            keymap_tools=(self._select_tool,),
             parent=None,
         )
         from PySide6.QtCore import Qt as _Qt

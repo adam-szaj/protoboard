@@ -30,6 +30,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repointed at the chain and green again; new layer/lifecycle suites:
   `tests/unit/test_keymap_layers.py`, `tests/gui/test_keymap_layers.py`.
 
+### Per-tool KeyMap layer — Stage 3: Preferences shortcut sub-tabs (2026-07-09)
+
+* **Preferences ► Shortcuts is now sub-tabbed**: *Application* (the legacy
+  flat KeyBindings table, unchanged), *Global*, *View* and one tab per tool
+  layer (built via `tool.make_key_map` on the live base map, so edits land in
+  the shared overrides store immediately and persist via
+  `keybindings_v2.yaml`). This is the first UI the namespaced KeyMap ever
+  had — rebinding e.g. `select-tool.action.reroute` no longer requires
+  hand-editing the file.
+* KeyMap rows edit as text: `"Up|W"` alternatives and mouse chords
+  (`WheelUp`, `RMB`, `Ctrl+LMB`) round-trip; garbage is rejected with the
+  row reverted (QKeySequence parses anything — canonical-text round-trip is
+  the validity signal). `final` rows are read-only; claiming a final trigger
+  for another action is rejected (`FinalShortcutError`).
+* **Same-map conflict steal**: assigning a trigger already owned by another
+  action *on the same map* clears that alternative from the previous owner
+  (both in the KeyMap tabs and the legacy Application table — two actions on
+  one QShortcut are ambiguous and fire neither). Only the taken alternative
+  is removed (`Up|W` loses `W`, keeps `Up`); intentional state-gated default
+  overlaps are untouched until the user edits.
+
 ### Per-tool KeyMap layer — Stage 2: mouse chords in the KeyMap (2026-07-09)
 
 * **Mouse chords are triggers.** `"WheelUp"`, `"WheelDown"`, `"LMB"`,

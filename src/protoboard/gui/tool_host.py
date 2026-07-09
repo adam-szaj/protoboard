@@ -75,6 +75,15 @@ class ToolHost:
         """The current head of the key-map chain (tool layer, else base)."""
         return self._tool_keymap or self._base_keymap
 
+    @property
+    def base_keymap(self) -> KeyMap:
+        """The permanent base map (user-overrides store; below tool layers).
+
+        For consumers that must outlive the active tool's ephemeral layer —
+        the Preferences dialog builds display layers of its own on top.
+        """
+        return self._base_keymap
+
     @traced()
     def set_tool(self, tool: _Tool | None) -> None:
         """Swap the active tool (deactivate old, activate + register new)."""

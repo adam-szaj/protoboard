@@ -85,7 +85,9 @@ class _ColorButton(QPushButton):
 # Page — Shortcuts
 # ---------------------------------------------------------------------------
 
-class _ShortcutsPage(QWidget):
+class _AppShortcutsTab(QWidget):
+    """The legacy flat KeyBindings table (application/menu shortcuts)."""
+
     def __init__(self, kb: KeyBindings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._kb = kb
@@ -145,11 +147,215 @@ class _ShortcutsPage(QWidget):
                 continue  # Untouched — don't rewrite "use default" into "".
             self._kb.set(action_id, new_value)
             self._initial_values[action_id] = new_value
+            if new_value:
+                self._steal(action_id, new_value)
+
+    def _steal(self, winner: str, shortcut: str) -> None:
+        """Unbind *shortcut* from every other action in this table.
+
+        Two actions sharing one QShortcut would both be ambiguous (Qt beeps
+        and fires neither), so a user assigning an already-taken shortcut
+        means "move it here" — the previous owner is cleared, visibly.
+        """
+        for action_id, widget in self._seq_widgets.items():
+            if action_id == winner:
+                continue
+            current = widget.keySequence()
+            value = current.toString() if not current.isEmpty() else ""
+            if value != shortcut:
+                continue
+            self._kb.set(action_id, "")
+            widget.setKeySequence(QKeySequence())
+            self._initial_values[action_id] = ""
 
     def _reset(self) -> None:
         for action_id, widget in self._seq_widgets.items():
             default = DEFAULTS.get(action_id, "")
             widget.setKeySequence(QKeySequence(default))
+
+
+def _valid_trigger_text(text: str) -> bool:
+    """Every ``|``-separated alternative parses as a key or mouse chord."""
+    from protoboard.gui.keymap import is_mouse_trigger
+    for alt in (a.strip() for a in text.split("|")):
+        if not alt:
+            continue
+        if is_mouse_trigger(alt):
+            continue
+        # QKeySequence never rejects a string — garbage parses to a sequence
+        # whose canonical text is empty.  Round-trip is the validity signal.
+        if not QKeySequence(alt).toString():
+            return False
+    return True
+
+
+def _normalize_trigger_text(text: str) -> str:
+    return "|".join(a.strip() for a in text.split("|") if a.strip())
+
+
+class _KeyMapTab(QWidget):
+    """One KeyMap layer (global / view / one tool) as an editable table.
+
+    Bindings are edited as text — ``"R"``, ``"Up|W"`` alternatives and mouse
+    chords (``"WheelUp"``, ``"RMB"``, ``"Ctrl+LMB"``) all round-trip.  A
+    ``final`` action's row is read-only.  Assigning a trigger already owned
+    by another action *on the same map* steals it: the previous owner's row
+    loses that alternative (state-gated overlaps that ship as defaults are
+    untouched — only a user edit steals).
+    """
+
+    def __init__(self, keymap: object, action_ids: list[str],
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QHeaderView, QLineEdit
+
+        from protoboard.gui.keymap import KeyMap
+        assert isinstance(keymap, KeyMap)
+        self._km = keymap
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        self._table = QTableWidget(0, 2)
+        self._table.setHorizontalHeaderLabels(["Action", "Binding"])
+        header = self._table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self._table.verticalHeader().setVisible(False)
+        layout.addWidget(self._table)
+
+        hint = QLabel(
+            "Text bindings: alternatives with “|” (e.g. Up|W); mouse chords "
+            "WheelUp / WheelDown / LMB / RMB / MMB with Ctrl/Alt/Shift "
+            "prefixes.  Empty = unbound."
+        )
+        hint.setWordWrap(True)
+        font = hint.font()
+        font.setItalic(True)
+        hint.setFont(font)
+        layout.addWidget(hint)
+
+        self._edits: dict[str, QLineEdit] = {}
+        self._initial: dict[str, str] = {}
+        for action_id in action_ids:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            name_item = QTableWidgetItem(self._km.display_of(action_id))
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._table.setItem(row, 0, name_item)
+            value = self._km.resolve(action_id)
+            edit = QLineEdit(value)
+            if self._km.is_final(action_id):
+                edit.setEnabled(False)
+                edit.setToolTip(
+                    "Final shortcut — cannot be rebound.  A tool may add "
+                    "extra triggers to this action, never remove these."
+                )
+            self._table.setCellWidget(row, 1, edit)
+            self._edits[action_id] = edit
+            self._initial[action_id] = value
+
+    def apply(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from protoboard.gui.keymap import FinalShortcutError
+        for action_id, edit in self._edits.items():
+            if not edit.isEnabled():
+                continue  # final — read-only
+            text = _normalize_trigger_text(edit.text())
+            if text == self._initial.get(action_id, ""):
+                continue  # untouched
+            if not _valid_trigger_text(text):
+                QMessageBox.warning(
+                    self, "Invalid binding",
+                    f"{text!r} is not a valid key or mouse chord.")
+                edit.setText(self._initial.get(action_id, ""))
+                continue
+            try:
+                self._km.set_override(action_id, text)
+            except FinalShortcutError as exc:
+                QMessageBox.warning(self, "Reserved shortcut", str(exc))
+                edit.setText(self._initial.get(action_id, ""))
+                continue
+            self._initial[action_id] = text
+            if text:
+                self._steal(action_id, text)
+
+    def _steal(self, winner: str, text: str) -> None:
+        """Remove the newly-assigned alternatives from every other action here."""
+        from protoboard.gui.keymap import FinalShortcutError
+        wanted = {a for a in text.split("|") if a}
+        for action_id, edit in self._edits.items():
+            if action_id == winner or not edit.isEnabled():
+                continue
+            current = self._km.resolve(action_id)
+            kept = [a for a in current.split("|") if a and a not in wanted]
+            if len(kept) == len([a for a in current.split("|") if a]):
+                continue  # no overlap
+            remaining = "|".join(kept)
+            try:
+                self._km.set_override(action_id, remaining)
+            except FinalShortcutError:  # pragma: no cover — final rows skipped
+                continue
+            edit.setText(remaining)
+            self._initial[action_id] = remaining
+
+
+class _ShortcutsPage(QWidget):
+    """Shortcuts — sub-tabs: Application (legacy table), Global, View, tools."""
+
+    def __init__(self, kb: KeyBindings, keymap: object | None = None,
+                 keymap_tools: tuple[object, ...] = (),
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QTabWidget
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        tabs = QTabWidget()
+        layout.addWidget(tabs)
+
+        self._app_tab = _AppShortcutsTab(kb)
+        tabs.addTab(self._app_tab, "Application")
+
+        self._keymap = None
+        self._km_tabs: list[_KeyMapTab] = []
+        if keymap is not None:
+            from protoboard.gui.board_view_tool import _Tool
+            from protoboard.gui.keymap import (
+                GLOBAL_ACTIONS,
+                VIEW_ACTIONS,
+                KeyMap,
+            )
+            from protoboard.gui.shortcuts_help import category_label
+            assert isinstance(keymap, KeyMap)
+            self._keymap = keymap
+            self._add_km_tab(
+                tabs, keymap, [a.id for a in GLOBAL_ACTIONS], "Global")
+            self._add_km_tab(
+                tabs, keymap, [a.id for a in VIEW_ACTIONS], "View")
+            for tool in keymap_tools:
+                assert isinstance(tool, _Tool)
+                layer = tool.make_key_map(keymap)
+                ids = [a.id for a in layer.known_actions()]
+                if not ids:
+                    continue
+                self._add_km_tab(
+                    tabs, layer, ids, category_label(ids[0]))
+
+    def _add_km_tab(self, tabs: object, km: object, ids: list[str],
+                    label: str) -> None:
+        from PySide6.QtWidgets import QTabWidget
+        assert isinstance(tabs, QTabWidget)
+        tab = _KeyMapTab(km, ids)
+        tabs.addTab(tab, label)
+        self._km_tabs.append(tab)
+
+    def apply(self) -> None:
+        self._app_tab.apply()
+        for tab in self._km_tabs:
+            tab.apply()
+        if self._keymap is not None and self._km_tabs:
+            self._keymap.save_overrides()
 
 
 # ---------------------------------------------------------------------------
@@ -1374,6 +1580,8 @@ class PreferencesDialog(QDialog):
         on_paths_applied: Callable[[AppSettings], None] | None = None,
         on_axis_labels_applied: Callable[[], None] | None = None,
         session: object | None = None,
+        keymap: object | None = None,
+        keymap_tools: tuple[object, ...] = (),
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1410,7 +1618,8 @@ class PreferencesDialog(QDialog):
 
         # Right stacked pages
         self._stack = QStackedWidget()
-        self._shortcuts_page = _ShortcutsPage(keybindings)
+        self._shortcuts_page = _ShortcutsPage(
+            keybindings, keymap=keymap, keymap_tools=keymap_tools)
         self._colors_page = _ColorsPage(theme)
         self._paths_page = _PathsPage(app_settings)
         self._routing_page: _RoutingPage | None = (

@@ -239,7 +239,7 @@ class TestShortcutsPageApply:
         page = _ShortcutsPage(kb)
         qtbot.addWidget(page)
 
-        page._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence(""))
+        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence(""))
         page.apply()
 
         kb_reloaded = KB.KeyBindings.load()
@@ -253,7 +253,7 @@ class TestShortcutsPageApply:
         page = _ShortcutsPage(kb)
         qtbot.addWidget(page)
 
-        page._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+Alt+S"))
+        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+Alt+S"))
         page.apply()
 
         kb_reloaded = KB.KeyBindings.load()
@@ -272,7 +272,7 @@ class TestShortcutsPageApply:
         page = _ShortcutsPage(kb)
         qtbot.addWidget(page)
 
-        page._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+S"))
+        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+S"))
         page.apply()
 
         kb_reloaded = KB.KeyBindings.load()
