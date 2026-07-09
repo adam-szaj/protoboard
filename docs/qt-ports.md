@@ -237,8 +237,9 @@ seam's.) The view surface *publishes* notifications; the consumer
 (MainWindow, or a test double that merely records) decides what to do:
 
 ```python
-def notify_status(self, payload: Mapping[str, object]) -> None: ...
+def notify_status(self, event: StatusEvent) -> None: ...
 def notify_cursor_moved(self, x: float, y: float) -> None: ...
+def notify_context(self, ctx: InteractionContext) -> None: ...   # see §2.4
 def escape_to_select(self) -> None: ...
 ```
 
@@ -267,15 +268,13 @@ def escape_to_select(self) -> None: ...
 The dead `pad_clicked` is deleted. `session.py` keeps its QObject signals —
 out of scope here.
 
-### 2.4 `ActionChooserPort`
+### 2.4 `InteractionContext` — RMB as context publication (no port at all)
 
-(Direction revised on user feedback: a `MenuPort.show_menu(items)` was
-considered and rejected — "show a menu" is a graphical concept; the port's
-real job is "**ask for a choice among the actions executable in this
-context**".) The repo already has the uniform vocabulary this plugs into:
-action-ids resolve shortcuts through the KeyMap, feed the `[?]` overlay via
-`displayable_action_ids()`, and execute through the existing
-`trigger_tool_action(action_id)` — so the port adds no new execution path.
+(Twice revised on user feedback. Round one replaced a `MenuPort.show_menu`
+with an `ActionChooserPort.choose_action` — "ask for a choice among the
+actions executable in this context" instead of the graphical "show a menu".
+Round two **superseded the port entirely**: split the blocking call into a
+*query* plus a *notification*, after which no chooser crosses the seam.)
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -283,42 +282,51 @@ class ActionOption:
     action_id: str                 # executes via existing trigger_tool_action
     label: str                     # presentation hint
     enabled: bool = True
-    shortcut_hint: str = ""        # presentation; Qt adapter may read the KeyMap
-    group: str = ""                # semantic grouping (adapter: separators/submenus)
+    shortcut_hint: str = ""        # presentation; may be read from the KeyMap
+    group: str = ""                # semantic grouping (consumer decides rendering)
 
 @dataclass(frozen=True, slots=True)
-class ActionChoiceRequest:
-    context: str                   # "canvas" | "selection" | "wire" | …
-    at_view_pos: Point             # presentation hint (GUI); CLI/tests ignore
-    options: tuple[ActionOption, ...]
-
-class ActionChooserPort(Protocol):
-    def choose_action(self, request: ActionChoiceRequest) -> str | None: ...
-    # None = cancelled
+class InteractionContext:          # ports/interaction_context.py — pure data
+    scene_pos: Point
+    view_pos: Point
+    hit: tuple[str, UUID] | None   # (kind, id) of the clicked element (HitTester)
+    selection: tuple[UUID, ...]    # selection snapshot
+    actions: tuple[ActionOption, ...]  # actions executable NOW in this context
+    kind: str                      # "canvas" | "selection" | "wire" | …
 ```
 
-- **No presentational vocabulary in the port** — no `separator_before` /
-  `children` menu concepts; semantic `group` instead, and the adapter decides
-  how groups render.
-- **Adapters:** Qt builds a QMenu (groups → separators/submenus) and execs at
-  `mapToGlobal(at_view_pos)` — the only place that knows global coordinates;
-  an interactive CLI could render a numbered list; the test fake returns a
-  scripted choice and records the request.
-- **Absorbs:** `ToolHost.show_canvas_menu` + `add_tool_action_menu` (today
-  `menu: object` + `assert isinstance(QMenu)`) and SelectTool's context menu
-  (`menu.exec(mapToGlobal(mapFromScene(...)))`). Option-set *construction*
-  becomes a pure function — finally testable ("locked component ⇒ Rotate
-  disabled"). Context-menu content is user-facing behaviour with zero
-  coverage today; this is the highest-leverage small port.
-- **Synchronous** like today's `QMenu.exec` (1:1 parity); an async variant is
-  a possible later extension, not part of this design.
-- **Synergy with D4:** dialog decisions (drag-disconnect/conflict) are the
-  same "ask for a choice" family — `drag_commit_decision.py` already returns
-  decisions as data; if D4 lands in scope it gets a twin `choose_decision`,
-  not a separate mechanism.
-- Follow-up to verify at implementation: if SelectTool's menu was the only
-  `map_scene_to_view` user, drop that member from `ViewportPort` — the port
-  should stay minimal.
+Two mechanisms instead of a port:
+
+1. **Query:** `get_context_at(scene_pos: Point) -> InteractionContext` — a
+   view-surface method; a pure function of state (selection + the existing
+   Qt-free `HitTester` + action-list construction), **testable headless with
+   no fake at all**. Equally usable by an interactive CLI as a plain query.
+2. **RMB = context publication:** right-click →
+   `notify_context(get_context_at(pt))` — the third notification beside
+   `notify_status` / `notify_cursor_moved` (§2.3). The consumer (MainWindow)
+   subscribes, renders the QMenu from `ctx.actions`, and on choice calls the
+   **existing** `trigger_tool_action(action_id)`. A test simulates the choice
+   with the same call; a CLI prints a numbered list.
+
+Gains over the `choose_action` port: no blocking call through the seam
+(`QMenu.exec` lives only in MainWindow, where it is at home); execution stays
+decoupled through the existing action-id path (KeyMap shortcuts,
+`displayable_action_ids`, `trigger_tool_action`); one abstraction less — the
+port disappears, leaving data + two methods. Option-set construction is a
+pure function either way ("locked component ⇒ Rotate disabled" testable
+headless).
+
+Parity nuances for implementation: (a) today's `exec` is modal — after the
+split, state could in principle change between publication and choice; with a
+modal menu in MainWindow behaviour stays effectively identical — note it in
+the parity tests; (b) verify every current menu item (ToolHost canvas menu,
+SelectTool context menu) is expressible as an action-id —
+`add_tool_action_menu` already returns a QAction→action_id map, so this
+should close naturally.
+
+Follow-up to verify at implementation: if SelectTool's menu was the only
+`map_scene_to_view` user, drop that member from `ViewportPort` — the port
+should stay minimal.
 
 ### 2.5 `HelpOverlayPort`
 
@@ -401,9 +409,9 @@ widget; MVC invalidates their fixtures wholesale.
 
 **Ports-only end state:** `AbstractBoardView` stops inheriting
 `QGraphicsView` and becomes a `Protocol` composing the existing ~25 Qt-free
-members + `viewport: ViewportPort` + `action_chooser: ActionChooserPort` +
-`help_overlay: HelpOverlayPort` + the notification channel (§2.3); the
-concrete `BoardView(QGraphicsView)` satisfies it structurally. Wins:
+members + `viewport: ViewportPort` + `help_overlay: HelpOverlayPort` +
+`get_context_at` + the notification channel (§2.3–2.4); the concrete
+`BoardView(QGraphicsView)` satisfies it structurally. Wins:
 
 - **Kills the QtABCMeta trap**: today Shiboken skips the
   `__abstractmethods__` check at runtime *and* pyright needs a TYPE_CHECKING
@@ -456,8 +464,9 @@ Each phase green + committable; existing qtbot tests run unchanged throughout
    armed/float_transform de-leak).
 4. **ViewportPort** + `QtViewport` + affine fake + the Qt-vs-fake property
    test — ViewCamera math becomes unit-testable.
-5. **ActionChooserPort + HelpOverlayPort + keybindings provider** — ToolHost
-   is widget-free; action-option-set content tests.
+5. **`get_context_at` + `notify_context` + QMenu construction moves to
+   MainWindow; HelpOverlayPort + keybindings provider** — ToolHost is
+   widget-free; context/action-set content tests need no fake at all.
 6. **Protocol swap**: `AbstractBoardView` drops `QGraphicsView`, `QtABCMeta`
    deleted, `HeadlessBoardView` lands; the swap is type-level only.
 7. **Optional, per tool, on demand**: semantic previews (route → place →
