@@ -12,6 +12,7 @@ from protoboard.domain.commands.base import ComponentState
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
+from protoboard.gui.tools.place_preview import QtPlacePreview
 from protoboard.gui.tools.place_tool import PlaceTool
 from tests.gui.input_helpers import key_inp, pointer
 
@@ -155,17 +156,21 @@ class TestPlaceToolSmdMount:
         smd_tool = view._active_tool
         assert isinstance(smd_tool, PlaceTool)
         smd_tool._rebuild_ghost()
-        assert smd_tool._ghost is not None
-        smd_rect = smd_tool._ghost.boundingRect()
+        smd_preview = smd_tool.preview
+        assert isinstance(smd_preview, QtPlacePreview)
+        assert smd_preview.ghost_item is not None
+        smd_rect = smd_preview.ghost_item.boundingRect()
 
         view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
         axial_tool = view._active_tool
         assert isinstance(axial_tool, PlaceTool)
         axial_tool._rebuild_ghost()
-        assert axial_tool._ghost is not None
+        axial_preview = axial_tool.preview
+        assert isinstance(axial_preview, QtPlacePreview)
+        assert axial_preview.ghost_item is not None
         # Different bodies → different ghost geometry (the SMD chip vs the axial
         # body). If the theme lacked the catalogue both would be the default.
-        assert smd_rect != axial_tool._ghost.boundingRect()
+        assert smd_rect != axial_preview.ghost_item.boundingRect()
 
     def test_drag_baseline_uses_chosen_variant_geometry(
         self, session: EditorSession

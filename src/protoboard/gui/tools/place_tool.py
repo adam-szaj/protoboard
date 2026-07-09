@@ -29,9 +29,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, cast
 
 import structlog
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QKeyEvent
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
+from PySide6.QtCore import Qt
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
@@ -44,19 +42,16 @@ from protoboard.domain.layout.placement import ComponentPlacement, flip_componen
 from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.placement_conflict import check_and_resolve
-from protoboard.gui.renderers.component_renderer import make_ghost_item
-
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGraphicsItemGroup
+from protoboard.gui.tools.place_preview import QtPlacePreview
 
 from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.gui.ports import KeyInput, PointerInput
+    from protoboard.gui.tools.place_preview import PlacePreview
 
 _log = structlog.get_logger(__name__)
-_REACH_PAD_RADIUS = 0.18
 
 # Namespaced key actions PlaceTool owns.  All inherit the generic global
 # defaults (rotate ``R`` / ``Shift+R``, flip ``Alt+R``, re-drag ``Ctrl+R``):
@@ -94,6 +89,7 @@ class PlaceTool(_Tool):
         existing_instance: object | None = None,
         pin_variant: str | None = None,
         package_variant: str | None = None,
+        preview: PlacePreview | None = None,
     ) -> None:
         super().__init__()
         self._definition_ref = definition_ref
@@ -102,7 +98,11 @@ class PlaceTool(_Tool):
         self._pin_variant = pin_variant
         self._package_variant = package_variant
         self._rotation = 0
-        self._ghost: QGraphicsItemGroup | None = None
+        # Ghost + reach overlay behind the semantic preview seam.  An
+        # injected preview (tests) survives re-activation; the default Qt
+        # one binds the current view's scene on activate().
+        self._preview: PlacePreview | None = preview
+        self._preview_injected = preview is not None
         # Last snapped cursor position in the anchor phase — kept so the
         # ghost stays under the cursor across R / Shift+R rotations.
         self._last_cursor_pos: Point | None = None
@@ -112,12 +112,15 @@ class PlaceTool(_Tool):
         self._pin_offsets: dict[int, Vector] = {}
         self._drag_pin_queue: list[int] = []
         self._current_drag_pin: int | None = None
-        # Reach overlay items
-        self._reach_items: list[QGraphicsItem] = []
         # Floating state (placed but not committed)
         self._pending_inst: object = None
         self._pending_placement: object = None
         self._pending_wire_cmds: list[object] = []
+
+    @property
+    def preview(self) -> PlacePreview:
+        assert self._preview is not None  # set by activate() / injection
+        return self._preview
 
     @traced()
     def _is_phase(self, phase: PhaseEnum) -> bool:
@@ -132,6 +135,8 @@ class PlaceTool(_Tool):
     @traced()
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
+        if not self._preview_injected:
+            self._preview = QtPlacePreview(self._view.scene, self._theme)
         self._reset_phase()
         self._rebuild_ghost()
 
@@ -139,8 +144,8 @@ class PlaceTool(_Tool):
     def deactivate(self) -> None:
         if self._is_phase(PhaseEnum.FLOATING):
             self._cancel_floating_place()
-        self._clear_reach_overlay()
-        self._remove_ghost()
+        self.preview.clear_reach()
+        self.preview.clear_ghost()
         self._reset_phase()
 
     # ------------------------------------------------------------------
@@ -228,7 +233,7 @@ class PlaceTool(_Tool):
                 self._rebuild_ghost_at_anchor()
                 self._update_reach_overlay()
             else:
-                self._clear_reach_overlay()
+                self.preview.clear_reach()
                 self._commit(self._anchor_pos, pin_offsets=dict(self._pin_offsets))
                 self._reset_phase()
             return True
@@ -240,7 +245,7 @@ class PlaceTool(_Tool):
         snapped = self._view.snap(inp.scene_pos)
         if self._is_phase(PhaseEnum.ANCHOR):
             self._last_cursor_pos = snapped
-            self._move_ghost(snapped.x, snapped.y)
+            self.preview.move_ghost(snapped)
         elif self._is_phase(PhaseEnum.DRAG_PIN):
             assert self._anchor_pos is not None and self._current_drag_pin is not None
             new_off = self._compute_drag_offset(snapped)
@@ -312,7 +317,7 @@ class PlaceTool(_Tool):
             return True
 
         if key == Qt.Key.Key_Escape and self._is_phase(PhaseEnum.DRAG_PIN):
-            self._clear_reach_overlay()
+            self.preview.clear_reach()
             self._reset_phase()
             self._rebuild_ghost()
             return True
@@ -355,9 +360,7 @@ class PlaceTool(_Tool):
             # re-park the ghost under the cursor's last known position.
             self._rebuild_ghost()
             if self._last_cursor_pos is not None:
-                self._move_ghost(
-                    self._last_cursor_pos.x, self._last_cursor_pos.y,
-                )
+                self.preview.move_ghost(self._last_cursor_pos)
         return True
 
     @traced()
@@ -390,8 +393,7 @@ class PlaceTool(_Tool):
 
     @traced()
     def on_scene_cleared(self) -> None:
-        self._ghost = None
-        self._reach_items = []
+        self.preview.on_scene_cleared()
         self._rebuild_ghost()
 
     # ------------------------------------------------------------------
@@ -400,9 +402,9 @@ class PlaceTool(_Tool):
 
     @traced()
     def _rebuild_ghost(self) -> None:
-        self._remove_ghost()
         defn = self._session.components.get(self._definition_ref)
         if defn is None:
+            self.preview.clear_ghost()
             return
         offsets: dict[int, Vector] = {}
         if self._is_phase(PhaseEnum.DRAG_PIN):
@@ -419,38 +421,19 @@ class PlaceTool(_Tool):
         families = getattr(self._session, "package_families", None)
         theme = dataclasses.replace(
             self._theme(), package_families=families or {})
-        ghost = make_ghost_item(
-            defn, rotation=self._rotation, theme=theme, pin_offsets=offsets,
+        self.preview.show_ghost(
+            defn,
+            rotation=self._rotation,
+            pin_offsets=offsets,
             package_variant=self._package_variant,
+            theme=theme,
         )
-        # Z=20 puts the ghost above all back-side scene items (Z<Z_BOARD=3.0)
-        # so BoardView._ensure_back_cache doesn't bake it into the back-side
-        # pixmap and hide it.  Without this the ghost stays "stuck" at (0,0)
-        # because setVisible(False) is applied to the back-cached item and
-        # setPos() updates pose on an invisible object.
-        ghost.setZValue(20.0)
-        self._view.scene().addItem(ghost)
-        self._ghost = ghost
 
     @traced()
     def _rebuild_ghost_at_anchor(self) -> None:
         self._rebuild_ghost()
-        if self._anchor_pos is not None and self._ghost is not None:
-            self._ghost.setPos(self._anchor_pos.x, self._anchor_pos.y)
-
-    @traced()
-    def _remove_ghost(self) -> None:
-        if self._ghost is not None:
-            self._view.scene().removeItem(self._ghost)
-            self._ghost = None
-
-    @traced()
-    def _move_ghost(self, x: float, y: float) -> None:
-        if self._ghost is not None:
-            self._ghost.setPos(x, y)
-            # setPos already schedules a repaint via Qt's
-            # FullViewportUpdate mode; no explicit update() needed once
-            # the back-cache filter no longer hides the ghost's children.
+        if self._anchor_pos is not None:
+            self.preview.move_ghost(self._anchor_pos)
 
     # ------------------------------------------------------------------
     # Reach overlay
@@ -458,13 +441,13 @@ class PlaceTool(_Tool):
 
     @traced()
     def _update_reach_overlay(self) -> None:
-        """Draw green dots on the pads the active pin may land on.
+        """Mark the pads the active pin may land on with green dots.
 
         Free pins highlight every board pad within reach; a discrete pin (an SMD
         chip's second terminal) highlights its mount-candidate pads instead, so
         the orthogonal + diagonal mounting options are visible during the drag.
         """
-        self._clear_reach_overlay()
+        self.preview.clear_reach()
         if self._phase != "drag_pin" or self._anchor_pos is None:
             return
         defn = self._session.components.get(self._definition_ref)
@@ -474,32 +457,19 @@ class PlaceTool(_Tool):
         if spec is None:
             return
 
-        from PySide6.QtGui import QBrush, QPen
-        r = _REACH_PAD_RADIUS
-        color = QColor(self._theme().placement_reach_color)
-
-        def _dot(pt: Point) -> None:
-            item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
-            item.setBrush(QBrush(color))
-            item.setPen(QPen(Qt.GlobalColor.transparent, 0))
-            item.setZValue(20.0)
-            self._view.scene().addItem(item)
-            self._reach_items.append(item)
-
         if spec.is_free():
             origin = self._anchor_pos  # placement.position = component (0,0)
-            for pt in self._view.board_pad_positions():
-                if spec.is_reachable_from_origin(origin, pt):
-                    _dot(pt)
+            self.preview.show_reach_dots([
+                pt
+                for pt in self._view.board_pad_positions()
+                if spec.is_reachable_from_origin(origin, pt)
+            ])
             return
 
     @traced()
     def _update_reach_line(self, cursor: Point) -> None:
-        """Update the feedback line from pin baseline to cursor."""
-        # Remove old line (last item if it's a line)
-        if self._reach_items and isinstance(self._reach_items[-1], QGraphicsLineItem):
-            self._view.scene().removeItem(self._reach_items.pop())
-
+        """Update the feedback line from the reach centre to the cursor."""
+        self.preview.clear_reach_line()
         if self._phase != "drag_pin" or self._anchor_pos is None:
             return
         defn = self._session.components.get(self._definition_ref)
@@ -510,21 +480,7 @@ class PlaceTool(_Tool):
             return
 
         origin = self._anchor_pos  # component (0,0) = reach centre
-
-        line = QGraphicsLineItem(origin.x, origin.y, cursor.x, cursor.y)
-        from PySide6.QtGui import QPen
-        pen = QPen(QColor(self._theme().placement_reach_line_color), 0.05)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        line.setPen(pen)
-        line.setZValue(20.0)
-        self._view.scene().addItem(line)
-        self._reach_items.append(line)
-
-    @traced()
-    def _clear_reach_overlay(self) -> None:
-        for item in self._reach_items:
-            self._view.scene().removeItem(item)
-        self._reach_items = []
+        self.preview.show_reach_line(origin, cursor)
 
     # ------------------------------------------------------------------
     # Offset computation
