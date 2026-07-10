@@ -277,13 +277,14 @@ class MainWindow(QMainWindow):
         # (up to ~120 Hz).  Updating a QLabel forces a status-bar repaint,
         # which is an X11 round-trip — over SSH this queues hundreds of
         # stale "intermediate position" repaints after the cursor stops.
-        # Park the latest coords on ``_pending_cursor_pt`` and let the
-        # timer batch updates to ~30 fps.
-        self._cursor_timer = QTimer(self)
-        self._cursor_timer.setSingleShot(True)
-        self._cursor_timer.setInterval(self._app_settings.cursor_label_throttle_ms)
-        self._cursor_timer.timeout.connect(self._flush_cursor_label)
-        self._pending_cursor_pt: tuple[float, float] | None = None
+        # Park the latest coords and let the throttle batch updates to ~30 fps.
+        from protoboard.gui.throttle import ParkLatestThrottle
+        self._cursor_throttle: ParkLatestThrottle[tuple[float, float]] = (
+            ParkLatestThrottle(
+                self._app_settings.cursor_label_throttle_ms,
+                self._flush_cursor_label,
+            )
+        )
         # Push the rubber-band / post-zoom throttles into the view too.
         self._board_view.apply_throttle_settings(
             rubber_band_ms=self._app_settings.rubber_band_throttle_ms,
@@ -3158,7 +3159,7 @@ class MainWindow(QMainWindow):
         self._library_panel.set_library(new_library)
         # Re-apply render throttles in case the user adjusted them in
         # PreferencesDialog → Performance.  Cheap (just QTimer.setInterval).
-        self._cursor_timer.setInterval(settings.cursor_label_throttle_ms)
+        self._cursor_throttle.set_interval(settings.cursor_label_throttle_ms)
         self._board_view.apply_throttle_settings(
             rubber_band_ms=settings.rubber_band_throttle_ms,
             zoom_refresh_ms=settings.zoom_refresh_ms,
@@ -3243,21 +3244,15 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
 
     def _on_cursor_moved(self, x: float, y: float) -> None:
-        """Park the latest cursor pt; the throttle timer renders it.
+        """Park the latest cursor pt; the throttle renders it.
 
         Calling ``setText`` directly on every event forces a status-bar
         repaint per event — over SSH that means hundreds of stale
         intermediate coordinates trickle in after the cursor stops.
         """
-        self._pending_cursor_pt = (x, y)
-        if not self._cursor_timer.isActive():
-            self._cursor_timer.start()
+        self._cursor_throttle.note((x, y))
 
-    def _flush_cursor_label(self) -> None:
-        pt = self._pending_cursor_pt
-        self._pending_cursor_pt = None
-        if pt is None:
-            return
+    def _flush_cursor_label(self, pt: tuple[float, float]) -> None:
         self._cursor_label.setText(f"({pt[0]:.2f}, {pt[1]:.2f})")
 
     # ------------------------------------------------------------------
