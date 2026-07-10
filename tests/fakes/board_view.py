@@ -19,6 +19,7 @@ from protoboard.gui.ports import (
     BlockingJob,
     ExecutorPort,
     HelpOverlayPort,
+    HoverEvent,
     InteractionContext,
     StatusEvent,
     ViewportPort,
@@ -165,6 +166,7 @@ class NotificationLog:
         self.status: list[StatusEvent] = []
         self.cursor: list[Point] = []
         self.contexts: list[InteractionContext] = []
+        self.hovers: list[HoverEvent] = []
         self.escapes: int = 0
 
 
@@ -344,6 +346,9 @@ class HeadlessBoardView:
 
     def notify_context(self, ctx: InteractionContext) -> None:
         self.notifications.contexts.append(ctx)
+
+    def notify_hover(self, event: HoverEvent) -> None:
+        self.notifications.hovers.append(event)
 
     def escape_to_select(self) -> None:
         self.notifications.escapes += 1

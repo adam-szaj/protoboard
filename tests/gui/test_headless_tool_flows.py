@@ -288,6 +288,38 @@ class TestVerbParity:
 
 
 # --------------------------------------------------------------------------- #
+# 1c. Hover throttle (docs MVC step 1 §3) — the View collapses the move stream
+#     to one empty_action per interval and publishes the reply via notify_hover.
+# --------------------------------------------------------------------------- #
+
+
+class TestHoverThrottle:
+    def test_fire_hover_publishes_reply(
+        self, session: EditorSession
+    ) -> None:
+        # Simulate the throttle's trailing fire: the host runs empty_action on
+        # the active tool and publishes the enriched reply to notify_hover.
+        view = _headless(session)
+        inst = _place(view, 0.5, 0.5)
+        _select_tool(view)
+        view.tools._fire_hover(Point(0.5, 0.5), Mods())
+        assert view.notifications.hovers[-1].objects == (inst.id,)
+
+    def test_throttle_coalesces_to_latest_sample(self) -> None:
+        # A burst of notes inside one interval yields a single trailing fire
+        # carrying the most recent sample — park-latest coalescing.
+        from protoboard.gui.tool_host_details import HoverThrottle
+
+        fired: list[Point] = []
+        throttle = HoverThrottle(33, lambda pt, _mods: fired.append(pt))
+        throttle.note(Point(1.0, 1.0), Mods())
+        throttle.note(Point(2.0, 2.0), Mods())
+        throttle.note(Point(3.0, 3.0), Mods())
+        throttle._flush()  # stand in for the single-shot timeout
+        assert fired == [Point(3.0, 3.0)]
+
+
+# --------------------------------------------------------------------------- #
 # 2. Moving a component — drag, commit, undo/redo
 # --------------------------------------------------------------------------- #
 

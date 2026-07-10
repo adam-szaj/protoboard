@@ -209,6 +209,9 @@ class AbstractBoardView(Protocol):
     def notify_context(self, ctx: InteractionContext) -> None:
         """Publish an interaction context (RMB) for the consumer to render."""
 
+    def notify_hover(self, event: HoverEvent) -> None:
+        """Publish a throttled hover reply (what is under the cursor)."""
+
     def perform_context_action(self, option: ActionOption) -> None:
         """Execute a chosen context option (qt-ports §2.4, variant 1).
 

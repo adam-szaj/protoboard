@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         ActionOption,
         ExecutorPort,
         HelpOverlayPort,
+        HoverEvent,
         InteractionContext,
         StatusEvent,
         ViewportPort,
@@ -82,6 +83,7 @@ class BoardView(QGraphicsView):
 
     status_changed = Signal(object)  # StatusEvent
     context_published = Signal(object)  # InteractionContext (RMB)
+    hover_published = Signal(object)  # HoverEvent (throttled move)
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     escape_tool = Signal()  # right-click or Esc — return to Select
 
@@ -330,6 +332,11 @@ class BoardView(QGraphicsView):
     def notify_context(self, ctx: InteractionContext) -> None:
         """Re-emit an interaction context as ``context_published``."""
         self.context_published.emit(ctx)
+
+    @traced()
+    def notify_hover(self, event: HoverEvent) -> None:
+        """Re-emit a throttled hover reply as ``hover_published``."""
+        self.hover_published.emit(event)
 
     @traced()
     def escape_to_select(self) -> None:

@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from protoboard.gui.ports import (
         ActionOption,
         InteractionContext,
+        Mods,
         PointerInput,
         WheelInput,
     )
@@ -76,6 +77,12 @@ class ToolHost:
         self._panning = False
         self._ctrl_panning = False
         self._pan_start = QPointF()
+        # View-side throttle for the hover verb stream (docs MVC step 1 §4):
+        # a fast move stream collapses to one empty_action per interval, whose
+        # reply is published via notify_hover.  33 ms mirrors the rubber-band /
+        # drag-refresh cadence.
+        from protoboard.gui.tool_host_details import HoverThrottle
+        self._hover_throttle = HoverThrottle(33, self._fire_hover)
 
     # -- tool lifecycle ----------------------------------------------------------
 
@@ -412,10 +419,22 @@ class ToolHost:
         )
         view.notify_cursor_moved(scene_pos)
         if not self._panning and self._active_tool is not None:
-            self._active_tool.on_move(pointer_input(event, scene_pos))
+            inp = pointer_input(event, scene_pos)
+            self._active_tool.on_move(inp)
+            # Throttled hover verb alongside the live on_move: the Controller's
+            # enriched reply (what is under the cursor) is published for the
+            # highlight consumer without firing per raw move.
+            self._hover_throttle.note(scene_pos, inp.mods)
         elif not self._panning:
             return False  # fall through to QGraphicsView
         return True
+
+    def _fire_hover(self, point: Point, mods: Mods) -> None:
+        """Deliver a throttled hover to the active tool and publish the reply."""
+        tool = self._active_tool
+        if tool is None:
+            return
+        self._view.notify_hover(tool.empty_action(point, mods))
 
     def handle_mouse_release(self, event: QMouseEvent) -> bool:
         view = self._view
