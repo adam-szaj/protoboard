@@ -254,16 +254,37 @@ class TestVerbParity:
         # canvas menu instead.
         assert tool.secondary_action(Point(4.5, 4.5), Mods()) is False
 
-    def test_empty_action_returns_hover_event(
+    def test_empty_action_reports_hovered_component(
         self, session: EditorSession
     ) -> None:
-        # Sub-commit 1: the default adapter reports nothing hit (enriched
-        # hit-test lands in sub-commit 2); the reply shape is HoverEvent.
+        # Sub-commit 2: empty_action hit-tests eagerly and reports the domain
+        # id under the cursor.
         view = _headless(session)
-        _place(view, 0.5, 0.5)
+        inst = _place(view, 0.5, 0.5)  # pin 1 at (0.5, 0.5)
         tool = _select_tool(view)
         ev = tool.empty_action(Point(0.5, 0.5), Mods())
         assert ev.point == Point(0.5, 0.5)
+        assert ev.objects == (inst.id,)
+
+    def test_empty_action_bare_canvas_reports_nothing(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        ev = tool.empty_action(Point(4.5, 4.5), Mods())
+        assert ev.objects == ()
+
+    def test_empty_action_is_a_pure_query(
+        self, session: EditorSession
+    ) -> None:
+        # Hovering an object must not select it or change interaction state.
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        tool.empty_action(Point(0.5, 0.5), Mods())
+        assert tool._selection.is_empty()
+        assert tool.state == "select.idle"
 
 
 # --------------------------------------------------------------------------- #

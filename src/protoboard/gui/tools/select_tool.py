@@ -39,6 +39,7 @@ from protoboard.gui.highlight.controller import HighlightController
 from protoboard.gui.ports import (
     LEFT_BUTTON,
     ActionOption,
+    HoverEvent,
     InteractionContext,
     KeyInput,
     PointerInput,
@@ -1007,6 +1008,27 @@ class SelectTool(_Tool):
     def on_move(self, inp: PointerInput) -> None:
         if self._mouse is not None:
             self._mouse.on_move(inp.scene_pos, inp.mods)
+
+    @traced()
+    def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
+        """Hover verb (docs MVC step 1) — report what is under the cursor.
+
+        While an interaction (drag / band / pick) is live the move belongs to
+        it, so we forward it and report nothing hit.  Otherwise it is a plain
+        hover: hit-test eagerly and reply with the domain id under the cursor
+        (empty over bare canvas).  Pure query — it never changes the selection
+        or the interaction state.
+        """
+        if self._mouse is not None:
+            self._mouse.on_move(point, mods)
+            return HoverEvent(point=point)
+        sel = self._hit_tester().hit(point.x, point.y, self._filters())
+        objects: tuple[uuid.UUID, ...] = ()
+        if sel is not None:
+            hid = sel.to_hit().id
+            if isinstance(hid, uuid.UUID):
+                objects = (hid,)
+        return HoverEvent(point=point, objects=objects)
 
     @traced()
     def on_release(self, inp: PointerInput) -> None:
