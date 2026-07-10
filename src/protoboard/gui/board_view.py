@@ -29,7 +29,7 @@ _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -203,10 +203,8 @@ class BoardView(QGraphicsView):
         # debounce to ~80 ms so a burst of wheel ticks (typical user
         # scroll: 4–8 ticks in <100 ms) collapses to a single
         # visibility refresh after the burst settles.
-        self._label_vis_timer = QTimer(self)
-        self._label_vis_timer.setSingleShot(True)
-        self._label_vis_timer.setInterval(80)
-        self._label_vis_timer.timeout.connect(self._apply_label_visibility)
+        from protoboard.gui.throttle import TimerWrap
+        self._label_vis_timer = TimerWrap(80, self._apply_label_visibility)
         # Rubber-band throttle interval — read by SelectTool when it
         # builds its own timer.  Stored on the view so PreferencesDialog
         # can adjust the value live (call ``apply_throttle_settings``)
@@ -237,7 +235,7 @@ class BoardView(QGraphicsView):
         rubber_band_ms = max(0, int(rubber_band_ms))
         zoom_refresh_ms = max(0, int(zoom_refresh_ms))
         self._rubber_band_throttle_ms = rubber_band_ms
-        self._label_vis_timer.setInterval(zoom_refresh_ms)
+        self._label_vis_timer.set_interval(zoom_refresh_ms)
 
     @traced()
     def set_ratsnest_mode(self, mode: str) -> None:
@@ -559,8 +557,7 @@ class BoardView(QGraphicsView):
     def apply_label_visibility(self, *, deferred: bool = False) -> None:
         """Re-evaluate label visibility now, or debounced after a zoom."""
         if deferred:
-            if not self._label_vis_timer.isActive():
-                self._label_vis_timer.start()
+            self._label_vis_timer.arm()
             return
         self._apply_label_visibility()
 

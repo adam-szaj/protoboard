@@ -17,7 +17,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QRectF, QTimer
+from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsItemGroup
 
 from protoboard.gui.renderers.component_renderer import (
@@ -77,10 +77,8 @@ class SceneComposer:
         # Overlay items (ratsnest + group outlines) for targeted removal.
         self._overlay_items: list[object] = []
         # Debounce refresh so rapid layout_changed bursts only redraw once.
-        self._refresh_timer = QTimer(view)
-        self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.setInterval(16)   # ~1 frame
-        self._refresh_timer.timeout.connect(self.refresh)
+        from protoboard.gui.throttle import TimerWrap
+        self._refresh_timer = TimerWrap(16, self.refresh)  # ~1 frame, arm-if-idle
 
     # -- small state hooks --------------------------------------------------------
 
@@ -107,8 +105,7 @@ class SceneComposer:
     @traced()
     def schedule_refresh(self) -> None:
         """Schedule a refresh for the next event-loop tick (debounce)."""
-        if not self._refresh_timer.isActive():
-            self._refresh_timer.start()
+        self._refresh_timer.arm()
 
     @traced()
     def _invalidate_all_groups(self) -> None:
