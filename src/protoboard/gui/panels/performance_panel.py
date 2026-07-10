@@ -8,7 +8,7 @@ import time
 import uuid
 
 import structlog
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 
 _click_log = structlog.get_logger("protoboard.gui.panels.performance_panel.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -83,15 +83,17 @@ class PerformancePanel(QWidget):
         # walks every wire on the board — too slow to do on every click.
         # We delay the actual recompute by ~200ms so highlight latency
         # on the canvas stays under one frame.
-        self._cost_refresh_timer = QTimer(self)
-        self._cost_refresh_timer.setSingleShot(True)
         # 500 ms gives Qt comfortably enough time to paint the click's
         # highlight before we start the (still sync-on-main-thread)
         # cost recomputation.  Anything shorter risks the timer firing
         # in the same event-loop turn as the click and blocking the
-        # paint that the user is waiting to see.
-        self._cost_refresh_timer.setInterval(500)
-        self._cost_refresh_timer.timeout.connect(self._refresh_cost)
+        # paint that the user is waiting to see.  Settle discipline: each
+        # schedule restarts the timer, so a burst fires once, 500 ms after
+        # the last event.
+        from protoboard.gui.throttle import TimerWrap
+        self._cost_refresh_timer = TimerWrap(
+            500, self._refresh_cost, restart_on_arm=True,
+        )
         # Set to True when the panel is hidden during a refresh request;
         # `showEvent` consumes it to bring the table up to date.
         self._cost_refresh_pending = False
@@ -183,10 +185,9 @@ class PerformancePanel(QWidget):
 
         outer.addWidget(cost_grp)
 
-        self._timer = QTimer(self)
-        self._timer.setInterval(1000)
-        self._timer.timeout.connect(self._refresh)
-        self._timer.start()
+        # Periodic 1 Hz metrics poll (repeating).
+        self._timer = TimerWrap(1000, self._refresh, single_shot=False)
+        self._timer.arm()
 
         self._connect_session_signals(session)
         self._schedule_cost_refresh()
@@ -256,13 +257,13 @@ class PerformancePanel(QWidget):
             self._cost_refresh_pending = True
             return
         self._cost_refresh_pending = False
-        self._cost_refresh_timer.start()
+        self._cost_refresh_timer.arm()
 
     def showEvent(self, event: object) -> None:  # type: ignore[override]
         super().showEvent(event)  # type: ignore[arg-type]
         if self._cost_refresh_pending:
             self._cost_refresh_pending = False
-            self._cost_refresh_timer.start()
+            self._cost_refresh_timer.arm()
 
     def _wires_for_current_scope(self):  # type: ignore[no-untyped-def]
         """Return the Wire list matching the active scope radio."""

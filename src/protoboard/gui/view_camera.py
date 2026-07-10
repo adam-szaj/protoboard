@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QTimer
-
 from protoboard.geometry import Point, Rect, Transform2D
 from protoboard.services.debug_trace import traced
 
@@ -46,7 +44,7 @@ class ViewCamera:
         # cursor pivot, and fold the burst into one scale + scroll pass ~1 frame
         # later.  The parked sample is ``(delta, pivot)``; combine sums the delta
         # while the latest pivot wins.
-        from protoboard.gui.throttle import ParkLatestThrottle
+        from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
         self._wheel_throttle: ParkLatestThrottle[tuple[int, Point]] = (
             ParkLatestThrottle(
                 16,  # ~1 frame
@@ -58,10 +56,9 @@ class ViewCamera:
         # this timer is active we treat the view as in mid-pan and paint
         # the board pixmap by stretching the anchor instead of rebuilding.
         # When it fires (settle), the next paint rebuilds the cache fresh.
-        self._pan_burst_timer = QTimer()
-        self._pan_burst_timer.setSingleShot(True)
-        self._pan_burst_timer.setInterval(120)
-        self._pan_burst_timer.timeout.connect(self._on_pan_settled)
+        self._pan_burst_timer = TimerWrap(
+            120, self._on_pan_settled, restart_on_arm=True,  # settle detector
+        )
 
     # -- state -------------------------------------------------------------------
 
@@ -75,7 +72,7 @@ class ViewCamera:
 
     def in_transform_burst(self) -> bool:
         """True while a wheel-zoom or pan-scroll burst is in flight."""
-        return self._wheel_throttle.is_active() or self._pan_burst_timer.isActive()
+        return self._wheel_throttle.is_active() or self._pan_burst_timer.is_active()
 
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
@@ -506,7 +503,7 @@ class ViewCamera:
 
     def note_pan_scroll(self) -> None:
         """Restart the pan-burst detector (called from ``scrollContentsBy``)."""
-        self._pan_burst_timer.start()
+        self._pan_burst_timer.arm()
 
     def _on_pan_settled(self) -> None:
         """Force a paint right after a pan burst ends so the user sees the
