@@ -387,9 +387,15 @@ class ToolHost:
             return True
         # Not a bound gesture — the press belongs to the tool's input stream.
         if self._active_tool is not None:
-            self._active_tool.on_press(
-                pointer_input(event, from_qpointf(scene_pt))
-            )
+            point = from_qpointf(scene_pt)
+            if event.button() == Qt.MouseButton.LeftButton:
+                # The primary click is the default_action verb (docs MVC step 1).
+                self._active_tool.default_action(
+                    point, mods_from_qt(event.modifiers())
+                )
+            else:
+                # Other buttons stay on the raw hook (no verb maps to them yet).
+                self._active_tool.on_press(pointer_input(event, point))
             return True
         return False  # fall through to QGraphicsView
 

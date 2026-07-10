@@ -149,6 +149,24 @@ class TestMouseChordRouting:
         assert pressed == [True]
         assert board_view.tools._panning is False
 
+    def test_plain_lmb_routes_through_default_action(
+        self, board_view: BoardView
+    ) -> None:
+        # Sub-commit 4: the unchorded LMB residue is delivered as the
+        # default_action verb, not a raw on_press.
+        from PySide6.QtCore import Qt
+        seen: list[str] = []
+
+        class _Probe(_ToolA):
+            def default_action(self, point, mods) -> bool:
+                seen.append("verb")
+                return True
+
+        board_view.set_tool(_Probe())
+        board_view.tools.handle_mouse_press(
+            _mouse_press(Qt.MouseButton.LeftButton))
+        assert seen == ["verb"]
+
 
 class TestDispatchTable:
     def test_first_matching_entry_wins(self, board_view: BoardView) -> None:
