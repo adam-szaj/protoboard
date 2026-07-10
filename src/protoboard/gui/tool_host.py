@@ -81,8 +81,10 @@ class ToolHost:
         # a fast move stream collapses to one empty_action per interval, whose
         # reply is published via notify_hover.  33 ms mirrors the rubber-band /
         # drag-refresh cadence.
-        from protoboard.gui.tool_host_details import HoverThrottle
-        self._hover_throttle = HoverThrottle(33, self._fire_hover)
+        from protoboard.gui.throttle import ParkLatestThrottle
+        self._hover_throttle: ParkLatestThrottle[tuple[Point, Mods]] = (
+            ParkLatestThrottle(33, self._fire_hover)
+        )
 
     # -- tool lifecycle ----------------------------------------------------------
 
@@ -430,16 +432,17 @@ class ToolHost:
             # Throttled hover verb alongside the live on_move: the Controller's
             # enriched reply (what is under the cursor) is published for the
             # highlight consumer without firing per raw move.
-            self._hover_throttle.note(scene_pos, inp.mods)
+            self._hover_throttle.note((scene_pos, inp.mods))
         elif not self._panning:
             return False  # fall through to QGraphicsView
         return True
 
-    def _fire_hover(self, point: Point, mods: Mods) -> None:
+    def _fire_hover(self, parked: tuple[Point, Mods]) -> None:
         """Deliver a throttled hover to the active tool and publish the reply."""
         tool = self._active_tool
         if tool is None:
             return
+        point, mods = parked
         self._view.notify_hover(tool.empty_action(point, mods))
 
     def handle_mouse_release(self, event: QMouseEvent) -> bool:
