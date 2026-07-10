@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
 
-from PySide6.QtCore import Qt, QTimer, QFileSystemWatcher, Signal
+from PySide6.QtCore import Qt, QFileSystemWatcher, Signal
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
@@ -296,11 +296,12 @@ class MainWindow(QMainWindow):
         )
         self._board_view.set_ratsnest_mode(self._app_settings.ratsnest_mode)
 
-        # Auto-DRC timer — fires 600 ms after the last layout_changed.
-        self._drc_timer = QTimer(self)
-        self._drc_timer.setSingleShot(True)
-        self._drc_timer.setInterval(600)
-        self._drc_timer.timeout.connect(self._run_drc_silent)
+        # Auto-DRC timer — fires 600 ms after the last layout_changed (settle:
+        # each layout_changed restarts it via arm()).
+        from protoboard.gui.throttle import TimerWrap
+        self._drc_timer = TimerWrap(
+            600, self._run_drc_silent, restart_on_arm=True,
+        )
         # In-flight DRC worker (if any).  Set when ``_dispatch_drc``
         # kicks off a background run; cleared in ``_on_drc_finished``.
         # Subsequent layout edits cancel the previous worker so its
@@ -314,10 +315,9 @@ class MainWindow(QMainWindow):
         # Panel-refresh timer — debounces sidebar rebuilds to avoid blocking UI
         # on every drag-commit.  100 ms is fast enough to feel instant after a
         # move, but prevents rebuilding all trees on every keystroke/undo/redo.
-        self._panels_timer = QTimer(self)
-        self._panels_timer.setSingleShot(True)
-        self._panels_timer.setInterval(100)
-        self._panels_timer.timeout.connect(self._refresh_panels)
+        self._panels_timer = TimerWrap(
+            100, self._refresh_panels, restart_on_arm=True,  # settle
+        )
 
         # Signals.
         self._board_view.status_changed.connect(self._on_view_status)
@@ -341,8 +341,8 @@ class MainWindow(QMainWindow):
             self._auto_place_instances
         )
         session.layout_changed.connect(session.invalidate_graph)
-        session.layout_changed.connect(self._panels_timer.start)
-        session.layout_changed.connect(self._drc_timer.start)
+        session.layout_changed.connect(self._panels_timer.arm)
+        session.layout_changed.connect(self._drc_timer.arm)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
         session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
@@ -594,8 +594,8 @@ class MainWindow(QMainWindow):
         session.start_recording()
         # Reconnect signals from the old session.
         self._session.layout_changed.disconnect(self._session.invalidate_graph)
-        self._session.layout_changed.disconnect(self._panels_timer.start)
-        self._session.layout_changed.disconnect(self._drc_timer.start)
+        self._session.layout_changed.disconnect(self._panels_timer.arm)
+        self._session.layout_changed.disconnect(self._drc_timer.arm)
         self._session.layout_changed.disconnect(self._update_undo_redo)
         self._session.layout_changed.disconnect(self._session.mark_dirty)
         self._session.dirty_changed.disconnect(self._update_title)
@@ -606,8 +606,8 @@ class MainWindow(QMainWindow):
             pass  # not connected yet — first-time path
         self._session = session
         session.layout_changed.connect(session.invalidate_graph)
-        session.layout_changed.connect(self._panels_timer.start)
-        session.layout_changed.connect(self._drc_timer.start)
+        session.layout_changed.connect(self._panels_timer.arm)
+        session.layout_changed.connect(self._drc_timer.arm)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
         session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
@@ -782,7 +782,7 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
         self._update_stats()
         self._board_view.refresh()
-        self._drc_timer.start()
+        self._drc_timer.arm()
 
     # ------------------------------------------------------------------
     # Tool switches
@@ -3269,14 +3269,16 @@ class MainWindow(QMainWindow):
         # *final* viewport regardless of how many intermediate resizes the
         # WM produces.
         if not getattr(self, "_initial_fit_done", False):
+            from protoboard.gui.throttle import TimerWrap
             self._initial_fit_done = True
             self._initial_fit_pending = True
-            self._initial_fit_timer = QTimer(self)
-            self._initial_fit_timer.setSingleShot(True)
-            self._initial_fit_timer.setInterval(250)
-            self._initial_fit_timer.timeout.connect(self._finalise_initial_fit)
+            # Settle detector: each resize restarts it, so the final fit runs
+            # 250 ms after the WM's resize storm stops.
+            self._initial_fit_timer = TimerWrap(
+                250, self._finalise_initial_fit, restart_on_arm=True,
+            )
             self._board_view.fit_board()
-            self._initial_fit_timer.start()
+            self._initial_fit_timer.arm()
 
     def _finalise_initial_fit(self) -> None:
         """Run the last fit_board after the resize stream stops."""
@@ -3313,7 +3315,7 @@ class MainWindow(QMainWindow):
             self._board_view.fit_board()
             timer = getattr(self, "_initial_fit_timer", None)
             if timer is not None:
-                timer.start()
+                timer.arm()
         super().resizeEvent(event)
 
     def _shutdown_cleanup(self) -> None:
