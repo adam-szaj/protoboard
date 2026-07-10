@@ -254,6 +254,21 @@ class TestVerbParity:
         # canvas menu instead.
         assert tool.secondary_action(Point(4.5, 4.5), Mods()) is False
 
+    def test_rmb_chord_routes_through_secondary_action(
+        self, session: EditorSession
+    ) -> None:
+        # Sub-commit 5: the RMB mouse chord dispatches to secondary_action,
+        # which publishes the item context (parity with the old on_right_press).
+        from protoboard.gui.ports import RIGHT_BUTTON
+        view = _headless(session)
+        inst = _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        consumed = tool._mouse_context_menu(
+            pointer(0.5, 0.5, button=RIGHT_BUTTON)
+        )
+        assert consumed is True
+        assert view.notifications.contexts[-1].hit == ("component", inst.id)
+
     def test_empty_action_reports_hovered_component(
         self, session: EditorSession
     ) -> None:

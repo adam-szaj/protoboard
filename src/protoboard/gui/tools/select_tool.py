@@ -2779,8 +2779,11 @@ class SelectTool(_Tool):
     def _mouse_context_menu(self, inp: PointerInput | WheelInput) -> bool:
         if not isinstance(inp, PointerInput):
             return False
-        # False on empty canvas → falls through to the generic canvas menu.
-        return self.on_right_press(inp.scene_pos, inp.view_pos)
+        # The RMB chord resolves to the secondary_action verb (docs MVC step 1);
+        # the View reconstructs the menu anchor from the scene point, so the
+        # verb carries only (point, mods).  False on empty canvas → falls
+        # through to the generic canvas menu.
+        return self.secondary_action(inp.scene_pos, inp.mods)
 
     def wants_wheel(self, inp: WheelInput) -> bool:
         """Claim the wheel only when the armed sub-tool consumes it (rotate)."""

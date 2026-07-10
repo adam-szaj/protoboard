@@ -3177,7 +3177,7 @@ class MainWindow(QMainWindow):
         ``trigger_tool_action`` path; center-here / cancel are view chrome
         this window adds itself (parity with the old ToolHost canvas menu).
         """
-        from PySide6.QtCore import QPoint
+        from PySide6.QtCore import QPointF
         from PySide6.QtWidgets import QMenu
 
         from protoboard.gui.ports import ActionOption
@@ -3215,9 +3215,12 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
         act_center = menu.addAction("Center view here")
         act_escape = menu.addAction("Cancel tool (Esc)")
-        chosen = menu.exec(view.mapToGlobal(
-            QPoint(round(ctx.view_pos.x), round(ctx.view_pos.y))
-        ))
+        # The verb layer publishes scene coordinates (docs MVC step 1 §5); the
+        # View reconstructs the on-screen anchor here rather than trusting a
+        # pre-mapped view_pos, so the menu is positioned correctly regardless
+        # of how the context was raised.
+        anchor = view.mapFromScene(QPointF(ctx.scene_pos.x, ctx.scene_pos.y))
+        chosen = menu.exec(view.mapToGlobal(anchor))
         if chosen is None:
             return
         if chosen is act_center:
