@@ -84,6 +84,7 @@ class BoardView(QGraphicsView):
     status_changed = Signal(object)  # StatusEvent
     context_published = Signal(object)  # InteractionContext (RMB)
     hover_published = Signal(object)  # HoverEvent (throttled move)
+    controller_state_changed = Signal(str)  # interaction state tag
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     escape_tool = Signal()  # right-click or Esc — return to Select
 
@@ -337,6 +338,11 @@ class BoardView(QGraphicsView):
     def notify_hover(self, event: HoverEvent) -> None:
         """Re-emit a throttled hover reply as ``hover_published``."""
         self.hover_published.emit(event)
+
+    @traced()
+    def notify_controller_state(self, state: str) -> None:
+        """Re-emit an interaction-state change as ``controller_state_changed``."""
+        self.controller_state_changed.emit(state)
 
     @traced()
     def escape_to_select(self) -> None:

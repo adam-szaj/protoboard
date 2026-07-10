@@ -79,9 +79,19 @@ dedicated `notify_hover` channel, never through `notify_context`.
 3. View-side `HoverThrottle` + live move re-route + `notify_hover`.
 4. LMB residue → `default_action`.
 5. RMB chord → `secondary_action` (View reconstructs `view_pos` from the point).
-6. `controller_state_changed` emit + `KeyMap`-layer swap on state (replacing the
-   `wants_key` armed-arrow claim); parity tests for armed keys precede the swap.
+6. `controller_state_changed` emit + the View records the state (`select.idle` /
+   `move.float.rotate` / `move.float.move`).
 
-Deferred (tracked in `docs/todo.md` when reached): migrating each tool's
-internals into verbs; inlining the LMB logic out of `on_press`; the
-`select.pick` / `select.wire_edit` states; the actual hover-highlight visual.
+**Step 6 landed as 6a (emit + record), not the planned KeyMap-layer swap.** A
+code audit showed the swap would *duplicate*, not replace, the working armed-key
+mechanism: armed keys dispatch through `SelectTool.on_key` gated on
+`self._armed` (not a KeyMap `lookup`), so a layer swap is cosmetic for dispatch;
+and the armed set includes `R` / `Alt+R` / `Esc`, so `wants_key` must stay to
+veto those global shortcuts regardless. A state-driven KeyMap layer is therefore
+future work, and only for cases where dispatch actually flows through the KeyMap
+(tracked in `docs/todo.md`).
+
+Deferred (tracked in `docs/todo.md`): the state-driven KeyMap-layer swap (6b);
+migrating each tool's internals into verbs; inlining the LMB logic out of
+`on_press`; the `select.pick` / `select.wire_edit` states; the actual
+hover-highlight visual.

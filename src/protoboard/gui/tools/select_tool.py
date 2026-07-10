@@ -2813,6 +2813,17 @@ class SelectTool(_Tool):
 
     # -- armed transform sub-tools ([R] rotate / [G] move) ------------------
 
+    def _emit_state(self) -> None:
+        """Publish the current interaction :attr:`state` to the View.
+
+        The single point where a state transition is announced (docs MVC step 1
+        §5): the View records it (a Controller fact) and may drive the KeyMap /
+        status from it.  Called wherever :attr:`state` could have changed —
+        arm / switch-mode / disarm.
+        """
+        if self._view is not None:
+            self._view.notify_controller_state(self.state)
+
     def _disarm(self, *, cancel: bool = False) -> None:
         """Drop the active armed sub-tool, refreshing the view.
 
@@ -2830,6 +2841,7 @@ class SelectTool(_Tool):
         self._clear_pivot_markers()
         self._clear_drag_corner()
         self._refresh_highlight()
+        self._emit_state()
         if self._view is not None:
             self._view.refresh()
 
@@ -2885,6 +2897,7 @@ class SelectTool(_Tool):
         if isinstance(self._armed, FloatTransform):
             self._armed.switch_mode("rotate")  # already floating — just re-aim
             self._status(self._armed.status_hint(), 0)
+            self._emit_state()
             return
         if self._armed is not None:
             return
@@ -2912,6 +2925,7 @@ class SelectTool(_Tool):
         )
         self._draw_pivot_markers()  # show the pivot(s) the instant we arm
         self._status(self._armed.status_hint(), 0)
+        self._emit_state()
 
     def _rotatable_affected(self) -> tuple[frozenset[uuid.UUID], uuid.UUID | None]:
         """The components a rotate would actually move (+ a whole-group id).
@@ -2959,6 +2973,7 @@ class SelectTool(_Tool):
         if isinstance(self._armed, FloatTransform):
             self._armed.switch_mode("move")  # already floating — just re-aim
             self._status(self._armed.status_hint(), 0)
+            self._emit_state()
             return
         if self._armed is not None:
             return
@@ -2982,6 +2997,7 @@ class SelectTool(_Tool):
             status=lambda msg: self._status(msg, 0),
         )
         self._status(self._armed.status_hint(), 0)
+        self._emit_state()
 
     def _selected_comp_ids(self) -> frozenset[uuid.UUID]:
         import uuid as _uuid

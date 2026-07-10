@@ -167,6 +167,7 @@ class NotificationLog:
         self.cursor: list[Point] = []
         self.contexts: list[InteractionContext] = []
         self.hovers: list[HoverEvent] = []
+        self.controller_states: list[str] = []
         self.escapes: int = 0
 
 
@@ -349,6 +350,9 @@ class HeadlessBoardView:
 
     def notify_hover(self, event: HoverEvent) -> None:
         self.notifications.hovers.append(event)
+
+    def notify_controller_state(self, state: str) -> None:
+        self.notifications.controller_states.append(state)
 
     def escape_to_select(self) -> None:
         self.notifications.escapes += 1

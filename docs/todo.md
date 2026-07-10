@@ -199,3 +199,29 @@ live-compose plan, Phase 5 notes.
 Superseded by the drag pipeline; no constructor anywhere in `src/`. Listed in
 `_INTENTIONALLY_UNREGISTERED` (serialization totality guard) with a reason —
 a candidate for deletion in a separate cleanup.
+
+## MVC verb-layer — deferred follow-ups (added 2026-07-11)
+
+The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
+3fcf3c9 → 6a). Deliberately deferred, in order of likely value:
+
+- **State-driven KeyMap-layer swap (planned step 6b, dropped for 6a).**
+  Step 6 landed as *emit + record* `controller_state_changed`. The originally
+  planned KeyMap-layer swap was rejected after a code audit: armed keys
+  dispatch through `SelectTool.on_key` gated on `self._armed` (not a KeyMap
+  `lookup`), so a swap is cosmetic for dispatch; and the armed set includes
+  `R`/`Alt+R`/`Esc`, so `wants_key`/`key_claims` must stay to veto those global
+  shortcuts anyway. Only pursue a state-driven layer where dispatch actually
+  flows through the KeyMap (not the armed sub-tool path).
+- **Hover-highlight visual.** `hover_published` fires with the hovered ids
+  (HoverEvent) but no consumer paints a hover highlight yet; the highlight
+  renderer is the natural subscriber.
+- **`select.pick` / `select.wire_edit` states.** `ToolController.state`
+  currently reports only idle / armed-rotate / armed-move; the pick and
+  wire-edit sub-states are not yet surfaced.
+- **Inline the LMB logic out of `on_press`.** `default_action` delegates to
+  `on_press`, whose `if inp.button != LEFT_BUTTON: return False` guard is now
+  dead for the verb path; a later pass can inline the body and drop the guard.
+- **Migrate other tools' internals into verbs.** Place/Route/Cut/Simplify still
+  receive `on_press`/`on_move` via the default `_Tool` adapters; only SelectTool
+  overrides the verbs so far.

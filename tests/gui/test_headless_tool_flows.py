@@ -335,6 +335,62 @@ class TestHoverThrottle:
 
 
 # --------------------------------------------------------------------------- #
+# 1d. Controller state as first-class feedback (docs MVC step 1 §5) — the state
+#     is an assertable Controller fact, published to the View on every change.
+# --------------------------------------------------------------------------- #
+
+
+class TestControllerState:
+    def test_arm_rotate_transitions_state_and_publishes(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        tool.default_action(Point(0.5, 0.5), Mods())  # select the component
+        assert tool.state == "select.idle"
+        tool.arm_rotate()
+        assert tool.state == "move.float.rotate"
+        assert view.notifications.controller_states[-1] == "move.float.rotate"
+
+    def test_switch_to_move_transitions_state(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        tool.default_action(Point(0.5, 0.5), Mods())
+        tool.arm_rotate()
+        tool.arm_move()  # switch sub-mode without committing
+        assert tool.state == "move.float.move"
+        assert view.notifications.controller_states[-1] == "move.float.move"
+
+    def test_disarm_returns_to_idle(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        tool.default_action(Point(0.5, 0.5), Mods())
+        tool.arm_rotate()
+        tool._disarm(cancel=True)
+        assert tool.state == "select.idle"
+        assert view.notifications.controller_states[-1] == "select.idle"
+
+    def test_arm_without_selection_stays_idle(
+        self, session: EditorSession
+    ) -> None:
+        # The negative case: arming rotate with nothing selected must NOT enter
+        # an armed state — it stays select.idle and publishes no transition.
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)  # nothing selected
+        tool.arm_rotate()
+        assert tool.state == "select.idle"
+        assert view.notifications.controller_states == []
+
+
+# --------------------------------------------------------------------------- #
 # 2. Moving a component — drag, commit, undo/redo
 # --------------------------------------------------------------------------- #
 

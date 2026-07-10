@@ -212,6 +212,9 @@ class AbstractBoardView(Protocol):
     def notify_hover(self, event: HoverEvent) -> None:
         """Publish a throttled hover reply (what is under the cursor)."""
 
+    def notify_controller_state(self, state: str) -> None:
+        """Publish an interaction-state change (e.g. ``"move.float.rotate"``)."""
+
     def perform_context_action(self, option: ActionOption) -> None:
         """Execute a chosen context option (qt-ports §2.4, variant 1).
 
