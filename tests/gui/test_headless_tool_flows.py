@@ -35,6 +35,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, move_blocked
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.placement_conflict import classify_drag_commit
+from protoboard.gui.ports import Mods
 from protoboard.gui.selection.adapters import (
     ComponentSelectable,
     WireSelectable,
@@ -199,6 +200,70 @@ class TestMultiSelect:
         ])
         assert tool._selected_ids == set(session.layout.placements.keys())
         assert len(tool._selected_ids) == 2
+
+
+# --------------------------------------------------------------------------- #
+# 1b. Verb vocabulary parity (docs MVC step 1) — driving the tool through the
+#     semantic verbs (default_action / secondary_action / empty_action) must
+#     match driving it through the legacy on_press hooks.  These are the guard
+#     tests that let the live Qt path re-route onto verbs in a later commit.
+# --------------------------------------------------------------------------- #
+
+
+class TestVerbParity:
+    def test_default_action_selects_component_like_on_press(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        inst = _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        consumed = tool.default_action(Point(0.5, 0.5), Mods())
+        assert consumed is True
+        assert _selected_kinds(tool) == {"component"}
+        assert inst.id in tool._selected_ids
+
+    def test_default_action_empty_space_selects_nothing(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        tool.default_action(Point(4.5, 4.5), Mods())
+        tool.on_release(pointer(4.5, 4.5))
+        assert tool._selection.is_empty()
+
+    def test_secondary_action_publishes_component_context(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        inst = _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        published = tool.secondary_action(Point(0.5, 0.5), Mods())
+        assert published is True  # item present → context published
+        ctx = view.notifications.contexts[-1]
+        assert ctx.hit == ("component", inst.id)
+        assert ctx.actions  # non-empty option set
+
+    def test_secondary_action_bare_canvas_falls_through(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        # Empty pad, no item — the verb declines so the View shows the generic
+        # canvas menu instead.
+        assert tool.secondary_action(Point(4.5, 4.5), Mods()) is False
+
+    def test_empty_action_returns_hover_event(
+        self, session: EditorSession
+    ) -> None:
+        # Sub-commit 1: the default adapter reports nothing hit (enriched
+        # hit-test lands in sub-commit 2); the reply shape is HoverEvent.
+        view = _headless(session)
+        _place(view, 0.5, 0.5)
+        tool = _select_tool(view)
+        ev = tool.empty_action(Point(0.5, 0.5), Mods())
+        assert ev.point == Point(0.5, 0.5)
 
 
 # --------------------------------------------------------------------------- #

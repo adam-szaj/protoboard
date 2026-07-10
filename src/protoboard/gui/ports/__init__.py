@@ -17,11 +17,13 @@ from protoboard.gui.ports.inputs import (
 )
 from protoboard.gui.ports.executor import BlockingJob, ExecutorPort
 from protoboard.gui.ports.help_overlay import HelpOverlayPort
+from protoboard.gui.ports.hover import HoverEvent
 from protoboard.gui.ports.interaction_context import (
     ActionOption,
     InteractionContext,
 )
 from protoboard.gui.ports.status_event import StatusEvent
+from protoboard.gui.ports.tool_controller import ToolController
 from protoboard.gui.ports.viewport import (
     CursorKind,
     ScreenMetrics,
@@ -34,7 +36,9 @@ __all__ = [
     "CursorKind",
     "ExecutorPort",
     "HelpOverlayPort",
+    "HoverEvent",
     "InteractionContext",
+    "ToolController",
     "ScreenMetrics",
     "ViewportPort",
     "Intent",

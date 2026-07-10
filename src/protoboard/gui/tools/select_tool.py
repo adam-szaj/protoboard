@@ -3199,6 +3199,30 @@ class SelectTool(_Tool):
         self._view.notify_context(ctx)
         return True
 
+    @traced()
+    def secondary_action(self, point: Point, mods: Mods) -> bool:
+        """RMB verb (docs MVC step 1) — publish the item context at *point*.
+
+        The verb carries only ``(point, mods)``; the View reconstructs the
+        menu anchor from the point (scene == board coords).  Delegates to the
+        existing :meth:`on_right_press`.
+        """
+        return self.on_right_press(point, point)
+
+    @property
+    def state(self) -> str:
+        """Current interaction state (docs MVC step 1) — a Controller fact.
+
+        ``select.idle`` unless an armed float-transform is live, in which case
+        the sub-mode is exposed (``move.float.rotate`` / ``move.float.move``).
+        Asserted directly by headless tests, including the negative case
+        (arming with no selection leaves the state ``select.idle``).
+        """
+        from protoboard.gui.selection.float_transform import FloatTransform
+        if isinstance(self._armed, FloatTransform):
+            return f"move.float.{self._armed.mode}"
+        return "select.idle"
+
     def build_context(
         self, scene_pt: Point, view_pos: Point
     ) -> InteractionContext | None:

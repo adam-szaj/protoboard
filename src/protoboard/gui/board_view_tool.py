@@ -28,8 +28,10 @@ if TYPE_CHECKING:
         ActionOption,
         ExecutorPort,
         HelpOverlayPort,
+        HoverEvent,
         InteractionContext,
         KeyInput,
+        Mods,
         PointerInput,
         StatusEvent,
         ViewportPort,
@@ -403,6 +405,53 @@ class _Tool(BoardViewTool):
     @traced()
     def on_release(self, inp: PointerInput) -> None:
         pass
+
+    # -- verb surface (docs MVC step 1) --------------------------------------
+    #
+    # The View translates Qt input (+ KeyMap chord resolution + throttling)
+    # into these semantic verbs and hands them to the active tool.  The default
+    # adapters delegate to the ``on_*`` hooks so introducing the vocabulary
+    # changes no behaviour on its own (parity before swap, CLAUDE.md §8).
+
+    @traced()
+    def default_action(self, point: Point, mods: Mods) -> bool:
+        """Primary action (LMB) — delegates to :meth:`on_press`."""
+        return bool(self.on_press(self._synth_pointer(point, mods, primary=True)))
+
+    @traced()
+    def secondary_action(self, point: Point, mods: Mods) -> bool:
+        """Context action (RMB).  Default: no item context (bare canvas)."""
+        return False
+
+    @traced()
+    def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
+        """Hover/move — delegates to :meth:`on_move`, reports nothing hit."""
+        from protoboard.gui.ports import HoverEvent
+        self.on_move(self._synth_pointer(point, mods, primary=False))
+        return HoverEvent(point=point)
+
+    @property
+    def state(self) -> str:
+        """The current interaction state.  Default: idle, no sub-state."""
+        return "idle"
+
+    def _synth_pointer(
+        self, point: Point, mods: Mods, *, primary: bool
+    ) -> PointerInput:
+        """Build a scene==view ``PointerInput`` for a verb→hook delegation.
+
+        A verb carries only ``(point, mods)`` (the boundary vocabulary); the
+        legacy ``on_*`` hooks still want a DTO, so we synthesise one whose
+        ``button`` is the primary button for a click and ``0`` for a move.
+        """
+        from protoboard.gui.ports import LEFT_BUTTON, PointerInput
+        return PointerInput(
+            view_pos=point,
+            scene_pos=point,
+            button=LEFT_BUTTON if primary else 0,
+            native_mods=0,
+            mods=mods,
+        )
 
     @override
     @traced()
