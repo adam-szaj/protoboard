@@ -42,12 +42,18 @@ class ViewCamera:
         # timer collapses bursts of ticks into a single scale + scroll
         # pass, so over SSH the wheel handler returns in microseconds
         # and Qt processes the next tick without waiting for a paint.
-        self._wheel_accum_delta: int = 0
-        self._wheel_pivot_vp: Point | None = None
-        self._wheel_timer = QTimer()
-        self._wheel_timer.setSingleShot(True)
-        self._wheel_timer.setInterval(16)  # ~1 frame
-        self._wheel_timer.timeout.connect(self._flush_wheel_zoom)
+        # Wheel-zoom coalescing: accumulate the raw angleDelta, keep the latest
+        # cursor pivot, and fold the burst into one scale + scroll pass ~1 frame
+        # later.  The parked sample is ``(delta, pivot)``; combine sums the delta
+        # while the latest pivot wins.
+        from protoboard.gui.throttle import ParkLatestThrottle
+        self._wheel_throttle: ParkLatestThrottle[tuple[int, Point]] = (
+            ParkLatestThrottle(
+                16,  # ~1 frame
+                self._flush_wheel_zoom,
+                combine=lambda old, new: (old[0] + new[0], new[1]),
+            )
+        )
         # Pan-burst detector — restarted on each scrollContentsBy.  While
         # this timer is active we treat the view as in mid-pan and paint
         # the board pixmap by stretching the anchor instead of rebuilding.
@@ -69,7 +75,7 @@ class ViewCamera:
 
     def in_transform_burst(self) -> bool:
         """True while a wheel-zoom or pan-scroll burst is in flight."""
-        return self._wheel_timer.isActive() or self._pan_burst_timer.isActive()
+        return self._wheel_throttle.is_active() or self._pan_burst_timer.isActive()
 
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
@@ -306,12 +312,9 @@ class ViewCamera:
         the wheel intends to zoom around wherever the cursor currently
         is, not the position where the burst started.
         """
-        self._wheel_accum_delta += inp.delta_y
-        self._wheel_pivot_vp = inp.view_pos
-        if not self._wheel_timer.isActive():
-            self._wheel_timer.start()
+        self._wheel_throttle.note((inp.delta_y, inp.view_pos))
 
-    def _flush_wheel_zoom(self) -> None:
+    def _flush_wheel_zoom(self, parked: tuple[int, Point]) -> None:
         """Apply the accumulated wheel-zoom delta in one pass.
 
         Translates the buffered angleDelta into a number of asymmetric
@@ -320,14 +323,11 @@ class ViewCamera:
         the net factor as a single ``view.scale(...)``.  Cursor-pivot
         correction is identical to the legacy code path; the only
         difference is that *N ticks* of wheel input cost one paint
-        instead of N.
+        instead of N.  *parked* is ``(summed delta, latest pivot)``.
         """
         view = self._view
-        delta = self._wheel_accum_delta
-        pivot = self._wheel_pivot_vp
-        self._wheel_accum_delta = 0
-        self._wheel_pivot_vp = None
-        if delta == 0 or pivot is None:
+        delta, pivot = parked
+        if delta == 0:
             return
         # Qt reports angleDelta in 1/8-degree units; a standard mouse
         # tick is 15° = 120.  Use the sign-counted tick count so the

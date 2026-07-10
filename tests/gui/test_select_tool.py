@@ -482,16 +482,19 @@ class TestArmedRotate:
         base = session.layout.placements[inst.id].rotation
         board_view.wheelEvent(self._qt_wheel(120))
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-        assert board_view.camera._wheel_accum_delta == 0  # zoom untouched
+        # Zoom untouched: the wheel throttle never parked a delta.
+        assert board_view.camera._wheel_throttle._parked is None
 
     def test_view_wheel_zooms_when_not_armed(self, board_view, session) -> None:
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         base = session.layout.placements[inst.id].rotation
         board_view.wheelEvent(self._qt_wheel(120))
-        # Not armed → the chord falls through the tool layer to view zoom.
+        # Not armed → the chord falls through the tool layer to view zoom:
+        # the wheel throttle parked the raw delta (flushed ~1 frame later).
         assert session.layout.placements[inst.id].rotation == base
-        assert board_view.camera._wheel_accum_delta == 120
+        parked = board_view.camera._wheel_throttle._parked
+        assert parked is not None and parked[0] == 120
 
     def test_esc_cancels_whole_session(self, board_view, session) -> None:
         inst, tool = self._armed(board_view, session)
