@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — EditController scaffold, step 0 (2026-07-11)
+
+* **`services/editing/` — new Qt-free Application-layer package** for the
+  presentation-free edit-verb layer that both the GUI and a headless CLI will
+  drive:
+  - `HeadlessSession` (`headless_session.py`): the Qt-free state substrate —
+    board / layout / schematic / instances / components + `CommandStack`, plus
+    every read cache and lookup (`connectivity_graph`, `pad_index`,
+    `group_tree`, `conflict_scanner`, `cached_wire_net_map`, spatial indexes,
+    `get_pin_position`, `component_bbox`, …) extracted verbatim from
+    `EditorSession`. `EditorSession` now subclasses it
+    (`EditorSession(HeadlessSession, QObject)`), keeping only the signals,
+    `HighlightStack`/`LayerOverrides`, DRC/dirty/autoroute state and the
+    recorder. A `_record_build_time` hook feeds cache-rebuild timings back
+    into the GUI `PerfMetrics` so the performance panel is unchanged.
+  - `EditController` + `EditState` protocol (`controller.py`): the stateless
+    verb surface. Step 0 ships the command-execution seam
+    (`EditController._execute`, a Qt-free copy of the tools' old
+    `_execute_command`) and the optional `notify_changed()` change hook the
+    GUI session emits `layout_changed` from. Concrete verbs land in later
+    steps.
+* Smoke coverage in `tests/unit/test_edit_controller_scaffold.py`: a real
+  add/remove-wire round-trip driven through the controller on a bare
+  `HeadlessSession`, no display server.
+
 ### Qt ports — D4 dialog prompts (2026-07-09)
 
 * **Modal decisions behind the seam are injected callables** (qt-ports

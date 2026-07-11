@@ -7,49 +7,21 @@ components observe it via Qt signals and mutate it only through Commands.
 
 from __future__ import annotations
 
-import os
 import time
 import uuid
-
-import structlog as _structlog
-_click_log = _structlog.get_logger("protoboard.gui.session.click")
-_CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
-from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.domain.components.footprints import Footprint
-    from protoboard.domain.layout.group_tree import GroupTree
-    from protoboard.domain.layout.pad_conflict import ConflictScanner
-    from protoboard.domain.layout.wire import Wire
 
 from PySide6.QtCore import QObject, Signal
 
-from protoboard.domain.board.board import Board
-from protoboard.domain.commands.base import CommandStack, ComponentState
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.connectivity.graph import ConnectivityGraph
-from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point, Rect
-from protoboard.services.drc.engine import DRCEngine, DRCIssue
-from protoboard.domain.components.package import PackageFamily
-from protoboard.services.library.package_family_loader import (
-    load_full_package_catalogue,
-)
-from protoboard.services.library.loader import (
-    ComponentLibrary,
-    inline_option_families,
-)
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
+from protoboard.domain.board.board import Board
 from protoboard.domain.routing_settings import RoutingSettings
-from protoboard.gui.layer_state import LayerOverrides
 from protoboard.gui.highlight_state import HighlightStack
+from protoboard.gui.layer_state import LayerOverrides
+from protoboard.services.drc.engine import DRCEngine, DRCIssue
+from protoboard.services.editing.headless_session import HeadlessSession
+from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
 
 
@@ -109,48 +81,16 @@ class PerfMetrics:
         self.paint_ms = paint_ms
 
 
-def _build_comp_spatial_index(
-    layout: Layout,
-    instances: dict[uuid.UUID, ComponentInstance],
-    components: dict[str, ComponentDefinition],
-    families: "dict[str, PackageFamily] | None" = None,
-) -> dict[tuple[int, int], list[uuid.UUID]]:
-    """Build grid-cell → comp_id index from current placements."""
-    from protoboard.domain.components.package import resolved_footprint
-    idx: dict[tuple[int, int], list[uuid.UUID]] = defaultdict(list)
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = resolved_footprint(defn, inst, families)
-        seen_cells: set[tuple[int, int]] = set()
-        for n in range(fp.pin_count()):
-            p = pin_world_position(fp, placement, n + 1)
-            cell = (round(p.x), round(p.y))
-            if cell not in seen_cells:
-                seen_cells.add(cell)
-                idx[cell].append(comp_id)
-    return dict(idx)
+class EditorSession(HeadlessSession, QObject):
+    """Central state for one open project.
 
-
-def _build_wire_spatial_index(layout: Layout) -> dict[tuple[int, int], list[uuid.UUID]]:
-    """Build grid-cell → wire_id index from current wires."""
-    idx: dict[tuple[int, int], list[uuid.UUID]] = defaultdict(list)
-    for wire in layout.wires:
-        seen_cells: set[tuple[int, int]] = set()
-        for pt in wire.path:
-            cell = (round(pt.x), round(pt.y))
-            if cell not in seen_cells:
-                seen_cells.add(cell)
-                idx[cell].append(wire.id)
-    return dict(idx)
-
-
-class EditorSession(QObject):
-    """Central state for one open project."""
+    Extends the Qt-free :class:`HeadlessSession` state substrate (board /
+    layout / schematic / instances / components + CommandStack + read caches)
+    with a ``QObject`` and the signals GUI panels observe. The pure-Python
+    state and lookups live on the base so a headless CLI / test front-end can
+    drive the same :class:`~protoboard.services.editing.controller.EditController`
+    verbs without a display server.
+    """
 
     layout_changed = Signal()
     drag_moved = Signal()       # emitted on every drag step; does NOT trigger panels/DRC
@@ -186,35 +126,10 @@ class EditorSession(QObject):
         library: ComponentLibrary,
         parent: QObject | None = None,
     ) -> None:
-        super().__init__(parent)
-        self.board = board
-        self.library = library
-        self.schematic = Schematic(nets={})
-        self._layout: Layout = Layout()
-        self._wire_resolver_to(self._layout)
-        self._layout.ensure_root_group()
-        # Pre-populate components from library so renderers can look up
-        # definitions. A ComponentCatalog synthesizes parametric variants
-        # (PinHeader_1x05) on miss, so instance refs from loaded projects and
-        # the placement dialog resolve transparently.
-        from protoboard.services.library.parametric import ComponentCatalog
-        self.components: dict[str, ComponentDefinition] = ComponentCatalog(
-            (name, library.get(name)) for name in library.names()
-        )
-        self.instances: dict[uuid.UUID, ComponentInstance] = {}
-        # Package-family body catalogue, keyed by family id: the authored
-        # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
-        # sil-N), plus families contributed by the library files' own
-        # ``families:`` sections, plus a one-variant family for each component's
-        # inline footprint options (so the picker can offer them and an instance
-        # can record the choice as a normal address).  The builtin catalogue
-        # wins on an id clash (matching the loader's first-wins rule).
-        self.package_families: dict[str, PackageFamily] = {
-            **library.package_families,
-            **load_full_package_catalogue(),
-            **inline_option_families(library),
-        }
-        self.stack: CommandStack[ComponentState] = CommandStack()
+        # QObject first (explicit — the diamond has non-cooperative __init__s),
+        # then the Qt-free state substrate.
+        QObject.__init__(self, parent)
+        HeadlessSession.__init__(self, board, library)
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
         self.layer_overrides: LayerOverrides = LayerOverrides()
@@ -224,112 +139,32 @@ class EditorSession(QObject):
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
         self._autoroute_active: bool = False
-        self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
-        self._pad_index: "PadIndex | None" = None
-        # PadStrategy overrides keyed by subsystem name. Empty by default —
-        # `strategy_for(...)` falls back to the project- and subsystem-
-        # specific defaults assembled by `StrategyConfig.from_session`.
-        # Tests inject mocks via `override_strategy`; production tools
-        # may inject a tuned strategy per session.
-        self._strategy_overrides: dict[str, object] = {}
-        self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
-        self._wire_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
-        # Cached pad-walk sets used by post-hoc cost analysis.  Both depend
-        # only on board + placements; `_plated_through_pads_cache` is board-
-        # only (never invalidates after construction), while
-        # `_under_component_pads_cache` is invalidated alongside the graph.
-        # Without these, every selection-changed event would re-walk every
-        # board atom — visible as multi-hundred-ms freeze when the user
-        # clicks a wire on a large board.
-        self._plated_through_pads_cache: set[Point] | None = None
-        self._under_component_pads_cache: set[Point] | None = None
-        # wire.id → net.id mapping, cached because both BoardView and the
-        # inspector / performance panels call ``build_wire_net_map`` on
-        # every selection click.  Invalidated alongside the graph since
-        # it derives from ConnectivityGraph.
-        self._wire_net_map_cache: dict[uuid.UUID, uuid.UUID] | None = None
-        # wire.id → Wire lookup, populated lazily by
-        # ``wire_by_id()``.  SelectTool's click handlers used to scan
-        # ``layout.wires`` for every highlight redraw — O(N²) when the
-        # active net has many wires.  Invalidated on every layout change.
-        self._wire_by_id_cache: dict[uuid.UUID, "Wire"] | None = None
         self.perf: PerfMetrics = PerfMetrics()
         # Command recorder — wired in by MainWindow once a project path is
         # known.  Auto-records every command through CommandStack.
         self.recorder: CommandRecorder = CommandRecorder()
         self.stack.set_recorder(self.recorder)
 
-    @property
-    def layout(self) -> Layout:
-        return self._layout
+    def _record_build_time(self, kind: str, ms: float) -> None:
+        """Feed lazy-cache (re)build times into the GUI ``PerfMetrics``.
 
-    def group_tree(self) -> "GroupTree":
-        """A :class:`GroupTree` view over the live ``layout.groups`` dict.
-
-        The convenient entry point for group-hierarchy queries
-        (``session.group_tree().all_component_ids(gid)`` etc.) instead of the
-        legacy free functions in ``domain/layout/group.py``. Cheap — wraps the
-        live dict by reference, no caching.
+        Overrides the headless base's no-op so the performance panel keeps
+        reporting connectivity-graph / pad-index rebuild cost.
         """
-        from protoboard.domain.layout.group_tree import GroupTree
+        if kind == "graph":
+            self.perf.graph_build_ms = ms
+        elif kind == "pad_index":
+            self.perf.pad_index_build_ms = ms
 
-        return GroupTree(self._layout.groups)
+    def notify_changed(self) -> None:
+        """Change hook for :class:`EditController` — emit ``layout_changed``.
 
-    def conflict_scanner(
-        self, *, pad_index: "PadIndex | None" = None
-    ) -> "ConflictScanner":
-        """A :class:`ConflictScanner` over this session's live layout context.
-
-        The convenient entry point for pad/wire-conflict queries
-        (``session.conflict_scanner(pad_index=idx).check_group_move(...)`` etc.)
-        instead of re-passing ``placements / instances / components /
-        schematic`` to every free function in ``domain/layout/pad_conflict.py``.
-
-        ``pad_index`` is taken explicitly because conflict callers usually want
-        a *post-move* index (a ``PadIndex.clone()`` reflecting the dragged
-        positions), which differs from the stale ``session.pad_index()``; when
-        omitted the legacy from-layout paths run. Cheap — wraps live dicts by
-        reference, no caching.
+        Satisfies the ``EditState`` protocol so a controller verb refreshes
+        panels/DRC after every command. Headless drivers leave this a no-op
+        (they don't define it); the GUI session emits the same signal the
+        tools' old ``_execute_command`` fired directly.
         """
-        from protoboard.domain.layout.pad_conflict import ConflictScanner
-
-        return ConflictScanner.from_session(self, pad_index=pad_index)
-
-    @layout.setter
-    def layout(self, value: Layout) -> None:
-        """Swap the layout, re-binding the PinKnot resolver to ``self``.
-
-        ``replace_wire_fragments`` needs a resolver to validate ``PinKnot``
-        positions; without re-binding it on every layout swap, the loader's
-        fresh Layout instance comes in without one and v2 commands crash
-        the moment the user touches a wire.
-        """
-        self._layout = value
-        self._wire_resolver_to(value)
-
-    def _wire_resolver_to(self, layout: Layout) -> None:
-        layout.set_pin_resolver(
-            lambda pin: self._resolve_pin_for_knot(pin)
-        )
-        layout.set_footprint_resolver(self._resolve_footprint_for_flip)
-
-    def _resolve_footprint_for_flip(
-        self, comp_id: uuid.UUID
-    ) -> "Footprint | None":
-        """Resolve *comp_id*'s chosen-variant footprint for the seam's group-flip
-        compose branch.  Returns None (a flipped group then raises loudly) when
-        the chain instance→definition→footprint can't be resolved."""
-        from protoboard.domain.components.package import resolved_footprint
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return None
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return None
-        try:
-            return resolved_footprint(defn, inst, self.package_families)
-        except (IndexError, ValueError):
-            return None
+        self.layout_changed.emit()
 
     def notify_selection(
         self,
@@ -434,213 +269,6 @@ class EditorSession(QObject):
         self.recorder.stop()
         self.recorder.start(target, project_label=label)
 
-    def invalidate_graph(self) -> None:
-        """Mark the cached ConnectivityGraph, PadIndex and spatial indexes as stale."""
-        self._graph = None
-        self._pad_index = None
-        self._comp_spatial_index = None
-        self._wire_spatial_index = None
-        # Under-component pad set depends on placements; invalidate alongside
-        # the graph.  Plated-through is board-only and survives.
-        self._under_component_pads_cache = None
-        # Wire→net map depends on the graph; recompute lazily next time.
-        self._wire_net_map_cache = None
-        # Wire-by-id index depends only on the wires list; rebuilt on
-        # demand.  layout_changed invalidates the graph (via this method),
-        # so this also stays in sync.
-        self._wire_by_id_cache = None
-
-    def rebuild_all_pin_identities(self) -> None:
-        """Bind every placed instance and (re)build its PinIdentity groups.
-
-        Call after bulk-loading instances (project open, KiCAD import). Two
-        things are seeded per instance, both of which must persist across
-        layout-change rebuilds:
-
-        * the live ``definition`` + ``package_families`` back-reference, so the
-          instance resolves its own variant-aware footprint
-          (``inst.resolved_footprint()``) without the caller threading the
-          catalogue;
-        * the same-name ``pin_identities`` (and the ``net_id`` they carry).
-
-        Binding returns a fresh frozen copy, stored back into ``instances``.
-        Unlike the graph/PadIndex this is NOT tied to ``invalidate_graph``:
-        these persist across layout changes, so they are rebuilt only on bulk
-        entry, not on every refresh.
-        """
-        for comp_id, inst in list(self.instances.items()):
-            defn = self.components.get(inst.definition_ref)
-            if defn is not None:
-                bound = inst.bind(defn, self.package_families)
-                self.instances[comp_id] = bound
-                bound.build_pin_identities(defn)
-
-    def cached_under_component_pads(self) -> set[Point]:
-        """Return cached set of top-layer pads sitting under a component body.
-
-        Used by the post-hoc cost analyzer.  Rebuilt on first access after
-        ``invalidate_graph`` (which the layout_changed signal triggers).
-        Keeping this on the session avoids re-walking every board atom for
-        every panel refresh / selection click.
-        """
-        cache = self._under_component_pads_cache
-        if cache is None:
-            from protoboard.services.routing.cost_analyzer import (
-                _under_component_pads,
-            )
-            cache = _under_component_pads(
-                self.board, self.layout, self.components, self.instances,
-            )
-            self._under_component_pads_cache = cache
-        return cache
-
-    def wire_by_id(self, wire_id: uuid.UUID) -> "Wire | None":
-        """O(1) wire lookup by id.
-
-        Replaces the ``next((w for w in layout.wires if w.id == X), None)``
-        idiom that select_tool was running per highlight redraw — at O(N)
-        per call, that becomes O(N²) when the active net is large.
-        """
-        cache = self._wire_by_id_cache
-        if cache is None:
-            cache = {w.id: w for w in self.layout.wires}
-            self._wire_by_id_cache = cache
-        return cache.get(wire_id)
-
-    def cached_wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
-        """Return cached wire.id → net.id mapping.
-
-        Multiple panels build this map on every selection click — caching
-        it on the session collapses the work to one build per layout
-        change.  Recomputed lazily after ``invalidate_graph``.
-        """
-        cache = self._wire_net_map_cache
-        if cache is None:
-            _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
-            from protoboard.domain.connectivity.wire_net_map import (
-                build_wire_net_map,
-            )
-            cache = build_wire_net_map(
-                self.schematic, self.layout, self.connectivity_graph()
-            )
-            self._wire_net_map_cache = cache
-            if _CLICK_PROFILE:
-                _click_log.info(
-                    "click_profile.session.cached_wire_net_map.build",
-                    ms=round((time.monotonic() - _t0) * 1000, 1),
-                    n_wires=len(cache),
-                )
-        return cache
-
-    def cached_plated_through_pads(self) -> set[Point]:
-        """Return cached set of plated-through pad positions on this board.
-
-        Board topology is fixed for the lifetime of the project, so this
-        cache is built once and reused forever.
-        """
-        cache = self._plated_through_pads_cache
-        if cache is None:
-            from protoboard.services.routing.cost_analyzer import (
-                _plated_through_pads,
-            )
-            cache = _plated_through_pads(self.board)
-            self._plated_through_pads_cache = cache
-        return cache
-
-    def connectivity_graph(self) -> ConnectivityGraph:
-        """Return the cached graph, rebuilding it if stale."""
-        if self._graph is None:
-            t0 = time.monotonic()
-            self._graph = ConnectivityGraph(
-                board=self.board,
-                layout=self.layout,
-                components=self.components,
-                instances=self.instances,
-            )
-            dt = (time.monotonic() - t0) * 1000
-            self.perf.graph_build_ms = dt
-            if _CLICK_PROFILE:
-                _click_log.info(
-                    "click_profile.session.connectivity_graph.build",
-                    ms=round(dt, 1),
-                )
-        return self._graph
-
-    def pad_index(self) -> "PadIndex":
-        """Return the cached PadIndex, rebuilding it if stale.
-
-        PadIndex is the single source of truth for per-pad occupancy
-        (electrical net + physical blockers) used by simplify, autoroute,
-        drag-conflict and DRC.  Lifetime parallels ``connectivity_graph()``.
-        """
-        if self._pad_index is None:
-            from protoboard.domain.board.pad_state import PadIndex
-            t0 = time.monotonic()
-            self._pad_index = PadIndex(
-                board=self.board,
-                layout=self.layout,
-                schematic=self.schematic,
-                components=self.components,
-                instances=self.instances,
-            )
-            self.perf.pad_index_build_ms = (time.monotonic() - t0) * 1000
-        return self._pad_index
-
-    def strategy_for(self, subsystem: str) -> object:
-        """Return the :class:`PadStrategy` bound to *subsystem* for this
-        session.
-
-        Order of precedence:
-        1. Test override set via :meth:`override_strategy` — returned as-is.
-        2. Default strategy assembled by :func:`pad_strategy.make_strategy`,
-           using project knobs from ``self.settings`` (currently only
-           ``strict_tape_joints``) and the subsystem-specific defaults
-           from :meth:`StrategyConfig.from_session`.
-
-        ``subsystem`` accepts ``"drc"``, ``"autoroute"``, ``"simplify"``.
-        The return type is ``object`` to keep this module light on
-        imports — callers receive a :class:`PadStrategy` Protocol
-        instance and can rely on duck typing.
-        """
-        override = self._strategy_overrides.get(subsystem)
-        if override is not None:
-            return override
-        from protoboard.services.pad_strategy import (
-            StrategyConfig,
-            make_strategy,
-        )
-        cfg = StrategyConfig.from_session(self, subsystem)  # type: ignore[arg-type]
-        return make_strategy(subsystem, cfg)  # type: ignore[arg-type]
-
-    def override_strategy(self, subsystem: str, strategy: object | None) -> None:
-        """Install (or clear, when *strategy* is None) a custom
-        :class:`PadStrategy` for *subsystem*.
-
-        Intended for unit tests that need a deterministic verdict.
-        Production tools should rely on :meth:`strategy_for` and
-        adjust knobs via :class:`StrategyConfig`/``EditorSession``
-        settings instead.
-        """
-        if strategy is None:
-            self._strategy_overrides.pop(subsystem, None)
-        else:
-            self._strategy_overrides[subsystem] = strategy
-
-    def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
-        """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""
-        if self._comp_spatial_index is None:
-            self._comp_spatial_index = _build_comp_spatial_index(
-                self.layout, self.instances, self.components,
-                self.package_families,
-            )
-        return self._comp_spatial_index
-
-    def wire_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
-        """Return grid-cell → wire_id index, rebuilding lazily after layout_changed."""
-        if self._wire_spatial_index is None:
-            self._wire_spatial_index = _build_wire_spatial_index(self.layout)
-        return self._wire_spatial_index
-
     def run_drc(self) -> list[DRCIssue]:
         """Run DRC synchronously on the calling thread.
 
@@ -719,118 +347,3 @@ class EditorSession(QObject):
         self._autoroute_active = active
         self.autoroute_active_changed.emit(active)
 
-    # ------------------------------------------------------------------
-    # Convenience helpers for component/pin lookups
-    # ------------------------------------------------------------------
-
-    def _resolve_pin_for_knot(self, pin: object) -> Point:
-        """PinKnot resolver — bridges Layout's resolver protocol to session.
-
-        Called by ``Layout._knot_position`` whenever a v2 mutator needs the
-        world position of a ``PinKnot``.  Returns the current placement
-        position; raises if the component vanished from the layout (a stale
-        knot — caller should drop it).
-        """
-        pos = self.get_pin_position(pin.component_id, pin.pin_number)  # type: ignore[attr-defined]
-        if pos is None:
-            raise RuntimeError(
-                f"PinKnot resolver: pin {pin} cannot be resolved (component absent)"
-            )
-        return pos
-
-    def get_pin_position(
-        self,
-        comp_id: uuid.UUID,
-        pin_number: int,
-    ) -> Point | None:
-        """Return the world position of *pin_number* on *comp_id*, or None.
-
-        Thin wrapper over
-        :func:`protoboard.domain.layout.placement.resolve_pin_world_position`
-        — the canonical pin-resolution chain.  Returns None on any
-        missing intermediate (no placement / instance / definition,
-        or pin number out of range).
-        """
-        from protoboard.domain.layout.placement import (
-            resolve_pin_world_position,
-        )
-        return resolve_pin_world_position(
-            comp_id, pin_number,
-            placements=self.layout.placements,
-            instances=self.instances,
-            components=self.components,
-        )
-
-    def iter_pin_positions(
-        self,
-        comp_id: uuid.UUID,
-    ) -> list[tuple[int, Point]]:
-        """Return [(pin_number, world_pos), …] for every pin of *comp_id*.
-
-        Returns an empty list if the component or its definition is not found.
-        Every pin resolution delegates to the canonical safety chain.
-        """
-        from protoboard.domain.layout.pad_conflict import (
-            resolved_footprint_or_default,
-        )
-        from protoboard.domain.layout.placement import (
-            resolve_pin_world_position,
-        )
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return []
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return []
-        result: list[tuple[int, Point]] = []
-        for n in range(resolved_footprint_or_default(defn, inst).pin_count()):
-            pin_num = n + 1
-            pos = resolve_pin_world_position(
-                comp_id, pin_num,
-                placements=self.layout.placements,
-                instances=self.instances,
-                components=self.components,
-                families=self.package_families,
-            )
-            if pos is not None:
-                result.append((pin_num, pos))
-        return result
-
-    def component_bbox(self, comp_id: uuid.UUID) -> "Rect | None":
-        """Return the world-space bounding rect of *comp_id*, or None.
-
-        Returns None when the component lacks a placement or its
-        definition / footprint is unresolvable.  Canonical GUI-facing
-        wrapper around :func:`domain.layout.placement.component_bbox`
-        so renderers/tools never have to inline the (placement,
-        instance, definition) lookup themselves.
-        """
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.layout.placement import component_bbox
-        placement = self.layout.placements.get(comp_id)
-        if placement is None:
-            return None
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return None
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return None
-        try:
-            fp = resolved_footprint(defn, inst, self.package_families)
-            return component_bbox(fp, placement, defn.component_class)
-        except Exception:  # noqa: BLE001
-            return None
-
-    def component_definition(
-        self, comp_id: uuid.UUID,
-    ) -> "ComponentDefinition | None":
-        """Return the ComponentDefinition for *comp_id*, or None.
-
-        Resolves the placement → instance → definition chain so renderers
-        and tools needing the footprint don't have to inline it.
-        """
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return None
-        return self.components.get(inst.definition_ref)
