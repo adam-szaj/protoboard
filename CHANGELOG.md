@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — EditController add_wire verb, step 3 (2026-07-11)
+
+* **`EditController.add_wire(path, *, insulated, side, merge_prompt)`** absorbs
+  `RouteTool._commit`: pad-node enrichment (`insert_pad_nodes` over both board
+  sides), the `AddWireWithNetsCommand`, and the net resolution. Returns the new
+  wire id, or None on a too-short path (< 2 points) or a rejected net-merge.
+* **`services/editing/wire_nets.py`** — the wire-to-net resolution
+  (`resolve_wire_nets` + `_create_new_net` / `_extend_net` / `_merge_nets`) moved
+  out of `gui/wire_net_resolver.py`, now Qt-free. The library default is loud: a
+  two-distinct-net merge with **no** injected `NetMergePrompt` raises (was a
+  parentless Qt dialog). `gui/wire_net_resolver.py` keeps `qt_net_merge_prompt`
+  + the `NetMergePrompt` type and a thin `resolve_wire_nets` wrapper that
+  defaults to the Qt dialog, so existing GUI callers/tests are unchanged.
+* `RouteTool._commit` resolves the drawn path + injected merge prompt and calls
+  `add_wire`; the routing-net highlight, preview overlays and `< 2 points` guard
+  stay in the tool. Orphaned imports removed.
+* Headless coverage in `tests/unit/test_edit_controller_add_wire.py` (create /
+  undo / merge-prompt accept + cancel / loud-default raise).
+
 ### MVC phase 2 — EditController rotate + flip verbs, step 2 (2026-07-11)
 
 * **`EditController.rotate` / `EditController.flip`** absorb `SelectTool`'s

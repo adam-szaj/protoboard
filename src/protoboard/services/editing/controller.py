@@ -22,7 +22,7 @@ the tools' old ``_execute_command``) underpins them all.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from protoboard.domain.commands.base import (
@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
+    from protoboard.services.editing.wire_nets import NetMergePrompt
+    from protoboard.types import Side
 
 
 @runtime_checkable
@@ -279,6 +281,59 @@ class EditController:
             MacroCommand(cmds, description=f"Flip {len(cmds)} components")
         )
         return 0
+
+    def add_wire(
+        self,
+        path: Sequence[Point],
+        *,
+        insulated: bool,
+        side: str,
+        merge_prompt: NetMergePrompt | None = None,
+    ) -> uuid.UUID | None:
+        """Add a wire along *path*, resolving the nets its endpoints touch.
+
+        The *path* is already snapped (the tool owns snapping); this enriches it
+        with pad nodes on both board sides — so a wire passing over a pad that
+        exists only on the far side still carries that node for simplify / edit —
+        builds the ``AddWireWithNetsCommand``, and runs the net resolution. Net
+        creation / extension is silent; a two-distinct-net merge asks the
+        injected *merge_prompt* and aborts (returns None) if it is rejected.
+
+        Returns the new wire's id on commit, or None when the path is too short
+        (< 2 points) or the merge was cancelled. Interaction state (routing-net
+        highlight, preview overlays) stays with the caller.
+        """
+        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
+        from protoboard.domain.layout.wire import Wire
+        from protoboard.domain.layout.wire_utils import (
+            board_pads_for_side,
+            insert_pad_nodes,
+        )
+        from protoboard.services.editing.wire_nets import resolve_wire_nets
+
+        if len(path) < 2:
+            return None
+
+        state = self._state
+        # Pads from BOTH sides: a single-side board returns an empty set for the
+        # other side (no effect).
+        pads = (
+            board_pads_for_side(state.board, "top")
+            | board_pads_for_side(state.board, "bottom")
+        )
+        enriched_path = insert_pad_nodes(list(path), pads)
+
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=enriched_path,
+            insulated=insulated,
+            side=cast("Side", side),
+        )
+        cmd = AddWireWithNetsCommand(wire=wire)
+        if not resolve_wire_nets(state, wire, cmd, merge_prompt):
+            return None
+        self._execute(cast("Command[ComponentState]", cmd))
+        return wire.id
 
     # ------------------------------------------------------------------
     # Transform helpers (shared by rotate + flip)

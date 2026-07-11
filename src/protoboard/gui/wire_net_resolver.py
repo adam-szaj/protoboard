@@ -1,18 +1,32 @@
 # SPDX-License-Identifier: MIT
-"""GUI-level wire-to-net resolver: classifies endpoints, mutates schematic, records
-changes into the command for undo/redo support."""
+"""GUI-level wire-to-net resolver seam.
+
+The resolution logic itself is Qt-free and lives in
+``services.editing.wire_nets`` (:func:`resolve_wire_nets` +
+:data:`NetMergePrompt`). This module keeps the Qt default prompt
+(:func:`qt_net_merge_prompt`, the modal ``NetMergeDialog``) and a thin
+GUI-facing :func:`resolve_wire_nets` wrapper that falls back to it, so existing
+GUI callers keep the "parentless dialog when no prompt injected" behaviour while
+the headless controller gets the loud-by-default library function directly.
+
+The private helpers ``_create_new_net`` / ``_extend_net`` / ``_merge_nets`` are
+re-exported for the tests that assert them against the canonical implementation.
+"""
 
 from __future__ import annotations
 
-import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-import structlog
 from protoboard.domain.schematic.net import Net
-from protoboard.domain.schematic.pin_siblings import same_name_refs
-from protoboard.domain.schematic.wire_net_ops import (
-    WireNetKind,
-    classify_wire_nets,
+from protoboard.services.editing.wire_nets import (
+    NetMergePrompt,
+    _create_new_net,
+    _extend_net,
+    _merge_nets,
+    _snapshot,
+)
+from protoboard.services.editing.wire_nets import (
+    resolve_wire_nets as _resolve_wire_nets,
 )
 
 if TYPE_CHECKING:
@@ -20,17 +34,17 @@ if TYPE_CHECKING:
 
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
     from protoboard.domain.layout.wire import Wire
-    from protoboard.domain.schematic.wire_net_ops import (
-        WireNetClassification,
-        _SessionLike,
-    )
     from protoboard.gui.session import EditorSession
 
-    # The injectable merge prompt (qt-ports D4): given the two nets the new
-    # wire would fuse, return the survivor's name — or None on cancel.
-    NetMergePrompt = Callable[[Net, Net], str | None]
-
-_log = structlog.get_logger(__name__)
+__all__ = [
+    "NetMergePrompt",
+    "qt_net_merge_prompt",
+    "resolve_wire_nets",
+    "_create_new_net",
+    "_extend_net",
+    "_merge_nets",
+    "_snapshot",
+]
 
 
 def qt_net_merge_prompt(parent: Callable[[], object]) -> NetMergePrompt:
@@ -60,118 +74,12 @@ def resolve_wire_nets(
     cmd: AddWireWithNetsCommand,
     merge_prompt: NetMergePrompt | None = None,
 ) -> bool:
-    """Classify wire endpoints and update session.schematic accordingly.
+    """GUI wrapper over :func:`services.editing.wire_nets.resolve_wire_nets`.
 
-    Mutates session.schematic.nets and records every change into *cmd* so
-    that undo/redo work correctly.
-
-    Returns True if the wire should be committed, False if the user cancelled
-    (only possible for DIFFERENT_NETS when the merge prompt is rejected).
-    *merge_prompt* defaults to the parentless Qt dialog.
+    Defaults *merge_prompt* to the parentless Qt ``NetMergeDialog`` so existing
+    GUI callers keep their behaviour; the Qt-free library function raises when no
+    prompt is injected.
     """
-    # EditorSession satisfies the _SessionLike protocol structurally, but its
-    # ``layout`` is a read/write property rather than a plain attribute, so
-    # Pyright rejects it against the protocol's invariant (mutable) ``layout``
-    # field.  The value is genuinely the right shape — cast across the gap.
-    cl = classify_wire_nets(wire, cast("_SessionLike", session))
-
-    if cl.kind == WireNetKind.NO_PINS:
-        return True
-
-    if cl.kind == WireNetKind.SAME_NET:
-        return True
-
-    if cl.kind == WireNetKind.BOTH_UNCONNECTED:
-        _create_new_net(session, cmd, cl)
-        return True
-
-    if cl.kind == WireNetKind.ONE_UNCONNECTED:
-        _extend_net(session, cmd, cl)
-        return True
-
-    # DIFFERENT_NETS — ask the user (merge prompt)
-    assert cl.kind == WireNetKind.DIFFERENT_NETS
-    assert cl.net_a is not None and cl.net_b is not None
     if merge_prompt is None:
         merge_prompt = qt_net_merge_prompt(lambda: None)
-    return _merge_nets(session, cmd, cl.net_a, cl.net_b, merge_prompt)
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _snapshot(net: Net) -> Net:
-    """Return a deep copy of *net* for use as an undo snapshot."""
-    return Net(id=net.id, name=net.name, pins=net.pins.copy())
-
-
-def _create_new_net(
-    session: EditorSession,
-    cmd: AddWireWithNetsCommand,
-    cl: WireNetClassification,
-) -> None:
-    assert cl.pin_a is not None and cl.pin_b is not None
-    inst = session.instances.get(cl.pin_a[0])
-    refdes = inst.refdes if inst else "?"
-    name = f"Net-({refdes}-{cl.pin_a[1]})"
-    new_id = uuid.uuid4()
-    # Both endpoints plus the same-name siblings of each (one node per group).
-    insts, comps = session.instances, session.components
-    pins = set(same_name_refs(cl.pin_a[0], cl.pin_a[1], insts, comps))
-    pins |= set(same_name_refs(cl.pin_b[0], cl.pin_b[1], insts, comps))
-    new_net = Net(id=new_id, name=name, pins=pins)
-    cmd.record_net_change(new_id, before=None, after=_snapshot(new_net))
-    session.schematic.nets[new_id] = new_net
-    _log.info("wire_net.created", net_name=name)
-
-
-def _extend_net(
-    session: EditorSession,
-    cmd: AddWireWithNetsCommand,
-    cl: WireNetClassification,
-) -> None:
-    net = cl.net_a if cl.net_a is not None else cl.net_b
-    assert net is not None
-    # The "unconnected" endpoint may have a pin (classical case — add
-    # the pin to the net) or may not (the wire-touch fallback —
-    # nothing to add to the pin list; the new wire joins the net via
-    # geometric contact and the connectivity graph picks it up).
-    unconnected_pin = cl.pin_b if cl.net_a is not None else cl.pin_a
-    if unconnected_pin is None:
-        # Pure wire-to-wire join: no pin to register.
-        _log.info("wire_net.joined_via_wire_touch", net=net.name)
-        return
-    cmd.record_net_change(net.id, before=_snapshot(net), after=None)
-    # Add the wired pin plus its same-name siblings (one electrical node).
-    for ref in same_name_refs(
-        unconnected_pin[0], unconnected_pin[1], session.instances, session.components
-    ):
-        session.schematic.add_pin_to_net(ref, net.id)
-    cmd._nets_after[net.id] = _snapshot(net)
-    _log.info("wire_net.extended", net=net.name)
-
-
-def _merge_nets(
-    session: EditorSession,
-    cmd: AddWireWithNetsCommand,
-    net_a: Net,
-    net_b: Net,
-    merge_prompt: NetMergePrompt,
-) -> bool:
-    chosen = merge_prompt(net_a, net_b)
-    if chosen is None:
-        _log.debug("wire_net.merge_cancelled", net_a=net_a.name, net_b=net_b.name)
-        return False
-
-    chosen_name = chosen or net_a.name
-    # Record snapshots before mutating.
-    cmd.record_net_change(net_a.id, before=_snapshot(net_a), after=None)
-    cmd.record_net_change(net_b.id, before=_snapshot(net_b), after=None)
-    # Merge net_b into net_a in-place, then delete net_b.
-    session.schematic.merge_nets(net_a.id, net_b.id, new_name=chosen_name)
-    cmd._nets_after[net_a.id] = _snapshot(net_a)
-    cmd._nets_after[net_b.id] = None
-    _log.info("wire_net.merged", survivor=net_a.name, merged=net_b.name)
-    return True
+    return _resolve_wire_nets(session, wire, cmd, merge_prompt)

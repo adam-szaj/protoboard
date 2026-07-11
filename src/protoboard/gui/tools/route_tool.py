@@ -4,15 +4,13 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import structlog
 from PySide6.QtCore import Qt
 
-from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
@@ -21,7 +19,6 @@ from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
-    from protoboard.domain.commands.base import ComponentState
     from protoboard.gui.ports import KeyInput, PointerInput
     from protoboard.gui.tools.route_preview import RoutePreview
     from protoboard.gui.wire_net_resolver import NetMergePrompt
@@ -173,54 +170,38 @@ class RouteTool(_Tool):
     # ------------------------------------------------------------------
 
     def _commit(self) -> None:
+        """Commit the drawn path as a wire via the controller.
+
+        The tool owns the interaction/presentation shell (routing-net highlight,
+        preview overlays, the ``< 2 points`` guard); the controller does the
+        net-aware wire build + resolution and returns the new wire id, or None on
+        a too-short path or a rejected net-merge.  The injected ``_merge_prompt``
+        (Qt dialog in production) carries the merge decision through.
+        """
         self._session.set_routing_net(None)
         self._clear_route_highlight()
         if len(self._points) < 2:
             self._cancel()
             return
 
-        from protoboard.domain.layout.wire_utils import (
-            board_pads_for_side,
-            insert_pad_nodes,
-        )
-        raw_path = list(self._points)
-        # Take pads from BOTH sides — a wire passing geometrically over a pad
-        # that exists only on the opposite side still needs that node so
-        # simplify/unweave/edit can grab it.  Single-side board: the other
-        # side returns an empty set, no effect.
-        pads = (
-            board_pads_for_side(self._session.board, "top")
-            | board_pads_for_side(self._session.board, "bottom")
-        )
-        enriched_path = insert_pad_nodes(raw_path, pads)
-
-        wire = Wire(
-            id=uuid.uuid4(),
-            path=enriched_path,
+        path = list(self._points)
+        wire_id = self._session.edit_controller.add_wire(
+            path,
             insulated=self._insulated,
-            side=self._side,  # type: ignore[arg-type]
+            side=self._side,
+            merge_prompt=self._merge_prompt,
         )
-
-        # Every commit is net-aware: resolve_wire_nets silently extends or
-        # creates nets, shows the NetMergeDialog only when two different
-        # nets would collapse.  Cancel from that dialog aborts the commit.
-        from protoboard.gui.wire_net_resolver import resolve_wire_nets
-        cmd = AddWireWithNetsCommand(wire=wire)
-        if not resolve_wire_nets(
-            self._session, wire, cmd, self._merge_prompt
-        ):
+        if wire_id is None:
             _log.debug("route.cancelled", reason="net_merge_rejected")
             self._cancel()
             return
 
+        # Tear the transient route preview down now that the wire is committed.
         self._points.clear()
         self.preview.clear_segments()
         self.preview.clear_live()
         self.preview.clear_hints()
-        self._session.stack.execute(cmd, cast("ComponentState", self._session))
-        _log.info("route.committed", wire_id=str(wire.id), points=len(wire.path),
-                  insulated=wire.insulated)
-        self._session.layout_changed.emit()
+        _log.info("route.committed", wire_id=str(wire_id))
 
     def _cancel(self) -> None:
         # Clear state first so on_scene_cleared() (triggered by refresh below)
