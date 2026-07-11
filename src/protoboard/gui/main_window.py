@@ -2189,10 +2189,7 @@ class MainWindow(QMainWindow):
 
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
-        from protoboard.domain.commands.base import ComponentState
-        from protoboard.domain.commands.group_cmds import DisbandGroupCommand
         from protoboard.gui.tools.select_tool import SelectTool
-        from typing import cast
 
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
@@ -2218,8 +2215,7 @@ class MainWindow(QMainWindow):
         if group_id is None:
             self._status.showMessage("No group selected", 2000)
             return
-        cmd = DisbandGroupCommand(group_id=group_id)
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
+        self._session.edit_controller.get_group(group_id).delete()
         # Exit the group if we were inside it (never pop root).
         if len(tool._group_stack) > 1 and tool._group_stack[-1] == group_id:
             tool._group_stack.pop()

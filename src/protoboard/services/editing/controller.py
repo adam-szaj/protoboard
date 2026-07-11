@@ -304,6 +304,53 @@ class EditController:
             return ReadOnlyComponentHandle(self, item_id.uuid, active_group_id=active)
         return ComponentHandle(self, item_id.uuid, active_group_id=active)
 
+    def get_group(self, group_id: uuid.UUID) -> GroupHandle:
+        """Address a group by id, returning a narrow :class:`GroupHandle`.
+
+        For a caller that already knows the target is a group. Raises
+        ``KeyError`` if *group_id* is not a group in the current layout — the id
+        is mistyped, not a silently-wrong handle.
+        """
+        from protoboard.services.editing.item_handle import GroupHandle
+
+        if group_id not in self._state.layout.groups:
+            raise KeyError(f"no group with id {group_id}")
+        return GroupHandle(self, group_id)
+
+    def get_wire(self, wire_id: uuid.UUID) -> WireHandle:
+        """Address a wire by id, returning a narrow :class:`WireHandle`.
+
+        Raises ``KeyError`` if *wire_id* is not a wire in the current layout.
+        """
+        from protoboard.services.editing.item_handle import WireHandle
+
+        if self._state.wire_by_id(wire_id) is None:
+            raise KeyError(f"no wire with id {wire_id}")
+        return WireHandle(self, wire_id)
+
+    def get_component(
+        self, comp_id: uuid.UUID, *, active_group_id: uuid.UUID | None = None
+    ) -> ComponentHandle | ReadOnlyComponentHandle:
+        """Address a component by id, returning a component handle.
+
+        Read-only when the component is sealed inside a group viewed from
+        outside *active_group_id* (defaults to ROOT), editable otherwise. Raises
+        ``KeyError`` if *comp_id* has no placement.
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.editing.group_lock import component_locked_in_group
+        from protoboard.services.editing.item_handle import (
+            ComponentHandle,
+            ReadOnlyComponentHandle,
+        )
+
+        if comp_id not in self._state.layout.placements:
+            raise KeyError(f"no component with id {comp_id}")
+        active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
+        if component_locked_in_group(self._state, comp_id, active_group_id=active):
+            return ReadOnlyComponentHandle(self, comp_id, active_group_id=active)
+        return ComponentHandle(self, comp_id, active_group_id=active)
+
     def get_items(
         self,
         item_ids: ItemId | Iterable[ItemId],

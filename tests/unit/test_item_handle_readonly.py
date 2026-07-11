@@ -152,3 +152,33 @@ def test_editable_handle_exposes_same_reads() -> None:
     assert handle.refdes == "R1"
     assert handle.part_number == "R"
     assert isinstance(handle.pin_names, dict)
+
+
+# -- group / wire handle read properties -------------------------------------
+
+
+def test_group_handle_exposes_name_and_members() -> None:
+    session = _session()
+    c1 = _place(session, 0.5, 0.5, "R1")
+    c2 = _place(session, 1.5, 0.5, "R2")
+    gid = _make_group(session, [c1, c2])
+
+    handle = session.edit_controller.get_item(ItemId.group(gid))
+    assert handle.name == "G1"
+    assert handle.component_ids == frozenset({c1, c2})
+
+
+def test_wire_handle_exposes_side_and_insulated() -> None:
+    from protoboard.domain.layout.wire import Wire
+
+    session = _session()
+    w = Wire(
+        id=uuid.uuid4(), path=[Point(0.0, 0.0), Point(2.0, 0.0)],
+        insulated=True, side="bottom",
+    )
+    session.layout.wires.append(w)
+    session.invalidate_graph()
+
+    handle = session.edit_controller.get_item(ItemId.wire(w.id))
+    assert handle.side == "bottom"
+    assert handle.insulated is True

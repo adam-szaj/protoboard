@@ -142,8 +142,6 @@ class GroupsPanel(QWidget):
         self.group_renamed.emit(gid)
 
     def _on_disband(self) -> None:
-        from protoboard.domain.commands.group_cmds import DisbandGroupCommand
-
         gid = self._selected_group_id()
         if gid is None or self._session is None:
             return
@@ -158,7 +156,6 @@ class GroupsPanel(QWidget):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        cmd = DisbandGroupCommand(group_id=gid)
-        self._session.stack.execute(cmd, cast("ComponentState", self._session))
+        self._session.edit_controller.get_group(gid).delete()
         self.refresh(self._session)
         self.group_disbanded.emit(gid)

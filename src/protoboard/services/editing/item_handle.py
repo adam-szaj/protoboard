@@ -25,12 +25,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 from uuid import UUID
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.services.editing.controller import EditController
+
+
+def _require_one(*callbacks: object) -> None:
+    """Guard: ``.call`` needs at least one non-None callback (else it is a bug)."""
+    if all(cb is None for cb in callbacks):
+        raise ValueError("call() needs at least one handler callback")
 
 
 class ItemTag(IntEnum):
@@ -191,6 +197,23 @@ class ComponentHandleBase:
         self._comp_id = comp_id
         self._active_group_id = active_group_id
 
+    def call(
+        self,
+        *,
+        component_call: Callable[[ComponentHandleBase], object] | None = None,
+        group_call: Callable[[GroupHandle], object] | None = None,
+        wire_call: Callable[[WireHandle], object] | None = None,
+    ) -> object:
+        """Invoke the component callback (this handle's kind); others ignored.
+
+        Per-type visitor: a component handle runs *component_call* with itself
+        and returns its result; *group_call* / *wire_call* never fire here. A
+        missing (None) *component_call* is a no-op returning None. At least one
+        callback must be supplied.
+        """
+        _require_one(component_call, group_call, wire_call)
+        return component_call(self) if component_call is not None else None
+
     @property
     def _instance(self) -> object | None:
         return self._controller.state.instances.get(self._comp_id)
@@ -286,6 +309,35 @@ class GroupHandle:
         self._controller = controller
         self._group_id = group_id
 
+    def call(
+        self,
+        *,
+        component_call: Callable[[ComponentHandleBase], object] | None = None,
+        group_call: Callable[[GroupHandle], object] | None = None,
+        wire_call: Callable[[WireHandle], object] | None = None,
+    ) -> object:
+        """Invoke the group callback (this handle's kind); others ignored."""
+        _require_one(component_call, group_call, wire_call)
+        return group_call(self) if group_call is not None else None
+
+    @property
+    def _group(self) -> object | None:
+        return self._controller.state.layout.groups.get(self._group_id)
+
+    @property
+    def name(self) -> str | None:
+        """The group's name, or None if it is gone."""
+        grp = self._group
+        return getattr(grp, "name", None) if grp is not None else None
+
+    @property
+    def component_ids(self) -> frozenset[UUID]:
+        """The group's direct component members (empty if the group is gone)."""
+        grp = self._group
+        if grp is None:
+            return frozenset()
+        return frozenset(getattr(grp, "component_ids", frozenset()))
+
     def rotate(
         self,
         delta_deg: int = 90,
@@ -327,12 +379,40 @@ class GroupHandle:
 class WireHandle:
     """An addressed wire — rotate / flip are not defined for it (absent by design).
 
-    A wire supports :meth:`delete` only.
+    A wire supports :meth:`delete` plus the read properties ``side`` /
+    ``insulated``.
     """
 
     def __init__(self, controller: EditController, wire_id: UUID) -> None:
         self._controller = controller
         self._wire_id = wire_id
+
+    def call(
+        self,
+        *,
+        component_call: Callable[[ComponentHandleBase], object] | None = None,
+        group_call: Callable[[GroupHandle], object] | None = None,
+        wire_call: Callable[[WireHandle], object] | None = None,
+    ) -> object:
+        """Invoke the wire callback (this handle's kind); others ignored."""
+        _require_one(component_call, group_call, wire_call)
+        return wire_call(self) if wire_call is not None else None
+
+    @property
+    def _wire(self) -> object | None:
+        return self._controller.state.wire_by_id(self._wire_id)
+
+    @property
+    def side(self) -> str | None:
+        """The board side (``"top"`` / ``"bottom"``) the wire lies on, or None."""
+        wire = self._wire
+        return getattr(wire, "side", None) if wire is not None else None
+
+    @property
+    def insulated(self) -> bool | None:
+        """Whether the wire is an insulated jumper, or None if it is gone."""
+        wire = self._wire
+        return getattr(wire, "insulated", None) if wire is not None else None
 
     def delete(
         self, *, active_group_id: UUID | None = None, force: bool = False
