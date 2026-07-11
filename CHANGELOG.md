@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — EditController rotate + flip verbs, step 2 (2026-07-11)
+
+* **`EditController.rotate` / `EditController.flip`** absorb `SelectTool`'s
+  `_rotate_multi` / `_flip_multi` (the unified pivot -> group -> loose dispatch,
+  group-lock filter, and the post-move crossing-wire cleanup that used to live
+  in `_apply_rotate` / `_remove_crossing_wires`). Both take the target ids +
+  `group_id` + `active_group_id` explicitly (were tool interaction state) and
+  return the count of wires dropped for crossing an alien pad, so the tool keeps
+  the presentation tail (status note, highlight refresh, panel re-broadcast).
+  `remove_crossing_wires` defaults True (multi behaviour); the single-primary
+  paths (`_rotate_selected` / `_flip_selected`) keep their distinct behaviour
+  and are left untouched. `_apply_rotate` / `_remove_crossing_wires` removed
+  from the tool (orphaned by the move).
+* Headless coverage in `tests/unit/test_edit_controller_rotate_flip.py` (rotate
+  in-place / group-rigid / around-pivot / veto, flip 2-pin / veto).
+
+### MVC phase 2 — EditController delete verb, step 1 (2026-07-11)
+
+* **`EditController.delete(comp_ids, wire_ids, *, active_group_id, force)`** —
+  the group-lock filter + atomic RemoveWire/RemoveComponent macro, moved out of
+  `SelectTool._delete_selection` (which now resolves the selection to ids and
+  delegates; selection bookkeeping stays in the tool).
+* **`services/editing/group_lock.py`** — the two pure group-lock guards
+  (`component_locked_in_group` / `wire_locked_in_group`), now the single
+  implementation; `SelectTool`'s `_is_locked_in_group` / `_wire_is_locked`
+  delegate here (they are also used by the drag paths).
+* `HeadlessSession` grows a lazily-built `edit_controller` accessor and a real
+  `notify_changed()` no-op (the GUI session overrides it to emit
+  `layout_changed`); `EditState` widened to `SchematicState` + the read helpers
+  the verbs need.
+* Headless coverage in `tests/unit/test_edit_controller_delete.py`.
+
 ### MVC phase 2 — EditController scaffold, step 0 (2026-07-11)
 
 * **`services/editing/` — new Qt-free Application-layer package** for the
