@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
+    from protoboard.services.editing.controller import EditController
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import CommandStack, ComponentState
@@ -156,6 +157,25 @@ class HeadlessSession:
         # ``layout.wires`` for every highlight redraw — O(N²) when the
         # active net has many wires.  Invalidated on every layout change.
         self._wire_by_id_cache: dict[uuid.UUID, Wire] | None = None
+        # One EditController per session — the stateless verb surface both the
+        # GUI tools and a headless CLI drive. Built lazily so the base module
+        # never imports the controller at construction time.
+        self._edit_controller: EditController | None = None
+
+    @property
+    def edit_controller(self) -> EditController:
+        """The session's :class:`EditController` (built once, on first use)."""
+        if self._edit_controller is None:
+            from protoboard.services.editing.controller import EditController
+            self._edit_controller = EditController(self)
+        return self._edit_controller
+
+    def notify_changed(self) -> None:
+        """Change hook fired by :class:`EditController` after each command.
+
+        No-op in the headless base — a bare driver has no panels to refresh.
+        ``EditorSession`` overrides it to emit ``layout_changed``.
+        """
 
     # ------------------------------------------------------------------
     # Layout (with PinKnot resolver rebinding on swap)

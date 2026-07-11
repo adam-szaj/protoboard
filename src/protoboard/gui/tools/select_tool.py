@@ -760,52 +760,28 @@ class SelectTool(_Tool):
     def _delete_selection(self, *, force: bool = False) -> bool:
         """Delete the selected wires and/or components.  Returns True if it ran.
 
-        Wires structurally owned by a non-active group are skipped unless
-        *force* (Shift+Delete) is set — the legacy group-lock guard.  Both
-        kinds go into one atomic macro so a mixed selection undoes in one step.
+        Resolves the selection to ids and hands the actual delete (group-lock
+        filtering + atomic macro) to :meth:`EditController.delete`, passing this
+        tool's active-group context explicitly.  Selection bookkeeping (wire-
+        edit clear, multi-selection clear, re-broadcast) stays here — it is
+        interaction state the stateless controller deliberately does not know.
+
+        ``_wire_edit_clear`` runs *before* the controller call so the wire-edit
+        overlay is already torn down when the delete's ``layout_changed`` fires
+        (matching the legacy order); it is idempotent, so clearing on the
+        no-command path is harmless.
         """
-        from typing import cast
-
-        from protoboard.domain.commands.base import (
-            Command,
-            ComponentState,
-            MacroCommand,
-        )
-        from protoboard.domain.commands.component_cmds import (
-            RemoveComponentCommand,
-            RemoveWireCommand,
-        )
-
-        existing_wires = {w.id for w in self._session.layout.wires}
-        wire_ids = [
-            wid for wid in self._selected_by_kind("wire")
-            if wid in existing_wires and (force or not self._wire_is_locked(wid))
-        ]
-        existing_comps = set(self._session.layout.placements)
-        comp_ids = [
-            cid for cid in self._selected_by_kind("component")
-            if cid in existing_comps and not self._is_locked_in_group(cid)
-        ]
-        if not wire_ids and not comp_ids:
-            return False
-
-        cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]", RemoveWireCommand(wire_id=wid))
-            for wid in wire_ids
-        ]
-        cmds += [
-            cast("Command[ComponentState]", RemoveComponentCommand(component_id=cid))
-            for cid in comp_ids
-        ]
-        cmd: Command[ComponentState] = (
-            cmds[0] if len(cmds) == 1
-            else cast(
-                "Command[ComponentState]",
-                MacroCommand(cmds, description="Delete selection"),
-            )
-        )
+        comp_ids = self._selected_by_kind("component")
+        wire_ids = self._selected_by_kind("wire")
         self._wire_edit_clear()
-        self._execute_command(cmd)
+        ran = self._session.edit_controller.delete(
+            comp_ids,
+            wire_ids,
+            active_group_id=self._current_group_id,
+            force=force,
+        )
+        if not ran:
+            return False
         self._clear_multi_selection()
         self._notify_selection()
         return True
@@ -815,25 +791,14 @@ class SelectTool(_Tool):
 
         Mirrors :meth:`_is_locked_in_group` for components: selecting a locked
         wire (for highlight) stays allowed, but mutating it (delete/edit) gates
-        here and skips it.  Verbatim port of the legacy guard.
+        here and skips it.  Delegates to the shared pure guard in
+        ``services.editing.group_lock``.
         """
-        from protoboard.domain.layout.group_ownership import OwnershipResolver
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.editing.group_lock import wire_locked_in_group
 
-        wire = self._wire_by_id(wire_id)
-        if wire is None:
-            return False
-        groups = self._session.layout.groups
-        active_gid = self._current_group_id
-        tree = self._session.group_tree()
-        resolver = OwnershipResolver.from_session(self._session)
-        for gid, group in groups.items():
-            if gid == ROOT_GROUP_ID or gid == active_gid:
-                continue
-            comp_ids = frozenset(tree.all_component_ids(gid))
-            if comp_ids and resolver.is_owned(wire, group, comp_ids):
-                return True
-        return False
+        return wire_locked_in_group(
+            self._session, wire_id, active_group_id=self._current_group_id
+        )
 
     def _status_msg(self, msg: str, timeout_ms: int = 4000) -> None:
         """Status-bar message (legacy name; v2's primitive is ``_status``)."""
@@ -1573,23 +1538,17 @@ class SelectTool(_Tool):
 
         Locked iff the component's *direct* group is NOT the active group.
 
-        NB: do **not** use ``groups_containing_component`` here — it folds in the
-        parent chain up to ROOT, so for any grouped component ROOT is always in
-        the set, and with the default ROOT context the lock would never fire
-        (the v2-rewrite regression this guard was restored to catch).  The
-        direct-membership check, skipping ROOT, is the correct gate.
+        Delegates to the pure guard in ``services.editing.group_lock`` (shared
+        with :meth:`EditController.delete`), binding the active group from this
+        tool's interaction context.
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.editing.group_lock import (
+            component_locked_in_group,
+        )
 
-        active_gid = self._current_group_id
-        for gid, g in self._session.layout.groups.items():
-            if gid == ROOT_GROUP_ID:
-                continue
-            if comp_id not in g.component_ids:
-                continue
-            # Direct member of group `g`: locked unless we're inside `g`.
-            return gid != active_gid
-        return False
+        return component_locked_in_group(
+            self._session, comp_id, active_group_id=self._current_group_id
+        )
 
     def _anchor_component(self, sel: Selectable) -> uuid.UUID | None:
         import uuid as _uuid
