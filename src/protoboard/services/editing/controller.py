@@ -49,6 +49,13 @@ if TYPE_CHECKING:
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Vector
     from protoboard.services.drc.engine import DRCIssue
+    from protoboard.services.editing.item_handle import (
+        ComponentHandle,
+        GroupHandle,
+        ItemId,
+        SelectionHandle,
+        WireHandle,
+    )
     from protoboard.services.editing.placement_conflict import PlacementPrompts
     from protoboard.services.editing.wire_nets import NetMergePrompt
     from protoboard.services.routing.autorouter import AutorouteResult
@@ -214,6 +221,57 @@ class EditController:
         )
         return self._execute(cmd)
 
+    def get_item(
+        self,
+        item_id: ItemId,
+        *,
+        active_group_id: uuid.UUID | None = None,
+    ) -> ComponentHandle | GroupHandle | WireHandle:
+        """Address a single edit target by :class:`ItemId`, returning its handle.
+
+        The handle offers only the operations the target's tag supports — a
+        wire handle has no rotate / flip. *active_group_id* is the edit context
+        a component handle uses for the group-lock guard (defaults to ROOT).
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.editing.item_handle import (
+            ComponentHandle,
+            GroupHandle,
+            WireHandle,
+        )
+
+        active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
+        if item_id.tag == "group":
+            return GroupHandle(self, item_id.uuid)
+        if item_id.tag == "wire":
+            return WireHandle(self, item_id.uuid)
+        return ComponentHandle(self, item_id.uuid, active_group_id=active)
+
+    def get_items(
+        self,
+        item_ids: ItemId | Iterable[ItemId],
+        *,
+        active_group_id: uuid.UUID | None = None,
+    ) -> SelectionHandle:
+        """Address a set of targets, returning one :class:`SelectionHandle`.
+
+        A single :class:`ItemId` is accepted and treated as a one-element set.
+        Rotate / flip on the returned handle fold every addressed group and the
+        loose components into ONE atomic macro — the seam that lets several
+        groups rotate in a single undoable step.
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.editing.item_handle import ItemId, SelectionHandle
+
+        ids = [item_ids] if isinstance(item_ids, ItemId) else list(item_ids)
+        active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
+        return SelectionHandle(
+            self,
+            group_ids=frozenset(i.uuid for i in ids if i.tag == "group"),
+            comp_ids=frozenset(i.uuid for i in ids if i.tag == "component"),
+            active_group_id=active,
+        )
+
     def rotate(
         self,
         comp_ids: Iterable[uuid.UUID],
@@ -239,32 +297,90 @@ class EditController:
         which historically skipped this cleanup). The count of dropped wires is
         returned so the caller can surface a status message; presentation
         (highlight refresh, panel re-broadcast) stays with the caller.
+
+        Thin wrapper over :meth:`_rotate_targets`, the shared builder the
+        ``ItemId`` handles also drive; here a single ``group_id`` is the
+        one-group case of the general multi-group path.
         """
+        return self._rotate_targets(
+            group_ids=frozenset({group_id}) if group_id is not None else frozenset(),
+            comp_ids=frozenset(comp_ids),
+            delta_deg=delta_deg,
+            pivot=pivot,
+            active_group_id=active_group_id,
+            remove_crossing_wires=remove_crossing_wires,
+        )
+
+    def _rotate_targets(
+        self,
+        *,
+        group_ids: frozenset[uuid.UUID],
+        comp_ids: frozenset[uuid.UUID],
+        delta_deg: int = 90,
+        pivot: Point | None = None,
+        active_group_id: uuid.UUID | None = None,
+        remove_crossing_wires: bool = True,
+    ) -> int:
+        """Rotate any mix of whole groups + loose components as one macro.
+
+        Each group turns rigidly (``RotateGroupCommand``, or
+        ``RotateAroundPointCommand`` when a shared *pivot* is given); the loose
+        components turn about *pivot* if given, else each in place. Every
+        command folds into one :class:`MacroCommand` so a multi-group selection
+        is a single undoable step — the fix for the legacy single-``group_id``
+        limitation. Returns the count of wires dropped for crossing an alien pad.
+        """
+        from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.group_cmds import (
             RotateAroundPointCommand,
             RotateComponentsCommand,
             RotateGroupCommand,
         )
+        from protoboard.domain.layout.group import all_component_ids
 
-        affected = self._affected_for_transform(
-            comp_ids, group_id=group_id, active_group_id=active_group_id,
+        delta = delta_deg % 360
+        loose = self._loose_unlocked(comp_ids, active_group_id=active_group_id)
+        groups = self._state.layout.groups
+        group_members = frozenset(
+            cid for gid in group_ids for cid in all_component_ids(groups, gid)
         )
+        affected = loose | group_members
         if not affected:
             return 0
 
-        rotate_cmd: object
+        cmds: list[Command[ComponentState]] = []
         if pivot is not None:
-            rotate_cmd = RotateAroundPointCommand(
-                comp_ids=frozenset(affected),
-                origin=pivot,
-                delta=delta_deg % 360,
+            # A shared pivot rotates every affected component around one point;
+            # groups have no rigid-body special case here.
+            cmds.append(
+                cast(
+                    "Command[ComponentState]",
+                    RotateAroundPointCommand(
+                        comp_ids=affected, origin=pivot, delta=delta
+                    ),
+                )
             )
-        elif group_id is not None:
-            rotate_cmd = RotateGroupCommand(group_id=group_id, delta=delta_deg % 360)
         else:
-            rotate_cmd = RotateComponentsCommand(
-                comp_ids=frozenset(affected), delta=delta_deg % 360
-            )
+            for gid in group_ids:
+                cmds.append(
+                    cast(
+                        "Command[ComponentState]",
+                        RotateGroupCommand(group_id=gid, delta=delta),
+                    )
+                )
+            if loose:
+                cmds.append(
+                    cast(
+                        "Command[ComponentState]",
+                        RotateComponentsCommand(comp_ids=loose, delta=delta),
+                    )
+                )
+        if not cmds:
+            return 0
+        rotate_cmd: object = (
+            cmds[0] if len(cmds) == 1
+            else MacroCommand(cmds, description="Rotate selection")
+        )
         return self._apply_transform(
             rotate_cmd, affected, remove_crossing_wires=remove_crossing_wires,
         )
@@ -285,31 +401,49 @@ class EditController:
         around the pin span); components with other pin counts are skipped, as
         are group-locked ones. Returns #wires dropped for crossing an alien pad,
         mirroring :meth:`rotate`.
+
+        Thin wrapper over :meth:`_flip_targets`, the shared builder the
+        ``ItemId`` handles also drive.
+        """
+        return self._flip_targets(
+            group_ids=frozenset({group_id}) if group_id is not None else frozenset(),
+            comp_ids=frozenset(comp_ids),
+            active_group_id=active_group_id,
+            remove_crossing_wires=remove_crossing_wires,
+        )
+
+    def _flip_targets(
+        self,
+        *,
+        group_ids: frozenset[uuid.UUID],
+        comp_ids: frozenset[uuid.UUID],
+        active_group_id: uuid.UUID | None = None,
+        remove_crossing_wires: bool = True,
+    ) -> int:
+        """Flip any mix of whole groups + loose 2-pin components as one macro.
+
+        Each group flips about its pin centroid (``FlipGroupCommand``, axis
+        ``'v'``); each loose 2-pin component flips in place. Every command folds
+        into one macro so a multi-group selection undoes in one step. Returns
+        the count of wires dropped for crossing an alien pad; the loose-only
+        path drops none (matching the legacy per-component flip).
         """
         from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        from protoboard.domain.commands.group_cmds import FlipGroupCommand
         from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.placement import flip_component
 
         state = self._state
-        if group_id is not None:
-            from protoboard.domain.commands.group_cmds import FlipGroupCommand
-
-            affected = self._affected_for_transform(
-                comp_ids, group_id=group_id, active_group_id=active_group_id,
-            )
-            if not affected:
-                return 0
-            return self._apply_transform(
-                FlipGroupCommand(group_id=group_id, axis="v"),
-                affected,
-                remove_crossing_wires=remove_crossing_wires,
-            )
-
-        ids = self._loose_unlocked(comp_ids, active_group_id=active_group_id)
         families = state.package_families
-        cmds: list[Command[ComponentState]] = []
-        for cid in ids:
+
+        cmds: list[Command[ComponentState]] = [
+            cast("Command[ComponentState]", FlipGroupCommand(group_id=gid, axis="v"))
+            for gid in group_ids
+        ]
+        loose = self._loose_unlocked(comp_ids, active_group_id=active_group_id)
+        for cid in loose:
             pl = state.layout.placements.get(cid)
             inst = state.instances.get(cid)
             if pl is None or inst is None:
@@ -332,9 +466,22 @@ class EditController:
             )
         if not cmds:
             return 0
-        self._execute(
-            MacroCommand(cmds, description=f"Flip {len(cmds)} components")
+
+        # Groups' rigid-body flip needs the crossing-wire cleanup; the
+        # loose-only 2-pin flip historically skipped it. The affected set for
+        # cleanup is the groups' recursive membership.
+        group_members = frozenset(
+            cid for gid in group_ids for cid in all_component_ids(state.layout.groups, gid)
         )
+        flip_cmd: object = (
+            cmds[0] if len(cmds) == 1
+            else MacroCommand(cmds, description="Flip selection")
+        )
+        if group_members:
+            return self._apply_transform(
+                flip_cmd, group_members, remove_crossing_wires=remove_crossing_wires,
+            )
+        self._execute(flip_cmd)
         return 0
 
     def add_wire(
