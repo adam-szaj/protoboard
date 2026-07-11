@@ -87,10 +87,12 @@ class SelectionHandle:
         group_ids: frozenset[UUID],
         comp_ids: frozenset[UUID],
         active_group_id: UUID,
+        wire_ids: frozenset[UUID] = frozenset(),
     ) -> None:
         self._controller = controller
         self._group_ids = group_ids
         self._comp_ids = comp_ids
+        self._wire_ids = wire_ids
         self._active_group_id = active_group_id
 
     def rotate(
@@ -123,6 +125,28 @@ class SelectionHandle:
             comp_ids=self._comp_ids,
             active_group_id=self._active_group_id,
             remove_crossing_wires=remove_crossing_wires,
+        )
+
+    def delete(
+        self, *, active_group_id: UUID | None = None, force: bool = False
+    ) -> bool:
+        """Delete the whole addressed set as one atomic macro.
+
+        Components / wires are removed (subject to the group-lock guard against
+        *active_group_id*, wires also honouring *force*); groups are disbanded
+        (dissolve, members kept). *active_group_id* overrides the handle's
+        context when given.
+        """
+        return self._controller._delete_targets(
+            comp_ids=self._comp_ids,
+            wire_ids=self._wire_ids,
+            group_ids=self._group_ids,
+            active_group_id=(
+                active_group_id
+                if active_group_id is not None
+                else self._active_group_id
+            ),
+            force=force,
         )
 
 
@@ -164,6 +188,15 @@ class ComponentHandle:
             remove_crossing_wires=remove_crossing_wires,
         )
 
+    def delete(self) -> bool:
+        """Remove this component (subject to the group-lock guard)."""
+        return self._controller._delete_targets(
+            comp_ids=frozenset({self._comp_id}),
+            wire_ids=frozenset(),
+            group_ids=frozenset(),
+            active_group_id=self._active_group_id,
+        )
+
 
 class GroupHandle:
     """An addressed group — rotates / flips as a rigid body (an external op).
@@ -201,13 +234,45 @@ class GroupHandle:
             remove_crossing_wires=remove_crossing_wires,
         )
 
+    def delete(self) -> bool:
+        """Disband this group — dissolve it, keeping its members placed.
+
+        The domain's only "remove a group" op; not a delete-members. No group
+        lock applies — a group is addressed as one external object.
+        """
+        return self._controller._delete_targets(
+            comp_ids=frozenset(),
+            wire_ids=frozenset(),
+            group_ids=frozenset({self._group_id}),
+            active_group_id=self._group_id,
+        )
+
 
 class WireHandle:
-    """An addressed wire — rotate / flip are not defined for it (absent by design)."""
+    """An addressed wire — rotate / flip are not defined for it (absent by design).
+
+    A wire supports :meth:`delete` only.
+    """
 
     def __init__(self, controller: EditController, wire_id: UUID) -> None:
         self._controller = controller
         self._wire_id = wire_id
+
+    def delete(
+        self, *, active_group_id: UUID | None = None, force: bool = False
+    ) -> bool:
+        """Remove this wire (subject to the wire-lock guard, liftable by *force*)."""
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        return self._controller._delete_targets(
+            comp_ids=frozenset(),
+            wire_ids=frozenset({self._wire_id}),
+            group_ids=frozenset(),
+            active_group_id=(
+                active_group_id if active_group_id is not None else ROOT_GROUP_ID
+            ),
+            force=force,
+        )
 
 
 __all__ = [

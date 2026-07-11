@@ -188,12 +188,11 @@ class CliDriver:
 
     def _cmd_delete(self, args: list[str]) -> str:
         ids = self._sel_or_refs(args[:1])
-        comp_ids = {i.uuid for i in ids if i.tag == "component"}
         ran = self.session.edit_controller.delete(
-            comp_ids, [], active_group_id=self.active_group,
+            ids, active_group_id=self.active_group,
         )
         self.session.select(self.session.selection() - ids)
-        return f"deleted {len(comp_ids)}" if ran else "nothing deleted"
+        return f"deleted {len(ids)}" if ran else "nothing deleted"
 
     def _cmd_group(self, args: list[str]) -> str:
         # group <sel|REF...> [as NAME]
@@ -204,9 +203,8 @@ class CliDriver:
         else:
             sel_tokens = args
         ids = self._sel_or_refs(sel_tokens)
-        comp_ids = {i.uuid for i in ids if i.tag == "component"}
         gid = self.session.edit_controller.create_group(
-            comp_ids, active_group_id=self.active_group, name=name,
+            ids, active_group_id=self.active_group, name=name,
         )
         if gid is None:
             raise CliError("group: empty selection")

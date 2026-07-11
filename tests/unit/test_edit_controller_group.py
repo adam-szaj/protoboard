@@ -20,6 +20,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.services.editing import HeadlessSession
+from protoboard.services.editing.item_handle import ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -81,7 +82,7 @@ def test_create_group_promotes_and_detaches_from_root() -> None:
     c2 = _place(session, 3.0, 1.0, "R2")
 
     gid = session.edit_controller.create_group(
-        [c1, c2], active_group_id=ROOT_GROUP_ID, name="G1",
+        [ItemId.component(c1), ItemId.component(c2)], active_group_id=ROOT_GROUP_ID, name="G1",
     )
     assert gid is not None
     grp = session.layout.groups[gid]
@@ -102,7 +103,7 @@ def test_create_group_undo_restores_flat_layout() -> None:
     groups_before = len(session.layout.groups)
 
     gid = session.edit_controller.create_group(
-        [c1, c2], active_group_id=ROOT_GROUP_ID, name="G1",
+        [ItemId.component(c1), ItemId.component(c2)], active_group_id=ROOT_GROUP_ID, name="G1",
     )
     assert gid is not None and len(session.layout.groups) == groups_before + 1
 
@@ -119,12 +120,12 @@ def test_add_to_existing_group_moves_membership() -> None:
     c1 = _place(session, 1.0, 1.0, "R1")
     c2 = _place(session, 3.0, 1.0, "R2")
     gid = session.edit_controller.create_group(
-        [c1], active_group_id=ROOT_GROUP_ID, name="G1",
+        [ItemId.component(c1)], active_group_id=ROOT_GROUP_ID, name="G1",
     )
     assert gid is not None
 
     session.edit_controller.add_to_group(
-        gid, [c2], active_group_id=ROOT_GROUP_ID,
+        gid, [ItemId.component(c2)], active_group_id=ROOT_GROUP_ID,
     )
     assert c2 in session.layout.groups[gid].component_ids
     assert c2 not in session.layout.groups[ROOT_GROUP_ID].component_ids
@@ -134,7 +135,7 @@ def test_add_to_group_empty_selection_is_noop() -> None:
     session = _session()
     c1 = _place(session, 1.0, 1.0, "R1")
     gid = session.edit_controller.create_group(
-        [c1], active_group_id=ROOT_GROUP_ID, name="G1",
+        [ItemId.component(c1)], active_group_id=ROOT_GROUP_ID, name="G1",
     )
     assert gid is not None
     before = session.layout.groups[gid].component_ids

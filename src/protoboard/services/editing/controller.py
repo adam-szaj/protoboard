@@ -173,28 +173,57 @@ class EditController:
 
     def delete(
         self,
-        comp_ids: Iterable[uuid.UUID],
-        wire_ids: Iterable[uuid.UUID],
+        item_ids: Iterable[ItemId] | None = None,
         *,
         active_group_id: uuid.UUID,
         force: bool = False,
     ) -> bool:
-        """Delete the given wires and/or components. Returns True if it ran.
+        """Delete the current selection (or *item_ids*). Returns True if it ran.
 
-        Stale ids (already gone from the layout) are dropped. Components and
-        wires structurally owned by a non-active group are skipped by the
-        group-lock guard, evaluated against the explicit *active_group_id* (the
-        tool's interaction context; a bare CLI passes ROOT). *force* (the
-        Shift+Delete escape hatch) lifts the lock for **wires only** — a grouped
-        component still survives, matching the legacy tool contract. Both kinds
-        go into one atomic macro so a mixed selection undoes in one step.
-        Selection bookkeeping (clearing + broadcasting) stays with the caller.
+        With no *item_ids* the current model-side selection is deleted; passing
+        *item_ids* first makes them the selection, then deletes it. Each tag is
+        handled by its kind: a component / wire is removed (subject to the
+        group-lock guard against *active_group_id*), a group is **disbanded**
+        (dissolved — its members stay placed; the domain's only "remove a group"
+        op). Stale ids are dropped.
+
+        *force* (the Shift+Delete escape hatch) lifts the lock for **wires
+        only** — a grouped component still survives. Everything folds into one
+        atomic macro so a mixed selection undoes in one step. Selection
+        bookkeeping (clearing + broadcasting) stays with the caller.
+        """
+        group_ids, comp_ids, wire_ids = self._targets_from(item_ids)
+        return self._delete_targets(
+            comp_ids=comp_ids,
+            wire_ids=wire_ids,
+            group_ids=group_ids,
+            active_group_id=active_group_id,
+            force=force,
+        )
+
+    def _delete_targets(
+        self,
+        *,
+        comp_ids: frozenset[uuid.UUID],
+        wire_ids: frozenset[uuid.UUID],
+        group_ids: frozenset[uuid.UUID],
+        active_group_id: uuid.UUID,
+        force: bool = False,
+    ) -> bool:
+        """Remove components / wires + disband groups as one atomic macro.
+
+        The kind-split builder the ``delete`` verb and the handles share.
+        Component / wire removals honour the group-lock guard (wires also honour
+        *force*); each group is disbanded (dissolve, keep members) with no lock —
+        a group is addressed as one external object. Returns True iff a command
+        ran.
         """
         from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import (
             RemoveComponentCommand,
             RemoveWireCommand,
         )
+        from protoboard.domain.commands.group_cmds import DisbandGroupCommand
         from protoboard.services.editing.group_lock import (
             component_locked_in_group,
             wire_locked_in_group,
@@ -215,7 +244,8 @@ class EditController:
             and not component_locked_in_group(
                 state, cid, active_group_id=active_group_id)
         ]
-        if not keep_wires and not keep_comps:
+        keep_groups = [gid for gid in group_ids if gid in state.layout.groups]
+        if not keep_wires and not keep_comps and not keep_groups:
             return False
 
         cmds: list[Command[ComponentState]] = [
@@ -225,6 +255,10 @@ class EditController:
         cmds += [
             cast("Command[ComponentState]", RemoveComponentCommand(component_id=cid))
             for cid in keep_comps
+        ]
+        cmds += [
+            cast("Command[ComponentState]", DisbandGroupCommand(group_id=gid))
+            for gid in keep_groups
         ]
         cmd: Command[ComponentState] = (
             cmds[0] if len(cmds) == 1
@@ -283,19 +317,20 @@ class EditController:
             self,
             group_ids=frozenset(i.uuid for i in ids if i.tag == "group"),
             comp_ids=frozenset(i.uuid for i in ids if i.tag == "component"),
+            wire_ids=frozenset(i.uuid for i in ids if i.tag == "wire"),
             active_group_id=active,
         )
 
     def _targets_from(
         self, item_ids: Iterable[ItemId] | None
-    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID], frozenset[uuid.UUID]]:
         """Resolve a selection-relative verb's targets, split by tag.
 
         With *item_ids* given, that becomes the new selection (the ``select
         these → operate`` shortcut); with *item_ids* ``None`` the current
-        model-side selection is used as-is. Returns ``(group_ids, comp_ids)``
-        for :meth:`_rotate_targets` / :meth:`_flip_targets`; wire ids in the
-        selection are ignored — rotate / flip are not defined for them.
+        model-side selection is used as-is. Returns ``(group_ids, comp_ids,
+        wire_ids)``; rotate / flip drop the wire set (not defined for wires),
+        delete uses all three.
         """
         if item_ids is not None:
             selection = frozenset(item_ids)
@@ -305,6 +340,7 @@ class EditController:
         return (
             frozenset(i.uuid for i in selection if i.tag == "group"),
             frozenset(i.uuid for i in selection if i.tag == "component"),
+            frozenset(i.uuid for i in selection if i.tag == "wire"),
         )
 
     def rotate(
@@ -330,7 +366,7 @@ class EditController:
         *remove_crossing_wires* is False). Returns the count dropped; presentation
         (highlight refresh, panel re-broadcast) stays with the caller.
         """
-        group_ids, comp_ids = self._targets_from(item_ids)
+        group_ids, comp_ids, _wire_ids = self._targets_from(item_ids)
         return self._rotate_targets(
             group_ids=group_ids,
             comp_ids=comp_ids,
@@ -430,7 +466,7 @@ class EditController:
         group-locked components are skipped). Wires in the selection are ignored.
         Returns #wires dropped for crossing an alien pad.
         """
-        group_ids, comp_ids = self._targets_from(item_ids)
+        group_ids, comp_ids, _wire_ids = self._targets_from(item_ids)
         return self._flip_targets(
             group_ids=group_ids,
             comp_ids=comp_ids,
@@ -815,22 +851,25 @@ class EditController:
 
     def create_group(
         self,
-        comp_ids: Iterable[uuid.UUID],
+        item_ids: Iterable[ItemId],
         *,
         active_group_id: uuid.UUID,
         name: str | None = None,
         auto_export: bool = False,
     ) -> uuid.UUID | None:
-        """Promote *comp_ids* into a new group under *active_group_id*.
+        """Promote the component *item_ids* into a new group under *active_group_id*.
 
         Splits the selection into free components + top-level groups under the
         active context, mints the new group (optionally auto-exporting its
         external pins), then runs the undo-sensitive create + reparent sequence
         as one batch (a single change hook at the end). Returns the new group id,
-        or None when the selection is empty. The target-picker dialog and the
-        select-the-new-group side effect stay with the caller.
+        or None when the selection is empty. Nesting is by component containment
+        — an existing sub-group is promoted because one of its members is in
+        *item_ids*, so only ``component`` tags are used (group / wire tags are
+        ignored). The target-picker dialog and select-the-new-group side effect
+        stay with the caller.
         """
-        ids = frozenset(comp_ids)
+        ids = frozenset(i.uuid for i in item_ids if i.tag == "component")
         if not ids:
             return None
         new_group, promoted_free, promoted_groups = self._prepare_new_group(
@@ -844,17 +883,17 @@ class EditController:
     def add_to_group(
         self,
         group_id: uuid.UUID,
-        comp_ids: Iterable[uuid.UUID],
+        item_ids: Iterable[ItemId],
         *,
         active_group_id: uuid.UUID,
         auto_export: bool = False,
     ) -> None:
-        """Add *comp_ids* to the existing *group_id*.
+        """Add the component *item_ids* to the existing *group_id*.
 
         Attaches them to the target and detaches them from the active group when
         that differs, then (when *auto_export*) refreshes the target's exported
-        pins. One batch, one change hook at the end. Selecting the target stays
-        with the caller.
+        pins. One batch, one change hook at the end. Only ``component`` tags are
+        used. Selecting the target stays with the caller.
         """
         from protoboard.domain.commands.group_cmds import (
             AddToGroupCommand,
@@ -862,7 +901,7 @@ class EditController:
             SetExportedPinsCommand,
         )
 
-        ids = frozenset(comp_ids)
+        ids = frozenset(i.uuid for i in item_ids if i.tag == "component")
         if not ids:
             return
         state = self._state

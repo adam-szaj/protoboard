@@ -21,6 +21,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.services.editing import HeadlessSession
+from protoboard.services.editing.item_handle import ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -86,7 +87,7 @@ def test_delete_loose_component() -> None:
     session = _session()
     cid = _place(session, 0.5, 0.5, "R1")
     ran = session.edit_controller.delete(
-        [cid], [], active_group_id=ROOT_GROUP_ID,
+        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID,
     )
     assert ran is True
     assert cid not in session.layout.placements
@@ -97,7 +98,7 @@ def test_delete_vetoed_for_grouped_from_outside() -> None:
     cid = _place(session, 0.5, 0.5, "R1")
     _make_group(session, [cid])
     ran = session.edit_controller.delete(
-        [cid], [], active_group_id=ROOT_GROUP_ID,
+        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID,
     )
     assert ran is False  # nothing survived the group-lock filter
     assert cid in session.layout.placements  # mutation blocked
@@ -109,7 +110,8 @@ def test_multi_delete_filters_grouped() -> None:
     grouped = _place(session, 1.5, 0.5, "R2")
     _make_group(session, [grouped])
     ran = session.edit_controller.delete(
-        [free, grouped], [], active_group_id=ROOT_GROUP_ID,
+        [ItemId.component(free), ItemId.component(grouped)],
+        active_group_id=ROOT_GROUP_ID,
     )
     assert ran is True
     assert free not in session.layout.placements   # free deleted
@@ -122,7 +124,7 @@ def test_delete_works_after_entering_group() -> None:
     gid = _make_group(session, [cid])
     # Active context is the group itself → its direct members are mutable.
     ran = session.edit_controller.delete(
-        [cid], [], active_group_id=gid,
+        [ItemId.component(cid)], active_group_id=gid,
     )
     assert ran is True
     assert cid not in session.layout.placements
@@ -132,7 +134,8 @@ def test_stale_ids_are_dropped() -> None:
     """Ids no longer in the layout are filtered, not crashed on."""
     session = _session()
     ran = session.edit_controller.delete(
-        [uuid.uuid4()], [uuid.uuid4()], active_group_id=ROOT_GROUP_ID,
+        [ItemId.component(uuid.uuid4()), ItemId.wire(uuid.uuid4())],
+        active_group_id=ROOT_GROUP_ID,
     )
     assert ran is False
 
@@ -145,7 +148,7 @@ def test_force_does_not_override_component_group_lock() -> None:
     cid = _place(session, 0.5, 0.5, "R1")
     _make_group(session, [cid])
     ran = session.edit_controller.delete(
-        [cid], [], active_group_id=ROOT_GROUP_ID, force=True,
+        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID, force=True,
     )
     assert ran is False
     assert cid in session.layout.placements

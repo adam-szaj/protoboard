@@ -53,6 +53,7 @@ from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
 from protoboard.services.debug_trace import traced
+from protoboard.services.editing.item_handle import ItemId
 
 _log = structlog.get_logger(__name__)
 
@@ -771,12 +772,16 @@ class SelectTool(_Tool):
         (matching the legacy order); it is idempotent, so clearing on the
         no-command path is harmless.
         """
-        comp_ids = self._selected_by_kind("component")
-        wire_ids = self._selected_by_kind("wire")
+        # Delete acts on components + wires only; a selected group is left for
+        # the separate Ungroup action (Delete does not disband today).
+        item_ids = [
+            ItemId.component(cid) for cid in self._selected_by_kind("component")
+        ] + [
+            ItemId.wire(wid) for wid in self._selected_by_kind("wire")
+        ]
         self._wire_edit_clear()
         ran = self._session.edit_controller.delete(
-            comp_ids,
-            wire_ids,
+            item_ids,
             active_group_id=self._current_group_id,
             force=force,
         )
@@ -4016,10 +4021,11 @@ class SelectTool(_Tool):
         if choice is None:
             return None
 
+        item_ids = [ItemId.component(cid) for cid in ids]
         controller = self._session.edit_controller
         if choice.mode == "new":
             new_id = controller.create_group(
-                ids,
+                item_ids,
                 active_group_id=active_gid,
                 name=choice.new_name,
                 auto_export=choice.auto_export_external,
@@ -4034,7 +4040,7 @@ class SelectTool(_Tool):
             return None
         controller.add_to_group(
             target_id,
-            ids,
+            item_ids,
             active_group_id=active_gid,
             auto_export=choice.auto_export_external,
         )
