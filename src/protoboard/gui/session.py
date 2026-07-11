@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
 
@@ -20,8 +22,12 @@ from protoboard.gui.highlight_state import HighlightStack
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.services.drc.engine import DRCIssue
 from protoboard.services.editing.headless_session import HeadlessSession
+from protoboard.services.editing.item_handle import ItemId
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
+
+if TYPE_CHECKING:
+    from protoboard.gui.selection.service import SelectionService
 
 
 @dataclass
@@ -143,6 +149,11 @@ class EditorSession(HeadlessSession, QObject):
         # known.  Auto-records every command through CommandStack.
         self.recorder: CommandRecorder = CommandRecorder()
         self.stack.set_recorder(self.recorder)
+        # The GUI selection lives in a per-session SelectionService, parked here
+        # by SelectTool.activate (reused across tool switches). Declared here so
+        # the EditState selection() / select() bridge and the tool share one
+        # attribute; None until a SelectTool has activated at least once.
+        self.selection_service: SelectionService | None = None
 
     def _record_build_time(self, kind: str, ms: float) -> None:
         """Feed lazy-cache (re)build times into the GUI ``PerfMetrics``.
@@ -173,6 +184,73 @@ class EditorSession(HeadlessSession, QObject):
     ) -> None:
         """Called by SelectTool to broadcast selection state to all panels."""
         self.selection_changed.emit(comp_ids, wire_ids, net_id)
+
+    # ------------------------------------------------------------------
+    # Selection (EditState bridge over the tool-owned SelectionService)
+    # ------------------------------------------------------------------
+
+    def selection(self) -> frozenset[ItemId]:
+        """The current selection as tagged :class:`ItemId`s (EditState API).
+
+        Projects the per-session ``SelectionService`` (``Hit``-based) onto the
+        controller's ``ItemId`` shape — ``Hit.kind`` is exactly the ``ItemId``
+        tag, so the map is 1:1. Empty before any SelectTool has activated.
+        """
+        svc = self.selection_service
+        if svc is None:
+            return frozenset()
+        out: set[ItemId] = set()
+        for sel in svc.selected():
+            hit = sel.to_hit()
+            if hit.kind in ("component", "group", "wire") and isinstance(
+                hit.id, uuid.UUID
+            ):
+                out.add(ItemId(hit.kind, hit.id))
+        return frozenset(out)
+
+    def select(self, ids: Iterable[ItemId]) -> None:
+        """Replace the selection with *ids* and broadcast to panels (EditState API).
+
+        Inflates each :class:`ItemId` into the ``Selectable`` its tag needs
+        (looking the entity up in the live layout) and hands the batch to the
+        ``SelectionService``. Panels refresh via ``selection_changed``; the
+        board highlight rebuilds on the next refresh, mirroring how
+        :meth:`notify_changed` defers its repaint. A no-op before any SelectTool
+        has activated (no service to write to).
+        """
+        svc = self.selection_service
+        if svc is None:
+            return
+        from protoboard.gui.selection.adapters import (
+            ComponentSelectable,
+            GroupSelectable,
+            WireSelectable,
+        )
+        from protoboard.gui.selection.selectable import Selectable
+
+        id_set = frozenset(ids)
+        targets: list[Selectable] = []
+        comp_ids: set[uuid.UUID] = set()
+        wire_ids: set[uuid.UUID] = set()
+        for iid in id_set:
+            if iid.tag == "component":
+                pl = self.layout.placements.get(iid.uuid)
+                if pl is not None:
+                    targets.append(
+                        ComponentSelectable(component_id=iid.uuid, placement=pl)
+                    )
+                    comp_ids.add(iid.uuid)
+            elif iid.tag == "wire":
+                wire = self.wire_by_id(iid.uuid)
+                if wire is not None:
+                    targets.append(WireSelectable(wire=wire))
+                    wire_ids.add(iid.uuid)
+            elif iid.tag == "group":
+                grp = self.layout.groups.get(iid.uuid)
+                if grp is not None:
+                    targets.append(GroupSelectable(group=grp))
+        svc.set_many(targets)
+        self.notify_selection(frozenset(comp_ids), frozenset(wire_ids), None)
 
     def request_select_component(self, comp_id: uuid.UUID) -> None:
         """Ask the board to make *comp_id* the sole selection (panel -> board).
