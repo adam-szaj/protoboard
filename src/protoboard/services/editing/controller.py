@@ -599,6 +599,47 @@ class EditController:
         """
         return self._state.run_drc()
 
+    def save(self, directory: Path) -> None:
+        """Save the current project to *directory* (Qt-free YAML)."""
+        from protoboard.services.persistence.project_yaml import save_project
+
+        state = self._state
+        save_project(
+            directory,
+            board=state.board,
+            layout=state.layout,
+            schematic=state.schematic,
+            instances=state.instances,
+        )
+
+    def export(self, kind: str, path: Path) -> None:
+        """Export the board to *path*. *kind* is ``pdf`` / ``svg`` / ``png``.
+
+        Thin pass-through to the export service. PDF/PNG go through Qt's paint
+        pipeline (the caller must have a ``QGuiApplication`` — the CLI sets one
+        up with the offscreen platform); the import is local so the edit verbs
+        stay Qt-free.
+        """
+        state = self._state
+        common = {
+            "board": state.board,
+            "layout": state.layout,
+            "components": state.components,
+            "instances": state.instances,
+            "schematic": state.schematic,
+        }
+        if kind == "pdf":
+            from protoboard.services.export.pdf import export_pdf
+            export_pdf(path, **common)  # type: ignore[arg-type]
+        elif kind == "png":
+            from protoboard.services.export.png import export_png
+            export_png(path, **common)  # type: ignore[arg-type]
+        elif kind == "svg":
+            from protoboard.services.export.svg import export_svg
+            path.write_text(export_svg(**common))  # type: ignore[arg-type]
+        else:
+            raise ValueError(f"unknown export kind: {kind!r}")
+
     def create_group(
         self,
         comp_ids: Iterable[uuid.UUID],

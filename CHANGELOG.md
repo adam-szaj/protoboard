@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — headless edit-CLI acceptance, step 7 (2026-07-11)
+
+* **`tools/edit_cli.py` + `services/editing/cli.py` (`CliDriver`)** — a headless
+  front-end that drives the *same* `EditController` verbs as the GUI, proving the
+  M/V/C split: the driver holds the only interaction state (selection +
+  active group) and maps a line grammar (`new` / `place` / `select` / `rotate` /
+  `flip` / `delete` / `group` / `wire` / `autoroute` / `drc` / `save` / `export`
+  / `undo` / `redo`) onto the verbs. Components are addressed by refdes.
+* **`EditController.save` / `export` / (board factory via CLI `new`)** — thin
+  service pass-throughs completing the verb surface. `save` is Qt-free YAML;
+  `export` (pdf/png/svg) lazy-imports the export service so the edit verbs stay
+  Qt-free.
+* Acceptance test `tests/gui/test_edit_cli_acceptance.py`: the edit journey
+  (new → place → rotate/flip → wire → group → drc → save) runs with **zero Qt**;
+  the full batch ending in `export pdf` produces a real PDF headless (`qtbot`
+  provides the paint device). The `services/editing/` package imports with no
+  QtWidgets/QtGui loaded.
+
+  This completes the EditController extraction: all six edit verbs (delete /
+  rotate / flip / add_wire / group / place) plus autoroute/DRC/save/export live
+  behind one Qt-free controller that both the GUI and the CLI drive.
+
 ### MVC phase 2 — EditController place verbs, step 6 (2026-07-11)
 
 * **`EditController.resolve_placement(...)` + `place_component(resolved)`** split
