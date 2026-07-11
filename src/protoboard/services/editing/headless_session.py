@@ -22,6 +22,7 @@ import os
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import structlog as _structlog
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
     from protoboard.services.editing.controller import EditController
+    from protoboard.services.editing.item_handle import ItemId
 
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
@@ -166,6 +168,11 @@ class HeadlessSession:
         # GUI tools and a headless CLI drive. Built lazily so the base module
         # never imports the controller at construction time.
         self._edit_controller: EditController | None = None
+        # Current selection as tagged ItemIds — the model-side selection the
+        # controller's selection-relative verbs (rotate()/flip() with no ids)
+        # read. A headless session owns it directly; EditorSession overrides the
+        # accessors to bridge its Hit-based SelectionService.
+        self._selection: frozenset[ItemId] = frozenset()
 
     @property
     def edit_controller(self) -> EditController:
@@ -181,6 +188,18 @@ class HeadlessSession:
         No-op in the headless base — a bare driver has no panels to refresh.
         ``EditorSession`` overrides it to emit ``layout_changed``.
         """
+
+    # ------------------------------------------------------------------
+    # Selection (model-side, ItemId-based)
+    # ------------------------------------------------------------------
+
+    def selection(self) -> frozenset[ItemId]:
+        """The current selection as tagged :class:`ItemId`s."""
+        return self._selection
+
+    def select(self, ids: Iterable[ItemId]) -> None:
+        """Replace the current selection with *ids*."""
+        self._selection = frozenset(ids)
 
     def run_drc(self) -> list[DRCIssue]:
         """Run DRC synchronously on the calling thread and return the issues.

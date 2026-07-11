@@ -53,6 +53,7 @@ from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
 from protoboard.services.debug_trace import traced
+from protoboard.services.editing.item_handle import ItemId
 
 _log = structlog.get_logger(__name__)
 
@@ -616,6 +617,19 @@ class SelectTool(_Tool):
             if hit.kind == kind and isinstance(hit.id, uuid.UUID):
                 out.add(hit.id)
         return out
+
+    def _selected_item_ids(self) -> list[ItemId]:
+        """The selected components + groups as tagged :class:`ItemId`s.
+
+        The transform verbs' ItemId input — wires are excluded (rotate / flip
+        are not defined for them). A group and its loose siblings arrive in the
+        same list, so several groups rotate together in one macro.
+        """
+        return [
+            ItemId.component(cid) for cid in self._selected_by_kind("component")
+        ] + [
+            ItemId.group(gid) for gid in self._selected_by_kind("group")
+        ]
 
     def _set_selection_from_ids(
         self,
@@ -3039,8 +3053,7 @@ class SelectTool(_Tool):
         """
         pivot = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
         removed = self._session.edit_controller.rotate(
-            self._selected_ids,
-            group_id=self._selected_group_id,
+            self._selected_item_ids(),
             delta_deg=delta,
             pivot=pivot,
             active_group_id=self._current_group_id,
@@ -3060,13 +3073,12 @@ class SelectTool(_Tool):
         code applied (group: status + refresh + notify; loose: none — the plain
         ``layout_changed`` from the command execution suffices).
         """
-        group_id = self._selected_group_id
+        has_group = bool(self._selected_group_ids)
         removed = self._session.edit_controller.flip(
-            self._selected_ids,
-            group_id=group_id,
+            self._selected_item_ids(),
             active_group_id=self._current_group_id,
         )
-        if group_id is not None:
+        if has_group:
             if removed:
                 self._status_msg(f"Removed {removed} colliding wire(s) after move.")
             self._refresh_highlight()

@@ -133,6 +133,20 @@ class EditState(SchematicState, Protocol):
         self, comp_id: uuid.UUID, pin_number: int
     ) -> Point | None: ...
 
+    def selection(self) -> frozenset[ItemId]:
+        """The currently-selected items, as tagged :class:`ItemId`s.
+
+        The controller's selection-relative verbs (``rotate()`` / ``flip()``
+        with no ids) read this. GUI and headless back it differently — a
+        headless session holds an ``ItemId`` set directly; the GUI bridges its
+        ``Hit``-based ``SelectionService`` — but both present the same shape.
+        """
+        ...
+
+    def select(self, ids: Iterable[ItemId]) -> None:
+        """Replace the current selection with *ids* (the ``select these`` op)."""
+        ...
+
     def notify_changed(self) -> None:
         """Signal that a command mutated the layout (GUI: emit; headless: no-op)."""
         ...
@@ -272,39 +286,54 @@ class EditController:
             active_group_id=active,
         )
 
+    def _targets_from(
+        self, item_ids: Iterable[ItemId] | None
+    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        """Resolve a selection-relative verb's targets, split by tag.
+
+        With *item_ids* given, that becomes the new selection (the ``select
+        these → operate`` shortcut); with *item_ids* ``None`` the current
+        model-side selection is used as-is. Returns ``(group_ids, comp_ids)``
+        for :meth:`_rotate_targets` / :meth:`_flip_targets`; wire ids in the
+        selection are ignored — rotate / flip are not defined for them.
+        """
+        if item_ids is not None:
+            selection = frozenset(item_ids)
+            self._state.select(selection)
+        else:
+            selection = self._state.selection()
+        return (
+            frozenset(i.uuid for i in selection if i.tag == "group"),
+            frozenset(i.uuid for i in selection if i.tag == "component"),
+        )
+
     def rotate(
         self,
-        comp_ids: Iterable[uuid.UUID],
+        item_ids: Iterable[ItemId] | None = None,
         *,
-        group_id: uuid.UUID | None = None,
         delta_deg: int = 90,
         pivot: Point | None = None,
         active_group_id: uuid.UUID | None = None,
         remove_crossing_wires: bool = True,
     ) -> int:
-        """Rotate a group / loose selection by *delta_deg*. Returns #wires dropped.
+        """Rotate the current selection (or *item_ids*) by *delta_deg*.
 
-        The unified dispatch (from the tool's ``_rotate_multi``): an explicit
-        *pivot* rotates every affected component around that point; otherwise a
-        *group_id* rotates the group rigidly about its origin, and a loose
-        selection rotates each component in place. When *group_id* is given the
-        affected set is the group's full recursive membership; a loose selection
-        is filtered by the group-lock guard against *active_group_id* (defaults
-        to ROOT when omitted) and to components that actually have a placement.
+        With no *item_ids* the current model-side selection is rotated; passing
+        *item_ids* first makes them the selection, then rotates it (the ``select
+        these → rotate`` shortcut). Each selected group turns rigidly about its
+        origin, each loose component in place — unless an explicit *pivot* is
+        given, which rotates every affected component about that one point.
+        Loose components are filtered by the group-lock guard against
+        *active_group_id* (defaults to ROOT). Wires in the selection are ignored.
 
-        After the rotate, wires the move pushed across an alien pad are dropped
-        (unless *remove_crossing_wires* is False — the single-primary path,
-        which historically skipped this cleanup). The count of dropped wires is
-        returned so the caller can surface a status message; presentation
+        After the rotate, wires pushed across an alien pad are dropped (unless
+        *remove_crossing_wires* is False). Returns the count dropped; presentation
         (highlight refresh, panel re-broadcast) stays with the caller.
-
-        Thin wrapper over :meth:`_rotate_targets`, the shared builder the
-        ``ItemId`` handles also drive; here a single ``group_id`` is the
-        one-group case of the general multi-group path.
         """
+        group_ids, comp_ids = self._targets_from(item_ids)
         return self._rotate_targets(
-            group_ids=frozenset({group_id}) if group_id is not None else frozenset(),
-            comp_ids=frozenset(comp_ids),
+            group_ids=group_ids,
+            comp_ids=comp_ids,
             delta_deg=delta_deg,
             pivot=pivot,
             active_group_id=active_group_id,
@@ -387,27 +416,24 @@ class EditController:
 
     def flip(
         self,
-        comp_ids: Iterable[uuid.UUID],
+        item_ids: Iterable[ItemId] | None = None,
         *,
-        group_id: uuid.UUID | None = None,
         active_group_id: uuid.UUID | None = None,
         remove_crossing_wires: bool = True,
     ) -> int:
-        """Flip a group (rigid body) or the 2-pin components in a loose selection.
+        """Flip the current selection (or *item_ids*), mirroring :meth:`rotate`.
 
-        A *group_id* flips the whole group about its pin centroid via
-        ``FlipGroupCommand`` (axis ``'v'``, the designed default). A loose
-        selection flips each 2-pin component in place (``flip_component`` pivots
-        around the pin span); components with other pin counts are skipped, as
-        are group-locked ones. Returns #wires dropped for crossing an alien pad,
-        mirroring :meth:`rotate`.
-
-        Thin wrapper over :meth:`_flip_targets`, the shared builder the
-        ``ItemId`` handles also drive.
+        With no *item_ids* the current model-side selection is flipped; passing
+        *item_ids* first makes them the selection. Each selected group flips as a
+        rigid body about its pin centroid (``FlipGroupCommand``, axis ``'v'``);
+        each loose 2-pin component flips in place (other pin counts and
+        group-locked components are skipped). Wires in the selection are ignored.
+        Returns #wires dropped for crossing an alien pad.
         """
+        group_ids, comp_ids = self._targets_from(item_ids)
         return self._flip_targets(
-            group_ids=frozenset({group_id}) if group_id is not None else frozenset(),
-            comp_ids=frozenset(comp_ids),
+            group_ids=group_ids,
+            comp_ids=comp_ids,
             active_group_id=active_group_id,
             remove_crossing_wires=remove_crossing_wires,
         )

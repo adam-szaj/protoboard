@@ -188,3 +188,71 @@ def test_itemid_str_roundtrip() -> None:
     iid = ItemId.group(uuid.uuid4())
     assert str(iid) == f"group:{iid.uuid}"
     assert ItemId.parse(str(iid)) == iid
+
+
+# -- rotate / flip on the current selection ---------------------------------
+
+
+def test_rotate_no_args_operates_on_current_selection() -> None:
+    """``rotate()`` with no ids rotates whatever is currently selected."""
+    session = _session()
+    c1 = _place(session, 2.5, 2.5, "R1")
+    c2 = _place(session, 4.5, 4.5, "R2")
+
+    session.select([ItemId.component(c1), ItemId.component(c2)])
+    session.edit_controller.rotate()
+
+    assert session.layout.placements[c1].rotation == 90
+    assert session.layout.placements[c2].rotation == 90
+
+
+def test_rotate_with_ids_selects_then_rotates() -> None:
+    """``rotate(ids)`` selects those items first, then rotates the selection.
+
+    After the call the session's selection is exactly the passed ids — the
+    "select these → rotate selection" shortcut.
+    """
+    session = _session()
+    c1 = _place(session, 2.5, 2.5, "R1")
+    c2 = _place(session, 4.5, 4.5, "R2")
+    session.select([ItemId.component(c1)])  # start with something else selected
+
+    session.edit_controller.rotate([ItemId.component(c2)])
+
+    assert session.layout.placements[c2].rotation == 90
+    assert session.layout.placements[c1].rotation == 0  # not in the new selection
+    assert session.selection() == frozenset({ItemId.component(c2)})
+
+
+def test_rotate_empty_selection_no_args_is_noop() -> None:
+    """``rotate()`` with nothing selected does nothing (returns 0 wires dropped)."""
+    session = _session()
+    cid = _place(session, 2.5, 2.5, "R1")
+    dropped = session.edit_controller.rotate()
+    assert dropped == 0
+    assert session.layout.placements[cid].rotation == 0
+
+
+def test_flip_no_args_operates_on_current_selection() -> None:
+    """``flip()`` with no ids flips the current 2-pin selection in place."""
+    session = _session()
+    cid = _place(session, 2.5, 2.5, "R1")
+    before = session.layout.placements[cid]
+    session.select([ItemId.component(cid)])
+    session.edit_controller.flip()
+    after = session.layout.placements[cid]
+    assert (after.position, after.rotation, after.vertical_flipped) != (
+        before.position, before.rotation, before.vertical_flipped
+    )
+
+
+def test_select_group_via_itemid_then_rotate() -> None:
+    """A group can be selected by ItemId and rotated as a rigid body via rotate()."""
+    session = _session()
+    cid = _place(session, 2.5, 2.5, "R1")
+    gid = _make_group(session, [cid])
+
+    session.select([ItemId.group(gid)])
+    session.edit_controller.rotate()
+
+    assert session.layout.placements[cid].rotation == 90

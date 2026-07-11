@@ -30,7 +30,7 @@ is the proof of the M/V/C split: the verbs are the same ones the GUI tools call.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +39,7 @@ from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.geometry import Point
 from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.editing.headless_session import HeadlessSession
+from protoboard.services.editing.item_handle import ItemId
 from protoboard.services.editing.placement_conflict import (
     PadConflictRequest,
     PlacementPrompts,
@@ -76,11 +77,15 @@ _BATCH_PROMPTS = PlacementPrompts(pad=_accept_pad, wire=_cancel_wire)
 
 @dataclass
 class CliDriver:
-    """Owns a :class:`HeadlessSession` and the interaction state (selection +
-    active group) the controller verbs are called with."""
+    """Owns a :class:`HeadlessSession` and the active-group interaction state.
+
+    The selection is the session's own model-side selection (``ItemId`` set) —
+    the same one ``EditController``'s selection-relative verbs read; the CLI no
+    longer keeps a private copy. Refdes tokens address components (the CLI's
+    only nameable entity); a bare ``sel`` reuses the current session selection.
+    """
 
     session: HeadlessSession
-    selection: set[uuid.UUID] = field(default_factory=set)
     active_group: uuid.UUID = ROOT_GROUP_ID
 
     @classmethod
@@ -99,10 +104,12 @@ class CliDriver:
                 return cid
         raise CliError(f"no component with refdes {refdes!r}")
 
-    def _sel_or_refs(self, tokens: list[str]) -> set[uuid.UUID]:
+    def _sel_or_refs(self, tokens: list[str]) -> set[ItemId]:
+        """The addressed items as ItemIds: a bare ``sel`` reuses the session
+        selection, otherwise each refdes token resolves to a component."""
         if tokens == ["sel"]:
-            return set(self.selection)
-        return {self._resolve(t) for t in tokens}
+            return set(self.session.selection())
+        return {ItemId.component(self._resolve(t)) for t in tokens}
 
     # -- command dispatch ---------------------------------------------------
 
@@ -134,7 +141,6 @@ class CliDriver:
         self.session = HeadlessSession(
             board=_make_board(kind, rows, cols), library=self.session.library,
         )
-        self.selection.clear()
         self.active_group = ROOT_GROUP_ID
         return f"new {kind} {rows}x{cols}"
 
@@ -154,12 +160,13 @@ class CliDriver:
         if resolved is None:
             raise CliError(f"placement of {ref!r} blocked")
         cid = self.session.edit_controller.place_component(resolved)
-        self.selection = {cid}
+        self.session.select({ItemId.component(cid)})
         return f"placed {resolved.instance.refdes}"
 
     def _cmd_select(self, args: list[str]) -> str:
-        self.selection = {self._resolve(r) for r in args}
-        return f"selected {len(self.selection)}"
+        sel = {ItemId.component(self._resolve(r)) for r in args}
+        self.session.select(sel)
+        return f"selected {len(sel)}"
 
     def _cmd_rotate(self, args: list[str]) -> str:
         # rotate sel D [pivot R,C]
@@ -181,11 +188,12 @@ class CliDriver:
 
     def _cmd_delete(self, args: list[str]) -> str:
         ids = self._sel_or_refs(args[:1])
+        comp_ids = {i.uuid for i in ids if i.tag == "component"}
         ran = self.session.edit_controller.delete(
-            ids, [], active_group_id=self.active_group,
+            comp_ids, [], active_group_id=self.active_group,
         )
-        self.selection -= ids
-        return f"deleted {len(ids)}" if ran else "nothing deleted"
+        self.session.select(self.session.selection() - ids)
+        return f"deleted {len(comp_ids)}" if ran else "nothing deleted"
 
     def _cmd_group(self, args: list[str]) -> str:
         # group <sel|REF...> [as NAME]
@@ -196,8 +204,9 @@ class CliDriver:
         else:
             sel_tokens = args
         ids = self._sel_or_refs(sel_tokens)
+        comp_ids = {i.uuid for i in ids if i.tag == "component"}
         gid = self.session.edit_controller.create_group(
-            ids, active_group_id=self.active_group, name=name,
+            comp_ids, active_group_id=self.active_group, name=name,
         )
         if gid is None:
             raise CliError("group: empty selection")

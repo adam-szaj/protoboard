@@ -2,9 +2,10 @@
 """MVC acceptance: the headless edit-CLI drives the same EditController verbs as
 the GUI, from new-project to export-pdf, with zero Qt in the edit path.
 
-The CLI holds the ONLY interaction state (selection + active group) — the verbs
-it calls are the same ones the GUI tools call. The full journey being expressible
-here is the proof of the M/V/C split.
+The CLI drives the active group; the selection is the session's own model-side
+``ItemId`` selection (the same one the GUI and the controller's selection-relative
+verbs read). The verbs it calls are the same ones the GUI tools call — the full
+journey being expressible here is the proof of the M/V/C split.
 
 The edit journey (new → place → wire → autoroute → drc → save) runs Qt-free; only
 the final PDF export needs Qt's paint device (the ``qtbot`` fixture provides the
@@ -45,6 +46,28 @@ def test_edit_journey_is_fully_qt_free(tmp_path: Path) -> None:
     assert any(g.name == "Amp" for g in driver.session.layout.groups.values())
     assert len(driver.session.layout.wires) == 1
     assert (tmp_path / "proj").exists()
+
+
+def test_cli_selection_is_the_session_selection() -> None:
+    """The CLI drives the session's own ItemId selection — one store, not a copy.
+
+    ``rotate R1 90`` selects R1 (the select-then-rotate shortcut), so the
+    session selection reflects it; ``select`` sets it directly. Confirms the CLI
+    no longer keeps a private selection set.
+    """
+    from protoboard.services.editing.item_handle import ItemId
+
+    driver = CliDriver.new()
+    driver.execute("place R at 3,5")
+    driver.execute("place R at 3,9")
+    r1 = driver._resolve("R1")
+    r2 = driver._resolve("R2")
+
+    driver.execute("select R1 R2")
+    assert driver.session.selection() == {ItemId.component(r1), ItemId.component(r2)}
+
+    driver.execute("rotate R1 90")
+    assert driver.session.selection() == {ItemId.component(r1)}
 
 
 def test_undo_redo_through_cli(tmp_path: Path) -> None:
