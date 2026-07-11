@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from protoboard.domain.commands.base import (
@@ -37,17 +38,35 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import PackageFamily
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
+    from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.geometry import Point
+    from protoboard.geometry import Point, Vector
     from protoboard.services.drc.engine import DRCIssue
+    from protoboard.services.editing.placement_conflict import PlacementPrompts
     from protoboard.services.editing.wire_nets import NetMergePrompt
     from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.types import Side
+
+
+@dataclass(frozen=True)
+class ResolvedPlacement:
+    """A conflict-resolved placement ready to commit via ``place_component``.
+
+    Carries the (bound) incoming instance, its resolved ``ComponentPlacement``
+    (with any ``shared_pins`` the conflict check applied), and the follow-up wire
+    commands the resolution produced (wire re-route / removal on conflict).
+    """
+
+    instance: ComponentInstance
+    placement: ComponentPlacement
+    wire_cmds: tuple[object, ...] = field(default=())
 
 
 def _wire_signature(wire: object) -> tuple[object, ...]:
@@ -101,6 +120,11 @@ class EditState(SchematicState, Protocol):
         self, *, pad_index: PadIndex | None = ...
     ) -> ConflictScanner: ...
     def run_drc(self) -> list[DRCIssue]: ...
+    def pad_index(self) -> PadIndex: ...
+    def connectivity_graph(self) -> ConnectivityGraph: ...
+    def get_pin_position(
+        self, comp_id: uuid.UUID, pin_number: int
+    ) -> Point | None: ...
 
     def notify_changed(self) -> None:
         """Signal that a command mutated the layout (GUI: emit; headless: no-op)."""
@@ -365,6 +389,134 @@ class EditController:
             return None
         self._execute(cast("Command[ComponentState]", cmd))
         return wire.id
+
+    def resolve_placement(
+        self,
+        ref: str,
+        *,
+        position: Point,
+        rotation: int = 0,
+        side: str = "top",
+        pin_offsets: dict[int, Vector] | None = None,
+        package_variant: str | None = None,
+        pin_variant: str | None = None,
+        existing_instance: ComponentInstance | None = None,
+        value: str | None = None,
+        prompts: PlacementPrompts,
+    ) -> ResolvedPlacement | None:
+        """Build the incoming instance + placement and resolve its conflicts.
+
+        The first half of the old ``PlaceTool._commit``: mint (or reuse) the
+        instance, bind it so its chosen-variant footprint resolves, build the
+        ``ComponentPlacement``, and run :func:`check_and_resolve` against the
+        injected *prompts*. Returns a :class:`ResolvedPlacement` (instance +
+        resolved placement + follow-up wire commands) ready for
+        :meth:`place_component`, or None when the placement is blocked.
+
+        This does **not** touch ``session.instances`` / ``session.layout`` or run
+        any command — so the caller (GUI floating preview, or the CLI) decides
+        when to commit. When *existing_instance* is given (a netlist-imported
+        part) its identity is reused; otherwise a fresh refdes/value is minted.
+        """
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.services.editing.placement_conflict import check_and_resolve
+
+        state = self._state
+        defn = state.components.get(ref)
+
+        if existing_instance is not None:
+            inst = existing_instance
+        else:
+            if value is not None:
+                init_value = value
+            elif defn is not None and defn.default_value:
+                init_value = defn.default_value
+            else:
+                init_value = ref
+            inst = ComponentInstance.new(
+                definition_ref=ref,
+                refdes=self._next_refdes(ref),
+                value=init_value,
+                pin_variant=pin_variant,
+                package_variant=package_variant,
+            )
+
+        # Bind so the chosen-variant footprint resolves during the conflict
+        # check (the instance is not yet in session.instances).
+        if defn is not None:
+            inst = inst.bind(defn, state.package_families)
+
+        placement = ComponentPlacement(
+            component_id=inst.id,
+            position=position,
+            rotation=rotation,
+            side=cast("Side", side),
+            pin_offsets=dict(pin_offsets) if pin_offsets else {},
+        )
+        wire_cmds: tuple[object, ...] = ()
+        if defn is not None:
+            resolved = check_and_resolve(
+                session=state,
+                placement=placement,
+                defn=defn,
+                instance_id=inst.id,
+                prompts=prompts,
+                instance=inst,
+            )
+            if resolved is None:
+                return None
+            placement = resolved.placement
+            wire_cmds = resolved.wire_cmds
+        return ResolvedPlacement(
+            instance=inst, placement=placement, wire_cmds=wire_cmds,
+        )
+
+    def place_component(self, resolved: ResolvedPlacement) -> uuid.UUID:
+        """Commit a :class:`ResolvedPlacement` — the old ``PlaceTool._do_place``.
+
+        Executes the ``PlaceComponentCommand`` (folded into one macro with any
+        follow-up wire commands the conflict resolution produced) and returns the
+        placed component's id. Floating / auto-accept UX stays with the caller.
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import PlaceComponentCommand
+
+        inst = resolved.instance
+        place_cmd = PlaceComponentCommand(
+            component_id=inst.id,
+            placement=resolved.placement,
+            instance=inst,
+        )
+        if resolved.wire_cmds:
+            all_cmds = cast(
+                "list[Command[ComponentState]]",
+                [place_cmd, *resolved.wire_cmds],
+            )
+            self._execute(
+                cast(
+                    "Command[ComponentState]",
+                    MacroCommand(all_cmds, description="Place component"),
+                )
+            )
+        else:
+            self._execute(cast("Command[ComponentState]", place_cmd))
+        return inst.id
+
+    def _next_refdes(self, ref: str) -> str:
+        """Mint the next free refdes for definition *ref* (e.g. ``R3``)."""
+        state = self._state
+        defn = state.components.get(ref)
+        prefix = defn.refdes_prefix if defn is not None else ref[0].upper()
+        existing = {
+            inst.refdes
+            for inst in state.instances.values()
+            if inst.refdes.startswith(prefix)
+        }
+        n = 1
+        while f"{prefix}{n}" in existing:
+            n += 1
+        return f"{prefix}{n}"
 
     def apply_autoroute(self, result: AutorouteResult) -> int:
         """Commit an autoroute *result*'s wires, dropping duplicates. Returns #applied.
@@ -733,4 +885,4 @@ class EditController:
         return True
 
 
-__all__ = ["EditController", "EditState"]
+__all__ = ["EditController", "EditState", "ResolvedPlacement"]

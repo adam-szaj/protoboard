@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — EditController place verbs, step 6 (2026-07-11)
+
+* **`EditController.resolve_placement(...)` + `place_component(resolved)`** split
+  `PlaceTool._commit` / `_do_place`: `resolve_placement` mints/reuses the
+  instance, binds it, builds the `ComponentPlacement`, and runs
+  `check_and_resolve` against the injected `PlacementPrompts`, returning a
+  `ResolvedPlacement` (instance + placement + follow-up wire commands) or None
+  when blocked — without touching the layout. `place_component` commits it (the
+  `PlaceComponentCommand` folded into one macro with the wire commands). The
+  floating / auto-accept UX and the phase machine stay in `PlaceTool`, which now
+  holds a single `ResolvedPlacement | None` pending value.
+* **`services/editing/placement_conflict.py`** — the Qt-free conflict-resolution
+  core (`check_and_resolve`, `PlacementResolution`, `PlacementPrompts`, the
+  request types, `WireConflictAction`, `build_wire_removal_cmds` + helpers) moved
+  out of `gui/placement_conflict.py`. The GUI module keeps `qt_placement_prompts`,
+  the drag-commit classifier (`classify_drag_commit`), and a thin
+  `check_and_resolve` wrapper that defaults the Qt prompts; all moved names are
+  re-exported so existing callers/tests are unchanged.
+* `EditState` gains `pad_index` / `connectivity_graph` / `get_pin_position` (the
+  members the conflict check reads).
+* Headless coverage in `tests/unit/test_edit_controller_place.py` (refdes mint /
+  commit+undo / increment / body-overlap block / netlist-instance reuse).
+
 ### MVC phase 2 — EditController autoroute + DRC verbs, step 5 (2026-07-11)
 
 * **`EditController.apply_autoroute(result) -> int`** absorbs the apply half of

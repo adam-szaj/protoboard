@@ -26,12 +26,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from enum import StrEnum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import structlog
 from PySide6.QtCore import Qt
 
-from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package import resolve_component_package
@@ -41,7 +40,6 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
 from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.tools.place_preview import QtPlacePreview
 
 from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
@@ -51,6 +49,7 @@ if TYPE_CHECKING:
     from protoboard.gui.placement_conflict import PlacementPrompts
     from protoboard.gui.ports import KeyInput, PointerInput
     from protoboard.gui.tools.place_preview import PlacePreview
+    from protoboard.services.editing.controller import ResolvedPlacement
 
 _log = structlog.get_logger(__name__)
 
@@ -119,10 +118,9 @@ class PlaceTool(_Tool):
         self._pin_offsets: dict[int, Vector] = {}
         self._drag_pin_queue: list[int] = []
         self._current_drag_pin: int | None = None
-        # Floating state (placed but not committed)
-        self._pending_inst: object = None
-        self._pending_placement: object = None
-        self._pending_wire_cmds: list[object] = []
+        # Floating state (placed but not committed): the controller's resolved
+        # placement, held until the user accepts (Enter) or cancels (Esc).
+        self._pending: ResolvedPlacement | None = None
 
     @property
     def preview(self) -> PlacePreview:
@@ -569,74 +567,35 @@ class PlaceTool(_Tool):
     @traced()
     def _commit(self, position: Point, pin_offsets: dict[int, Vector]) -> None:
         _log.debug("place.attempt", definition=self._definition_ref, pos=(position.x, position.y), rotation=self._rotation)
-        defn = self._session.components.get(self._definition_ref)
 
-        # Netlist-imported instance: reuse its identity (UUID, refdes, value, nets).
-        if self._existing_instance is not None:
-            from protoboard.domain.components.instance import ComponentInstance as _CI
-            inst: _CI = self._existing_instance  # type: ignore[assignment]
-        else:
-            # Pick the initial instance value per the library convention:
-            # concrete parts (BC547, NE555, …) carry the part number as
-            # their name, so ``defn.default_value`` is empty and we fall
-            # back to ``defn.name`` — the rendered label naturally shows
-            # the part number ("Q1 BC547").  Generic templates (R, C, L
-            # …) set ``default_value: "?"`` to prompt the user
-            # ("R23 ?").
-            if defn is not None and defn.default_value:
-                init_value = defn.default_value
-            else:
-                init_value = self._definition_ref
-            inst = ComponentInstance.new(
-                definition_ref=self._definition_ref,
-                refdes=self._next_refdes(),
-                value=init_value,
-                pin_variant=self._pin_variant,
-                package_variant=self._package_variant,
-            )
-
-        # Bind the instance to its definition + catalogue so its chosen variant
-        # footprint resolves now — the conflict check runs *before* the instance
-        # enters session.instances, so without binding it would fall back to the
-        # definition default footprint (wrong pin spacing → bogus body overlap /
-        # off-pad pins, blocking valid placements).
-        if defn is not None:
-            families = getattr(self._session, "package_families", None)
-            inst = inst.bind(defn, families)
-
-        placement = ComponentPlacement(
-            component_id=inst.id,
+        # Resolve instance + placement + conflicts via the controller; the tool
+        # keeps the floating / auto-accept UX and the phase machine.
+        resolved = self._session.edit_controller.resolve_placement(
+            self._definition_ref,
             position=position,
             rotation=self._rotation,
             side="top",
             pin_offsets=pin_offsets,
+            package_variant=self._package_variant,
+            pin_variant=self._pin_variant,
+            existing_instance=self._existing_instance,
+            prompts=self._prompts,
         )
-        has_wire_conflict = False
-        wire_cmds: list[object] = []
-        if defn is not None:
-            resolved = check_and_resolve(
-                session=self._session,
-                placement=placement,
-                defn=defn,
-                instance_id=inst.id,
-                prompts=self._prompts,
-                instance=inst,
-            )
-            if resolved is None:
-                _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))
-                return
-            wire_cmds = list(resolved.wire_cmds)
-            has_wire_conflict = bool(wire_cmds)
-            placement = resolved.placement
+        if resolved is None:
+            _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))
+            return
+
+        has_wire_conflict = bool(resolved.wire_cmds)
 
         from protoboard.gui.app_settings import load_app_settings
         auto_accept = load_app_settings().auto_accept_placement
 
         if auto_accept and not has_wire_conflict:
-            self._do_place(inst, placement, wire_cmds)
+            self._do_place(resolved)
         else:
             # Enter floating — show component on board, wait for Enter/Esc.
-            self._reset_pending(inst, placement, wire_cmds)
+            inst, placement = resolved.instance, resolved.placement
+            self._reset_pending(resolved)
             self._session.layout.placements[inst.id] = placement
             self._session.instances[inst.id] = inst
             self._set_phase(PhaseEnum.FLOATING)
@@ -649,49 +608,26 @@ class PlaceTool(_Tool):
                 ))
 
     @traced()
-    def _do_place(
-        self, inst: object, placement: object, wire_cmds: list[object]
-    ) -> None:
-        """Execute PlaceComponentCommand (and any wire commands) immediately."""
-        from protoboard.domain.commands.component_cmds import PlaceComponentCommand
-        from protoboard.domain.commands.base import ComponentState, MacroCommand
-
-        state = cast(ComponentState, self._session)
-        cmd = PlaceComponentCommand(
-            component_id=inst.id,  # type: ignore[union-attr]
-            placement=placement,  # type: ignore[arg-type]
-            instance=inst,  # type: ignore[arg-type]
-        )
-        if wire_cmds:
-            all_cmds = [cmd] + wire_cmds  # type: ignore[operator]
-            macro = MacroCommand(all_cmds, description="Place component")  # type: ignore[arg-type]
-            self._session.stack.execute(macro, state)
-        else:
-            self._session.stack.execute(cmd, state)
+    def _do_place(self, resolved: "ResolvedPlacement") -> None:
+        """Commit a resolved placement immediately via the controller."""
+        self._session.edit_controller.place_component(resolved)
         _log.info("place.committed",
                   definition=self._definition_ref,
-                  refdes=inst.refdes,
-                  pos=(placement.position.x,
-                       placement.position.y))  # type: ignore[union-attr]
-        self._session.layout_changed.emit()
+                  refdes=resolved.instance.refdes,
+                  pos=(resolved.placement.position.x,
+                       resolved.placement.position.y))
 
     @traced()
-    def _reset_pending(self,
-                       inst: object = None,
-                       placement: object = None,
-                       wire_cmds: list[object] | None = None):
-        self._pending_inst = inst
-        self._pending_placement = placement
-        self._pending_wire_cmds = wire_cmds or []
+    def _reset_pending(self, resolved: "ResolvedPlacement | None" = None) -> None:
+        self._pending = resolved
 
     @traced()
     def _commit_floating_place(self) -> None:
         """Commit the pending floating placement."""
-        if self._pending_inst is None or self._pending_placement is None:
+        if self._pending is None:
             return
 
-        self._do_place(self._pending_inst, self._pending_placement,
-                       self._pending_wire_cmds)
+        self._do_place(self._pending)
         self._reset_pending()
         self._set_phase(PhaseEnum.ANCHOR)
         if self._view is not None:
@@ -700,8 +636,8 @@ class PlaceTool(_Tool):
     @traced()
     def _cancel_floating_place(self) -> None:
         """Remove the pending floating placement from layout without a command."""
-        if self._pending_inst is not None:
-            inst_id = self._pending_inst.id  # type: ignore[union-attr]
+        if self._pending is not None:
+            inst_id = self._pending.instance.id
             self._session.layout.placements.pop(inst_id, None)
             self._session.instances.pop(inst_id, None)
             self._session.layout_changed.emit()
@@ -717,21 +653,3 @@ class PlaceTool(_Tool):
         self._pin_offsets = {}
         self._drag_pin_queue = []
         self._current_drag_pin = None
-
-    # ------------------------------------------------------------------
-
-    @traced()
-    def _next_refdes(self) -> str:
-        defn = self._session.components.get(self._definition_ref)
-        prefix = (
-            defn.refdes_prefix if defn is not None else self._definition_ref[0].upper()
-        )
-        existing = {
-            inst.refdes
-            for inst in self._session.instances.values()
-            if inst.refdes.startswith(prefix)
-        }
-        n = 1
-        while f"{prefix}{n}" in existing:
-            n += 1
-        return f"{prefix}{n}"
