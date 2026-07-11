@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — EditController group verbs, step 4 (2026-07-11)
+
+* **`EditController.create_group(comp_ids, *, active_group_id, name, auto_export)`
+  and `add_to_group(group_id, comp_ids, *, active_group_id, auto_export)`** absorb
+  `SelectTool._prepare_new_group_promoted` + `_execute_group_promotion` and the
+  add-to-existing branch of `_group_for_selection`. `create_group` splits the
+  selection into free components + top-level groups, mints the group (optionally
+  auto-exporting external pins), and runs the undo-sensitive create + reparent
+  sequence as one batch; `add_to_group` attaches to the target and detaches from
+  the active group.
+* A new `EditController._execute_silent` (execute without the change hook) lets
+  the multi-command group verbs notify once at the end — mirroring the tool's old
+  `_exec_command` + single `layout_changed` emit.
+* `SelectTool._group_for_selection` keeps the `GroupTargetDialog` and the
+  select-the-result side effect, delegating the mutation to the verbs;
+  `_prepare_new_group_promoted` / `_execute_group_promotion` removed from the tool.
+* Headless coverage in `tests/unit/test_edit_controller_group.py` (promote /
+  detach-from-root / undo / add-to-existing / empty no-op).
+
 ### MVC phase 2 — EditController add_wire verb, step 3 (2026-07-11)
 
 * **`EditController.add_wire(path, *, insulated, side, merge_prompt)`** absorbs

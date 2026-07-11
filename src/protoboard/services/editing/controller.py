@@ -36,6 +36,7 @@ from protoboard.domain.commands.base import (
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.package import PackageFamily
+    from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
@@ -335,6 +336,170 @@ class EditController:
         self._execute(cast("Command[ComponentState]", cmd))
         return wire.id
 
+    def create_group(
+        self,
+        comp_ids: Iterable[uuid.UUID],
+        *,
+        active_group_id: uuid.UUID,
+        name: str | None = None,
+        auto_export: bool = False,
+    ) -> uuid.UUID | None:
+        """Promote *comp_ids* into a new group under *active_group_id*.
+
+        Splits the selection into free components + top-level groups under the
+        active context, mints the new group (optionally auto-exporting its
+        external pins), then runs the undo-sensitive create + reparent sequence
+        as one batch (a single change hook at the end). Returns the new group id,
+        or None when the selection is empty. The target-picker dialog and the
+        select-the-new-group side effect stay with the caller.
+        """
+        ids = frozenset(comp_ids)
+        if not ids:
+            return None
+        new_group, promoted_free, promoted_groups = self._prepare_new_group(
+            active_group_id, ids, name=name, auto_export=auto_export,
+        )
+        self._execute_group_promotion(
+            active_group_id, new_group, promoted_free, promoted_groups,
+        )
+        return new_group.id
+
+    def add_to_group(
+        self,
+        group_id: uuid.UUID,
+        comp_ids: Iterable[uuid.UUID],
+        *,
+        active_group_id: uuid.UUID,
+        auto_export: bool = False,
+    ) -> None:
+        """Add *comp_ids* to the existing *group_id*.
+
+        Attaches them to the target and detaches them from the active group when
+        that differs, then (when *auto_export*) refreshes the target's exported
+        pins. One batch, one change hook at the end. Selecting the target stays
+        with the caller.
+        """
+        from protoboard.domain.commands.group_cmds import (
+            AddToGroupCommand,
+            RemoveFromGroupCommand,
+            SetExportedPinsCommand,
+        )
+
+        ids = frozenset(comp_ids)
+        if not ids:
+            return
+        state = self._state
+        self._execute_silent(AddToGroupCommand(group_id=group_id, component_ids=ids))
+        if group_id != active_group_id:
+            self._execute_silent(
+                RemoveFromGroupCommand(group_id=active_group_id, component_ids=ids)
+            )
+        if auto_export:
+            new_exported = state.group_tree().external_pins_for_group(
+                group_id, state.schematic
+            )
+            if new_exported != state.layout.groups[group_id].exported_pins:
+                self._execute_silent(
+                    SetExportedPinsCommand(
+                        group_id=group_id, new_exported=new_exported
+                    )
+                )
+        state.notify_changed()
+
+    # ------------------------------------------------------------------
+    # Group-promotion helpers
+    # ------------------------------------------------------------------
+
+    def _prepare_new_group(
+        self,
+        active_gid: uuid.UUID,
+        ids: frozenset[uuid.UUID],
+        *,
+        name: str | None,
+        auto_export: bool,
+    ) -> tuple[ComponentGroup, frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        """Promote the selection and build the (still uncommitted) new group.
+
+        Splits *ids* into free components + top-level groups under *active_gid*,
+        mints the new group id, and computes its auto-exported pins against a
+        transient tree that already contains the prospective group (when
+        *auto_export*). Returns ``(new_group, promoted_free, promoted_groups)``.
+        """
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.group_tree import GroupTree
+        from protoboard.domain.schematic.net import PinRef
+
+        state = self._state
+        default_name = f"Group{len(state.layout.groups) + 1}"
+        promoted_free, promoted_groups = (
+            state.group_tree().promote_selection_to_top_level(active_gid, ids)
+        )
+        new_group_id = uuid.uuid4()
+        exported: frozenset[PinRef] = frozenset()
+        if auto_export:
+            transient = ComponentGroup(
+                id=new_group_id,
+                name=name or default_name,
+                component_ids=promoted_free,
+                child_group_ids=promoted_groups,
+            )
+            groups_with_new = dict(state.layout.groups)
+            groups_with_new[new_group_id] = transient
+            exported = GroupTree(groups_with_new).external_pins_for_group(
+                new_group_id, state.schematic
+            )
+        new_group = ComponentGroup(
+            id=new_group_id,
+            name=name or default_name,
+            component_ids=promoted_free,
+            child_group_ids=promoted_groups,
+            exported_pins=exported,
+        )
+        return new_group, promoted_free, promoted_groups
+
+    def _execute_group_promotion(
+        self,
+        active_gid: uuid.UUID,
+        new_group: ComponentGroup,
+        promoted_free: frozenset[uuid.UUID],
+        promoted_groups: frozenset[uuid.UUID],
+    ) -> None:
+        """Run the create + reparent command sequence for a new promoted group.
+
+        Order is undo-sensitive: create the group, detach each promoted child
+        from its old parent, attach the new group under *active_gid*, then detach
+        the promoted free components from *active_gid*. Notifies once at the end.
+        """
+        from protoboard.domain.commands.group_cmds import (
+            AddToGroupCommand,
+            CreateGroupCommand,
+            RemoveFromGroupCommand,
+        )
+
+        state = self._state
+        self._execute_silent(CreateGroupCommand(group=new_group))
+        for promoted_gid in promoted_groups:
+            old_parent = state.group_tree().parent_group_of(promoted_gid)
+            if old_parent is not None:
+                self._execute_silent(
+                    RemoveFromGroupCommand(
+                        group_id=old_parent,
+                        child_group_ids=frozenset({promoted_gid}),
+                    )
+                )
+        self._execute_silent(
+            AddToGroupCommand(
+                group_id=active_gid, child_group_ids=frozenset({new_group.id})
+            )
+        )
+        if promoted_free:
+            self._execute_silent(
+                RemoveFromGroupCommand(
+                    group_id=active_gid, component_ids=promoted_free
+                )
+            )
+        state.notify_changed()
+
     # ------------------------------------------------------------------
     # Transform helpers (shared by rotate + flip)
     # ------------------------------------------------------------------
@@ -435,6 +600,18 @@ class EditController:
         fires the change hook. Returns ``False`` (without raising) when the
         command rejects itself, matching the tools' contract.
         """
+        ran = self._execute_silent(cmd)
+        if ran:
+            self._state.notify_changed()
+        return ran
+
+    def _execute_silent(self, cmd: object) -> bool:
+        """Execute *cmd* without firing the change hook.
+
+        For multi-command verbs (the group promotion sequence) that issue
+        several commands and notify once at the end — mirroring the tool's
+        ``_exec_command`` + single ``layout_changed`` emit.
+        """
         try:
             self._state.stack.execute(
                 cast("Command[ComponentState]", cmd),
@@ -442,7 +619,6 @@ class EditController:
             )
         except CommandRejectedError:
             return False
-        self._state.notify_changed()
         return True
 
 

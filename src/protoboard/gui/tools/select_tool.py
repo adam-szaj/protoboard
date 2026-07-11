@@ -3987,9 +3987,9 @@ class SelectTool(_Tool):
     def _group_for_selection(self) -> uuid.UUID | None:
         """Group the current selection: dialog to create new or add to existing.
 
-        Verbatim port of the legacy method; only the selection-state reads use
-        the v2 accessors.  All collaborators (GroupTree.promote_selection_to_top_level,
-        external_pins_for_group, the group commands, GroupTargetDialog) are reused.
+        The tool owns the interaction shell — the target-picker dialog
+        (``_group_prompt``) and the select-the-result side effect — and hands the
+        actual promotion / add-to-existing to :class:`EditController`.
         """
         ids = frozenset(self._selected_ids)
         sel_id = self._selected_id
@@ -3998,11 +3998,6 @@ class SelectTool(_Tool):
         if not ids:
             return None
 
-        from protoboard.domain.commands.group_cmds import (
-            AddToGroupCommand,
-            RemoveFromGroupCommand,
-            SetExportedPinsCommand,
-        )
         from protoboard.gui.tools.select_prompts import GroupTargetRequest
 
         groups = self._session.layout.groups
@@ -4025,143 +4020,30 @@ class SelectTool(_Tool):
         if choice is None:
             return None
 
+        controller = self._session.edit_controller
         if choice.mode == "new":
-            new_group, promoted_free, promoted_groups = (
-                self._prepare_new_group_promoted(
-                    active_gid,
-                    ids,
-                    default_name,
-                    choice.auto_export_external,
-                    choice.new_name,
-                )
+            new_id = controller.create_group(
+                ids,
+                active_group_id=active_gid,
+                name=choice.new_name,
+                auto_export=choice.auto_export_external,
             )
-            return self._execute_group_promotion(
-                active_gid, new_group, promoted_free, promoted_groups
-            )
+            if new_id is not None:
+                self._select_group(new_id)
+            return new_id
 
         # Add to an existing group.
         target_id = choice.target_group_id
         if target_id is None:
             return None
-        self._exec_command(
-            AddToGroupCommand(group_id=target_id, component_ids=ids)
+        controller.add_to_group(
+            target_id,
+            ids,
+            active_group_id=active_gid,
+            auto_export=choice.auto_export_external,
         )
-        if target_id != active_gid:
-            self._exec_command(
-                RemoveFromGroupCommand(group_id=active_gid, component_ids=ids)
-            )
-        if choice.auto_export_external:
-            new_exported = self._session.group_tree().external_pins_for_group(
-                target_id, self._session.schematic
-            )
-            if new_exported != self._session.layout.groups[target_id].exported_pins:
-                self._exec_command(
-                    SetExportedPinsCommand(
-                        group_id=target_id, new_exported=new_exported
-                    )
-                )
-        self._session.layout_changed.emit()
         self._select_group(target_id)
         return target_id
-
-    def _prepare_new_group_promoted(
-        self,
-        active_gid: uuid.UUID,
-        ids: frozenset[uuid.UUID],
-        default_name: str,
-        auto_export_external: bool,
-        new_name: str | None,
-    ) -> tuple[ComponentGroup, frozenset[uuid.UUID], frozenset[uuid.UUID]]:
-        """Promote the selection and build the (still uncommitted) new group.
-
-        Splits *ids* into free components + top-level groups under *active_gid*,
-        mints the new group id, computes its auto-exported pins (against a
-        transient tree that already contains the prospective group) when
-        requested, and returns ``(new_group, promoted_free, promoted_groups)``.
-        """
-        from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.layout.group_tree import GroupTree
-        from protoboard.domain.schematic.net import PinRef
-
-        promoted_free, promoted_groups = (
-            self._session.group_tree().promote_selection_to_top_level(
-                active_gid, ids
-            )
-        )
-        _log.info(
-            "group_for_selection.promotion",
-            active_gid=str(active_gid)[:8],
-            n_selected=len(ids),
-            n_free_after=len(promoted_free),
-            n_promoted_groups=len(promoted_groups),
-        )
-        new_group_id = uuid.uuid4()
-        exported: frozenset[PinRef] = frozenset()
-        if auto_export_external:
-            transient = ComponentGroup(
-                id=new_group_id,
-                name=new_name or default_name,
-                component_ids=promoted_free,
-                child_group_ids=promoted_groups,
-            )
-            groups_with_new = dict(self._session.layout.groups)
-            groups_with_new[new_group_id] = transient
-            exported = GroupTree(groups_with_new).external_pins_for_group(
-                new_group_id, self._session.schematic
-            )
-        new_group = ComponentGroup(
-            id=new_group_id,
-            name=new_name or default_name,
-            component_ids=promoted_free,
-            child_group_ids=promoted_groups,
-            exported_pins=exported,
-        )
-        return new_group, promoted_free, promoted_groups
-
-    def _execute_group_promotion(
-        self,
-        active_gid: uuid.UUID,
-        new_group: ComponentGroup,
-        promoted_free: frozenset[uuid.UUID],
-        promoted_groups: frozenset[uuid.UUID],
-    ) -> uuid.UUID:
-        """Run the create + reparent command sequence for a new promoted group.
-
-        Order is undo-sensitive: create the group, detach each promoted child
-        from its old parent, attach the new group under *active_gid*, then detach
-        the promoted free components from *active_gid*.  Selects the new group
-        and returns its id.
-        """
-        from protoboard.domain.commands.group_cmds import (
-            AddToGroupCommand,
-            CreateGroupCommand,
-            RemoveFromGroupCommand,
-        )
-
-        self._exec_command(CreateGroupCommand(group=new_group))
-        for promoted_gid in promoted_groups:
-            old_parent = self._session.group_tree().parent_group_of(promoted_gid)
-            if old_parent is not None:
-                self._exec_command(
-                    RemoveFromGroupCommand(
-                        group_id=old_parent,
-                        child_group_ids=frozenset({promoted_gid}),
-                    )
-                )
-        self._exec_command(
-            AddToGroupCommand(
-                group_id=active_gid, child_group_ids=frozenset({new_group.id})
-            )
-        )
-        if promoted_free:
-            self._exec_command(
-                RemoveFromGroupCommand(
-                    group_id=active_gid, component_ids=promoted_free
-                )
-            )
-        self._session.layout_changed.emit()
-        self._select_group(new_group.id)
-        return new_group.id
 
     # -- worker-backed wire operations (simplify / unweave / merge) ---------
     #
