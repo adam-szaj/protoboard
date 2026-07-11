@@ -24,19 +24,43 @@ addressed target into the same domain commands the verbs build; value objects
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from enum import IntEnum
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.services.editing.controller import EditController
 
-ItemTag = Literal["component", "group", "wire"]
+
+class ItemTag(IntEnum):
+    """The kind of edit target an :class:`ItemId` addresses.
+
+    An ``IntEnum`` (not a bare string): its members can index per-kind variant
+    tables, and identity comparison (``is``) is exhaustiveness-checkable — while
+    the lower-case member names keep ``str(ItemId)`` the human-readable
+    ``"<name>:<uuid>"`` form.
+    """
+
+    component = 0
+    group = 1
+    wire = 2
+
+    def __str__(self) -> str:
+        return self.name
+
+    @classmethod
+    def parse(cls, name: str) -> ItemTag:
+        """Map a name (``"component"`` / …) to its member."""
+        try:
+            return cls[name]
+        except KeyError as e:
+            raise ValueError(f"bad ItemId tag: {name!r}") from e
 
 
 @dataclass(frozen=True, slots=True)
 class ItemId:
-    """A tagged edit target: a ``tag`` (component / group / wire) + its uuid.
+    """A tagged edit target: an :class:`ItemTag` + its uuid.
 
     The string form is ``"<tag>:<uuid>"`` — a stable, human-readable handle the
     tag makes routable without probing every collection to discover what a bare
@@ -51,23 +75,21 @@ class ItemId:
 
     @classmethod
     def component(cls, item_uuid: UUID) -> ItemId:
-        return cls("component", item_uuid)
+        return cls(ItemTag.component, item_uuid)
 
     @classmethod
     def group(cls, item_uuid: UUID) -> ItemId:
-        return cls("group", item_uuid)
+        return cls(ItemTag.group, item_uuid)
 
     @classmethod
     def wire(cls, item_uuid: UUID) -> ItemId:
-        return cls("wire", item_uuid)
+        return cls(ItemTag.wire, item_uuid)
 
     @classmethod
     def parse(cls, text: str) -> ItemId:
         """Parse a ``"<tag>:<uuid>"`` string back into an :class:`ItemId`."""
         tag, _, rest = text.partition(":")
-        if tag not in ("component", "group", "wire"):
-            raise ValueError(f"bad ItemId tag: {tag!r}")
-        return cls(tag, UUID(rest))  # type: ignore[arg-type]
+        return cls(ItemTag.parse(tag), UUID(rest))
 
 
 class SelectionHandle:

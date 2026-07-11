@@ -22,7 +22,7 @@ from protoboard.gui.highlight_state import HighlightStack
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.services.drc.engine import DRCIssue
 from protoboard.services.editing.headless_session import HeadlessSession
-from protoboard.services.editing.item_handle import ItemId
+from protoboard.services.editing.item_handle import ItemId, ItemTag
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
 
@@ -205,7 +205,7 @@ class EditorSession(HeadlessSession, QObject):
             if hit.kind in ("component", "group", "wire") and isinstance(
                 hit.id, uuid.UUID
             ):
-                out.add(ItemId(hit.kind, hit.id))
+                out.add(ItemId(ItemTag.parse(hit.kind), hit.id))
         return frozenset(out)
 
     def select(self, ids: Iterable[ItemId]) -> None:
@@ -233,19 +233,19 @@ class EditorSession(HeadlessSession, QObject):
         comp_ids: set[uuid.UUID] = set()
         wire_ids: set[uuid.UUID] = set()
         for iid in id_set:
-            if iid.tag == "component":
+            if iid.tag is ItemTag.component:
                 pl = self.layout.placements.get(iid.uuid)
                 if pl is not None:
                     targets.append(
                         ComponentSelectable(component_id=iid.uuid, placement=pl)
                     )
                     comp_ids.add(iid.uuid)
-            elif iid.tag == "wire":
+            elif iid.tag is ItemTag.wire:
                 wire = self.wire_by_id(iid.uuid)
                 if wire is not None:
                     targets.append(WireSelectable(wire=wire))
                     wire_ids.add(iid.uuid)
-            elif iid.tag == "group":
+            elif iid.tag is ItemTag.group:
                 grp = self.layout.groups.get(iid.uuid)
                 if grp is not None:
                     targets.append(GroupSelectable(group=grp))

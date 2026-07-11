@@ -33,6 +33,7 @@ from protoboard.domain.commands.base import (
     ComponentState,
     SchematicState,
 )
+from protoboard.services.editing.item_handle import ItemTag
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -295,9 +296,9 @@ class EditController:
         )
 
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
-        if item_id.tag == "group":
+        if item_id.tag is ItemTag.group:
             return GroupHandle(self, item_id.uuid)
-        if item_id.tag == "wire":
+        if item_id.tag is ItemTag.wire:
             return WireHandle(self, item_id.uuid)
         if component_locked_in_group(self._state, item_id.uuid, active_group_id=active):
             return ReadOnlyComponentHandle(self, item_id.uuid, active_group_id=active)
@@ -323,9 +324,9 @@ class EditController:
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         return SelectionHandle(
             self,
-            group_ids=frozenset(i.uuid for i in ids if i.tag == "group"),
-            comp_ids=frozenset(i.uuid for i in ids if i.tag == "component"),
-            wire_ids=frozenset(i.uuid for i in ids if i.tag == "wire"),
+            group_ids=frozenset(i.uuid for i in ids if i.tag is ItemTag.group),
+            comp_ids=frozenset(i.uuid for i in ids if i.tag is ItemTag.component),
+            wire_ids=frozenset(i.uuid for i in ids if i.tag is ItemTag.wire),
             active_group_id=active,
         )
 
@@ -346,9 +347,9 @@ class EditController:
         else:
             selection = self._state.selection()
         return (
-            frozenset(i.uuid for i in selection if i.tag == "group"),
-            frozenset(i.uuid for i in selection if i.tag == "component"),
-            frozenset(i.uuid for i in selection if i.tag == "wire"),
+            frozenset(i.uuid for i in selection if i.tag is ItemTag.group),
+            frozenset(i.uuid for i in selection if i.tag is ItemTag.component),
+            frozenset(i.uuid for i in selection if i.tag is ItemTag.wire),
         )
 
     def rotate(
@@ -877,7 +878,7 @@ class EditController:
         ignored). The target-picker dialog and select-the-new-group side effect
         stay with the caller.
         """
-        ids = frozenset(i.uuid for i in item_ids if i.tag == "component")
+        ids = frozenset(i.uuid for i in item_ids if i.tag is ItemTag.component)
         if not ids:
             return None
         new_group, promoted_free, promoted_groups = self._prepare_new_group(
@@ -909,7 +910,7 @@ class EditController:
             SetExportedPinsCommand,
         )
 
-        ids = frozenset(i.uuid for i in item_ids if i.tag == "component")
+        ids = frozenset(i.uuid for i in item_ids if i.tag is ItemTag.component)
         if not ids:
             return
         state = self._state
