@@ -150,8 +150,13 @@ class SelectionHandle:
         )
 
 
-class ComponentHandle:
-    """An editable single component — supports rotate / flip / delete."""
+class ComponentHandleBase:
+    """Read-only view of a single component — value / part-number / pins / refdes.
+
+    The shared base of :class:`ReadOnlyComponentHandle` (this and no more) and
+    :class:`ComponentHandle` (this plus the mutating ops). Properties resolve
+    against the live state each access, so they reflect the current instance.
+    """
 
     def __init__(
         self,
@@ -163,6 +168,55 @@ class ComponentHandle:
         self._controller = controller
         self._comp_id = comp_id
         self._active_group_id = active_group_id
+
+    @property
+    def _instance(self) -> object | None:
+        return self._controller.state.instances.get(self._comp_id)
+
+    @property
+    def value(self) -> str | None:
+        """The instance value (e.g. ``"10k"``, ``"NE555"``), or None if gone."""
+        inst = self._instance
+        return getattr(inst, "value", None) if inst is not None else None
+
+    @property
+    def refdes(self) -> str | None:
+        """The user-facing reference designator (e.g. ``"R1"``), or None."""
+        inst = self._instance
+        return getattr(inst, "refdes", None) if inst is not None else None
+
+    @property
+    def part_number(self) -> str | None:
+        """The component definition reference (the part number), or None."""
+        inst = self._instance
+        return getattr(inst, "definition_ref", None) if inst is not None else None
+
+    @property
+    def pin_names(self) -> dict[int, str]:
+        """Pin-number → name for the instance's chosen pin variant (may be empty)."""
+        inst = self._instance
+        if inst is None:
+            return {}
+        defn = self._controller.state.components.get(
+            getattr(inst, "definition_ref", "")
+        )
+        if defn is None:
+            return {}
+        return dict(defn.effective_pin_names(getattr(inst, "pin_variant", None)))
+
+
+class ReadOnlyComponentHandle(ComponentHandleBase):
+    """A component addressed from *outside* the group that seals it.
+
+    Exposes the read-only properties of :class:`ComponentHandleBase` and nothing
+    more — rotate / flip / delete are absent by type. Stepping into the group
+    (making it the active context) yields an editable :class:`ComponentHandle`
+    from ``get_item`` instead.
+    """
+
+
+class ComponentHandle(ComponentHandleBase):
+    """An editable single component — the read-only base plus rotate / flip / delete."""
 
     def rotate(
         self,
@@ -277,9 +331,11 @@ class WireHandle:
 
 __all__ = [
     "ComponentHandle",
+    "ComponentHandleBase",
     "GroupHandle",
     "ItemId",
     "ItemTag",
+    "ReadOnlyComponentHandle",
     "SelectionHandle",
     "WireHandle",
 ]

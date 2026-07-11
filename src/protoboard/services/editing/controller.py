@@ -53,6 +53,7 @@ if TYPE_CHECKING:
         ComponentHandle,
         GroupHandle,
         ItemId,
+        ReadOnlyComponentHandle,
         SelectionHandle,
         WireHandle,
     )
@@ -274,17 +275,22 @@ class EditController:
         item_id: ItemId,
         *,
         active_group_id: uuid.UUID | None = None,
-    ) -> ComponentHandle | GroupHandle | WireHandle:
+    ) -> ComponentHandle | ReadOnlyComponentHandle | GroupHandle | WireHandle:
         """Address a single edit target by :class:`ItemId`, returning its handle.
 
-        The handle offers only the operations the target's tag supports — a
-        wire handle has no rotate / flip. *active_group_id* is the edit context
-        a component handle uses for the group-lock guard (defaults to ROOT).
+        The handle offers only the operations the target supports in the current
+        edit context — a wire handle has no rotate / flip; a component sealed
+        inside a group viewed from *outside* (its direct group is not
+        *active_group_id*) yields a :class:`ReadOnlyComponentHandle` with no
+        mutating op at all. *active_group_id* is that edit context (defaults to
+        ROOT).
         """
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.editing.group_lock import component_locked_in_group
         from protoboard.services.editing.item_handle import (
             ComponentHandle,
             GroupHandle,
+            ReadOnlyComponentHandle,
             WireHandle,
         )
 
@@ -293,6 +299,8 @@ class EditController:
             return GroupHandle(self, item_id.uuid)
         if item_id.tag == "wire":
             return WireHandle(self, item_id.uuid)
+        if component_locked_in_group(self._state, item_id.uuid, active_group_id=active):
+            return ReadOnlyComponentHandle(self, item_id.uuid, active_group_id=active)
         return ComponentHandle(self, item_id.uuid, active_group_id=active)
 
     def get_items(
