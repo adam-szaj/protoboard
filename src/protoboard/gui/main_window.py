@@ -285,9 +285,8 @@ class MainWindow(QMainWindow):
                 self._flush_cursor_label,
             )
         )
-        # Push the rubber-band / post-zoom throttles into the view too.
+        # Push the post-zoom refresh throttle into the view too.
         self._board_view.apply_throttle_settings(
-            rubber_band_ms=self._app_settings.rubber_band_throttle_ms,
             zoom_refresh_ms=self._app_settings.zoom_refresh_ms,
         )
         self._board_view.set_antialiasing(self._app_settings.antialiasing)
@@ -3161,7 +3160,6 @@ class MainWindow(QMainWindow):
         # PreferencesDialog → Performance.  Cheap (just QTimer.setInterval).
         self._cursor_throttle.set_interval(settings.cursor_label_throttle_ms)
         self._board_view.apply_throttle_settings(
-            rubber_band_ms=settings.rubber_band_throttle_ms,
             zoom_refresh_ms=settings.zoom_refresh_ms,
         )
         self._board_view.set_antialiasing(settings.antialiasing)

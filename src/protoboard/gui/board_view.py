@@ -27,8 +27,6 @@ _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 # PROTOBOARD_PAINT_PROFILE logging lives in gui/paint_pipeline.py.
 
-_DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
-
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
@@ -185,7 +183,6 @@ class BoardView(QGraphicsView):
         session.selection_requested.connect(self._selection_requested_slot)
         # Theme — overridden by MainWindow after Preferences apply.
         self._theme_override: Theme | None = None
-        self._last_drag_refresh: float = 0.0
         # Scene construction (groups, fingerprints, overlays, drag anchors,
         # refresh debounce) — extracted service (see gui/scene_composer.py).
         self.composer = SceneComposer(self)
@@ -205,11 +202,6 @@ class BoardView(QGraphicsView):
         # visibility refresh after the burst settles.
         from protoboard.gui.throttle import TimerWrap
         self._label_vis_timer = TimerWrap(80, self._apply_label_visibility)
-        # Rubber-band throttle interval — read by SelectTool when it
-        # builds its own timer.  Stored on the view so PreferencesDialog
-        # can adjust the value live (call ``apply_throttle_settings``)
-        # without rebuilding the tool.
-        self._rubber_band_throttle_ms: int = 33
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
@@ -219,23 +211,13 @@ class BoardView(QGraphicsView):
     # ------------------------------------------------------------------
 
     @traced()
-    def apply_throttle_settings(
-        self,
-        *,
-        rubber_band_ms: int,
-        zoom_refresh_ms: int,
-    ) -> None:
-        """Update render-throttle intervals at runtime.
+    def apply_throttle_settings(self, *, zoom_refresh_ms: int) -> None:
+        """Update the post-zoom label-visibility refresh interval at runtime.
 
         Called from MainWindow after PreferencesDialog applies a new
-        :class:`AppSettings`.  SelectTool rebuilds its rubber-band timer
-        lazily, so the new value takes effect on the next rubber-band
-        start; the post-zoom refresh timer is updated immediately.
+        :class:`AppSettings`.
         """
-        rubber_band_ms = max(0, int(rubber_band_ms))
-        zoom_refresh_ms = max(0, int(zoom_refresh_ms))
-        self._rubber_band_throttle_ms = rubber_band_ms
-        self._label_vis_timer.set_interval(zoom_refresh_ms)
+        self._label_vis_timer.set_interval(max(0, int(zoom_refresh_ms)))
 
     @traced()
     def set_ratsnest_mode(self, mode: str) -> None:
