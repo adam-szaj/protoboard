@@ -14,12 +14,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.highlight_state import HighlightStack
 from protoboard.gui.layer_state import LayerOverrides
-from protoboard.services.drc.engine import DRCEngine, DRCIssue
+from protoboard.services.drc.engine import DRCIssue
 from protoboard.services.editing.headless_session import HeadlessSession
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
@@ -131,7 +130,7 @@ class EditorSession(HeadlessSession, QObject):
         QObject.__init__(self, parent)
         HeadlessSession.__init__(self, board, library)
         self.routing_settings: RoutingSettings = RoutingSettings()
-        self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
+        # axis_label_settings is initialised by HeadlessSession.__init__.
         self.layer_overrides: LayerOverrides = LayerOverrides()
         self.highlight_stack: HighlightStack = HighlightStack(self)
         self._routing_net_id: uuid.UUID | None = None
@@ -270,32 +269,16 @@ class EditorSession(HeadlessSession, QObject):
         self.recorder.start(target, project_label=label)
 
     def run_drc(self) -> list[DRCIssue]:
-        """Run DRC synchronously on the calling thread.
+        """Run DRC synchronously, record the result and emit ``drc_changed``.
 
-        Preserved for tests and any caller that genuinely wants a
-        blocking check (e.g. CLI tools, headless validation).  GUI code
-        should use the ``DRCWorker`` path in MainWindow and feed the
-        result back via :meth:`set_drc_issues` to keep the UI thread
-        responsive.
+        Wraps the Qt-free :meth:`HeadlessSession.run_drc` compute with the GUI
+        side effects (perf timing + :meth:`set_drc_issues`). Preserved for tests
+        and any caller wanting a blocking check; GUI code should use the
+        ``DRCWorker`` path in MainWindow and feed the result back via
+        :meth:`set_drc_issues` to keep the UI thread responsive.
         """
         t0 = time.monotonic()
-        engine = DRCEngine()
-        # Main-thread DRC: hand the live pad_index over so the fast
-        # path in `_check_off_pad_joint` / `_check_off_board_pins`
-        # (Step 4) kicks in. Worker-thread DRC (`DRCWorker.run`) builds
-        # its own snapshot inside the worker and stays on the legacy
-        # path — sharing this mutable pad_index across threads would
-        # be a race.
-        issues = engine.check_with_graph(
-            schematic=self.schematic,
-            layout=self.layout,
-            components=self.components,
-            instances=self.instances,
-            graph=self.connectivity_graph(),
-            axis_labels=self.axis_label_settings,
-            board=self.board,
-            pad_index=self.pad_index(),
-        )
+        issues = super().run_drc()
         self.perf.drc_ms = (time.monotonic() - t0) * 1000
         self.set_drc_issues(issues)
         return issues

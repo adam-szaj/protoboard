@@ -34,15 +34,44 @@ from protoboard.domain.commands.base import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.package import PackageFamily
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point
+    from protoboard.services.drc.engine import DRCIssue
     from protoboard.services.editing.wire_nets import NetMergePrompt
+    from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.types import Side
+
+
+def _wire_signature(wire: object) -> tuple[object, ...]:
+    """Hashable identity of *wire* for autoroute duplicate detection.
+
+    Two wires are the same *connection* when they share the unordered endpoint
+    pair (captured as ``a.id.int XOR b.id.int`` so A→B and B→A collapse), the
+    side, and the insulated flag. Wires without resolved knot refs fall back to
+    a canonicalised path signature. Verbatim port of ``MainWindow``'s helper.
+    """
+    a = getattr(wire, "a", None)
+    b = getattr(wire, "b", None)
+    side = getattr(wire, "side", None)
+    insulated = getattr(wire, "insulated", None)
+    if a is not None and b is not None:
+        endpoint_xor = a.id.int ^ b.id.int
+        return ("knots", endpoint_xor, side, insulated)
+    path = getattr(wire, "path", None) or []
+    if not path:
+        return ("path", side, insulated, ())
+    rounded = tuple((round(p.x, 6), round(p.y, 6)) for p in path)
+    reversed_rounded = tuple(reversed(rounded))
+    canonical = rounded if rounded <= reversed_rounded else reversed_rounded
+    return ("path", side, insulated, canonical)
 
 
 @runtime_checkable
@@ -71,6 +100,7 @@ class EditState(SchematicState, Protocol):
     def conflict_scanner(
         self, *, pad_index: PadIndex | None = ...
     ) -> ConflictScanner: ...
+    def run_drc(self) -> list[DRCIssue]: ...
 
     def notify_changed(self) -> None:
         """Signal that a command mutated the layout (GUI: emit; headless: no-op)."""
@@ -335,6 +365,87 @@ class EditController:
             return None
         self._execute(cast("Command[ComponentState]", cmd))
         return wire.id
+
+    def apply_autoroute(self, result: AutorouteResult) -> int:
+        """Commit an autoroute *result*'s wires, dropping duplicates. Returns #applied.
+
+        Absorbs the apply half of ``MainWindow._on_autoroute_done``: filters out
+        wires whose signature duplicates an already-existing wire (a stale-graph
+        second-run trap where the router re-emits an existing connection with a
+        fresh UUID), then commits the survivors as one ``Autoroute`` macro.
+
+        Returns the number of wires actually added — 0 when *result* had no wires
+        or every wire duplicated an existing one. Presentation (the summary
+        dialog, dirty/undo/refresh) stays with the caller, which inspects both
+        this count and ``result`` to pick its message.
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import AddWireCommand
+
+        if not result.wires:
+            return 0
+
+        state = self._state
+        existing_signatures = {_wire_signature(w) for w in state.layout.wires}
+        kept: list[Command[ComponentState]] = []
+        for w in result.wires:
+            sig = _wire_signature(w)
+            if sig in existing_signatures:
+                continue
+            existing_signatures.add(sig)
+            kept.append(cast("Command[ComponentState]", AddWireCommand(wire=w)))
+        if not kept:
+            return 0
+        macro: MacroCommand[ComponentState] = MacroCommand(
+            commands=kept, description=f"Autoroute ({len(kept)} wires)",
+        )
+        # Silent: the GUI caller owns the refresh + single layout_changed emit
+        # (in its legacy order, after mark_dirty); a headless caller's notify is
+        # a no-op anyway. The command is committed to the stack either way.
+        self._execute_silent(cast("Command[ComponentState]", macro))
+        return len(kept)
+
+    def autoroute(
+        self,
+        net_ids: set[uuid.UUID] | None,
+        *,
+        settings: RoutingSettings,
+        report_path: Path | None = None,
+    ) -> AutorouteResult:
+        """Route *net_ids* (or every net when None) synchronously.
+
+        The blocking counterpart to the GUI's background ``AutorouteWorker`` —
+        used by the CLI. Builds an immutable ``RouteRequest`` from the current
+        state + *settings* and runs the default router on the calling thread.
+        Does **not** mutate the layout; pass the returned result to
+        :meth:`apply_autoroute` to commit it.
+        """
+        # Ensure the built-in router/optimizers are registered.
+        import protoboard.services.routing.builtin  # noqa: F401
+        from protoboard.services.routing.protocol import ProgressSink, registry
+        from protoboard.services.routing.snapshot import RouteRequest
+
+        state = self._state
+        request = RouteRequest.from_session(
+            board=state.board,
+            layout=state.layout,
+            schematic=state.schematic,
+            components=state.components,
+            instances=state.instances,
+            routing_settings=settings,
+            net_ids=net_ids,
+            report_path=report_path,
+        )
+        return registry.default().route(request, ProgressSink())
+
+    def run_drc(self) -> list[DRCIssue]:
+        """Run DRC synchronously and return the issues (no side effects).
+
+        Thin pass-through to :meth:`HeadlessSession.run_drc` — the Qt-free
+        DRCEngine path. The GUI keeps its background ``DRCWorker``; this is the
+        blocking check for the CLI / headless validation.
+        """
+        return self._state.run_drc()
 
     def create_group(
         self,

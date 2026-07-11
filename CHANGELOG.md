@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### MVC phase 2 — EditController autoroute + DRC verbs, step 5 (2026-07-11)
+
+* **`EditController.apply_autoroute(result) -> int`** absorbs the apply half of
+  `MainWindow._on_autoroute_done`: the duplicate-signature filter (the
+  `_wire_signature` helper moved here too) + the `Autoroute` AddWire macro.
+  Returns the number of wires committed (0 when the result was empty or every
+  wire duplicated an existing one). It commits silently — the GUI slot keeps its
+  legacy dirty → refresh → single `layout_changed` emit and the summary /
+  all-duplicates dialogs.
+* **`EditController.autoroute(net_ids, *, settings)`** — the synchronous
+  counterpart to the background `AutorouteWorker`, for the CLI: builds a
+  `RouteRequest` and runs the default router on the calling thread. Does not
+  mutate the layout (feed the result to `apply_autoroute`).
+* **`EditController.run_drc()`** — thin pass-through to a new Qt-free
+  `HeadlessSession.run_drc()` (the DRCEngine compute path). `EditorSession.run_drc`
+  now wraps it with the perf timing + `set_drc_issues` emit; `axis_label_settings`
+  moved to `HeadlessSession` so both share it.
+* `MainWindow._on_autoroute_done` repointed to `apply_autoroute`; `_wire_signature`
+  removed from `main_window.py`.
+* Headless coverage in `tests/unit/test_edit_controller_autoroute_drc.py`.
+
 ### MVC phase 2 — EditController group verbs, step 4 (2026-07-11)
 
 * **`EditController.create_group(comp_ids, *, active_group_id, name, auto_export)`

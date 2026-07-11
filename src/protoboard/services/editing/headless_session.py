@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.services.editing.controller import EditController
 
+from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import CommandStack, ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
@@ -44,6 +45,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
+from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.services.library.loader import (
     ComponentLibrary,
     inline_option_families,
@@ -157,6 +159,9 @@ class HeadlessSession:
         # ``layout.wires`` for every highlight redraw — O(N²) when the
         # active net has many wires.  Invalidated on every layout change.
         self._wire_by_id_cache: dict[uuid.UUID, Wire] | None = None
+        # Axis-label settings feed DRC (off-board / label checks). A plain
+        # domain default here; the GUI exposes a settings panel over it.
+        self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
         # One EditController per session — the stateless verb surface both the
         # GUI tools and a headless CLI drive. Built lazily so the base module
         # never imports the controller at construction time.
@@ -176,6 +181,26 @@ class HeadlessSession:
         No-op in the headless base — a bare driver has no panels to refresh.
         ``EditorSession`` overrides it to emit ``layout_changed``.
         """
+
+    def run_drc(self) -> list[DRCIssue]:
+        """Run DRC synchronously on the calling thread and return the issues.
+
+        The Qt-free compute path shared by the CLI / headless validation and by
+        the GUI ``EditorSession.run_drc`` (which additionally records the result
+        + emits ``drc_changed``). Hands the live pad_index over so the fast
+        checks kick in.
+        """
+        engine = DRCEngine()
+        return engine.check_with_graph(
+            schematic=self.schematic,
+            layout=self.layout,
+            components=self.components,
+            instances=self.instances,
+            graph=self.connectivity_graph(),
+            axis_labels=self.axis_label_settings,
+            board=self.board,
+            pad_index=self.pad_index(),
+        )
 
     # ------------------------------------------------------------------
     # Layout (with PinKnot resolver rebinding on swap)

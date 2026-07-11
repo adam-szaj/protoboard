@@ -78,50 +78,6 @@ _click_log = structlog.get_logger("protoboard.gui.main_window.click")
 _CLICK_PROFILE = _os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 
 
-def _wire_signature(wire: "object") -> "tuple[object, ...]":
-    """Return a hashable identity tuple for *wire* used by duplicate detection.
-
-    Two wires are considered duplicates of the same *connection* when
-    they share:
-
-    * the unordered endpoint pair (``{a.id, b.id}``) — identity captured
-      as ``a.id.int XOR b.id.int`` so direction A→B and B→A collapse
-      naturally without an explicit canonical-sort step,
-    * the side (top/bottom — a top-layer wire and a bottom-layer wire
-      between the same pads are two physically distinct conductors,
-      typically meeting at a via, not a duplicate),
-    * the insulated flag (bare vs insulated for the same pin pair are
-      again two distinct conductors).
-
-    Wires without resolved knot refs fall back to a path-based
-    signature: that catches identical-path duplicates from test
-    fixtures or partial-migration paths where ``Wire.a/b`` are still
-    None.  We rarely hit this branch in production because
-    ``AddWireCommand.apply`` resolves both knot refs before commit.
-    """
-    a = getattr(wire, "a", None)
-    b = getattr(wire, "b", None)
-    side = getattr(wire, "side", None)
-    insulated = getattr(wire, "insulated", None)
-    if a is not None and b is not None:
-        # XOR on .int makes the endpoint pair direction-insensitive
-        # without a separate sort.  Two distinct wires get the same XOR
-        # iff they have the same endpoint pair.
-        endpoint_xor = a.id.int ^ b.id.int
-        return ("knots", endpoint_xor, side, insulated)
-    # Fallback for unresolved wires: keep the old path-based signature so
-    # test fixtures and freshly-constructed wires still get a stable id.
-    path = getattr(wire, "path", None) or []
-    if not path:
-        return ("path", side, insulated, ())
-    rounded = tuple((round(p.x, 6), round(p.y, 6)) for p in path)
-    reversed_rounded = tuple(reversed(rounded))
-    canonical = (
-        rounded if rounded <= reversed_rounded else reversed_rounded
-    )
-    return ("path", side, insulated, canonical)
-
-
 class MainWindow(QMainWindow):
     # Emitted when user chooses File > Close Project (return to welcome screen).
     return_to_welcome = Signal()
@@ -2478,13 +2434,14 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_autoroute_done(self, result: object) -> None:
-        """Apply autoroute result to the session (called on the main thread)."""
+        """Apply autoroute result to the session (called on the main thread).
+
+        The duplicate-filter + AddWire macro now lives in
+        ``EditController.apply_autoroute``; this slot keeps the presentation —
+        the "nothing to route" / "all duplicates" / summary dialogs and the
+        dirty/undo/refresh bookkeeping.
+        """
         from protoboard.services.routing.autorouter import AutorouteResult
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.base import ComponentState
-        from protoboard.domain.commands.component_cmds import AddWireCommand
-        from protoboard.domain.layout.wire import Wire
-        from typing import cast
 
         if not isinstance(result, AutorouteResult):
             return
@@ -2496,51 +2453,8 @@ class MainWindow(QMainWindow):
             return
 
         if result.wires:
-            # Filter out wires whose path duplicates an already-existing
-            # wire in the layout.  Second-autoroute runs can fall into
-            # this trap when the connectivity graph rebuild missed a
-            # pre-existing wire (e.g. a stale wire.path left behind by
-            # rotate/drag macros) — the router then re-routes the same
-            # connection and emits a wire with the identical path.  The
-            # duplicate has its own UUID, so AddWireCommand would happily
-            # commit both wires on top of each other (visual ghost,
-            # double-counted in connectivity, mid-segment T-junction
-            # logic confused).
-            existing_signatures = {
-                _wire_signature(w) for w in self._session.layout.wires
-            }
-            kept: list[Wire] = []
-            duplicates: list[dict[str, object]] = []
-            for w in result.wires:
-                sig = _wire_signature(w)
-                if sig in existing_signatures:
-                    duplicates.append({
-                        "new_id": str(w.id)[:8],
-                        "side": w.side,
-                        "insulated": w.insulated,
-                        "n_points": len(w.path),
-                        "endpoints": (
-                            (w.path[0].x, w.path[0].y),
-                            (w.path[-1].x, w.path[-1].y),
-                        ) if w.path else None,
-                    })
-                    continue
-                # Record the new signature so any sibling autoroute wires
-                # in this same result that *also* duplicate it are also
-                # filtered (defensive — happens when two parallel A* runs
-                # produce the same path for different nets that share
-                # padding).
-                existing_signatures.add(sig)
-                kept.append(w)
-            if duplicates:
-                _log.warning(
-                    "autoroute.duplicate_wires_discarded",
-                    n_discarded=len(duplicates),
-                    n_kept=len(kept),
-                    n_total=len(result.wires),
-                    duplicates=duplicates[:10],
-                )
-            if not kept:
+            applied = self._session.edit_controller.apply_autoroute(result)
+            if applied == 0:
                 _log.info("autoroute.all_results_were_duplicates")
                 QMessageBox.information(
                     self, "Autoroute",
@@ -2548,14 +2462,6 @@ class MainWindow(QMainWindow):
                     "wires (probably a stale connectivity state).",
                 )
                 return
-            cmds = [
-                cast(Command[ComponentState], AddWireCommand(wire=w)) for w in kept
-            ]
-            macro: MacroCommand[ComponentState] = MacroCommand(
-                commands=cmds,
-                description=f"Autoroute ({len(kept)} wires)",
-            )
-            self._session.stack.execute(macro, cast(ComponentState, self._session))
             self._session.mark_dirty()
             self._board_view.refresh()
             self._update_undo_redo()
