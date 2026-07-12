@@ -126,9 +126,10 @@ def test_selection_delete_mixed_is_one_undo_step() -> None:
     gid = _make_group(session, [c_grouped])
     wid = _wire(session, Point(0.0, 0.0), Point(2.0, 0.0))
 
-    session.edit_controller.get_items(
-        [ItemId.component(c_free), ItemId.wire(wid), ItemId.group(gid)]
-    ).delete(active_group_id=ROOT_GROUP_ID)
+    session.edit_controller.delete(
+        [ItemId.component(c_free), ItemId.wire(wid), ItemId.group(gid)],
+        active_group_id=ROOT_GROUP_ID,
+    )
 
     assert c_free not in session.layout.placements          # free comp deleted
     assert wid not in {w.id for w in session.layout.wires}  # wire deleted

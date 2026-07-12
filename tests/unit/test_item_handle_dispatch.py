@@ -178,21 +178,20 @@ def test_call_with_no_callbacks_raises() -> None:
 
 
 def test_get_items_no_args_is_the_current_selection() -> None:
-    """get_items() with no args returns a handle over the whole selection."""
+    """get_items() with no args returns one handle per currently-selected item."""
     session = _session()
     c1 = _place(session, 0.5, 0.5, "R1")
     c2 = _place(session, 1.5, 0.5, "R2")
     session.select([ItemId.component(c1), ItemId.component(c2)])
 
-    # Rotating the selection handle rotates every selected component.
-    session.edit_controller.get_items().rotate(90)
-    assert session.layout.placements[c1].rotation == 90
-    assert session.layout.placements[c2].rotation == 90
+    handles = session.edit_controller.get_items()
+    assert len(handles) == 2
+    assert all(h.is_component() for h in handles)
+    assert {h._comp_id for h in handles} == {c1, c2}  # type: ignore[attr-defined]
 
 
 def test_get_items_no_args_empty_selection() -> None:
-    """get_items() with nothing selected yields an empty, harmless handle."""
+    """get_items() with nothing selected yields an empty list."""
     session = _session()
-    cid = _place(session, 0.5, 0.5, "R1")
-    session.edit_controller.get_items().rotate(90)
-    assert session.layout.placements[cid].rotation == 0
+    _place(session, 0.5, 0.5, "R1")
+    assert session.edit_controller.get_items() == []

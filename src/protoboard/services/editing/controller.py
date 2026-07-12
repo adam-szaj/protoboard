@@ -53,9 +53,9 @@ if TYPE_CHECKING:
     from protoboard.services.editing.item_handle import (
         ComponentHandle,
         GroupHandle,
+        HandleKind,
         ItemId,
         ReadOnlyComponentHandle,
-        SelectionHandle,
         WireHandle,
     )
     from protoboard.services.editing.placement_conflict import PlacementPrompts
@@ -194,12 +194,17 @@ class EditController:
         atomic macro so a mixed selection undoes in one step. Selection
         bookkeeping (clearing + broadcasting) stays with the caller.
 
-        A thin facade over :meth:`get_items`: it applies the ``select these``
-        side-effect, then delegates to the returned :class:`SelectionHandle`.
+        Folds the whole addressed selection into ONE atomic macro (see
+        :meth:`rotate`), so it splits the targets directly.
         """
         self._select_if_given(item_ids)
-        return self.get_items(item_ids, active_group_id=active_group_id).delete(
-            force=force
+        group_ids, comp_ids, wire_ids = self._split_targets(item_ids)
+        return self._delete_targets(
+            comp_ids=comp_ids,
+            wire_ids=wire_ids,
+            group_ids=group_ids,
+            active_group_id=active_group_id,
+            force=force,
         )
 
     def _delete_targets(
@@ -355,45 +360,65 @@ class EditController:
         item_ids: ItemId | Iterable[ItemId] | None = None,
         *,
         active_group_id: uuid.UUID | None = None,
-    ) -> SelectionHandle:
-        """Address a set of targets, returning one :class:`SelectionHandle`.
+    ) -> list[HandleKind]:
+        """Address a set of targets, returning one handle per id (a plain list).
 
         A single :class:`ItemId` is accepted and treated as a one-element set;
-        ``None`` (no argument) addresses the whole current selection. Rotate /
-        flip on the returned handle fold every addressed group and the loose
-        components into ONE atomic macro — the seam that lets several groups
-        rotate in a single undoable step.
+        ``None`` (no argument) addresses the whole current selection. Each id is
+        resolved through :meth:`get_item`, so the list carries the *same* typed
+        handles a single lookup would — including a :class:`ReadOnlyComponent
+        Handle` for a component sealed inside a group viewed from outside. The
+        caller filters / maps with ordinary comprehensions (``[h for h in items
+        if h.supports_rotate()]``); the :class:`HandleKind` predicates keep it
+        from having to ``isinstance``.
+
+        This is an **inspection / per-item** surface. The atomic multi-target
+        operation (rotate/flip/delete a whole selection as one undoable macro)
+        lives on the verbs :meth:`rotate` / :meth:`flip` / :meth:`delete` — a
+        naive ``for h in get_items(): h.rotate()`` loop would be N undo steps,
+        not one.
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.services.editing.item_handle import ItemId, SelectionHandle
+        from protoboard.services.editing.item_handle import ItemId
 
         if item_ids is None:
-            ids = list(self._state.selection())
+            ids: list[ItemId] = list(self._state.selection())
         elif isinstance(item_ids, ItemId):
             ids = [item_ids]
         else:
             ids = list(item_ids)
-        active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
-        return SelectionHandle(
-            self,
-            group_ids=frozenset(i.uuid for i in ids if i.tag is ItemTag.group),
-            comp_ids=frozenset(i.uuid for i in ids if i.tag is ItemTag.component),
-            wire_ids=frozenset(i.uuid for i in ids if i.tag is ItemTag.wire),
-            active_group_id=active,
-        )
+        return [
+            self.get_item(iid, active_group_id=active_group_id) for iid in ids
+        ]
 
     def _select_if_given(self, item_ids: Iterable[ItemId] | None) -> None:
         """Apply the ``select these`` side-effect of the selection-relative verbs.
 
         When *item_ids* is given, it becomes the new model-side selection (the
-        ``select these → operate`` shortcut) — so a subsequent ``get_items(item_
-        ids)`` addresses exactly what is now selected. ``None`` leaves the
-        selection untouched (the verb operates on whatever is already selected).
-        The verb-only half of the old ``_targets_from``; the tag-splitting half
-        now lives solely in :meth:`get_items`.
+        ``select these → operate`` shortcut). ``None`` leaves the selection
+        untouched (the verb operates on whatever is already selected). Kept
+        separate from :meth:`_split_targets` so the side-effect is applied once,
+        up front, and the split then reads a settled selection.
         """
         if item_ids is not None:
             self._state.select(frozenset(item_ids))
+
+    def _split_targets(
+        self, item_ids: Iterable[ItemId] | None
+    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        """Split the addressed selection into ``(group, comp, wire)`` id-buckets.
+
+        With *item_ids* ``None`` the current model-side selection is used;
+        otherwise *item_ids* itself is split (the verb has already applied it as
+        the selection via :meth:`_select_if_given`, so the two agree). The atomic
+        multi-target verbs need the raw buckets to build one macro; the per-item
+        :meth:`get_items` surface does not go through here.
+        """
+        selection = self._state.selection() if item_ids is None else frozenset(item_ids)
+        return (
+            frozenset(i.uuid for i in selection if i.tag is ItemTag.group),
+            frozenset(i.uuid for i in selection if i.tag is ItemTag.component),
+            frozenset(i.uuid for i in selection if i.tag is ItemTag.wire),
+        )
 
     def rotate(
         self,
@@ -418,13 +443,18 @@ class EditController:
         *remove_crossing_wires* is False). Returns the count dropped; presentation
         (highlight refresh, panel re-broadcast) stays with the caller.
 
-        A thin facade over :meth:`get_items`: it applies the ``select these``
-        side-effect, then delegates to the returned :class:`SelectionHandle`.
+        The whole addressed selection turns as ONE atomic macro (several groups
+        in a single undoable step) — the reason this verb builds the targets
+        directly rather than looping the per-item handles from :meth:`get_items`.
         """
         self._select_if_given(item_ids)
-        return self.get_items(item_ids, active_group_id=active_group_id).rotate(
+        group_ids, comp_ids, _wire_ids = self._split_targets(item_ids)
+        return self._rotate_targets(
+            group_ids=group_ids,
+            comp_ids=comp_ids,
             delta_deg=delta_deg,
             pivot=pivot,
+            active_group_id=active_group_id,
             remove_crossing_wires=remove_crossing_wires,
         )
 
@@ -518,11 +548,15 @@ class EditController:
         group-locked components are skipped). Wires in the selection are ignored.
         Returns #wires dropped for crossing an alien pad.
 
-        A thin facade over :meth:`get_items`: it applies the ``select these``
-        side-effect, then delegates to the returned :class:`SelectionHandle`.
+        Folds the whole addressed selection into ONE atomic macro (see
+        :meth:`rotate`), so it splits the targets directly.
         """
         self._select_if_given(item_ids)
-        return self.get_items(item_ids, active_group_id=active_group_id).flip(
+        group_ids, comp_ids, _wire_ids = self._split_targets(item_ids)
+        return self._flip_targets(
+            group_ids=group_ids,
+            comp_ids=comp_ids,
+            active_group_id=active_group_id,
             remove_crossing_wires=remove_crossing_wires,
         )
 

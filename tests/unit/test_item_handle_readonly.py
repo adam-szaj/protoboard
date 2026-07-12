@@ -182,3 +182,88 @@ def test_wire_handle_exposes_side_and_insulated() -> None:
     handle = session.edit_controller.get_item(ItemId.wire(w.id))
     assert handle.side == "bottom"
     assert handle.insulated is True
+
+
+# -- HandleKind predicates (is_* / supports_*) -------------------------------
+#
+# The predicate matrix get_items() callers filter on, one row per handle kind:
+#                      component group wire  readonly mutable | rot flip del
+#   ComponentHandle        T      F    F       F        T     |  T   T   T
+#   ReadOnlyComponent      T      F    F       T        F     |  F   F   F
+#   GroupHandle            F      T    F       F        T     |  T   T   T
+#   WireHandle             F      F    T       F        T     |  F   F   T
+
+
+def _wire(session: HeadlessSession) -> uuid.UUID:
+    from protoboard.domain.layout.wire import Wire
+
+    w = Wire(
+        id=uuid.uuid4(), path=[Point(0.0, 0.0), Point(2.0, 0.0)],
+        insulated=False, side="top",
+    )
+    session.layout.wires.append(w)
+    session.invalidate_graph()
+    return w.id
+
+
+def test_mutable_component_handle_predicates() -> None:
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    h = session.edit_controller.get_item(ItemId.component(cid))
+    assert (h.is_component(), h.is_group(), h.is_wire()) == (True, False, False)
+    assert (h.is_readonly(), h.is_mutable()) == (False, True)
+    assert (h.supports_rotate(), h.supports_flip(), h.supports_delete()) == (
+        True, True, True,
+    )
+
+
+def test_readonly_component_handle_predicates() -> None:
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    _make_group(session, [cid])
+    h = session.edit_controller.get_item(
+        ItemId.component(cid), active_group_id=ROOT_GROUP_ID
+    )
+    assert h.is_component() and h.is_readonly() and not h.is_mutable()
+    assert not (h.supports_rotate() or h.supports_flip() or h.supports_delete())
+
+
+def test_group_handle_predicates() -> None:
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    gid = _make_group(session, [cid])
+    h = session.edit_controller.get_item(ItemId.group(gid))
+    assert (h.is_component(), h.is_group(), h.is_wire()) == (False, True, False)
+    assert (h.is_readonly(), h.is_mutable()) == (False, True)
+    assert (h.supports_rotate(), h.supports_flip(), h.supports_delete()) == (
+        True, True, True,
+    )
+
+
+def test_wire_handle_predicates() -> None:
+    session = _session()
+    wid = _wire(session)
+    h = session.edit_controller.get_item(ItemId.wire(wid))
+    assert (h.is_component(), h.is_group(), h.is_wire()) == (False, False, True)
+    assert (h.is_readonly(), h.is_mutable()) == (False, True)
+    assert (h.supports_rotate(), h.supports_flip(), h.supports_delete()) == (
+        False, False, True,
+    )
+
+
+def test_get_items_mixed_selection_filters_by_predicate() -> None:
+    """The intended caller pattern: filter a mixed get_items() list by predicate."""
+    session = _session()
+    c_free = _place(session, 0.5, 0.5, "R1")
+    c_sealed = _place(session, 2.5, 2.5, "R2")
+    gid = _make_group(session, [c_sealed])
+    wid = _wire(session)
+
+    handles = session.edit_controller.get_items(
+        [ItemId.component(c_free), ItemId.group(gid), ItemId.wire(wid)],
+        active_group_id=ROOT_GROUP_ID,
+    )
+    assert len(handles) == 3
+    assert [h for h in handles if h.supports_rotate()]  # free comp + group
+    assert len([h for h in handles if h.is_wire()]) == 1
+    assert all(h.is_mutable() for h in handles)  # none sealed in this set

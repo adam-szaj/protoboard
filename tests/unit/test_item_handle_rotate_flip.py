@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
-"""ItemId + handle model — ``get_item`` / ``get_items`` rotate / flip.
+"""ItemId + handle model — the ``rotate`` / ``flip`` verbs over a selection.
 
-The unified addressing seam (``controller.get_item(ItemId)`` /
-``get_items([ItemId, ...])``) that both the GUI tools and the CLI drive. A
-handle offers only the operations its target supports (a ``WireHandle`` has no
-``rotate``); a selection handle folds a heterogeneous set (groups + loose
-components) into one atomic macro — which is what fixes the "can't rotate
-several groups at once" bug the single ``group_id`` verb signature carried.
+The unified addressing seam (``controller.rotate([ItemId, ...])`` and the
+per-item ``get_item(ItemId).rotate()``) that both the GUI tools and the CLI
+drive. A handle offers only the operations its target supports (a ``WireHandle``
+has no ``rotate``); the ``rotate`` / ``flip`` verbs fold a heterogeneous set
+(groups + loose components) into one atomic macro — which is what fixes the
+"can't rotate several groups at once" bug the single ``group_id`` verb signature
+carried.
 """
 
 from __future__ import annotations
@@ -87,7 +88,7 @@ def test_rotate_two_groups_at_once() -> None:
 
     The legacy ``rotate(comp_ids, *, group_id=...)`` verb took a single
     ``group_id``, so a two-group selection only ever rotated the first. The
-    ``get_items`` handle folds per-group ``RotateGroupCommand``s into one macro,
+    ``rotate`` verb now folds per-group ``RotateGroupCommand``s into one macro,
     so both turn — and undo reverts both in one step.
     """
     session = _session()
@@ -96,9 +97,7 @@ def test_rotate_two_groups_at_once() -> None:
     g1 = _make_group(session, [c1])
     g2 = _make_group(session, [c2])
 
-    session.edit_controller.get_items(
-        [ItemId.group(g1), ItemId.group(g2)]
-    ).rotate(90)
+    session.edit_controller.rotate([ItemId.group(g1), ItemId.group(g2)])
 
     assert session.layout.placements[c1].rotation == 90
     assert session.layout.placements[c2].rotation == 90  # legacy bug: stayed 0
@@ -112,9 +111,7 @@ def test_rotate_two_groups_is_one_undo_step() -> None:
     g1 = _make_group(session, [c1])
     g2 = _make_group(session, [c2])
 
-    session.edit_controller.get_items(
-        [ItemId.group(g1), ItemId.group(g2)]
-    ).rotate(90)
+    session.edit_controller.rotate([ItemId.group(g1), ItemId.group(g2)])
     session.stack.undo(session)
 
     assert session.layout.placements[c1].rotation == 0

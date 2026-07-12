@@ -7,14 +7,19 @@ as ``Hit(kind, id)``. Both the GUI tools and the CLI address an edit target by
 ``ItemId`` and call the operation on the *handle* the controller hands back:
 
     controller.get_item(ItemId.group(gid)).rotate(90)
-    controller.get_items([ItemId.group(g1), ItemId.group(g2)]).rotate(90)
 
 A handle offers only the operations its target supports — a :class:`WireHandle`
 has no ``rotate`` / ``flip``, so a wire target simply cannot be asked to rotate
-(no empty method, no silent no-op). A :class:`SelectionHandle` folds a
-heterogeneous set (groups + loose components) into ONE atomic macro; that is
-what lets a two-group selection rotate as a single undoable step — the bug the
-legacy single-``group_id`` verb signature could not express.
+(no empty method, no silent no-op). The :class:`HandleKind` predicates
+(``is_group`` / ``is_readonly`` / ``supports_rotate`` / …) let a caller filter a
+mixed set without ``isinstance``.
+
+``controller.get_items([...])`` returns a **plain list** of these handles — one
+per id, read-only handles included — for inspection and per-item work
+(``[h for h in items if h.supports_rotate()]``). It is *not* an aggregate: the
+atomic multi-target operation (several groups rotating as one undoable macro)
+is the verb :meth:`EditController.rotate` / ``flip`` / ``delete``, which builds
+that macro directly.
 
 The handles are thin facades over :class:`EditController` — they translate an
 addressed target into the same domain commands the verbs build; value objects
@@ -98,87 +103,56 @@ class ItemId:
         return cls(ItemTag.parse(tag), UUID(rest))
 
 
-class SelectionHandle:
-    """A handle over a heterogeneous set of addressed items.
+class HandleKind:
+    """Type / capability predicates shared by every handle.
 
-    Rotate / flip fold every addressed group (each a rigid-body transform) and
-    the loose components (rotated together about a shared pivot, or each in
-    place) into ONE macro, so the whole selection transforms as a single
-    undoable step. Wires in the set are ignored by rotate / flip — the
-    operation is not defined for them.
+    ``get_items`` returns a plain ``list`` of these, so a caller filters and
+    maps over the selection with ordinary comprehensions — ``[h for h in items
+    if h.is_readonly()]``, ``map(rotate_it, filter(...))``. The predicates are
+    the seam that keeps that caller from having to ``isinstance`` against four
+    concrete handle classes.
+
+    Two axes:
+
+    * ``is_component`` / ``is_group`` / ``is_wire`` — the target's kind (exactly
+      one is True). ``is_readonly`` / ``is_mutable`` — whether it offers *any*
+      mutating op in the current edit context (a component sealed inside a group
+      viewed from outside is read-only).
+    * ``supports_rotate`` / ``supports_flip`` / ``supports_delete`` — capability
+      sugar, each True iff the concrete handle actually carries that method (a
+      wire supports only ``delete``; a read-only component supports none).
+
+    Every predicate defaults to False here; each concrete handle flips on the
+    ones it satisfies. So a new handle kind is safe-by-default (offers nothing
+    until it opts in) rather than silently claiming operations it lacks.
     """
 
-    def __init__(
-        self,
-        controller: EditController,
-        *,
-        group_ids: frozenset[UUID],
-        comp_ids: frozenset[UUID],
-        active_group_id: UUID,
-        wire_ids: frozenset[UUID] = frozenset(),
-    ) -> None:
-        self._controller = controller
-        self._group_ids = group_ids
-        self._comp_ids = comp_ids
-        self._wire_ids = wire_ids
-        self._active_group_id = active_group_id
+    def is_component(self) -> bool:
+        return False
 
-    def rotate(
-        self,
-        delta_deg: int = 90,
-        *,
-        pivot: Point | None = None,
-        remove_crossing_wires: bool = True,
-    ) -> int:
-        """Rotate every addressed group + loose component as one macro.
+    def is_group(self) -> bool:
+        return False
 
-        Returns the number of wires dropped for crossing an alien pad. An
-        explicit *pivot* rotates every affected component about that point;
-        otherwise each group turns rigidly about its own origin and the loose
-        components turn in place.
-        """
-        return self._controller._rotate_targets(
-            group_ids=self._group_ids,
-            comp_ids=self._comp_ids,
-            delta_deg=delta_deg,
-            pivot=pivot,
-            active_group_id=self._active_group_id,
-            remove_crossing_wires=remove_crossing_wires,
-        )
+    def is_wire(self) -> bool:
+        return False
 
-    def flip(self, *, remove_crossing_wires: bool = True) -> int:
-        """Flip every addressed group (rigid body) + loose 2-pin component."""
-        return self._controller._flip_targets(
-            group_ids=self._group_ids,
-            comp_ids=self._comp_ids,
-            active_group_id=self._active_group_id,
-            remove_crossing_wires=remove_crossing_wires,
-        )
+    def is_readonly(self) -> bool:
+        return False
 
-    def delete(
-        self, *, active_group_id: UUID | None = None, force: bool = False
-    ) -> bool:
-        """Delete the whole addressed set as one atomic macro.
+    def is_mutable(self) -> bool:
+        return not self.is_readonly()
 
-        Components / wires are removed (subject to the group-lock guard against
-        *active_group_id*, wires also honouring *force*); groups are disbanded
-        (dissolve, members kept). *active_group_id* overrides the handle's
-        context when given.
-        """
-        return self._controller._delete_targets(
-            comp_ids=self._comp_ids,
-            wire_ids=self._wire_ids,
-            group_ids=self._group_ids,
-            active_group_id=(
-                active_group_id
-                if active_group_id is not None
-                else self._active_group_id
-            ),
-            force=force,
-        )
+    def supports_rotate(self) -> bool:
+        return False
+
+    def supports_flip(self) -> bool:
+        return False
+
+    def supports_delete(self) -> bool:
+        return False
 
 
-class ComponentHandleBase:
+class ComponentHandleBase(HandleKind):
     """Read-only view of a single component — value / part-number / pins / refdes.
 
     The shared base of :class:`ReadOnlyComponentHandle` (this and no more) and
@@ -196,6 +170,9 @@ class ComponentHandleBase:
         self._controller = controller
         self._comp_id = comp_id
         self._active_group_id = active_group_id
+
+    def is_component(self) -> bool:
+        return True
 
     def call(
         self,
@@ -259,9 +236,21 @@ class ReadOnlyComponentHandle(ComponentHandleBase):
     from ``get_item`` instead.
     """
 
+    def is_readonly(self) -> bool:
+        return True
+
 
 class ComponentHandle(ComponentHandleBase):
     """An editable single component — the read-only base plus rotate / flip / delete."""
+
+    def supports_rotate(self) -> bool:
+        return True
+
+    def supports_flip(self) -> bool:
+        return True
+
+    def supports_delete(self) -> bool:
+        return True
 
     def rotate(
         self,
@@ -297,7 +286,7 @@ class ComponentHandle(ComponentHandleBase):
         )
 
 
-class GroupHandle:
+class GroupHandle(HandleKind):
     """An addressed group — rotates / flips as a rigid body (an external op).
 
     A group turns like a transistor turns: the outer transform changes, its
@@ -308,6 +297,18 @@ class GroupHandle:
     def __init__(self, controller: EditController, group_id: UUID) -> None:
         self._controller = controller
         self._group_id = group_id
+
+    def is_group(self) -> bool:
+        return True
+
+    def supports_rotate(self) -> bool:
+        return True
+
+    def supports_flip(self) -> bool:
+        return True
+
+    def supports_delete(self) -> bool:
+        return True
 
     def call(
         self,
@@ -376,7 +377,7 @@ class GroupHandle:
         )
 
 
-class WireHandle:
+class WireHandle(HandleKind):
     """An addressed wire — rotate / flip are not defined for it (absent by design).
 
     A wire supports :meth:`delete` plus the read properties ``side`` /
@@ -386,6 +387,12 @@ class WireHandle:
     def __init__(self, controller: EditController, wire_id: UUID) -> None:
         self._controller = controller
         self._wire_id = wire_id
+
+    def is_wire(self) -> bool:
+        return True
+
+    def supports_delete(self) -> bool:
+        return True
 
     def call(
         self,
@@ -435,9 +442,9 @@ __all__ = [
     "ComponentHandle",
     "ComponentHandleBase",
     "GroupHandle",
+    "HandleKind",
     "ItemId",
     "ItemTag",
     "ReadOnlyComponentHandle",
-    "SelectionHandle",
     "WireHandle",
 ]
