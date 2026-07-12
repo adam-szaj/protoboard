@@ -225,3 +225,21 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
 - **Migrate other tools' internals into verbs.** Place/Route/Cut/Simplify still
   receive `on_press`/`on_move` via the default `_Tool` adapters; only SelectTool
   overrides the verbs so far.
+- **Move `FloatTransform` (armed rotate/move/flip) into the Controller.** Scouted
+  2026-07-12: `FloatTransform` imports zero Qt and is ~95% Qt-free application
+  logic living under `gui/selection/`. Per the rule "GUI calls only controller
+  API + injects a renderer driver (DI)", the whole armed-transform state machine
+  should move to `services/editing/` behind a stateful controller API
+  (`begin_transform` / `update_pointer` / `rotate`/`move`/`flip`/`set_pivot` /
+  `accept` / `cancel`), with the GUI reduced to a thin input-DTO adapter that
+  injects a renderer-driver (preview) and prompt protocols (the `PlacementPrompts`
+  D4 pattern for the soft-drop resolvers). `snap` becomes a controller method
+  (pure nearest-pad geometry); `classify_drag_commit` (already Qt-free) relocates
+  from `gui/placement_conflict.py` into `services/editing/`. Preview stops
+  mutating the live layout off-stack and becomes a separate state the controller
+  pushes to the renderer. 5-stage parity-guarded plan in
+  `~/.claude/plans/armed-transform-to-controller.md`. Prereq for collapsing the
+  controller's per-kind `_rotate_targets`/`_flip_targets` onto one unified
+  transform path (which itself ultimately wants `ComponentPlacement.transform`,
+  the pending `# TODO change to Rotate2D` in `placement.py`). The full
+  interactive `DragController` is the twin follow-up, out of this plan's scope.
