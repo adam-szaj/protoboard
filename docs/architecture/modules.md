@@ -193,3 +193,31 @@ several move Qt-free DTOs, following an established precedent.
 
 > These reflect what was true at the time of writing. Before acting on any of
 > them, re-check the file still imports what's claimed.
+
+## Planned: a first-class `controller/` layer
+
+The diagram above is the **current** import graph. A migration is designed (but
+**not yet executed** — see
+[`docs/superpowers/specs/2026-07-12-controller-layer-migration-design.md`](../superpowers/specs/2026-07-12-controller-layer-migration-design.md))
+that promotes the Controller from its scattered locations into a single Qt-free
+top-level package:
+
+- `gui/ports/*` → `controller/ports/*`
+- `services/editing/*` → `controller/editing/*`
+- `gui/tools/*` (logic only) → `controller/tools/*` — the `*_preview.py` /
+  overlay renderers **stay** in `gui/` (the View half of the tool/preview split)
+
+After the migration the intended dependency direction is
+`gui/` (Qt adapters + renderers) → `controller/` → `domain/` / `services/`, and
+several **⚠** edges above are resolved rather than merely flagged:
+
+- `armed_transform → gui.ports` (violation 1) disappears — `ports/` moves into
+  `controller/`, so the edge becomes an intra-`controller/` import.
+- `drag_detector → gui.tools.drag_commit_decision` (violation 1) disappears —
+  `drag_commit_decision` moves to `controller/tools/`.
+- The three residual Qt touchpoints in the tools (`Qt.Key.*`, `QColor`,
+  `session.signal.emit()`) are removed so `controller/tools/*` is genuinely
+  Qt-free; a Qt→`KeyCode` mapping is added at the `gui/qt_keymap` boundary.
+
+This diagram will be redrawn to show the `controller/` subgraph once the
+migration lands.
