@@ -193,14 +193,13 @@ class EditController:
         only** — a grouped component still survives. Everything folds into one
         atomic macro so a mixed selection undoes in one step. Selection
         bookkeeping (clearing + broadcasting) stays with the caller.
+
+        A thin facade over :meth:`get_items`: it applies the ``select these``
+        side-effect, then delegates to the returned :class:`SelectionHandle`.
         """
-        group_ids, comp_ids, wire_ids = self._targets_from(item_ids)
-        return self._delete_targets(
-            comp_ids=comp_ids,
-            wire_ids=wire_ids,
-            group_ids=group_ids,
-            active_group_id=active_group_id,
-            force=force,
+        self._select_if_given(item_ids)
+        return self.get_items(item_ids, active_group_id=active_group_id).delete(
+            force=force
         )
 
     def _delete_targets(
@@ -383,27 +382,18 @@ class EditController:
             active_group_id=active,
         )
 
-    def _targets_from(
-        self, item_ids: Iterable[ItemId] | None
-    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID], frozenset[uuid.UUID]]:
-        """Resolve a selection-relative verb's targets, split by tag.
+    def _select_if_given(self, item_ids: Iterable[ItemId] | None) -> None:
+        """Apply the ``select these`` side-effect of the selection-relative verbs.
 
-        With *item_ids* given, that becomes the new selection (the ``select
-        these → operate`` shortcut); with *item_ids* ``None`` the current
-        model-side selection is used as-is. Returns ``(group_ids, comp_ids,
-        wire_ids)``; rotate / flip drop the wire set (not defined for wires),
-        delete uses all three.
+        When *item_ids* is given, it becomes the new model-side selection (the
+        ``select these → operate`` shortcut) — so a subsequent ``get_items(item_
+        ids)`` addresses exactly what is now selected. ``None`` leaves the
+        selection untouched (the verb operates on whatever is already selected).
+        The verb-only half of the old ``_targets_from``; the tag-splitting half
+        now lives solely in :meth:`get_items`.
         """
         if item_ids is not None:
-            selection = frozenset(item_ids)
-            self._state.select(selection)
-        else:
-            selection = self._state.selection()
-        return (
-            frozenset(i.uuid for i in selection if i.tag is ItemTag.group),
-            frozenset(i.uuid for i in selection if i.tag is ItemTag.component),
-            frozenset(i.uuid for i in selection if i.tag is ItemTag.wire),
-        )
+            self._state.select(frozenset(item_ids))
 
     def rotate(
         self,
@@ -427,14 +417,14 @@ class EditController:
         After the rotate, wires pushed across an alien pad are dropped (unless
         *remove_crossing_wires* is False). Returns the count dropped; presentation
         (highlight refresh, panel re-broadcast) stays with the caller.
+
+        A thin facade over :meth:`get_items`: it applies the ``select these``
+        side-effect, then delegates to the returned :class:`SelectionHandle`.
         """
-        group_ids, comp_ids, _wire_ids = self._targets_from(item_ids)
-        return self._rotate_targets(
-            group_ids=group_ids,
-            comp_ids=comp_ids,
+        self._select_if_given(item_ids)
+        return self.get_items(item_ids, active_group_id=active_group_id).rotate(
             delta_deg=delta_deg,
             pivot=pivot,
-            active_group_id=active_group_id,
             remove_crossing_wires=remove_crossing_wires,
         )
 
@@ -527,12 +517,12 @@ class EditController:
         each loose 2-pin component flips in place (other pin counts and
         group-locked components are skipped). Wires in the selection are ignored.
         Returns #wires dropped for crossing an alien pad.
+
+        A thin facade over :meth:`get_items`: it applies the ``select these``
+        side-effect, then delegates to the returned :class:`SelectionHandle`.
         """
-        group_ids, comp_ids, _wire_ids = self._targets_from(item_ids)
-        return self._flip_targets(
-            group_ids=group_ids,
-            comp_ids=comp_ids,
-            active_group_id=active_group_id,
+        self._select_if_given(item_ids)
+        return self.get_items(item_ids, active_group_id=active_group_id).flip(
             remove_crossing_wires=remove_crossing_wires,
         )
 
