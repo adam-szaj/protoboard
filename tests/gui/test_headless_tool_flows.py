@@ -463,12 +463,17 @@ class TestRotateComponent:
         before = session.layout.placements[inst.id].rotation
 
         tool.on_key(key_inp(Qt.Key.Key_R))  # ARM → ArmedTransformTool active
+        transform = session.edit_controller.armed_transform
         armed = _armed(view)
-        assert session.edit_controller.armed_transform is not None
+        assert transform is not None
+        # The live layout stays pristine while armed (E5) — the float pose lives
+        # in the transform's preview layout, not on session.layout.
         assert session.layout.placements[inst.id].rotation == before
 
         armed.on_key(key_inp(Qt.Key.Key_R))  # STEP +90 CW
-        assert session.layout.placements[inst.id].rotation == (before + 90) % 360
+        assert session.layout.placements[inst.id].rotation == before  # still live
+        preview = transform.preview_layout()
+        assert preview.placements[inst.id].rotation == (before + 90) % 360
 
     def test_enter_commits_rotation_as_one_command(
         self, session: EditorSession

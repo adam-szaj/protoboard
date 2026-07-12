@@ -129,6 +129,42 @@ class Layout:
         component definitions."""
         self._footprint_resolver = resolver
 
+    def preview_copy(self) -> "Layout":
+        """A scratch layout that shares structure but owns its own pose.
+
+        The armed transform mutates a *preview* layout instead of the live one,
+        so the session's layout stays pristine mid-gesture.  What must be
+        independent is exactly what a rotate/move/flip writes — the mutable
+        pose:
+
+        * ``placements`` — copied (stored locals; the compose-on-read fn is
+          re-bound to the copy in ``__post_init__``);
+        * ``wires`` — each :class:`Wire` cloned with fresh ``path`` / ``fragments``
+          lists, since ``transform_wire_geometry`` mutates them in place;
+        * ``knots`` — a shallow dict copy (knots are replaced whole via
+          ``moved_to``, never mutated in place).
+
+        Everything else is *read-only* during a transform and is shared by
+        reference — ``groups`` (the world-transform basis, unchanged), the pin/
+        footprint resolvers (they read shared structure), and ``pin_knots``.
+        The lazy ``_interior_vertex_index`` is left unset so the copy rebuilds
+        its own on demand.
+        """
+        wires = [
+            replace(w, path=list(w.path), fragments=list(w.fragments))
+            for w in self.wires
+        ]
+        clone = Layout(
+            placements=self.placements.copy(),
+            wires=WireCollection(wires),
+            groups=self.groups,
+            knots=dict(self.knots),
+            pin_knots=self.pin_knots,
+            _pin_resolver=self._pin_resolver,
+            _footprint_resolver=self._footprint_resolver,
+        )
+        return clone
+
     def ensure_root_group(self) -> None:
         """Ensure root group exists and all non-root groups are reachable from it.
 

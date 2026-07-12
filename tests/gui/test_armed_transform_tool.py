@@ -56,6 +56,24 @@ def _armed_tool(board_view: BoardView) -> ArmedTransformTool:
     return tool
 
 
+def _pose(session: EditorSession, comp_id):  # type: ignore[no-untyped-def]
+    """The component's *current float pose* — preview while armed, else live.
+
+    E5: an armed rotate/move/flip mutates a preview layout, not the session's,
+    so the mid-gesture pose lives in ``armed_transform.preview_layout()``; after
+    accept the committed pose is back on ``session.layout``.  This reads whichever
+    is current, so a behaviour assertion ("the step rotated by 90°") stays valid
+    without caring where the pose is held.
+    """
+    armed = session.edit_controller.armed_transform
+    layout = (
+        armed.preview_layout()
+        if armed is not None and not armed.finished
+        else session.layout
+    )
+    return layout.placements[comp_id]
+
+
 def _key(tool: object, key: Qt.Key) -> None:
     assert hasattr(tool, "on_key")
     tool.on_key(key_inp(key))  # type: ignore[attr-defined]
@@ -147,42 +165,42 @@ class TestArmedRotate:
 
     def test_up_down_step_cw_ccw(self, board_view, session) -> None:
         inst, armed = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
+        base = _pose(session, inst.id).rotation
         _key(armed, Qt.Key.Key_Up)
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        assert _pose(session, inst.id).rotation == (base + 90) % 360
         _key(armed, Qt.Key.Key_Down)
-        assert session.layout.placements[inst.id].rotation == base
+        assert _pose(session, inst.id).rotation == base
 
     def test_wheel_steps_rotation(self, board_view, session) -> None:
         inst, armed = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
+        base = _pose(session, inst.id).rotation
         assert armed.wants_wheel(wheel(0))
         armed.on_wheel(wheel(120))
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        assert _pose(session, inst.id).rotation == (base + 90) % 360
 
     def test_wheel_bounce_one_notch_is_one_step(self, board_view, session) -> None:
         # Three 40-unit events sum to one 120 notch → exactly one 90° step.
         inst, armed = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
+        base = _pose(session, inst.id).rotation
         for _ in range(3):
             armed.on_wheel(wheel(40))
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        assert _pose(session, inst.id).rotation == (base + 90) % 360
 
     def test_wheel_hard_spin_steps_proportionally(
         self, board_view, session
     ) -> None:
         inst, armed = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
+        base = _pose(session, inst.id).rotation
         armed.on_wheel(wheel(240))  # two notches
-        assert session.layout.placements[inst.id].rotation == (base + 180) % 360
+        assert _pose(session, inst.id).rotation == (base + 180) % 360
 
     def test_view_wheel_routes_to_armed_rotate(self, board_view, session) -> None:
         # The real user path: BoardView.wheelEvent → KeyMap chord dispatch →
         # the armed tool's wheel_rotate shadows the zoom while armed.
         inst, _armed = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
+        base = _pose(session, inst.id).rotation
         board_view.wheelEvent(_qt_wheel(120))
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        assert _pose(session, inst.id).rotation == (base + 90) % 360
         assert board_view.camera._wheel_throttle._parked is None
 
     def test_view_wheel_zooms_when_not_armed(self, board_view, session) -> None:
@@ -201,10 +219,11 @@ class TestArmedRotate:
         base = session.layout.placements[inst.id].rotation
         _key(armed, Qt.Key.Key_R)  # +90
         _key(armed, Qt.Key.Key_R)  # +90  (now base+180)
-        assert session.layout.placements[inst.id].rotation == (base + 180) % 360
+        assert _pose(session, inst.id).rotation == (base + 180) % 360
         _key(armed, Qt.Key.Key_Escape)  # cancel the whole session
         assert session.edit_controller.armed_transform is None
         assert isinstance(board_view._active_tool, SelectTool)
+        # Live layout never mutated: cancel leaves the original pose intact.
         assert session.layout.placements[inst.id].rotation == base
 
     def test_enter_accepts_keeps_rotation(self, board_view, session) -> None:
@@ -216,14 +235,33 @@ class TestArmedRotate:
         assert isinstance(board_view._active_tool, SelectTool)
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
+    def test_live_layout_pristine_until_accept(self, board_view, session) -> None:
+        # E5 invariant: the armed gesture mutates only the preview layout; the
+        # session's layout keeps its exact pre-arm placement object until accept
+        # commits a command, and cancel leaves it untouched.
+        inst, armed = self._armed(board_view, session)
+        live_before = session.layout.placements[inst.id]
+        _key(armed, Qt.Key.Key_R)  # +90 on the preview
+        _key(armed, Qt.Key.Key_R)  # +90 again
+        # Live layout object is byte-identical (same rotation) mid-gesture …
+        assert session.layout.placements[inst.id].rotation == live_before.rotation
+        # … while the preview carries the two steps.
+        transform = session.edit_controller.armed_transform
+        assert transform is not None
+        assert transform.preview_layout().placements[inst.id].rotation == (
+            (live_before.rotation + 180) % 360
+        )
+        _key(armed, Qt.Key.Key_Escape)  # cancel → live still pristine
+        assert session.layout.placements[inst.id].rotation == live_before.rotation
+
     def test_pad_click_sets_shared_pivot(self, board_view, session) -> None:
         inst, armed = self._armed(board_view, session)
-        before = session.layout.placements[inst.id].position
+        before = _pose(session, inst.id).position
         _press(armed, 3.0, 3.0)  # click a pad away from the part → shared pivot
         assert session.edit_controller.armed_transform is not None
         assert session.edit_controller.armed_transform.pivot is not None
         _key(armed, Qt.Key.Key_R)  # step → orbit the pivot, position changes
-        after = session.layout.placements[inst.id].position
+        after = _pose(session, inst.id).position
         assert (after.x, after.y) != (before.x, before.y)
 
     def test_pivot_markers_shown_while_armed_cleared_on_disarm(
@@ -405,9 +443,9 @@ class TestFloatTransformSwitch:
         self, board_view, session
     ) -> None:
         inst, armed = self._armed_rotate(board_view, session)
-        base_rot = session.layout.placements[inst.id].rotation
+        base_rot = _pose(session, inst.id).rotation
         _key(armed, Qt.Key.Key_R)  # rotate +90 (per-object)
-        assert session.layout.placements[inst.id].rotation == (base_rot + 90) % 360
+        assert _pose(session, inst.id).rotation == (base_rot + 90) % 360
         # [G] switches sub-mode WITHOUT committing or re-arming.
         _key(armed, Qt.Key.Key_G)
         transform = session.edit_controller.armed_transform
@@ -415,7 +453,7 @@ class TestFloatTransformSwitch:
         assert transform.mode == "move"
         assert transform.finished is False
         # Rotation survived the switch (float pose carried over).
-        assert session.layout.placements[inst.id].rotation == (base_rot + 90) % 360
+        assert _pose(session, inst.id).rotation == (base_rot + 90) % 360
 
     def test_mixed_transform_commits_as_one_undo_entry(
         self, board_view, session
@@ -493,8 +531,8 @@ class TestFloatTransformGroupFrames:
         b0 = session.layout.placements[b.id].position
         armed = self._arm(board_view, select, Qt.Key.Key_G)  # arm float-move
         _key(armed, Qt.Key.Key_Right)  # nudge (1, 0) — a WORLD-frame step
-        a1 = session.layout.placements[a.id].position
-        b1 = session.layout.placements[b.id].position
+        a1 = _pose(session, a.id).position
+        b1 = _pose(session, b.id).position
         assert (a1.x - a0.x, a1.y - a0.y) == (1.0, 0.0)
         assert (b1.x - b0.x, b1.y - b0.y) == (1.0, 0.0)
         _key(armed, Qt.Key.Key_Return)  # accept
@@ -526,8 +564,8 @@ class TestFloatTransformGroupFrames:
         r0 = session.layout.placements[a.id].rotation
         armed = self._arm(board_view, select, Qt.Key.Key_R)  # arm rotate
         _key(armed, Qt.Key.Key_R)  # step +90 (per-object, own centre)
-        a1 = session.layout.placements[a.id].position
-        r1 = session.layout.placements[a.id].rotation
+        a1 = _pose(session, a.id).position
+        r1 = _pose(session, a.id).rotation
         assert (a1.x, a1.y) == (a0.x, a0.y)
         assert r1 == (r0 + 90) % 360
 

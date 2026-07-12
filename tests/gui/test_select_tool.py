@@ -85,6 +85,21 @@ def _comp_ids(tool: SelectTool) -> set:
             if h.kind == "component"}
 
 
+def _pose(session, comp_id):  # type: ignore[no-untyped-def]
+    """The component's current float pose — preview while armed, else live.
+
+    E5: an armed rotate/move/flip mutates a preview layout, not the session's;
+    a mid-gesture pose read must go through ``armed_transform.preview_layout()``.
+    """
+    armed = session.edit_controller.armed_transform
+    layout = (
+        armed.preview_layout()
+        if armed is not None and not armed.finished
+        else session.layout
+    )
+    return layout.placements[comp_id]
+
+
 class TestSelectionBasics:
     def test_click_selects_component(
         self, board_view: BoardView, session: EditorSession
@@ -385,7 +400,9 @@ class TestRotate:
         assert session.edit_controller.armed_transform is not None
         assert session.layout.placements[inst.id].rotation == before  # not yet
         _key(board_view._active_tool, Qt.Key.Key_R)  # step +90
-        assert session.layout.placements[inst.id].rotation == (before + 90) % 360
+        # Float pose is in the preview; the live layout stays pristine mid-gesture.
+        assert _pose(session, inst.id).rotation == (before + 90) % 360
+        assert session.layout.placements[inst.id].rotation == before
 
     def test_rotate_around_point_moves_component(
         self, board_view: BoardView, session: EditorSession
@@ -403,7 +420,7 @@ class TestRotate:
         _key(tool, Qt.Key.Key_R)  # arm (seeds pivot from the captured point)
         armed = board_view._active_tool
         _key(armed, Qt.Key.Key_R)  # step
-        after = session.layout.placements[inst.id].position
+        after = _pose(session, inst.id).position
         assert (after.x, after.y) != (before.x, before.y)
 
     def test_esc_clears_pivot(

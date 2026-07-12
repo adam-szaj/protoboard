@@ -33,8 +33,10 @@ from protoboard.services.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:
+    from protoboard.domain.layout.layout import Layout
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
+    from protoboard.gui.session import EditorSession
 
 
 class SceneComposer:
@@ -123,6 +125,19 @@ class SceneComposer:
 
     # -- the refresh pass -----------------------------------------------------------
 
+    def _render_layout(self, session: EditorSession) -> Layout:
+        """The layout to draw: the armed transform's preview pose, else live.
+
+        E5: an armed rotate/move/flip no longer mutates ``session.layout``; the
+        float pose lives in the transform's preview layout.  The composer draws
+        that while a transform is armed, so the live layout can stay pristine
+        until ``accept`` commits a command.
+        """
+        armed = session.edit_controller.armed_transform
+        if armed is not None and not armed.finished:
+            return armed.preview_layout()
+        return session.layout
+
     @traced()
     def refresh(self) -> None:
         """Update the scene to reflect current session state.
@@ -138,6 +153,12 @@ class SceneComposer:
         _t0 = time.monotonic()
         self._refresh_timer.stop()
         view.rebuild_pad_cache()
+
+        # While a transform is armed the session's layout stays pristine (E5);
+        # the float pose lives in the armed transform's *preview* layout.  Draw
+        # the components / wires / knots / ratsnest / groups from whichever is
+        # the current pose — the preview when armed, else the live layout.
+        render_layout = self._render_layout(session)
 
         from dataclasses import replace as _dc_replace
         _base = view.theme
@@ -210,7 +231,7 @@ class SceneComposer:
         # ── Wires (group reuse) ───────────────────────────────────────────────
         update_wire_groups(
             scene,
-            list(session.layout.wires),
+            list(render_layout.wires),
             wire_net_map,
             self._wire_groups,        # type: ignore[arg-type]
             self._wire_fingerprints,  # type: ignore[arg-type]
@@ -235,7 +256,7 @@ class SceneComposer:
         self._wire_pin_items.clear()
         wire_pins: list[tuple[Point, uuid.UUID | None]] = [
             (k.position, k.net_id)
-            for k in session.layout.knots.values()
+            for k in render_layout.knots.values()
             if isinstance(k, WirePinKnot)
         ]
         if wire_pins:
@@ -251,7 +272,7 @@ class SceneComposer:
         # ── Components (group reuse) ──────────────────────────────────────────
         update_component_groups(
             scene,
-            session.layout.placements,
+            render_layout.placements,
             session.instances,
             session.components,
             self._comp_groups,        # type: ignore[arg-type]
@@ -261,12 +282,15 @@ class SceneComposer:
             theme=_theme,
             layers=layers,
             active_group_id=view.active_group_id,
-            layout=session.layout,
+            layout=render_layout,
             highlighted_net_id=view.highlight.effective_highlighted_net(),
             existing_label_groups=self._comp_label_groups,  # type: ignore[arg-type]
         )
 
-        # Snapshot positions so on_drag_moved can compute deltas.
+        # Snapshot positions so on_drag_moved can compute deltas.  Anchor to the
+        # *live* (committed) pose: the glide path (DragController) never runs
+        # during an armed transform, and anchoring to the live pose keeps the
+        # next refresh's position-change detector comparing like with like.
         self._drag_orig_group_pos = {
             cid: pl.position
             for cid, pl in session.layout.placements.items()
@@ -332,7 +356,7 @@ class SceneComposer:
             new_overlays.extend(render_ratsnest(
                 scene,
                 session.schematic,
-                session.layout.placements,
+                render_layout.placements,
                 session.instances,
                 session.components,
                 routed_nets=routed,
@@ -341,14 +365,14 @@ class SceneComposer:
                 mode=rmode,
                 ghost=ghost_mode,
             ))
-        if session.layout.groups:
+        if render_layout.groups:
             new_overlays.extend(render_groups(
                 scene,
-                session.layout,
-                session.layout.placements,
+                render_layout,
+                render_layout.placements,
                 session.instances,
                 session.components,
-                wires=list(session.layout.wires),
+                wires=list(render_layout.wires),
                 theme=_theme,
                 active_group_id=view.active_group_id,
                 view_scale=GRID_PX,

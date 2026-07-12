@@ -1397,7 +1397,13 @@ class EditController:
 
         from protoboard.geometry import Point
 
-        state = self._state
+        # While a transform is armed, snap against its PREVIEW pose (the live
+        # layout stays pristine) so a pivot-click lands on the moved pins.
+        state: EditState = self._state
+        if self._armed is not None:
+            from protoboard.services.editing.preview_state import PreviewState
+
+            state = PreviewState(self._state, self._armed.preview_layout())
         groups = state.layout.groups
         tree = state.group_tree()
         active_group = groups.get(active_group_id)

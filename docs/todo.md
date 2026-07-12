@@ -285,6 +285,31 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
     has its own conflict-corner copy — repoint it onto `TransformOverlays` too
     (deferred; low-value churn on a working path). The separate preview state
     (off-stack live-mutate → renderer-pushed) is E5.
+  - **E5 done** (preview-model — the live layout stays pristine mid-gesture):
+    the armed transform no longer mutates `session.layout` off the undo stack.
+    `Layout.preview_copy()` forks a scratch layout (copied placements /
+    wire path+fragments / knots, shared groups + resolvers); `ArmedTransform`
+    mutates *that*, and its `_original` snapshot is taken from the live layout
+    *before* the fork. Accept diffs `original → preview` into the one
+    `TransformDragSetCommand` and executes it on the pristine live layout — no
+    rewind needed; cancel just drops the preview. Snap and conflict
+    classification see the previewed pose through a new
+    `services/editing/preview_state.py::PreviewState` (the live `EditState` with
+    the preview layout swapped in — `comp_spatial_index` / `iter_pin_positions`
+    recomputed from the preview, connectivity delegated). `EditController.snap`
+    routes through it while a transform is armed, so a pivot-click lands on the
+    moved pins. The composer's `_render_layout()` draws components / wires /
+    knots / ratsnest / groups from the preview while armed (the fingerprint
+    cache already keys on pose, so the step redraws). Parity guard: the
+    mid-gesture assertions across `test_armed_transform_tool` /
+    `test_headless_tool_flows` / `test_select_tool::TestRotate` /
+    `test_edit_controller_armed_transform` were repointed to read the float pose
+    from `armed_transform.preview_layout()` (a `_pose()` helper), and each now
+    *also* asserts `session.layout` is untouched mid-gesture;
+    `test_live_layout_pristine_until_accept` + `test_layout_preview_copy` assert
+    the invariant directly. mypy `--strict` clean; real-app verify (MainWindow
+    offscreen: `[R]` arm → step → preview renders while live stays pristine →
+    Enter commits → Esc reverts) all green.
   - **Tools → Controller (separate project).** User 2026-07-12: tools belong to
     the Controller, not the View — a CLI/script must be able to drive autoroute /
     interactive routing / rotate. `gui/tools/` is legacy; the endpoint is

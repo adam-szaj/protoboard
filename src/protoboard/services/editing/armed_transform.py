@@ -6,22 +6,29 @@ The unified float-transform mode (merges the old ``ArmedRotate`` /
 
 * ``committed_original`` — a deep copy of each member's placement at arm
   time, plus the original geometry of every wire/free-knot the transform
-  touches.  Snapshotted **once** and never changed for the session; it is the
-  baseline both ``cancel`` and the commit's undo restore.
-* ``current`` — the live ``layout`` itself, mutated off the undo stack by each
-  operation (rotate / move / flip).
+  touches, read from the **live** layout.  Snapshotted **once** and never
+  changed for the session; it is the baseline both ``cancel`` and the commit's
+  undo restore.
+* ``current`` — a **preview** ``Layout`` (``live.preview_copy()``), mutated by
+  each operation (rotate / move / flip).  The live session's layout is never
+  touched mid-gesture (E5) — the preview carries the transformed pose, and the
+  renderer draws *it* instead of the live one.
 
-Operations apply directly to ``current`` (rotate via ``_rotation_about``, move
-by translating placements + owned wires).  Because every op writes the shared
-layout, the user can freely *mix* rotate and move — and a conflict raised by
-one can be cleared by the other, which is the whole point.
+Operations apply directly to the preview (rotate via ``_rotation_about``, move
+by translating placements + owned wires).  Because every op writes the same
+preview layout, the user can freely *mix* rotate and move — and a conflict
+raised by one can be cleared by the other, which is the whole point.  Snap and
+conflict classification see the previewed pose through a
+:class:`~protoboard.services.editing.preview_state.PreviewState` (the live
+session with the preview layout swapped in).
 
 ``accept`` diffs ``committed_original → current`` into one
 :class:`TransformDragSetCommand` (optionally wrapped with a
 :class:`DropWiresCommand` for soft-conflict drops) — a single undo entry.
-``cancel`` restores ``committed_original`` — the pose *before any* operation,
-never an intermediate one.  Both honour the conditional-disarm contract: an
-un-committable ``accept`` (HARD conflict) stays armed.
+Because the live layout stayed pristine, the command's ``apply`` is the *only*
+mutation of it (no rewind needed).  ``cancel`` simply drops the preview.  Both
+honour the conditional-disarm contract: an un-committable ``accept`` (HARD
+conflict) stays armed.
 
 Pure application logic: this class imports zero Qt.  Every Qt seam (snapping a
 raw pointer, executing the built command, resolving key chords, drawing the
@@ -125,17 +132,37 @@ class ArmedTransform:
         self._resolve_disconnect = resolve_disconnect
         self._finished = False
         self._wheel = WheelNotchAccumulator()
-        # Snapshot the pristine pose once — the baseline for cancel + undo.
-        self._original = self._snapshot_original()
+        # Snapshot the pristine pose once, from the LIVE layout — the baseline
+        # for cancel + undo.  Do this *before* forking the preview so the
+        # baseline is unarguably the un-transformed pose.
+        self._original = self._snapshot_original(self._live_layout)
+        # Fork a preview layout: every op mutates THIS, the live one stays
+        # pristine (E5).  Reads (snap / classify / render) go through it.
+        self._preview_layout = self._live_layout.preview_copy()
+
+    @property
+    def _live_layout(self) -> Layout:
+        """The session's real :class:`Layout` — the pristine, on-stack pose.
+
+        Accessed through the ``ComponentState`` seam every layout helper uses.
+        Only the arm-time snapshot and the committed command touch this; the
+        gesture itself never mutates it.
+        """
+        return cast("ComponentState", self._ctx).layout
 
     @property
     def _layout(self) -> Layout:
-        """The full :class:`Layout` (via the ``ComponentState`` view).
+        """The **preview** layout the operations mutate (the float pose).
 
-        The live session's layout is a real ``Layout``; access it through the
-        ``ComponentState`` seam every layout helper already uses.
+        Every ``_rotate`` / ``_move`` / ``_flip`` and every pose read
+        (snapshot-diff, ``_is_transformed``) goes through here, so the gesture
+        is isolated from the live session until ``accept`` commits a command.
         """
-        return cast("ComponentState", self._ctx).layout
+        return self._preview_layout
+
+    def preview_layout(self) -> Layout:
+        """The live float pose, for the renderer to draw instead of the session's."""
+        return self._preview_layout
 
     # -- introspection ------------------------------------------------------
 
@@ -170,16 +197,22 @@ class ArmedTransform:
 
     # -- snapshot -----------------------------------------------------------
 
-    def _affected_wire_ids(self) -> frozenset[uuid.UUID]:
+    def _affected_wire_ids(
+        self, layout: Layout | None = None
+    ) -> frozenset[uuid.UUID]:
         """Wires structurally owned by the members (rotated/translated as a unit).
 
         A wire is affected when *both* its endpoints anchor to members of this
         transform — those travel rigidly with the pose.  Pin-anchored endpoints
         of half-owned wires resolve lazily, so they need no snapshot.
+
+        Ownership is pose-independent (topology, not geometry), so live and
+        preview agree; *layout* lets the arm-time snapshot query the live one
+        before the preview exists.  Defaults to the preview.
         """
         from protoboard.domain.layout.group_ownership import find_owned_wires
 
-        layout = self._layout
+        layout = layout if layout is not None else self._layout
         groups = getattr(layout, "groups", {})
         if self._group_id is not None and self._group_id in groups:
             from protoboard.domain.layout.group_tree import GroupTree
@@ -196,12 +229,13 @@ class ArmedTransform:
             return frozenset(owned)
         return frozenset()
 
-    def _snapshot_original(self) -> _Original:
+    def _snapshot_original(self, layout: Layout) -> _Original:
+        # Snapshot the pristine pose off the LIVE *layout* (passed in — the
+        # preview does not exist yet at arm time).
         # Placements are snapshotted in their stored LOCAL (group-relative)
         # frame — writes to the collection store locals verbatim, so restore
         # and the commit command must speak the same frame (a composed world
         # read written back double-composes for any non-identity group).
-        layout = self._layout
         placements: dict[uuid.UUID, ComponentPlacement] = {}
         for cid in self._comp_ids:
             pl = layout.placements.local_get(cid)
@@ -210,7 +244,7 @@ class ArmedTransform:
         wire_paths: dict[uuid.UUID, list[Point]] = {}
         wire_fragments: dict[uuid.UUID, list[Fragment]] = {}
         knot_positions: dict[uuid.UUID, Point] = {}
-        for wid in self._affected_wire_ids():
+        for wid in self._affected_wire_ids(layout):
             wire = layout.wires.get(wid)
             if wire is None:
                 continue
@@ -411,12 +445,16 @@ class ArmedTransform:
         from protoboard.services.editing.drag_commit import (
             classify_drag_commit,
         )
+        from protoboard.services.editing.preview_state import PreviewState
 
         if not self._is_transformed():
             return None
         try:
+            # Classify against the PREVIEW pose — the live layout is pristine,
+            # so the moved-component conflict must be read through the preview
+            # (its PadIndex / snapshot come off ``session.layout``).
             return classify_drag_commit(
-                session=self._ctx,
+                session=PreviewState(self._ctx, self._preview_layout),
                 moved_comp_ids=set(self._comp_ids),
                 dragged_wire_ids=self._affected_wire_ids(),
                 drag_set_members=self._comp_ids,
@@ -459,10 +497,9 @@ class ArmedTransform:
                 self._status("Transform: no change")
             return
         cmd = self._build_commit_command(decision)
-        # The live layout already holds the transformed pose; rewind to the
-        # original so the command's apply is the authoritative mutation (and
-        # redo replays cleanly).
-        self._restore_original()
+        # The live layout is still at the original pose (the gesture only ever
+        # touched the preview), so the command's apply — original → preview — is
+        # the authoritative and only mutation of it.  No rewind needed.
         self._finished = True
         if cmd is not None:
             self._execute(cmd)
@@ -470,11 +507,13 @@ class ArmedTransform:
             self._status("Transform applied")
 
     def cancel(self) -> None:
-        self._restore_original()
+        # Nothing to undo: the live layout was never mutated, only the preview,
+        # which is dropped when the sub-tool finishes.  No preview emit — the
+        # controller clears the armed transform right after this returns and the
+        # owning tool refreshes from the (pristine) live layout.
         self._finished = True
         if self._status is not None:
             self._status("Transform cancelled")
-        self._emit_preview()
 
     # -- command assembly ---------------------------------------------------
 
@@ -555,25 +594,7 @@ class ArmedTransform:
         dropped, _reroute = resolved
         return dropped
 
-    # -- preview / restore --------------------------------------------------
-
-    def _restore_original(self) -> None:
-        layout = self._layout
-        for cid, pl in self._original.placements.items():
-            layout.placements[cid] = pl.copy()
-        for wid, path in self._original.wire_paths.items():
-            wire = layout.wires.get(wid)
-            if wire is not None:
-                wire.path = list(path)
-        for wid, frags in self._original.wire_fragments.items():
-            wire = layout.wires.get(wid)
-            if wire is not None:
-                wire.fragments = list(frags)
-        for kid, pos in self._original.knot_positions.items():
-            knot = layout.knots.get(kid)
-            if knot is not None:
-                layout.knots[kid] = knot.moved_to(pos)
-        layout.invalidate_interior_vertex_index()
+    # -- preview ------------------------------------------------------------
 
     def _emit_preview(self) -> None:
         if self._preview is not None:

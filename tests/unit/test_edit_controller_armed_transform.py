@@ -70,6 +70,24 @@ def _arm(
     )
 
 
+def _pose(session: HeadlessSession, cid: uuid.UUID) -> ComponentPlacement:
+    """The current float pose — the preview while armed, else the live layout.
+
+    E5: an armed rotate/move/flip mutates a preview layout, not the session's,
+    so a mid-gesture pose read must go through ``armed_transform.preview_layout``;
+    after accept the committed pose is back on ``session.layout``.
+    """
+    armed = session.edit_controller.armed_transform
+    layout = (
+        armed.preview_layout()
+        if armed is not None and not armed.finished
+        else session.layout
+    )
+    pl = layout.placements[cid]
+    assert isinstance(pl, ComponentPlacement)
+    return pl
+
+
 # -- arm / rotate / accept ---------------------------------------------------
 
 
@@ -88,7 +106,9 @@ def test_rotate_armed_then_accept_commits_once() -> None:
     base = session.layout.placements[cid].rotation
     _arm(session, cid)
     ctrl.rotate_armed(90)
-    assert session.layout.placements[cid].rotation == (base + 90) % 360
+    # Mid-gesture the pose lives in the preview; the live layout is untouched.
+    assert _pose(session, cid).rotation == (base + 90) % 360
+    assert session.layout.placements[cid].rotation == base
     ctrl.accept_transform()
     # Committed and disarmed.
     assert ctrl.armed_transform is None
@@ -119,8 +139,10 @@ def test_move_armed_shifts_position() -> None:
     before = session.layout.placements[cid].position
     _arm(session, cid, mode="move")
     ctrl.move_armed(1.0, 0.0)
-    after = session.layout.placements[cid].position
+    after = _pose(session, cid).position
     assert (after.x, after.y) == (before.x + 1.0, before.y)
+    # Live layout unchanged mid-gesture.
+    assert session.layout.placements[cid].position == before
 
 
 def test_flip_armed_is_callable_while_armed() -> None:
