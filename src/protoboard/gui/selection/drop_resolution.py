@@ -9,8 +9,9 @@ wires.  Each bucket has a preference (``auto-remove`` / ``ask-remove`` /
 callback — the callback may pop an ask-dialog.
 
 This was private to :class:`DragController`; it is extracted here unchanged so
-:class:`~protoboard.gui.selection.float_transform.FloatTransform` resolves
-drops identically (same dialogs, same defaults) without duplicating the logic.
+the armed transform (:class:`~protoboard.services.editing.armed_transform.ArmedTransform`)
+resolves drops identically (same dialogs, same defaults) without duplicating the
+logic.
 """
 
 from __future__ import annotations

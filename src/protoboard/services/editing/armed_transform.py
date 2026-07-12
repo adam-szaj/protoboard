@@ -26,8 +26,9 @@ un-committable ``accept`` (HARD conflict) stays armed.
 Pure application logic: this class imports zero Qt.  Every Qt seam (snapping a
 raw pointer, executing the built command, resolving key chords, drawing the
 preview, showing status) arrives as an injected callback, so the GUI keeps only
-a thin adapter and this core is testable headless.  ``gui.selection`` re-exports
-it as ``FloatTransform`` for existing callers.
+a thin adapter and this core is testable headless.  The controller owns one
+(:meth:`EditController.begin_transform`); the GUI ``ArmedTransformTool`` drives
+it through the controller's verbs.
 """
 
 from __future__ import annotations

@@ -267,7 +267,26 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
     pad centres come from a new shared `Board.pad_positions()` that both
     `rebuild_pad_cache` and `controller.snap` call. `EditState` gained
     `comp_spatial_index` / `iter_pin_positions`. Parity guard:
-    `test_board_view.py` asserts `view.snap == controller.snap`. The GUI
-    `SelectTool` still constructs `ArmedTransform` directly — rewiring
-    `arm_rotate`/`arm_move` onto `begin_transform` and thinning the tool to an
-    input adapter is E4; the separate preview state is E5.
+    `test_board_view.py` asserts `view.snap == controller.snap`.
+  - **E4 done** (armed transform extracted into its OWN tool): per the user's
+    redirect, the armed rotate/move/flip is now a registered tool
+    `gui/tools/armed_transform_tool.py` (the first tool-self-transition in the
+    codebase), not a SelectTool sub-tool. SelectTool's `[R]`/`[G]` resolve the
+    target and `view.tools.set_tool(ArmedTransformTool(...))` — the new tool gets
+    its own KeyMap layer for free via the per-tool swap, drives the E3 controller
+    verbs, and returns control to SelectTool (injected `return_to`) on accept/
+    cancel. A conflicting accept parks the tool active (conditional-disarm). The
+    conflict corner + selection outline moved to a shared `TransformOverlays`
+    helper. All armed machinery deleted from SelectTool; `gui/selection/armed.py`
+    (`ArmedSubTool`) and `gui/selection/float_transform.py` (the E2 re-export)
+    deleted. Parity tests moved to `test_armed_transform_tool.py` and repointed
+    to `view.active_tool` + `controller.armed_transform` (SelectTool is genuinely
+    not the active tool while armed). Follow-up: SelectTool's live-drag path still
+    has its own conflict-corner copy — repoint it onto `TransformOverlays` too
+    (deferred; low-value churn on a working path). The separate preview state
+    (off-stack live-mutate → renderer-pushed) is E5.
+  - **Tools → Controller (separate project).** User 2026-07-12: tools belong to
+    the Controller, not the View — a CLI/script must be able to drive autoroute /
+    interactive routing / rotate. `gui/tools/` is legacy; the endpoint is
+    relocating the tools behind the controller with only a thin Qt input adapter
+    in `gui/`. See memory `project_tools_belong_to_controller`.

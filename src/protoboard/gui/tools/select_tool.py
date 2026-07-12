@@ -75,7 +75,6 @@ if TYPE_CHECKING:
     from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.gui.drag_set import DragSet
     from protoboard.gui.selection.adapters import WireVertexSelectable
-    from protoboard.gui.selection.armed import ArmedSubTool
     from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
@@ -102,33 +101,19 @@ _ACT_DELETE = "select-tool.action.delete"
 _ACT_CANCEL = "select-tool.action.cancel"
 # Wire-edit op-table extra: [F] flips the selected fragment to the other layer.
 _ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
-# Armed transform modes: [R] arms float-rotate, [G] arms keyboard float-move.
-# Both inherit a generic global default and dispatch by id, never raw key.
+# Transform entry keys: [R] arms float-rotate, [G] arms keyboard float-move
+# (both hand off to the ArmedTransformTool, which owns the step/wheel keys on
+# its own layer); [Alt+R] is an immediate flip. Dispatched by id, never raw key.
 _ACT_ROTATE = "select-tool.action.rotate"
 _ACT_MOVE = "select-tool.action.move"
 _ACT_FLIP = "select-tool.action.flip"
-# Directional step actions used INSIDE the armed modes — each carries two
-# default binds (arrow ``|`` WASD) so both work; rebindable like any action.
-# rotate steps CW/CCW; move steps the anchor one cell.  Dispatched + vetoed
-# through the KeyMap by id (never raw Qt.Key), per [[every-action-has-keybinding]].
-_ACT_STEP_LEFT = "select-tool.action.step_left"
-_ACT_STEP_RIGHT = "select-tool.action.step_right"
-_ACT_STEP_UP = "select-tool.action.step_up"
-_ACT_STEP_DOWN = "select-tool.action.step_down"
 
-# Mouse-chord actions (Stage 2): the armed transform's wheel stepping and the
-# unified RMB context menu, layered over the view's zoom / canvas-menu.
-_ACT_WHEEL_ROTATE = "select-tool.action.wheel_rotate"
+# Mouse-chord action: the unified RMB context menu, layered over the canvas menu.
 _ACT_CONTEXT_MENU = "select-tool.action.context_menu"
 # Global relation-cycle actions (backtick / Shift+backtick) — the ids live in
 # keybindings.py with their own defaults; the tool dispatches them in on_key.
 _ACT_RELATION_CYCLE = "highlight_cycle"
 _ACT_RELATION_CYCLE_BACK = "relation_cycle_back"
-# Every action the armed sub-tools dispatch / veto against (the superset).
-_ARMED_ACTION_IDS: tuple[str, ...] = (
-    _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN,
-    _ACT_ROTATE, _ACT_FLIP, _ACT_CANCEL,
-)
 
 def _segment_intersects_rect(
     a: Point, b: Point, rx0: float, ry0: float, rx1: float, ry1: float
@@ -208,12 +193,6 @@ class SelectTool(_Tool):
         # rotate's shared pivot).
         self._pivot_capture_pending: bool = False
         self._rotate_pivot: object | None = None  # geometry.Point | None
-        # The active armed transform sub-tool (float-rotate [R] / keyboard
-        # float-move [G]) or None.  One field, one dispatch — no branching on
-        # *which* mode is live (see gui/selection/armed.py).  A keyboard-move
-        # sub-tool also parks its live DragController in self._mouse so the
-        # preview/glide path is shared with a mouse drag.
-        self._armed: ArmedSubTool | None = None
         # Re-drag (bendable lead reposition) — a request_pick client; the
         # overlay lives in the preview, the pick state lives in the service.
         self._redrag_comp_id: uuid.UUID | None = None
@@ -280,9 +259,6 @@ class SelectTool(_Tool):
 
     @traced()
     def deactivate(self) -> None:
-        # Cancel an armed transform first so leaving the tool reverts a
-        # half-done rotate/move (and drops its live preview / controller).
-        self._disarm(cancel=True)
         self._cancel_gesture()
         self._clear_band()
         self._clear_drag_corner()
@@ -397,11 +373,6 @@ class SelectTool(_Tool):
             self._status(
                 "Pivot set — Rotate CW/CCW to rotate around it  ·  [Esc] Clear", 0
             )
-            return True
-
-        # 1b. An armed sub-tool may claim the click (e.g. float-rotate sets its
-        #     shared pad pivot) — it does not change the selection while armed.
-        if self._armed is not None and self._armed.on_click(scene_pt):
             return True
 
         # 2. An active mouse interaction (drag / band / pick) owns the press.
@@ -1385,51 +1356,6 @@ class SelectTool(_Tool):
         setter = getattr(view, "set_selection_outline_override", None)
         if setter is not None:
             setter(color)
-
-    def _rotate_preview(self, decision: DragCommitDecision | None) -> None:
-        """Live armed-rotate feedback: re-render the rotated bodies + conflict.
-
-        Unlike a drag (pure translation → cheap ``setPos`` glide via
-        ``drag_moved``), a rotation changes each body's *orientation* and pin
-        layout, which the glide cannot show — so a rotate step needs a real
-        ``refresh()`` to re-render at the new angle.  The conflict corner is
-        shared with the drag path so HARD/SOFT feedback looks identical.
-        """
-        if self._view is not None:
-            self._view.refresh()  # rebuilds the scene → markers must be re-drawn
-        self._draw_pivot_markers()
-        self._show_conflict_corner(decision)
-
-    def _draw_pivot_markers(self) -> None:
-        """Draw the armed-rotate pivot marker(s): what the selection spins around.
-
-        Shared pad pivot → one marker on that pad; per-object → one on each
-        rotating component's centre.  Re-drawn after every preview ``refresh``
-        (which clears the scene), and cleared on disarm.  No-op unless a
-        :class:`FloatTransform` is armed in its rotate sub-mode.
-        """
-        from protoboard.gui.selection.float_transform import FloatTransform
-
-        self._clear_pivot_markers()
-        armed = self._armed
-        if not isinstance(armed, FloatTransform) or self._view is None:
-            return
-        if armed.mode != "rotate":
-            return
-        if armed.pivot is not None:
-            self._add_pivot_marker(armed.pivot, shared=True)
-        else:
-            for cid in armed.comp_ids:
-                pl = self._session.layout.placements.get(cid)
-                if pl is not None:
-                    self._add_pivot_marker(pl.position, shared=False)
-
-    def _add_pivot_marker(self, pos: Point, *, shared: bool) -> None:
-        """Add one pivot marker (a ⊕ glyph) at *pos*."""
-        self.preview.show_pivot(pos, shared=shared)
-
-    def _clear_pivot_markers(self) -> None:
-        self.preview.clear_pivots()
 
     def _show_drag_corner(self, text: str, color: QColor) -> None:
         from protoboard.gui.tools.drag_corner_text import DragCornerText
@@ -2567,26 +2493,6 @@ class SelectTool(_Tool):
         shift = inp.mods.shift
         alt = inp.mods.alt
 
-        # An armed sub-tool (float-rotate / keyboard-move) owns its keys first:
-        # one uniform dispatch, no branching on which mode it is.  Enter / Esc
-        # travel as intents (accept / cancel calls — the sub-tool never sees a
-        # keycode); step / mode keys go through on_key.  Drop the sub-tool once
-        # it reports finished.
-        if self._armed is not None:
-            intent = self._key_to_intent(key)
-            if intent is Intent.CONFIRM:
-                self._armed.accept()
-                consumed = True
-            elif intent is Intent.CANCEL:
-                self._armed.cancel()
-                consumed = True
-            else:
-                consumed = self._armed.on_key(inp)
-            if consumed:
-                if self._armed.finished:
-                    self._disarm()
-                return True
-
         # Pivot mode: Esc clears it first.
         if (self._pivot_capture_pending or self._rotate_pivot is not None):
             if key == Qt.Key.Key_Escape:
@@ -2680,45 +2586,32 @@ class SelectTool(_Tool):
             _ACT_AUTOROUTE: "A",
             _ACT_DELETE: None,      # global.action.delete (default "Del")
             _ACT_CANCEL: None,      # global.action.cancel (default "Esc")
-            _ACT_ROTATE: "R",       # arm float-rotate
+            _ACT_ROTATE: "R",       # arm float-rotate (hands off to ArmedTransformTool)
             _ACT_MOVE: "G",         # arm keyboard float-move ("grab")
-            _ACT_FLIP: None,        # global.action.flip (default "Alt+R")
+            _ACT_FLIP: None,        # global.action.flip (default "Alt+R") — immediate flip
             _ACT_FLIP_FRAGMENT: "F",  # wire-edit op: flip fragment to other layer
-            # Directional steps inside the armed modes — arrow OR WASD (the
-            # ``|`` carries both binds; rebindable).
-            _ACT_STEP_LEFT: "Left|A",
-            _ACT_STEP_RIGHT: "Right|D",
-            _ACT_STEP_UP: "Up|W",
-            _ACT_STEP_DOWN: "Down|S",
         }
 
     def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
         """Contextual key claims (see :meth:`_Tool.wants_key` for the veto).
 
-        - An armed transform (float-rotate / keyboard-move) claims its step +
-          action keys — so a global QAction (Route on the step-up/WASD key,
-          Select on 'S', …) never shadows the live mode.
         - A selected wire-edit fragment claims its operation keys.
         - Delete acts on the current selection — claimed so the global delete
           action doesn't shadow the tool's handler.
 
         Pick-confirm / cancel / undo (Enter / Esc / Backspace) are raw,
         non-action keys that aren't global shortcuts, so they reach the tool
-        anyway and need no claim here.
+        anyway and need no claim here. (The armed transform's step-key claims
+        live on the ArmedTransformTool's own layer.)
         """
-        armed = self._is_armed
         wire_edit = self._has_wire_edit
         return (
-            *((a, armed) for a in _ARMED_ACTION_IDS),
             (_ACT_REROUTE, wire_edit),
             (_ACT_AUTOROUTE, wire_edit),
             (_ACT_FLIP_FRAGMENT, wire_edit),
             (_ACT_DELETE, wire_edit),
             (_ACT_DELETE, self._has_selection),
         )
-
-    def _is_armed(self) -> bool:
-        return self._armed is not None
 
     def _has_wire_edit(self) -> bool:
         return self._wire_edit is not None
@@ -2729,13 +2622,11 @@ class SelectTool(_Tool):
     def mouse_actions(self) -> dict[str, str | None]:
         """Mouse chords this tool layers over the view gestures.
 
-        ``wheel_rotate`` shadows the zoom while an armed transform is live
-        (both directions — the accumulator inside FloatTransform decides the
-        step sign from raw deltas); ``context_menu`` shadows the generic
-        canvas menu with the unified item menu when the cursor hits something.
+        ``context_menu`` shadows the generic canvas menu with the unified item
+        menu when the cursor hits something. (The armed transform's wheel-rotate
+        lives on the ArmedTransformTool's own layer.)
         """
         return {
-            _ACT_WHEEL_ROTATE: "WheelUp|WheelDown",
             _ACT_CONTEXT_MENU: "RMB",
         }
 
@@ -2744,15 +2635,8 @@ class SelectTool(_Tool):
         ...,
     ]:
         return (
-            (_ACT_WHEEL_ROTATE, self._mouse_wheel_rotate),
             (_ACT_CONTEXT_MENU, self._mouse_context_menu),
         )
-
-    def _mouse_wheel_rotate(self, inp: PointerInput | WheelInput) -> bool:
-        if not isinstance(inp, WheelInput) or not self.wants_wheel(inp):
-            return False  # not armed → the chord falls through to zoom
-        self.on_wheel(inp)
-        return True
 
     def _mouse_context_menu(self, inp: PointerInput | WheelInput) -> bool:
         if not isinstance(inp, PointerInput):
@@ -2762,17 +2646,6 @@ class SelectTool(_Tool):
         # verb carries only (point, mods).  False on empty canvas → falls
         # through to the generic canvas menu.
         return self.secondary_action(inp.scene_pos, inp.mods)
-
-    def wants_wheel(self, inp: WheelInput) -> bool:
-        """Claim the wheel only when the armed sub-tool consumes it (rotate)."""
-        return self._armed is not None and self._armed.wants_wheel(inp)
-
-    def on_wheel(self, inp: WheelInput) -> None:
-        """Route a wheel tick to the armed sub-tool (it steps / declines)."""
-        if self._armed is None:
-            return
-        if self._armed.on_wheel(inp) and self._armed.finished:
-            self._disarm()
 
     # -- rotate / flip ------------------------------------------------------
 
@@ -2789,39 +2662,7 @@ class SelectTool(_Tool):
         self._pivot_capture_pending = False
         self._rotate_pivot = None
 
-    # -- armed transform sub-tools ([R] rotate / [G] move) ------------------
-
-    def _emit_state(self) -> None:
-        """Publish the current interaction :attr:`state` to the View.
-
-        The single point where a state transition is announced (docs MVC step 1
-        §5): the View records it (a Controller fact) and may drive the KeyMap /
-        status from it.  Called wherever :attr:`state` could have changed —
-        arm / switch-mode / disarm.
-        """
-        if self._view is not None:
-            self._view.notify_controller_state(self.state)
-
-    def _disarm(self, *, cancel: bool = False) -> None:
-        """Drop the active armed sub-tool, refreshing the view.
-
-        ``cancel=True`` reverts a still-live sub-tool first (used on deactivate /
-        tool switch).  Also drops the keyboard-move's parked DragController and
-        clears the conflict corner.
-        """
-        armed = self._armed
-        if armed is None:
-            return
-        if cancel and not armed.finished:
-            armed.cancel()
-        self._armed = None
-        self._mouse = None
-        self._clear_pivot_markers()
-        self._clear_drag_corner()
-        self._refresh_highlight()
-        self._emit_state()
-        if self._view is not None:
-            self._view.refresh()
+    # -- armed transform entry ([R] rotate / [G] move) ----------------------
 
     @traced()
     def _invoke_armed_atomic(
@@ -2928,12 +2769,6 @@ class SelectTool(_Tool):
             and self._session.layout.placements.get(cid) is not None
         )
         return loose, None
-
-    def _snap_free(self, raw: Point) -> Point | None:
-        """Snap a click to the grid for the rotate pivot (no exclusions)."""
-        if self._view is None:
-            return None
-        return self._view.snap(raw)
 
     @traced()
     def arm_move(self) -> None:
@@ -3115,14 +2950,11 @@ class SelectTool(_Tool):
     def state(self) -> str:
         """Current interaction state (docs MVC step 1) — a Controller fact.
 
-        ``select.idle`` unless an armed float-transform is live, in which case
-        the sub-mode is exposed (``move.float.rotate`` / ``move.float.move``).
-        Asserted directly by headless tests, including the negative case
-        (arming with no selection leaves the state ``select.idle``).
+        Always ``select.idle``: the armed float-transform now lives on the
+        :class:`~protoboard.gui.tools.armed_transform_tool.ArmedTransformTool`,
+        which is the active tool (and reports ``move.float.*``) while a transform
+        is live — SelectTool is not active then.
         """
-        from protoboard.gui.selection.float_transform import FloatTransform
-        if isinstance(self._armed, FloatTransform):
-            return f"move.float.{self._armed.mode}"
         return "select.idle"
 
     def build_context(
