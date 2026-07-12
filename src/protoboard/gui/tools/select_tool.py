@@ -2146,15 +2146,27 @@ class SelectTool(_Tool):
         Edit means different things per type: a group is *entered* (its members
         become editable), a wire opens *wire-edit* (fragment pick).  A free
         component has no edit mode yet (it is moved/rotated directly).  The
-        dispatch is on the selection, so one key serves every editable kind.
+        per-kind action is routed through the handle's ``.call`` visitor — the
+        seam that expresses "one op name, a different action per kind" without an
+        ``if``-ladder.  Group takes priority over wire when both are selected
+        (entering the group is the coarser, containing edit).
         """
-        if self._selected_group_id is not None:
-            self.enter_group()
+        gid = self._selected_group_id
+        wid = self._selected_wire_id
+        if gid is not None:
+            target = ItemId.group(gid)
+        elif wid is not None:
+            target = ItemId.wire(wid)
+        else:
+            self._status("Nothing to edit — select a group or wire first")
             return
-        if self._selected_wire_id is not None:
-            self.arm_wire_edit()
-            return
-        self._status("Nothing to edit — select a group or wire first")
+        handle = self._session.edit_controller.get_item(
+            target, active_group_id=self._current_group_id
+        )
+        handle.call(
+            group_call=lambda _g: self.enter_group(),
+            wire_call=lambda _w: self.arm_wire_edit(),
+        )
 
     @traced()
     def arm_wire_edit(self) -> None:
