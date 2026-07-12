@@ -1,0 +1,20 @@
+components:
+    # -----------------------------------------------------------------------
+    # Templates
+    # -----------------------------------------------------------------------
+
+    # Audio amp LM386
+    - name: LM386
+      component_class: ic
+      pins: { count: 8 }
+      package: { kind: dip_ic }
+      pin_names:
+          1: GAIN_A
+          2: IN-
+          3: IN+
+          4: GND
+          5: OUT
+          6: VCC
+          7: BYPASS
+          8: GAIN_B
+
