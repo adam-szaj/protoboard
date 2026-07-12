@@ -1,212 +1,160 @@
-# Controller-layer migration — `gui/{ports,tools}` + `services/editing` → `controller/`
+# Controller-layer migration — tools & KeyMap seam to a real Controller facade
 
-**Date:** 2026-07-12
-**Status:** Design approved, pending spec review
+**Date:** 2026-07-12 (rewritten from the earlier KeyCode-based draft)
+**Status:** Design in progress
 **Author:** Adam Szaj (with Claude Code)
 
-## Problem
+> This spec was rewritten after re-reading memory + `docs/keymap-per-tool-layer.md`
+> + `docs/mvc-verb-layer.md`. The earlier draft proposed a `KeyCode` enum and
+> kept `on_key` in the tools — both wrong. The settled model (see memory
+> `project_tools_belong_to_controller`, refinements 2026-07-12) is below.
 
-Three packages that are conceptually part of the **Controller** layer currently
-live in the wrong place:
+## The settled model (do not re-litigate)
 
-- `gui/ports/*` — Qt-free Protocols and DTOs (the View↔Controller seam). Already
-  Qt-free, simply filed under `gui/`.
-- `services/editing/*` — the actual Controller: `EditController`,
-  `HeadlessSession`, the headless `cli.py`, `armed_transform.py`, and the
-  domain-logic helpers moved out of `gui/` (`group_lock`, `wire_nets`,
-  `placement_conflict`, `drag_commit`, `preview_state`, `item_handle`). Already
-  Qt-free, but filed under `services/` rather than as its own layer.
-- `gui/tools/*` — the interaction tools (Select / Place / Route / Cut / Simplify
-  / ArmedTransform). Project memory records these as belonging to the
-  Controller, not the View; they are only superficially Qt-bound.
+1. **KeyMap is a seam that STAYS IN GUI.** Its only job: translate GUI input
+   (key + mouse) → a Controller command (action-id). It does not move.
+2. **A tool is a machine of COMMANDS with zero knowledge of keys.** No `on_key`,
+   `key_actions`, `key_claims`, `make_key_map`, `Qt.Key`, `Intent` on a tool.
+3. **The Controller is a FACADE.** The View talks only to the Controller
+   instance; the GUI does not reach around it into `session.layout` or tools.
+4. **The Controller exposes tool-commands as data.** A controller function
+   returns the active tool's available commands (action-id → command); the GUI
+   builds the **Key Bindings panel** (Properties) from that.
+5. **Default keybindings live in a YAML file**, not hardcoded in `key_actions()`.
+6. **`ToolHost` already holds Controller logic to extract** (audited 2026-07-12):
+   active-tool ownership (`_active_tool`/`set_tool`), `get_context_at`
+   (tool-commands aggregation), `trigger_tool_action` (a keycode round-trip
+   anti-pattern). Input dispatch / pan / `[?]` overlay stay in GUI.
 
-This misplacement produces a concrete layering smell: `services/editing/armed_transform.py`
-imports from `gui.ports` (`WheelInput`, `WheelNotchAccumulator`) and also
-references `gui.selection` and `gui.tools` under `TYPE_CHECKING` — a
-Controller-layer module depending on `gui.*` paths, i.e. the dependency arrow
-points the wrong way. Stage 1 (ports) removes the runtime part of this smell;
-the `gui.selection` / `gui.tools` references are addressed when those modules
-migrate (Stage 4).
+## What already exists (REUSE, do not rebuild)
 
-CLAUDE.md §3 declares the intended layering:
-
-```
-GUI Layer (PySide6)  →  Application/Controller  →  Domain  →  Services
-```
-
-There is no first-class `controller/` package to hold that layer. This migration
-creates it.
+- **`services/editing/`** — Qt-free `EditController` + `HeadlessSession` + CLI
+  (the Controller core). Verbs: delete/rotate/flip/place/add_wire/begin_transform
+  /autoroute/DRC/save/export. `EditState` protocol; `EditorSession(HeadlessSession,
+  QObject)` adds Qt signals.
+- **`gui/keymap.py`** — per-tool KeyMap layer with `lookup(trigger) → action_id`
+  (reverse, leaf-first shadowing), shared user-override store, `KEYBINDINGS_V2_FILE`
+  persistence. Stages 1/1b/2/3 shipped 2026-07-09 (commits bcd53d9…809e973).
+- **`gui/ports/`** — Qt-free DTOs/protocols (the View↔Controller vocabulary).
+- **The verb seam** (`default_action`/`secondary_action`/`empty_action`,
+  `controller_state_changed`) — shipped 2026-07-11 (docs/mvc-verb-layer.md).
+- **`get_context_at`, `trigger_tool_action`, `_active_tool`** in `tool_host.py` —
+  the extraction targets, not greenfield.
 
 ## Goal
 
-A single, coherent, **Qt-free** `controller/` top-level package containing the
-ports, the editing controller, and the interaction tools. After the migration:
-
-- `controller/` imports only `domain/`, `services/`, `geometry`, stdlib — never `gui/`.
-- `gui/` (Qt adapters + renderers) imports **upward** into `controller/`.
-- The `armed_transform` → `gui.ports` smell is gone.
-- The tools are genuinely Qt-free (no residual `Qt.Key.*`, `QColor`, or
-  `session.signal.emit()` inside tool logic).
+Relocate the interaction tools to the Controller as Qt-free command machines,
+behind a Controller facade that exposes tool-commands, driven by keys/mouse
+through the KeyMap seam that remains in GUI. Default bindings move to YAML.
 
 ## Non-goals
 
-- **Renderers stay in the View.** The `*_preview.py` files
-  (`select_preview`, `place_preview`, `route_preview`, `simplify_preview`),
-  `drag_conflict_overlay.py`, `drag_corner_text.py`, and `transform_overlays.py`
-  are genuinely Qt (QGraphicsItem / QPainter / scene mutation). They are the
-  View half of the tool/preview split and are **not** migration targets.
-- No behavioural changes. This is a structural move plus a narrow Qt-decoupling
-  of the tool classes. User-visible behaviour is invariant.
-- No unrelated refactoring of tool internals beyond removing the three Qt
-  residues.
+- **KeyMap does not move.** No `KeyCode` enum. `on_key`/`Qt.Key`/`_key_matches`
+  stay GUI-side (they are input-translation).
+- **Renderers stay in the View** (`*_preview.py`, overlays).
+- **No behavioural change** to shortcuts, dispatch order, or rebinding.
+- **Do not redesign the dispatch mechanism** — reuse `KeyMap.lookup → dispatch`.
 
-## Target structure
+## Architecture — the seam after migration
 
 ```
-src/protoboard/
-├── controller/                 # NEW — Qt-free layer between GUI and Domain/Services
-│   ├── __init__.py             # facade: EditController, HeadlessSession, key ports
-│   ├── ports/                  # from gui/ports/ (already Qt-free)
-│   │   ├── inputs.py, inputs_details.py
-│   │   ├── viewport.py, viewport_details.py
-│   │   ├── executor.py, help_overlay.py, hover.py
-│   │   ├── interaction_context.py, status_event.py, tool_controller.py
-│   │   └── keycodes.py         # NEW — Qt-free key enum, replaces Qt.Key.* in tools
-│   ├── editing/                # from services/editing/
-│   │   ├── controller.py, headless_session.py, cli.py, armed_transform.py
-│   │   ├── group_lock.py, wire_nets.py, placement_conflict.py
-│   │   ├── drag_commit.py, preview_state.py, item_handle.py
-│   └── tools/                  # from gui/tools/ — LOGIC ONLY
-│       ├── select_tool.py, place_tool.py, route_tool.py
-│       ├── armed_transform_tool.py, cut_tool.py, simplify_tool.py
-│       ├── drag_commit_decision.py, select_prompts.py
-└── gui/
-    ├── tools/                  # STAYS: renderers (Qt View half)
-    │   ├── select_preview.py, place_preview.py, route_preview.py, simplify_preview.py
-    │   ├── drag_conflict_overlay.py, drag_corner_text.py, transform_overlays.py
-    ├── qt_viewport.py, qt_inputs.py, qt_executor.py   # adapters → import UP into controller/
-    └── qt_keymap.py            # NEW/extended — maps Qt.Key.* → controller keycode enum at the boundary
+GUI:  Qt event → KeyMap.lookup(trigger) → action_id
+                    │
+                    ▼
+Controller facade:  controller.dispatch_tool_command(action_id)   ← View calls this
+                    │  (active tool owned here; commands are data)
+                    ▼
+Tool (Qt-free):     commands[action_id]()   ← executes; knows nothing of keys
 ```
 
-**Dependency direction (invariant to enforce):**
-`gui/` (adapters + renderers) → `controller/` → `domain/` / `services/`. Never
-the reverse. The same mechanical rule that protects `domain/` now protects
-`controller/`.
+- The GUI still decodes Qt input and resolves the action-id (KeyMap seam).
+- The GUI then asks the **Controller facade** to run that command — it does not
+  reach into the tool. The Controller owns which tool is active and routes the
+  command.
+- On active-tool change, the Controller emits state; the View swaps the KeyMap
+  layer (the `controller_state_changed` consumer already designed as step 6b,
+  currently deferred — this migration activates it where dispatch flows through
+  the KeyMap).
+- The Key Bindings panel reads `controller.tool_commands()` + the YAML defaults.
 
-## Approach: staged migration, green suite per stage
-
-Chosen over a big-bang `git mv` + bulk import-rewrite because the migration
-touches load-bearing modules and the 180 KB `select_tool.py`. Staging keeps
-every commit bisectable and reversible, and honours CLAUDE.md §8 ("no silent
-regressions"): parity tests are repointed to the new location **before** the old
-code is deleted, never in the same breath.
-
-### Stages
-
-Each stage is one commit with a green test suite.
+## Migration stages (each: own commit, green suite, parity-before-swap)
 
 | # | Stage | Verify |
 |---|---|---|
-| 0 | Scaffold `controller/` package; add to `pyproject` packages/mypy_path | import works; suite green |
-| 1 | `gui/ports/` → `controller/ports/`; repoint ~20 importer files; Qt adapters stay in `gui/` | suite green; `armed_transform` no longer imports `gui.ports` at runtime |
-| 2 | Add `controller/ports/keycodes.py` (Qt-free key enum) + `gui/qt_keymap` mapping `Qt.Key.*` → enum | keycode-mapping test |
-| 3 | `services/editing/` → `controller/editing/`; repoint importers | suite green; headless CLI runs |
-| 3.5 | **Split `_Tool`**: Qt-free contract base → `controller/tools/base.py`; View bindings (KeyMap/Theme/preview-injection) stay in `gui/` as a mixin | suite green; both bases compose to identical behaviour |
-| 4a | `cut_tool`, `drag_commit_decision`, `select_prompts` → `controller/tools/` (already Qt-free) | suite green |
-| 4b | `place/route/armed/simplify_tool` → `controller/tools/`; QColor → preview, `emit()` → `notify_changed()`, keycodes → enum | **parity tests repointed BEFORE swap** |
-| 4c | `select_tool.py` (180 KB) → `controller/tools/`; remove last Qt residues | behaviour parity tests (FSM, selection, delete/group) green |
-| 5 | Cleanup: remove empty `gui/ports/`, `services/editing/`; update `docs/` + CLAUDE.md §5 | full suite + smoke (`run-protoboard-designer`) |
+| 0 | Scaffold `controller/`; add to pyproject | import works; suite green |
+| 1 | `gui/ports/` → `controller/ports/`; repoint importers | green; `armed_transform` no longer imports `gui.ports` |
+| 2 | `services/editing/` → `controller/editing/`; repoint | green; headless CLI runs |
+| 3 | **Controller facade: `tool_commands()` + `dispatch_tool_command(action_id)` + active-tool ownership**; move `get_context_at` aggregation and `_active_tool`/`set_tool` state into the Controller; delete `trigger_tool_action` round-trip | new controller tests; `get_context_at` behaviour parity |
+| 4 | **Split `_Tool`**: Qt-free command base in `controller/tools/base.py` (commands, verbs, lifecycle on `EditState`); View bindings (KeyMap layer build, theme, preview injection, `on_key`→command translation) stay in `gui/` as a mixin | green; both compose to identical behaviour |
+| 5 | **Default bindings → YAML**: extract each tool's `key_actions()` hardcoded shortcuts into a bindings YAML the KeyMap loads; tools stop declaring shortcuts | green; rebinding + persistence unchanged |
+| 6 | Move the tools' command logic → `controller/tools/`; each tool exposes `commands() -> dict[str, Callable]`, no `on_key`/`Qt.Key`; GUI mixin translates key→command via KeyMap | **parity tests repointed BEFORE swap** |
+| 7 | `select_tool.py` (180 KB) last, alone: strip `on_key`/`Qt.Key`/`QColor` to GUI mixin + preview; land in `controller/tools/` | FSM/selection/delete/group parity green |
+| 8 | Cleanup: layer guard (`controller/` imports no `gui`), docs, CLAUDE.md §5, modules.md redraw | full suite + smoke |
 
-## The three Qt residues in the tools (Stage 2 / 4b / 4c)
+## `select_tool.py` — why it is not a rewrite
 
-Removing these is what makes `controller/` genuinely Qt-free:
+Only ~34 lines touch Qt today. It is overwhelmingly Qt-free selection/FSM logic
+already delegating to `EditController`/`HeadlessSession`. The migration strips its
+`on_key`/`Qt.Key.*`/`QColor` (into the GUI mixin + preview), exposes its actions
+as `commands()`, and moves the rest — guarded by behaviour parity tests. Highest
+risk, so last and alone.
 
-1. **`Qt.Key.*` keycode constants** — used in key-dispatch comparisons. The
-   `ports` layer already provides Qt-free equivalents for pointer buttons and
-   modifiers; keys are the one gap. Fix: a Qt-free `KeyCode` enum in
-   `controller/ports/keycodes.py`, with the Qt→enum mapping performed in
-   `gui/qt_keymap.py` at the boundary (exactly where `qt_inputs.py` already maps
-   pointer/mods).
-2. **`QColor` tints** — a handful of overlay colour values. These belong to the
-   preview renderer, not the tool. Fix: pass them from the `Qt*Preview`
-   implementation, or express them as Qt-free colour DTOs the preview resolves.
-3. **`session.signal.emit()`** — several sites in `select_tool`, 1–2 elsewhere
-   (the file carries ~34 Qt-token lines total across all three residues).
-   `HeadlessSession` already exposes a Qt-free `notify_changed()` hook that
-   `EditorSession` (the `QObject` subclass) overrides to emit `layout_changed`.
-   Fix: route tool notifications through `notify_changed()` instead of `.emit()`.
+## The `_Tool` split (Stage 4) — the load-bearing seam
 
-## Blocker discovered during planning: the `_Tool` base is View-bound
+Every tool subclasses `_Tool(BoardViewTool)` in `gui/board_view_tool.py`. Only a
+few members are View-bound: `make_key_map`/`_theme`/`_key_matches` (KeyMap/Theme)
+and the raw `on_key` bodies. Split:
 
-Every tool subclasses `_Tool(BoardViewTool)` from `gui/board_view_tool.py`.
-`BoardViewTool` (ABC) is **mostly a Qt-free contract** — `on_press`/`on_move`/
-`on_key` take Qt-free DTOs (`PointerInput`, `KeyInput`); the verb surface
-(`default_action`/`secondary_action`/`empty_action`) takes `Point`/`Mods`. But a
-handful of members are genuinely View-bound and keep the whole base in `gui/`:
+- **Controller (`controller/tools/base.py`):** the command surface
+  (`commands()`), the verb surface, lifecycle typed on `EditState`, and the
+  Qt-free interaction state. No keys, no Qt.
+- **GUI (`gui/board_view_tool.py` mixin):** `make_key_map`, `_theme`, preview
+  injection, and the `on_key(KeyInput) → resolve action-id via KeyMap → call the
+  tool's command` translation. This is where key-handling LIVES post-migration.
 
-- `make_key_map(parent: AbstractKeyMap) -> KeyMap` — builds a Qt `KeyMap` layer.
-- `_theme() -> Theme` — reads the view's Qt theme.
-- `_key_matches(inp, action_id)` — resolves through `view.keymap` (Qt KeyMap).
-- `activate(session: EditorSession, view)` — typed against the Qt `EditorSession`.
-
-So the tools are **not** self-contained: they cannot move to `controller/`
-without first separating this base.
-
-**Decision (2026-07-12): split `_Tool` along the seam.**
-
-- The Qt-free half — the interaction contract (`on_*` DTO hooks, the verb
-  surface, lifecycle, `key_claims`/`wants_key`, `perform_context_action`) — moves
-  to `controller/` as the tool base, typed against the `EditState` protocol
-  (not `EditorSession`) and the existing `AbstractBoardView` protocol (which
-  stays the View↔Controller seam; its one sanctioned Qt touchpoint is `scene()`).
-- The View bindings (`make_key_map`/`KeyMap`, `_theme`/`Theme`, concrete
-  `Qt*Preview` injection, and any `view.keymap` access) stay in `gui/` as a
-  mixin/adapter the concrete GUI tool composes in.
-
-This split is its own task, done **before** the tool classes move. `KeyMap`,
-`Theme`, and the `Qt*Preview` renderers are View concerns and do not migrate.
-
-## `select_tool.py` (180 KB) — why it is not a rewrite
-
-Despite its size, only ~34 lines touch Qt (grep of `PySide6|QColor|Qt.Key|.emit(|QGraphicsItem`). It is overwhelmingly domain/selection
-logic (FSM state, hit-testing, selection algebra, net queries, drag orchestration,
-delete/group macros) already delegating to `HeadlessSession` / `EditController`.
-It already has a headless seam: `activate(session, view: AbstractBoardView)` takes
-the Protocol view. The migration is move + repoint + the three residue fixes,
-guarded by behaviour parity tests — not a rewrite.
+Concrete GUI tools compose `ViewToolMixin + <ControllerTool>` (in
+`gui/tools/gui_tools.py`); `tool_host` constructs those. Headless drivers use the
+bare Controller tool + `controller.dispatch_tool_command(action_id)` directly —
+no keys involved, proving the "CLI test".
 
 ## Testing strategy
 
-- **Per-stage green suite** is the primary gate; no stage proceeds on red.
-- **Parity tests survive the swap.** For the tool moves (4b/4c), behaviour tests
-  (what the user sees — selection highlight, context menu, FSM transitions,
-  delete/group) are repointed to `controller/tools/` before the old modules are
-  deleted. Tests of private internals may be deleted with their code; behaviour
-  tests may not.
-- **Keycode mapping test** (Stage 2): assert `gui/qt_keymap` maps representative
-  `Qt.Key.*` values to the correct `controller.ports.keycodes.KeyCode` members.
-- **Smoke test** (Stage 5): `run-protoboard-designer` headless driver — launch,
-  select, zoom, camera, rebuild — must pass.
-- **Layering guard:** after Stage 5, `grep -rn "import.*\bgui\b" src/protoboard/controller/`
-  must return nothing (controller must not import gui).
+- Per-stage green suite is the gate.
+- **Parity-before-swap:** behaviour tests (selection highlight, context menu,
+  FSM, delete/group, shortcut dispatch) repointed to the new path in the SAME
+  commit that moves code.
+- **Facade tests (Stage 3):** `controller.tool_commands()` returns the active
+  tool's action-ids; `dispatch_tool_command(action_id)` runs the command;
+  active-tool change emits state.
+- **YAML bindings test (Stage 5):** defaults load from YAML; a rebind persists to
+  `KEYBINDINGS_V2_FILE`; round-trip unchanged.
+- **CLI test (the north star):** a headless script activates a tool via the
+  Controller and drives it purely by `dispatch_tool_command(action_id)` — never
+  touching a key. If that works, the boundary is correct.
+- **Layer guard (Stage 8):** `grep -rn "import.*protoboard\.gui" src/protoboard/controller/`
+  returns nothing.
+- **Smoke:** `run-protoboard-designer` headless driver.
 
 ## Risks
 
-- **Silent regression on `select_tool.py`** — mitigated by parity-before-swap and
-  the smoke test. This is the highest-risk stage; do it last and alone (4c).
-- **Import churn** — ~20 `gui.ports` importer files plus `services.editing` importers.
-  Mechanical, but wide. Repoint per stage, lean on the suite.
-- **`inputs_details.py` / `viewport_details.py`** are concrete logic classes
-  (not port interfaces) but equally Qt-free; placement in `controller/ports/` is
-  a naming choice, not a coupling problem.
-- **Scope creep on the QColor/emit cleanup** — bounded to the three named residues;
-  no other tool-internal refactoring.
+- **Silent regression on `select_tool.py`** — parity-before-swap + smoke; last
+  and alone.
+- **`get_context_at` / active-tool extraction (Stage 3)** touches the RMB menu
+  and `[?]` overlay wiring — parity tests for both before the move.
+- **YAML bindings (Stage 5)** must preserve the shared-override store + final-
+  trigger rules from `docs/keymap-per-tool-layer.md` — don't regress rebinding.
+- **KeyMap-layer swap on active-tool change** was deferred (step 6b) because armed
+  keys didn't flow through the KeyMap; this migration makes dispatch flow through
+  it, so the swap becomes real — needs its own parity tests.
 
 ## Success criteria
 
-1. `controller/` exists; `ports/`, `editing/`, `tools/` (logic) live under it.
-2. `grep -rn "import.*gui" src/protoboard/controller/` returns nothing.
-3. No `Qt.Key.*`, `QColor`, or `.emit()` in `controller/tools/`.
-4. Renderers (`*_preview.py`, overlays) remain in `gui/`.
-5. Full pytest suite green; `run-protoboard-designer` smoke passes.
-6. `docs/` and CLAUDE.md §5 source-layout updated to match.
+1. `controller/{ports,editing,tools}` exist; tools are Qt-free command machines.
+2. `grep -rn "import.*gui" src/protoboard/controller/` → nothing.
+3. No `on_key`/`Qt.Key`/`QColor`/`Intent` in `controller/tools/`.
+4. `controller.tool_commands()` + `dispatch_tool_command(action_id)` drive every
+   tool action; `trigger_tool_action` deleted.
+5. Default bindings in YAML; rebinding + persistence unchanged.
+6. A headless CLI drives a tool by action-id with zero keys.
+7. KeyMap + renderers remain in `gui/`.
+8. Full suite green; smoke passes; docs + CLAUDE.md §5 updated.

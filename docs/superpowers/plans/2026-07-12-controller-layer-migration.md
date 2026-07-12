@@ -1,5 +1,14 @@
 # Controller-layer migration Implementation Plan
 
+> **⚠️ SUPERSEDED (2026-07-12).** This plan was built on a wrong model (a
+> `KeyCode` enum, tools keeping `on_key`). The settled model — KeyMap stays in
+> GUI, tools are Qt-free command machines, the Controller is a facade exposing
+> `tool_commands()`, default bindings in YAML — is in the rewritten spec
+> `docs/superpowers/specs/2026-07-12-controller-layer-migration-design.md`. A new
+> plan will be written from that spec. Do NOT execute the tasks below; they are
+> kept only for the mechanical file-move details (importer lists) that remain
+> valid for Stages 1–2.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Promote the scattered Controller layer (`gui/ports/*`, `services/editing/*`, `gui/tools/*` logic) into a single Qt-free `controller/` top-level package.
