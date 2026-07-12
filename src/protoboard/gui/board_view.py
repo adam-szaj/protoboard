@@ -43,7 +43,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protoboard.domain.board.boxes import StripAtom
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import (
     LayerOverrides,
@@ -552,22 +551,7 @@ class BoardView(QGraphicsView):
     def rebuild_pad_cache(self) -> None:
         """Rebuild _pad_positions and _pad_spatial from the current board layout."""
         from collections import defaultdict
-        positions: list[Point] = []
-        for atom, center in self._session.board.atoms():
-            if isinstance(atom, StripAtom):
-                n = int(atom.length) if atom.length != "fill" else 0
-                if atom.orientation == "horizontal":
-                    start_x = center.x - n / 2.0 + 0.5
-                    for i in range(n):
-                        positions.append(Point(start_x + i, center.y))
-                else:
-                    start_y = center.y - n / 2.0 + 0.5
-                    for i in range(n):
-                        positions.append(Point(center.x, start_y + i))
-            else:
-                from protoboard.domain.board.boxes import GapAtom
-                if not isinstance(atom, GapAtom):
-                    positions.append(center)
+        positions = self._session.board.pad_positions()
         self._pad_positions = positions
         # Build spatial index: grid cell → pad points (for fast snap).
         spatial: dict[tuple[int, int], list[Point]] = defaultdict(list)

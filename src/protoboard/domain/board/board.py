@@ -79,6 +79,30 @@ class Board:
             cached = self._build_atoms_list()
         return iter(cached)  # type: ignore[arg-type]
 
+    def pad_positions(self) -> list[Point]:
+        """All pad centres (raster units), in atom-walk order.
+
+        A strip expands to one centre per hole; a plain pad yields its own
+        centre; gaps contribute nothing.  This is the single source of truth
+        the snap grid is built from — the GUI view's pad cache and the Qt-free
+        :meth:`EditController.snap` both call it, so they can never diverge.
+        """
+        positions: list[Point] = []
+        for atom, center in self.atoms():
+            if isinstance(atom, StripAtom):
+                n = int(atom.length) if atom.length != "fill" else 0
+                if atom.orientation == "horizontal":
+                    start_x = center.x - n / 2.0 + 0.5
+                    for i in range(n):
+                        positions.append(Point(start_x + i, center.y))
+                else:
+                    start_y = center.y - n / 2.0 + 0.5
+                    for i in range(n):
+                        positions.append(Point(center.x, start_y + i))
+            elif not isinstance(atom, GapAtom):
+                positions.append(center)
+        return positions
+
     @counted("Board._build_atoms_list")
     def _build_atoms_list(self) -> tuple:  # type: ignore[type-arg]
         """The cache-miss branch of :meth:`atoms`.

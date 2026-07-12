@@ -28,6 +28,17 @@ class TestSnap:
         result = board_view.snap(Point(2.5, 2.5))
         assert result == Point(2.5, 2.5)
 
+    def test_snap_matches_controller_snap(self, board_view: BoardView) -> None:
+        # Byte-parity guard: the view's snap and the Qt-free
+        # EditController.snap must agree for every query, since the GUI adapter
+        # (E4) will route snapping through the controller.
+        ctrl = board_view.session.edit_controller
+        agid = board_view.active_group_id
+        for x in (0.4, 1.0, 2.5, 3.6, 4.9, 40.2):
+            for y in (0.4, 2.9, 3.4, 41.8):
+                pt = Point(x, y)
+                assert board_view.snap(pt) == ctrl.snap(pt, active_group_id=agid)
+
 
 class TestRefresh:
     def test_refresh_builds_bg_cache_display_list(self, board_view: BoardView) -> None:

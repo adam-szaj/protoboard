@@ -257,5 +257,17 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
     checks keep working unchanged — `SelectTool` still constructs it directly.
     Runtime `services→gui.ports` imports of the Qt-free input DTOs follow the
     existing `services/drag_detector → gui.tools.drag_commit_decision` precedent.
-    Remaining stages E3–E5 (controller `begin/update/accept/cancel` API → thin
-    GUI adapter → separate preview state) not started.
+  - **E3 done** (stateful controller API + Qt-free snap): `EditController` now
+    owns the armed transform — `begin_transform` / `rotate_armed` / `move_armed`
+    / `flip_armed` / `switch_transform_mode` / `set_transform_pivot` /
+    `accept_transform` / `cancel_transform`, with `armed_transform` as the live
+    handle. It is driven by semantic verbs, so `matches`/`on_key` stay GUI-side
+    (the controller passes a never-matching stub). `snap` moved into the
+    controller as a Qt-free method; to stay byte-identical with the view, board
+    pad centres come from a new shared `Board.pad_positions()` that both
+    `rebuild_pad_cache` and `controller.snap` call. `EditState` gained
+    `comp_spatial_index` / `iter_pin_positions`. Parity guard:
+    `test_board_view.py` asserts `view.snap == controller.snap`. The GUI
+    `SelectTool` still constructs `ArmedTransform` directly — rewiring
+    `arm_rotate`/`arm_move` onto `begin_transform` and thinning the tool to an
+    input adapter is E4; the separate preview state is E5.

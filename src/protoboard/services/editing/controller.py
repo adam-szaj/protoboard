@@ -3,10 +3,12 @@
 
 Both the GUI tools and a headless CLI drive the *same* verbs on this object:
 each verb assembles a domain :class:`Command`, runs it through the session's
-:class:`CommandStack`, and pings the state's change hook. The controller is
-**stateless** — interaction state (armed / floating / pick) stays in the GUI
-tools; the driver (GUI ``SelectTool``, or the CLI) owns selection and the
-active group.
+:class:`CommandStack`, and pings the state's change hook. The verbs are
+**stateless**; the sole interaction state the controller now owns is the
+**armed transform** (rotate/move/flip — see :meth:`EditController.begin_transform`),
+stateful the way an active place-tool is. Selection is model state (read from
+``state``); the driver (GUI ``SelectTool``, or the CLI) still owns the active
+group and passes it in.
 
 State is taken through the :class:`EditState` Protocol, satisfied structurally
 by both :class:`~protoboard.services.editing.headless_session.HeadlessSession`
@@ -49,7 +51,10 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Vector
+    from protoboard.gui.drag_preferences import DragPreferences
+    from protoboard.gui.selection.drop_resolution import ResolveFn
     from protoboard.services.drc.engine import DRCIssue
+    from protoboard.services.editing.armed_transform import ArmedTransform
     from protoboard.services.editing.item_handle import (
         ComponentHandle,
         GroupHandle,
@@ -205,6 +210,10 @@ class EditState(SchematicState, Protocol):
     def get_pin_position(
         self, comp_id: uuid.UUID, pin_number: int
     ) -> Point | None: ...
+    def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]: ...
+    def iter_pin_positions(
+        self, comp_id: uuid.UUID
+    ) -> list[tuple[int, Point]]: ...
 
     def selection(self) -> frozenset[ItemId]:
         """The currently-selected items, as tagged :class:`ItemId`s.
@@ -225,20 +234,43 @@ class EditState(SchematicState, Protocol):
         ...
 
 
+def _never_matches(inp: object, action_id: str) -> bool:
+    """A ``matches`` that never fires — the controller drives the armed
+    transform through its semantic verbs (rotate/move/flip), so the raw
+    key-chord path (``ArmedTransform.on_key``) is unused. A GUI adapter that
+    still wants ``on_key`` supplies its own matcher instead."""
+    return False
+
+
 class EditController:
-    """Stateless edit-verb surface shared by GUI tools and a headless CLI.
+    """Edit-verb surface shared by GUI tools and a headless CLI.
 
     Construct one per session (``session.edit_controller``); every verb resolves
     its targets to ids up front, builds the domain command, and commits it via
     :meth:`_execute`.
+
+    The verbs are stateless. The one exception is the **armed transform**
+    (:meth:`begin_transform` … :meth:`accept_transform`): while a rotate/move/
+    flip is armed the controller holds it as :attr:`armed_transform`, the way a
+    place-tool session is stateful. Selection is model state (read through
+    :attr:`state`), not controller state.
     """
 
     def __init__(self, state: EditState) -> None:
         self._state = state
+        # Interaction state for the active armed transform (rotate/move/flip).
+        # None unless a transform is currently armed — the controller is
+        # stateful only within the scope of that one active sub-tool.
+        self._armed: ArmedTransform | None = None
 
     @property
     def state(self) -> EditState:
         return self._state
+
+    @property
+    def armed_transform(self) -> ArmedTransform | None:
+        """The live armed transform, or None when nothing is armed."""
+        return self._armed
 
     # ------------------------------------------------------------------
     # Edit verbs
@@ -1243,6 +1275,194 @@ class EditController:
             for w in state.layout.wires
             if w.id in id_set
         ]
+
+    # ------------------------------------------------------------------
+    # Armed transform (rotate / move / flip) — a stateful sub-tool
+    # ------------------------------------------------------------------
+    #
+    # The controller is stateful only while a transform is armed. A GUI tool
+    # (or a headless driver) arms one on the selection, drives it with the
+    # semantic verbs below (rotate / move / flip / set_pivot / update_pointer),
+    # and finishes with accept / cancel. The Qt seams stay injected — the GUI
+    # supplies the preview / status callbacks; snapping is a controller method
+    # (:meth:`snap`), so no view is needed to drive it.
+
+    def begin_transform(
+        self,
+        comp_ids: frozenset[uuid.UUID],
+        group_id: uuid.UUID | None,
+        *,
+        active_group_id: uuid.UUID,
+        mode: str = "rotate",
+        pivot: Point | None = None,
+        preview: Callable[[object], None] | None = None,
+        status: Callable[[str], None] | None = None,
+        preferences: DragPreferences | None = None,
+        resolve_free: ResolveFn | None = None,
+        resolve_sgroup: ResolveFn | None = None,
+        resolve_disconnect: ResolveFn | None = None,
+    ) -> ArmedTransform:
+        """Arm a rotate/move/flip transform on *comp_ids* (and whole *group_id*).
+
+        Stores it as the controller's live sub-tool and returns it. *pivot* seeds
+        a shared rotate pivot; *preview* / *status* are the injected GUI seams
+        (a headless driver leaves them None); the *resolve_* / *preferences*
+        control soft-conflict wire drops (None ⇒ headless auto-remove). Snapping
+        a clicked pivot goes through :meth:`snap`, closed over *active_group_id*.
+        """
+        from protoboard.services.editing.armed_transform import ArmedTransform
+
+        def _snap(raw: Point) -> Point | None:
+            return self.snap(raw, active_group_id=active_group_id)
+
+        self._armed = ArmedTransform(
+            self._state,
+            comp_ids=comp_ids,
+            group_id=group_id,
+            snap=_snap,
+            execute=self._execute,
+            matches=_never_matches,
+            mode=mode,
+            pivot=pivot,
+            preview=preview,
+            status=status,
+            preferences=preferences,
+            resolve_free=resolve_free,
+            resolve_sgroup=resolve_sgroup,
+            resolve_disconnect=resolve_disconnect,
+        )
+        return self._armed
+
+    def rotate_armed(self, delta: int) -> None:
+        """Step the armed transform ±90° (no-op when nothing is armed)."""
+        if self._armed is not None:
+            self._armed._rotate(delta)
+
+    def move_armed(self, dx: float, dy: float) -> None:
+        """Nudge the armed transform by (dx, dy) cells (no-op when unarmed)."""
+        if self._armed is not None:
+            self._armed._move(dx, dy)
+
+    def flip_armed(self) -> None:
+        """Flip 2-pin members of the armed transform (no-op when unarmed)."""
+        if self._armed is not None:
+            self._armed._flip()
+
+    def switch_transform_mode(self, mode: str) -> None:
+        """Re-aim the armed transform's sub-mode (rotate/move) without re-arming."""
+        if self._armed is not None:
+            self._armed.switch_mode(mode)
+
+    def set_transform_pivot(self, raw_pt: Point) -> None:
+        """Snap *raw_pt* and toggle it as the armed rotate pivot (click a pad)."""
+        if self._armed is not None:
+            self._armed.on_click(raw_pt)
+
+    def accept_transform(self) -> None:
+        """Commit the armed transform (parks armed on a HARD conflict).
+
+        Clears the controller's armed state once the sub-tool reports finished —
+        an un-committable accept leaves it armed so the caller can step clear.
+        """
+        armed = self._armed
+        if armed is None:
+            return
+        armed.accept()
+        if armed.finished:
+            self._armed = None
+
+    def cancel_transform(self) -> None:
+        """Abort the armed transform, restoring the pre-arm pose."""
+        if self._armed is not None:
+            self._armed.cancel()
+            self._armed = None
+
+    def snap(
+        self,
+        scene_pt: Point,
+        *,
+        active_group_id: uuid.UUID,
+        exclude_ids: frozenset[uuid.UUID] | None = None,
+    ) -> Point:
+        """Snap *scene_pt* to the nearest accessible pad or component pin.
+
+        The Qt-free twin of the view's snap: pads and pins within a 3×3 grid
+        window compete by squared distance (pads first, so a pad wins a tie);
+        pins locked inside a child group of *active_group_id* are reachable only
+        if exported; *exclude_ids* skips a component's pins (e.g. the one being
+        dragged). Off-board — nothing within the window — falls back to the
+        nearest half-integer pad-grid centre.
+        """
+        import math
+
+        from protoboard.geometry import Point
+
+        state = self._state
+        groups = state.layout.groups
+        tree = state.group_tree()
+        active_group = groups.get(active_group_id)
+        locked_comp_ids: set[uuid.UUID] = set()
+        exported_pins: set[tuple[uuid.UUID, int]] = set()
+        if active_group is not None:
+            for child_gid in active_group.child_group_ids:
+                child_group = groups.get(child_gid)
+                if child_group is None:
+                    continue
+                for cid in tree.all_component_ids(child_gid):
+                    locked_comp_ids.add(cid)
+                for ep in child_group.exported_pins:
+                    exported_pins.add((ep.component_id, ep.pin_number))
+
+        sx, sy = scene_pt.x, scene_pt.y
+        best: Point | None = None
+        best_d = math.inf
+
+        def _check(px: float, py: float) -> None:
+            nonlocal best, best_d
+            d = (sx - px) * (sx - px) + (sy - py) * (sy - py)
+            if d < best_d:
+                best_d = d
+                best = Point(px, py)
+
+        # Board pads — bucket centres into the same round-keyed 3×3 grid the
+        # view uses, sourced from the shared Board.pad_positions() so the two
+        # can never diverge.
+        from collections import defaultdict
+        pad_spatial: dict[tuple[int, int], list[Point]] = defaultdict(list)
+        for _p in state.board.pad_positions():
+            pad_spatial[(int(round(_p.x)), int(round(_p.y)))].append(_p)
+        cx, cy = int(round(sx)), int(round(sy))
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for p in pad_spatial.get((cx + dcx, cy + dcy), []):
+                    _check(p.x, p.y)
+
+        # Component pin positions — use comp spatial index; skip locked pins.
+        candidates: set[uuid.UUID] = set()
+        comp_idx = state.comp_spatial_index()
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for cid in comp_idx.get((cx + dcx, cy + dcy), []):
+                    candidates.add(cid)
+
+        for comp_id in candidates:
+            if exclude_ids and comp_id in exclude_ids:
+                continue
+            if comp_id in locked_comp_ids:
+                for pin_num, p in state.iter_pin_positions(comp_id):
+                    if (comp_id, pin_num) not in exported_pins:
+                        continue
+                    _check(p.x, p.y)
+            else:
+                for _pin_num, p in state.iter_pin_positions(comp_id):
+                    _check(p.x, p.y)
+
+        if best is not None:
+            return best
+        # No real pad or pin within the 3×3 search window — return the
+        # nearest hypothetical pad-grid centre so off-board cursors still
+        # snap to a half-integer grid.
+        return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
 
     # ------------------------------------------------------------------
     # Command execution substrate
