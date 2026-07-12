@@ -234,8 +234,7 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
   `accept` / `cancel`), with the GUI reduced to a thin input-DTO adapter that
   injects a renderer-driver (preview) and prompt protocols (the `PlacementPrompts`
   D4 pattern for the soft-drop resolvers). `snap` becomes a controller method
-  (pure nearest-pad geometry); `classify_drag_commit` (already Qt-free) relocates
-  from `gui/placement_conflict.py` into `services/editing/`. Preview stops
+  (pure nearest-pad geometry). Preview stops
   mutating the live layout off-stack and becomes a separate state the controller
   pushes to the renderer. 5-stage parity-guarded plan in
   `~/.claude/plans/armed-transform-to-controller.md`. Prereq for collapsing the
@@ -243,3 +242,10 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
   transform path (which itself ultimately wants `ComponentPlacement.transform`,
   the pending `# TODO change to Rotate2D` in `placement.py`). The full
   interactive `DragController` is the twin follow-up, out of this plan's scope.
+  - **E1 done** (relocate `classify_drag_commit`): the Qt-free classifier and its
+    `_build_drag_pad_index` helper moved from `gui/placement_conflict.py` to
+    `services/editing/drag_commit.py`, typed on `EditState` (matching its
+    siblings in `services/editing/placement_conflict.py`); GUI callers
+    (`drag_controller.py`, `float_transform.py`) and tests repointed to the new
+    home, the GUI re-export dropped. Remaining stages E2–E5 (ArmedTransform core
+    → controller API → thin adapter → preview model) not started.

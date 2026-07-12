@@ -34,7 +34,7 @@ from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.layout.placement import ComponentPlacement, move_blocked
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.gui.placement_conflict import classify_drag_commit
+from protoboard.services.editing.drag_commit import classify_drag_commit
 from protoboard.gui.ports import Mods
 from protoboard.gui.selection.adapters import (
     ComponentSelectable,

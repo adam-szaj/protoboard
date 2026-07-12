@@ -405,7 +405,9 @@ class FloatTransform:
     # -- commit-readiness + terminal ---------------------------------------
 
     def _classify(self) -> DragCommitDecision | None:
-        from protoboard.gui.placement_conflict import classify_drag_commit
+        from protoboard.services.editing.drag_commit import (
+            classify_drag_commit,
+        )
 
         if not self._is_transformed():
             return None
