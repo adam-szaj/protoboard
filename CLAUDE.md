@@ -53,6 +53,7 @@ display server.
 
 | Topic | File |
 |---|---|
+| **Architecture overview (diagrams: modules / FSM / sequences / data model)** | [docs/architecture/README.md](docs/architecture/README.md) |
 | Data model (box model, pads, schematic, layout, groups, wire/knot) | [docs/data-model.md](docs/data-model.md) |
 | Defining components & packages (library YAML authoring guide) | [docs/footprints/authoring.md](docs/footprints/authoring.md) |
 | Definition variants by example (components / packages / families, where each may live) | [docs/footprints/definition-variants.md](docs/footprints/definition-variants.md) |
