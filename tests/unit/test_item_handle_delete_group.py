@@ -159,6 +159,36 @@ def test_wire_handle_has_no_rotate_but_has_delete() -> None:
     assert not hasattr(handle, "rotate")
 
 
+# -- per-kind delete policy: the guard differs by tag ------------------------
+
+
+def test_component_locked_in_group_is_not_deleted_from_outside() -> None:
+    """The component policy's lock guard: a sealed component survives delete."""
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    _make_group(session, [cid])
+
+    # Address it from ROOT (outside the group) — the lock guard drops it.
+    ran = session.edit_controller.delete(
+        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID
+    )
+    assert ran is False
+    assert cid in session.layout.placements
+
+
+def test_force_does_not_lift_the_component_lock() -> None:
+    """*force* lifts the WIRE lock only — a locked component still survives it."""
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    _make_group(session, [cid])
+
+    ran = session.edit_controller.delete(
+        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID, force=True
+    )
+    assert ran is False
+    assert cid in session.layout.placements
+
+
 # -- create_group / add_to_group on ItemId -----------------------------------
 
 

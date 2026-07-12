@@ -22,7 +22,7 @@ the tools' old ``_execute_command``) underpins them all.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
@@ -100,6 +100,77 @@ def _wire_signature(wire: object) -> tuple[object, ...]:
     reversed_rounded = tuple(reversed(rounded))
     canonical = rounded if rounded <= reversed_rounded else reversed_rounded
     return ("path", side, insulated, canonical)
+
+
+@dataclass(frozen=True)
+class _DeletePolicy:
+    """How one edit-item kind is deleted — the per-tag rule table entry.
+
+    ``keep`` answers "should this id be deleted?" — it folds the existence check
+    and the kind-specific guard (a wire honours *force* + the wire-lock; a
+    component honours the component-lock; a group has no guard). ``command``
+    builds the domain command that does it (remove wire / remove component /
+    disband group). Together they replace the three hand-rolled per-kind
+    pipelines the delete verb used to carry.
+    """
+
+    keep: Callable[..., bool]
+    command: Callable[[uuid.UUID], object]
+
+
+def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
+    """The ``ItemTag`` → :class:`_DeletePolicy` table :meth:`_delete_targets` loops.
+
+    Built lazily (commands / guards are imported here, not at module load, to
+    keep the domain-command import out of the hot import path). ``keep`` takes
+    ``(state, id, *, active_group_id, force)``; only the wire policy reads
+    *force*, only wire / component read the lock — a group is always kept if it
+    exists.
+    """
+    from protoboard.domain.commands.component_cmds import (
+        RemoveComponentCommand,
+        RemoveWireCommand,
+    )
+    from protoboard.domain.commands.group_cmds import DisbandGroupCommand
+    from protoboard.services.editing.group_lock import (
+        component_locked_in_group,
+        wire_locked_in_group,
+    )
+
+    def keep_wire(
+        state: "EditState", wid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+    ) -> bool:
+        return state.wire_by_id(wid) is not None and (
+            force
+            or not wire_locked_in_group(state, wid, active_group_id=active_group_id)
+        )
+
+    def keep_component(
+        state: "EditState", cid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+    ) -> bool:
+        return cid in state.layout.placements and not component_locked_in_group(
+            state, cid, active_group_id=active_group_id
+        )
+
+    def keep_group(
+        state: "EditState", gid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+    ) -> bool:
+        return gid in state.layout.groups
+
+    return {
+        ItemTag.wire: _DeletePolicy(
+            keep=keep_wire,
+            command=lambda wid: RemoveWireCommand(wire_id=wid),
+        ),
+        ItemTag.component: _DeletePolicy(
+            keep=keep_component,
+            command=lambda cid: RemoveComponentCommand(component_id=cid),
+        ),
+        ItemTag.group: _DeletePolicy(
+            keep=keep_group,
+            command=lambda gid: DisbandGroupCommand(group_id=gid),
+        ),
+    }
 
 
 @runtime_checkable
@@ -218,54 +289,37 @@ class EditController:
     ) -> bool:
         """Remove components / wires + disband groups as one atomic macro.
 
-        The kind-split builder the ``delete`` verb and the handles share.
-        Component / wire removals honour the group-lock guard (wires also honour
-        *force*); each group is disbanded (dissolve, keep members) with no lock —
-        a group is addressed as one external object. Returns True iff a command
-        ran.
+        The kind-split builder the ``delete`` verb and the handles share. Each
+        tag carries its own deletion rule — a :class:`_DeletePolicy` in the
+        per-tag table :func:`_delete_policies`: a wire / component removal
+        honours the group-lock guard (a wire also honours *force*); a group is
+        **disbanded** (dissolve, keep members) with no lock, addressed as one
+        external object. One loop over the table applies each rule; the survivors
+        fold into one atomic macro (order wire → component → group preserved for
+        undo). Returns True iff a command ran.
         """
         from protoboard.domain.commands.base import MacroCommand
-        from protoboard.domain.commands.component_cmds import (
-            RemoveComponentCommand,
-            RemoveWireCommand,
-        )
-        from protoboard.domain.commands.group_cmds import DisbandGroupCommand
-        from protoboard.services.editing.group_lock import (
-            component_locked_in_group,
-            wire_locked_in_group,
-        )
 
         state = self._state
-        existing_wires = {w.id for w in state.layout.wires}
-        keep_wires = [
-            wid for wid in wire_ids
-            if wid in existing_wires
-            and (force or not wire_locked_in_group(
-                state, wid, active_group_id=active_group_id))
-        ]
-        existing_comps = set(state.layout.placements)
-        keep_comps = [
-            cid for cid in comp_ids
-            if cid in existing_comps
-            and not component_locked_in_group(
-                state, cid, active_group_id=active_group_id)
-        ]
-        keep_groups = [gid for gid in group_ids if gid in state.layout.groups]
-        if not keep_wires and not keep_comps and not keep_groups:
+        policies = _delete_policies()
+        cmds: list[Command[ComponentState]] = []
+        # Order is undo-sensitive; keep wire → component → group.
+        for tag, ids in (
+            (ItemTag.wire, wire_ids),
+            (ItemTag.component, comp_ids),
+            (ItemTag.group, group_ids),
+        ):
+            policy = policies[tag]
+            cmds += [
+                cast("Command[ComponentState]", policy.command(item_id))
+                for item_id in ids
+                if policy.keep(
+                    state, item_id, active_group_id=active_group_id, force=force
+                )
+            ]
+        if not cmds:
             return False
 
-        cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]", RemoveWireCommand(wire_id=wid))
-            for wid in keep_wires
-        ]
-        cmds += [
-            cast("Command[ComponentState]", RemoveComponentCommand(component_id=cid))
-            for cid in keep_comps
-        ]
-        cmds += [
-            cast("Command[ComponentState]", DisbandGroupCommand(group_id=gid))
-            for gid in keep_groups
-        ]
         cmd: Command[ComponentState] = (
             cmds[0] if len(cmds) == 1
             else cast(
