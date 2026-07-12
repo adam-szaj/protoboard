@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from protoboard.gui.drag_set import DragSet
     from protoboard.gui.selection.adapters import WireVertexSelectable
     from protoboard.gui.selection.armed import ArmedSubTool
+    from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.selection.wire_edit import WireEditState
@@ -2826,83 +2827,85 @@ class SelectTool(_Tool):
     def _invoke_armed_atomic(
         self,
         arm: "Callable[[], None]",
-        action: "Callable[[ArmedSubTool], None]",
+        action: "Callable[[ArmedTransformTool], None]",
     ) -> bool:
-        """Run one armed-sub-tool action atomically: arm → action → accept.
+        """Run one armed action atomically: arm → action → accept.
 
-        The programmatic form of the ``[arm, action, disarm]`` shape (for menus
-        / macros): *arm* enters a sub-tool, *action* runs one operation on it
-        (e.g. a 90° step, a flip), then we try to ``accept``.  Per the
-        conditional-disarm contract, ``accept`` commits + finishes **only when
-        committable** — so if *action* left a conflict the sub-tool **stays
-        armed**, parked for the user to resolve (exactly like an interactive
-        accept), and this returns ``False``.  Returns ``True`` when it committed
-        and disarmed.
+        The programmatic form of the ``[arm, action, accept]`` shape (for menus
+        / macros): *arm* enters the ArmedTransformTool (via ``set_tool``),
+        *action* runs one operation on it (e.g. a 90° step, a flip), then we try
+        to accept. Per the conditional-disarm contract, accept commits + returns
+        to SelectTool **only when committable** — so if *action* left a conflict
+        the ArmedTransformTool **stays active**, parked for the user to resolve
+        (exactly like an interactive accept), and this returns ``False``.
+        Returns ``True`` when it committed and returned to Select.
 
         No-op (returns ``False``) if *arm* failed to arm anything — e.g. an empty
-        selection — so callers needn't pre-check.  When something else is already
-        armed, that mode is cancelled first so the atomic call starts clean.
+        selection — so callers needn't pre-check.
         """
-        if self._armed is not None:
-            self._disarm(cancel=True)
+        from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
+
         arm()
-        armed = self._armed
-        if armed is None:
+        armed = self._view.tools.active_tool
+        if not isinstance(armed, ArmedTransformTool):
             return False  # arm declined (e.g. empty / non-transformable selection)
         action(armed)
         armed.accept()
-        if armed.finished:
-            self._disarm()
-            return True
-        return False  # parked in a conflict — left armed for the user
+        # A committable accept returned control here; a conflict left the
+        # ArmedTransformTool active (parked).
+        return self._view.tools.active_tool is self
 
     @traced()
     def arm_rotate(self) -> None:
         """Arm float-rotate on the selection — the ``[R]`` entry point.
 
-        The selection stays live: wheel / ``[↑]`` / ``[↓]`` / ``[R]`` step ±90°
-        (previewed off the undo stack), clicking a pad sets a shared pivot,
-        ``[Enter]`` accepts (commits ONE rotation **only if** the result is
-        committable, else parks armed in the conflict) and ``[Esc]`` cancels.
-        A legacy ``begin_rotate_around_point`` pivot capture seeds the pivot.
+        Resolves the selection to the rotate target, then hands off to the
+        :class:`~protoboard.gui.tools.armed_transform_tool.ArmedTransformTool`
+        (which becomes the active tool and drives the controller's armed API):
+        wheel / ``[↑]`` / ``[↓]`` / ``[R]`` step ±90°, a pad click sets a shared
+        pivot, ``[Enter]`` accepts (parks in a conflict), ``[Esc]`` cancels. A
+        legacy ``begin_rotate_around_point`` pivot capture seeds the pivot.
         """
-        from typing import cast
+        seed = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
+        self._arm_transform(
+            "rotate",
+            empty_msg="Rotate: select component(s) or a group first",
+            none_msg="Rotate: nothing rotatable in the selection",
+            pivot=seed,
+        )
 
-        from protoboard.gui.selection.float_transform import FloatTransform
-        from protoboard.services.editing.controller import EditState
+    def _arm_transform(
+        self, mode: str, *, empty_msg: str, none_msg: str,
+        pivot: Point | None = None,
+    ) -> None:
+        """Resolve the selection and switch to the ArmedTransformTool.
 
-        if isinstance(self._armed, FloatTransform):
-            self._armed.switch_mode("rotate")  # already floating — just re-aim
-            self._status(self._armed.status_hint(), 0)
-            self._emit_state()
-            return
-        if self._armed is not None:
-            return
+        Shared entry for ``[R]`` (rotate) and ``[G]`` (move): empty-selection /
+        nothing-transformable early-returns keep parity with the old in-place
+        arm; otherwise the resolved ``(comp_ids, group_id)`` snapshot + the
+        active group are handed to the new tool, which arms the controller and
+        returns control here on accept / cancel.
+        """
+        from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
+
         if self._selection.is_empty():
-            self._status("Rotate: select component(s) or a group first")
+            self._status(empty_msg)
             return
         comp_ids, group_id = self._rotatable_affected()
         if not comp_ids:
-            self._status("Rotate: nothing rotatable in the selection")
+            self._status(none_msg)
             return
         self._cancel_gesture()  # drop any stray drag/pick first
-        seed = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
         self._pivot_capture_pending = False
-        self._armed = FloatTransform(
-            cast("EditState", self._session),
-            comp_ids=comp_ids,
-            group_id=group_id,
-            snap=self._snap_free,
-            execute=self._execute_command,
-            matches=self._key_matches,
-            mode="rotate",
-            pivot=seed,
-            preview=self._rotate_preview,
-            status=lambda msg: self._status(msg, 0),
+        self._view.tools.set_tool(
+            ArmedTransformTool(
+                comp_ids, group_id,
+                active_group_id=self._current_group_id,
+                mode=mode,
+                pivot=pivot,
+                return_to=lambda: self._view.tools.set_tool(self),
+            )
         )
-        self._draw_pivot_markers()  # show the pivot(s) the instant we arm
-        self._status(self._armed.status_hint(), 0)
-        self._emit_state()
 
     def _rotatable_affected(self) -> tuple[frozenset[uuid.UUID], uuid.UUID | None]:
         """The components a rotate would actually move (+ a whole-group id).
@@ -2936,45 +2939,16 @@ class SelectTool(_Tool):
     def arm_move(self) -> None:
         """Arm keyboard float-move on the selection — the ``[G]`` entry point.
 
-        Arms the shared :class:`FloatTransform` in its *move* sub-mode (arrows /
-        WASD nudge one cell, ``[Enter]`` drops when committable, ``[Esc]``
-        cancels).  When a transform is already armed — e.g. mid-rotate — this
-        only switches the sub-mode, so the float pose carries over and the user
-        can slide a rotated part clear of a conflict without committing first.
+        Resolves the selection and hands off to the ArmedTransformTool in its
+        *move* sub-mode (arrows / WASD nudge one cell, ``[Enter]`` drops when
+        committable, ``[Esc]`` cancels). Re-aiming ``[R]``/``[G]`` while armed
+        is handled by the ArmedTransformTool itself (it is the active tool).
         """
-        from typing import cast
-
-        from protoboard.gui.selection.float_transform import FloatTransform
-        from protoboard.services.editing.controller import EditState
-
-        if isinstance(self._armed, FloatTransform):
-            self._armed.switch_mode("move")  # already floating — just re-aim
-            self._status(self._armed.status_hint(), 0)
-            self._emit_state()
-            return
-        if self._armed is not None:
-            return
-        if self._selection.is_empty():
-            self._status("Move: select component(s) or a group first")
-            return
-        comp_ids, group_id = self._rotatable_affected()
-        if not comp_ids:
-            self._status("Move: nothing movable in the selection")
-            return
-        self._cancel_gesture()
-        self._armed = FloatTransform(
-            cast("EditState", self._session),
-            comp_ids=comp_ids,
-            group_id=group_id,
-            snap=self._snap_free,
-            execute=self._execute_command,
-            matches=self._key_matches,
-            mode="move",
-            preview=self._rotate_preview,
-            status=lambda msg: self._status(msg, 0),
+        self._arm_transform(
+            "move",
+            empty_msg="Move: select component(s) or a group first",
+            none_msg="Move: nothing movable in the selection",
         )
-        self._status(self._armed.status_hint(), 0)
-        self._emit_state()
 
     def _selected_comp_ids(self) -> frozenset[uuid.UUID]:
         import uuid as _uuid

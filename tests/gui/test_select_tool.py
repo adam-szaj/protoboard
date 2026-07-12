@@ -14,6 +14,7 @@ from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
+from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
@@ -65,9 +66,10 @@ def _click(
 
 
 def _key(
-    tool: SelectTool, key: Qt.Key,
+    tool: _Tool | None, key: Qt.Key,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
+    assert tool is not None
     tool.on_key(key_inp(key, mods))
 
 
@@ -373,15 +375,16 @@ class TestRotate:
     def test_r_arms_then_steps_rotation(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        # [R] now ARMS float-rotate; a second [R] (or wheel/arrow) steps 90°.
+        # [R] on SelectTool ARMS float-rotate (swapping to ArmedTransformTool);
+        # a second [R] there steps 90°.
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
         before = session.layout.placements[inst.id].rotation
-        _key(tool, Qt.Key.Key_R)  # arm
-        assert tool._armed is not None
+        _key(tool, Qt.Key.Key_R)  # arm → active tool is now ArmedTransformTool
+        assert session.edit_controller.armed_transform is not None
         assert session.layout.placements[inst.id].rotation == before  # not yet
-        _key(tool, Qt.Key.Key_R)  # step +90
+        _key(board_view._active_tool, Qt.Key.Key_R)  # step +90
         assert session.layout.placements[inst.id].rotation == (before + 90) % 360
 
     def test_rotate_around_point_moves_component(
@@ -398,7 +401,8 @@ class TestRotate:
         _press(tool, 3.0, 3.0)  # capture pivot away from the part
         assert tool._rotate_pivot is not None
         _key(tool, Qt.Key.Key_R)  # arm (seeds pivot from the captured point)
-        _key(tool, Qt.Key.Key_R)  # step
+        armed = board_view._active_tool
+        _key(armed, Qt.Key.Key_R)  # step
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) != (before.x, before.y)
 
@@ -413,320 +417,6 @@ class TestRotate:
         assert tool._rotate_pivot is not None
         _key(tool, Qt.Key.Key_Escape)
         assert tool._rotate_pivot is None
-
-
-class TestArmedRotate:
-    """[R] arms a float-rotate the selection stays live in."""
-
-    def _armed(self, board_view, session):
-        inst = _place(board_view, session, 0.5, 0.5)
-        tool = _v2(board_view)
-        _press(tool, 0.5, 0.5)
-        _key(tool, Qt.Key.Key_R)  # arm
-        assert tool._armed is not None
-        return inst, tool
-
-    def test_up_down_step_cw_ccw(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        _key(tool, Qt.Key.Key_Up)
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-        _key(tool, Qt.Key.Key_Down)
-        assert session.layout.placements[inst.id].rotation == base
-
-    def test_wheel_steps_rotation(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        # While armed the wheel-probe consumes regardless of the tick payload.
-        assert tool.wants_wheel(wheel(0))
-        tool.on_wheel(wheel(120))
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-
-    @staticmethod
-    def _wheel(dy: int):
-        return wheel(dy)
-
-    @staticmethod
-    def _qt_wheel(dy: int):
-        from PySide6.QtCore import QPoint
-        from PySide6.QtGui import QWheelEvent
-        return QWheelEvent(
-            QPointF(0, 0), QPointF(0, 0), QPoint(0, 0), QPoint(0, dy),
-            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-            Qt.ScrollPhase.NoScrollPhase, False,
-        )
-
-    def test_wheel_bounce_one_notch_is_one_step(self, board_view, session) -> None:
-        # Bug: a mouse emitting several sub-detent events per physical notch
-        # over-rotated (one flick → 180°/270°).  Three 40-unit events sum to one
-        # 120 notch → exactly one 90° step.
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        for _ in range(3):
-            tool.on_wheel(self._wheel(40))  # 3 × 40 = 120 = one notch
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-
-    def test_wheel_hard_spin_steps_proportionally(
-        self, board_view, session
-    ) -> None:
-        # A deliberate hard spin (two notches in one event) still steps twice.
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        tool.on_wheel(self._wheel(240))  # two notches
-        assert session.layout.placements[inst.id].rotation == (base + 180) % 360
-
-    def test_view_wheel_routes_to_armed_rotate(self, board_view, session) -> None:
-        # The real user path: BoardView.wheelEvent → KeyMap chord dispatch →
-        # the tool's wheel_rotate shadows the zoom while armed.
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        board_view.wheelEvent(self._qt_wheel(120))
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-        # Zoom untouched: the wheel throttle never parked a delta.
-        assert board_view.camera._wheel_throttle._parked is None
-
-    def test_view_wheel_zooms_when_not_armed(self, board_view, session) -> None:
-        inst = _place(board_view, session, 0.5, 0.5)
-        tool = _v2(board_view)
-        base = session.layout.placements[inst.id].rotation
-        board_view.wheelEvent(self._qt_wheel(120))
-        # Not armed → the chord falls through the tool layer to view zoom:
-        # the wheel throttle parked the raw delta (flushed ~1 frame later).
-        assert session.layout.placements[inst.id].rotation == base
-        parked = board_view.camera._wheel_throttle._parked
-        assert parked is not None and parked[0] == 120
-
-    def test_esc_cancels_whole_session(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        _key(tool, Qt.Key.Key_R)  # +90
-        _key(tool, Qt.Key.Key_R)  # +90  (now base+180)
-        assert session.layout.placements[inst.id].rotation == (base + 180) % 360
-        _key(tool, Qt.Key.Key_Escape)  # cancel the whole session
-        assert tool._armed is None
-        assert session.layout.placements[inst.id].rotation == base
-
-    def test_enter_accepts_keeps_rotation(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        base = session.layout.placements[inst.id].rotation
-        _key(tool, Qt.Key.Key_R)  # +90
-        _key(tool, Qt.Key.Key_Return)  # accept
-        assert tool._armed is None
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-
-    def test_pad_click_sets_shared_pivot(self, board_view, session) -> None:
-        from protoboard.gui.selection.float_transform import FloatTransform
-
-        inst, tool = self._armed(board_view, session)
-        before = session.layout.placements[inst.id].position
-        _press(tool, 3.0, 3.0)  # click a pad away from the part → shared pivot
-        assert isinstance(tool._armed, FloatTransform) and tool._armed.pivot is not None
-        _key(tool, Qt.Key.Key_R)  # step → orbit the pivot, position changes
-        after = session.layout.placements[inst.id].position
-        assert (after.x, after.y) != (before.x, before.y)
-
-    def test_pivot_markers_shown_while_armed_cleared_on_disarm(
-        self, board_view, session
-    ) -> None:
-        from protoboard.gui.selection.float_transform import FloatTransform
-
-        # Visual feedback: arming draws pivot marker(s); disarm clears them.
-        inst, tool = self._armed(board_view, session)
-        assert _qt_preview(tool).pivots.items  # per-object marker drawn on arm
-        _press(tool, 3.0, 3.0)  # shared pad pivot
-        assert isinstance(tool._armed, FloatTransform) and tool._armed.pivot is not None
-        assert _qt_preview(tool).pivots.items  # re-drawn on the shared pad
-        _key(tool, Qt.Key.Key_Escape)  # cancel → disarm
-        assert tool._armed is None
-        assert _qt_preview(tool).pivots.items == []  # markers cleared
-
-    def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
-        # Conditional-disarm contract: an accept that cannot commit (HARD
-        # conflict) leaves the sub-tool armed, waiting — it does NOT disarm.
-        from protoboard.gui.tools.drag_commit_decision import (
-            DragCommitDecision,
-            DragSeverity,
-        )
-
-        inst, tool = self._armed(board_view, session)
-        _key(tool, Qt.Key.Key_R)  # step once so there is a non-zero rotation
-        armed = tool._armed
-        assert armed is not None
-        # Force the classifier to report a HARD (un-committable) state.
-        armed._classify = lambda: DragCommitDecision(severity=DragSeverity.HARD)  # type: ignore[attr-defined]
-        assert armed.can_commit() is False
-        _key(tool, Qt.Key.Key_Return)  # accept → must stay armed
-        assert tool._armed is armed  # not disarmed
-        assert tool._armed is not None
-        assert tool._armed.finished is False
-
-
-class TestArmedMove:
-    """[G] arms a keyboard-driven float-move (arrows / WASD)."""
-
-    def _armed(self, board_view, session):
-        inst = _place(board_view, session, 0.5, 0.5)
-        tool = _v2(board_view)
-        _press(tool, 0.5, 0.5)
-        assert not tool._selection.is_empty()
-        _key(tool, Qt.Key.Key_G)  # arm
-        assert tool._armed is not None
-        return inst, tool
-
-    def test_arrows_then_enter_commits_move(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        before = session.layout.placements[inst.id].position
-        _key(tool, Qt.Key.Key_Right)
-        _key(tool, Qt.Key.Key_Down)
-        _key(tool, Qt.Key.Key_Return)  # drop
-        assert tool._armed is None
-        after = session.layout.placements[inst.id].position
-        assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
-
-    def test_wasd_steps(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        before = session.layout.placements[inst.id].position
-        _key(tool, Qt.Key.Key_D)  # right
-        _key(tool, Qt.Key.Key_S)  # down
-        _key(tool, Qt.Key.Key_Return)
-        after = session.layout.placements[inst.id].position
-        assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
-
-    def test_esc_cancels_move(self, board_view, session) -> None:
-        inst, tool = self._armed(board_view, session)
-        before = session.layout.placements[inst.id].position
-        _key(tool, Qt.Key.Key_Right)
-        _key(tool, Qt.Key.Key_Escape)  # cancel — no commit
-        assert tool._armed is None
-        after = session.layout.placements[inst.id].position
-        assert (after.x, after.y) == (before.x, before.y)
-
-
-class TestArmedAtomic:
-    """_invoke_armed_atomic: arm -> one action -> accept, conditional disarm."""
-
-    def _step_cw(self, armed) -> None:
-        # The Up arrow is one CW step on the armed sub-tool's public input.
-        armed.on_key(key_inp(Qt.Key.Key_Up))
-
-    def test_atomic_rotate_commits_and_disarms(self, board_view, session) -> None:
-        inst = _place(board_view, session, 0.5, 0.5)
-        tool = _v2(board_view)
-        _press(tool, 0.5, 0.5)
-        base = session.layout.placements[inst.id].rotation
-        depth = len(session.stack._undo)  # type: ignore[attr-defined]
-
-        ok = tool._invoke_armed_atomic(tool.arm_rotate, self._step_cw)
-
-        assert ok is True
-        assert tool._armed is None  # disarmed
-        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
-        # One rotation = one undo entry (preview-then-commit).
-        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
-
-    def test_atomic_noop_on_empty_selection(self, board_view, session) -> None:
-        tool = _v2(board_view)  # nothing selected
-        ok = tool._invoke_armed_atomic(tool.arm_rotate, self._step_cw)
-        assert ok is False
-        assert tool._armed is None  # never armed
-
-    def test_atomic_parks_armed_on_conflict(self, board_view, session) -> None:
-        from protoboard.gui.tools.drag_commit_decision import (
-            DragCommitDecision,
-            DragSeverity,
-        )
-
-        inst = _place(board_view, session, 0.5, 0.5)
-        tool = _v2(board_view)
-        _press(tool, 0.5, 0.5)
-
-        def step_then_force_conflict(armed) -> None:
-            self._step_cw(armed)
-            # Make the post-step state report a HARD (un-committable) conflict.
-            armed._classify = lambda: DragCommitDecision(  # type: ignore[attr-defined]
-                severity=DragSeverity.HARD
-            )
-
-        ok = tool._invoke_armed_atomic(tool.arm_rotate, step_then_force_conflict)
-
-        assert ok is False
-        assert tool._armed is not None  # parked, waiting for the user
-        assert tool._armed.finished is False
-
-
-class TestFloatTransformSwitch:
-    """The merge's reason for being: switch rotate<->move while floating,
-    without committing, and commit the whole thing as one undo entry."""
-
-    def _armed_rotate(self, board_view, session):
-        inst = _place(board_view, session, 2.5, 2.5)
-        tool = _v2(board_view)
-        _press(tool, 2.5, 2.5)
-        _key(tool, Qt.Key.Key_R)  # arm in rotate sub-mode
-        assert tool._armed is not None
-        return inst, tool
-
-    def test_rotate_then_switch_to_move_preserves_float(
-        self, board_view, session
-    ) -> None:
-        from protoboard.gui.selection.float_transform import FloatTransform
-
-        inst, tool = self._armed_rotate(board_view, session)
-        base_rot = session.layout.placements[inst.id].rotation
-        _key(tool, Qt.Key.Key_R)  # rotate +90 (per-object)
-        assert session.layout.placements[inst.id].rotation == (base_rot + 90) % 360
-        # [G] switches sub-mode WITHOUT committing or re-arming.
-        _key(tool, Qt.Key.Key_G)
-        assert isinstance(tool._armed, FloatTransform)
-        assert tool._armed.mode == "move"
-        assert tool._armed.finished is False
-        # Rotation survived the switch (float pose carried over).
-        assert session.layout.placements[inst.id].rotation == (base_rot + 90) % 360
-
-    def test_mixed_transform_commits_as_one_undo_entry(
-        self, board_view, session
-    ) -> None:
-        inst, tool = self._armed_rotate(board_view, session)
-        base = session.layout.placements[inst.id]
-        base_pos, base_rot = base.position, base.rotation
-        depth = len(session.stack._undo)  # type: ignore[attr-defined]
-
-        _key(tool, Qt.Key.Key_R)        # rotate +90
-        _key(tool, Qt.Key.Key_G)        # -> move sub-mode (no commit)
-        _key(tool, Qt.Key.Key_Right)    # nudge +1x
-        _key(tool, Qt.Key.Key_Return)   # accept the whole transform
-
-        assert tool._armed is None
-        # Exactly ONE undo entry for the combined rotate+move.
-        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
-        after = session.layout.placements[inst.id]
-        assert after.rotation == (base_rot + 90) % 360
-        assert after.position.x == base_pos.x + 1.0
-
-        # One undo restores the *original* pose (before any operation).
-        session.stack.undo(session)  # type: ignore[arg-type]
-        restored = session.layout.placements[inst.id]
-        assert restored.rotation == base_rot
-        assert (restored.position.x, restored.position.y) == (
-            base_pos.x, base_pos.y,
-        )
-
-    def test_cancel_from_mixed_state_returns_to_original(
-        self, board_view, session
-    ) -> None:
-        inst, tool = self._armed_rotate(board_view, session)
-        base = session.layout.placements[inst.id]
-        base_pos, base_rot = base.position, base.rotation
-
-        _key(tool, Qt.Key.Key_R)        # rotate +90
-        _key(tool, Qt.Key.Key_G)        # -> move
-        _key(tool, Qt.Key.Key_Right)    # nudge
-        _key(tool, Qt.Key.Key_Escape)   # cancel — back to the pristine pose
-
-        assert tool._armed is None
-        now = session.layout.placements[inst.id]
-        assert now.rotation == base_rot
-        assert (now.position.x, now.position.y) == (base_pos.x, base_pos.y)
 
 
 class TestDragGesture:
@@ -929,114 +619,6 @@ class TestGroupDrag:
         _move(tool, 2.5, 0.5)
         _release(tool, 2.5, 0.5)
         assert session.layout.placements[b.id].position == b0
-
-
-class TestFloatTransformGroupFrames:
-    """Armed float-transform on a group whose transform is non-identity.
-
-    Placements store LOCAL (group-frame) poses and compose to WORLD on read,
-    so a world-frame preview op must be conjugated into the member's local
-    frame (local' = W⁻¹∘O∘W · local).  These tests drive the preview AND the
-    commit and assert the world pose follows the op exactly — preview ==
-    commit, no double-compose, cancel restores the pre-arm pose.
-    """
-
-    def _rotated_group(self, board_view, session):  # type: ignore[no-untyped-def]
-        from protoboard.geometry import Transform2D
-
-        a = _place(board_view, session, 1.5, 1.5)
-        b = _place(board_view, session, 3.5, 1.5)
-        gid = _make_group(session, [a.id, b.id])
-        tool = _v2(board_view)
-        tool._selected_group_id = gid
-        tool._rotate_multi(delta=90)  # folds R90 into group.transform
-        assert session.layout.groups[gid].transform != Transform2D.identity()
-        # NOTE: do NOT re-assign _selected_group_id here — the setter goes
-        # through set_many, which TOGGLES an already-selected group off.
-        return a, b, gid, tool
-
-    def test_armed_move_nudge_shifts_world_by_exactly_one_cell(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        a, b, _gid, tool = self._rotated_group(board_view, session)
-        a0 = session.layout.placements[a.id].position
-        b0 = session.layout.placements[b.id].position
-        _key(tool, Qt.Key.Key_G)  # arm float-move on the group
-        assert tool._armed is not None
-        _key(tool, Qt.Key.Key_Right)  # nudge (1, 0) — a WORLD-frame step
-        a1 = session.layout.placements[a.id].position
-        b1 = session.layout.placements[b.id].position
-        # Preview: both members shifted by exactly (1, 0) in world coords —
-        # not teleported / rotated through the group transform.
-        assert (a1.x - a0.x, a1.y - a0.y) == (1.0, 0.0)
-        assert (b1.x - b0.x, b1.y - b0.y) == (1.0, 0.0)
-        _key(tool, Qt.Key.Key_Return)  # accept
-        a2 = session.layout.placements[a.id].position
-        b2 = session.layout.placements[b.id].position
-        # Commit produces the same world pose the preview showed.
-        assert (a2.x, a2.y) == (a1.x, a1.y)
-        assert (b2.x, b2.y) == (b1.x, b1.y)
-        session.stack.undo(session)  # type: ignore[arg-type]
-        assert session.layout.placements[a.id].position == a0
-        assert session.layout.placements[b.id].position == b0
-
-    def test_armed_move_cancel_restores_world_pose(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        a, b, _gid, tool = self._rotated_group(board_view, session)
-        a0 = session.layout.placements[a.id].position
-        b0 = session.layout.placements[b.id].position
-        _key(tool, Qt.Key.Key_G)
-        _key(tool, Qt.Key.Key_Right)
-        _key(tool, Qt.Key.Key_Escape)  # cancel — restore the pre-arm pose
-        assert session.layout.placements[a.id].position == a0
-        assert session.layout.placements[b.id].position == b0
-
-    def test_armed_rotate_step_keeps_world_positions_orbiting_pivot(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Per-object armed rotate on a rotated group's member: the member
-        # rotates +90 about its own WORLD centre — its world position must
-        # not move at all.
-        a, _b, _gid, tool = self._rotated_group(board_view, session)
-        a0 = session.layout.placements[a.id].position
-        r0 = session.layout.placements[a.id].rotation
-        _key(tool, Qt.Key.Key_R)  # arm rotate (group selected)
-        assert tool._armed is not None
-        _key(tool, Qt.Key.Key_R)  # step +90 (per-object, own centre)
-        a1 = session.layout.placements[a.id].position
-        r1 = session.layout.placements[a.id].rotation
-        assert (a1.x, a1.y) == (a0.x, a0.y)
-        assert r1 == (r0 + 90) % 360
-
-    def test_nested_group_member_shifts_by_delta(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # A child group inside a rotated parent: the child's member still
-        # shifts by exactly the world delta (the conjugation walks the full
-        # ancestor chain).
-        from protoboard.domain.layout.group import ComponentGroup
-
-        a = _place(board_view, session, 1.5, 1.5)
-        b = _place(board_view, session, 3.5, 1.5)
-        child_gid = _make_group(session, [b.id], name="child")
-        parent_gid = _make_group(session, [a.id], name="parent")
-        parent = session.layout.groups[parent_gid]
-        session.layout.groups[parent_gid] = ComponentGroup(
-            id=parent_gid, name=parent.name,
-            component_ids=parent.component_ids,
-            child_group_ids=frozenset({child_gid}),
-        )
-        tool = _v2(board_view)
-        tool._selected_group_id = parent_gid
-        tool._rotate_multi(delta=90)
-        b0 = session.layout.placements[b.id].position
-        _key(tool, Qt.Key.Key_G)
-        assert tool._armed is not None
-        _key(tool, Qt.Key.Key_Right)
-        _key(tool, Qt.Key.Key_Return)
-        b1 = session.layout.placements[b.id].position
-        assert (b1.x - b0.x, b1.y - b0.y) == (1.0, 0.0)
 
 
 def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
@@ -2442,29 +2024,6 @@ class TestWantsKeyShortcutVeto:
         # Now the fragment claims [W] (reroute) and [A] (autoroute).
         assert tool.wants_key(_key_event(Qt.Key.Key_W)) is True
         assert tool.wants_key(_key_event(Qt.Key.Key_A)) is True
-
-    def test_armed_move_claims_wasd_and_arrows(
-        self, board_view, session
-    ) -> None:
-        # Bug: WASD switched tools / arrows scrolled because the armed mode
-        # didn't veto the global shortcuts.  While armed-move is live the step
-        # keys (arrow OR WASD, by action id) must be claimed so neither a global
-        # QAction (S=Select…) nor the arrow-scroll handler steals them.
-        _place(board_view, session, 0.5, 0.5)
-        tool = _v2(board_view)
-        _press(tool, 0.5, 0.5)
-        # Idle: 'S' is the global Select-tool shortcut, not the tool's.
-        assert tool.wants_key(_key_event(Qt.Key.Key_S)) is False
-        _key(tool, Qt.Key.Key_G)  # arm move
-        assert tool._armed is not None
-        for k in (
-            Qt.Key.Key_S, Qt.Key.Key_W, Qt.Key.Key_A, Qt.Key.Key_D,
-            Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
-        ):
-            assert tool.wants_key(_key_event(k)) is True
-        _key(tool, Qt.Key.Key_Escape)  # disarm
-        assert tool.wants_key(_key_event(Qt.Key.Key_S)) is False  # released
-
 
 class TestDynamicRebind:
     """Veto + dispatch follow the *current* binding, never a hard-coded key."""

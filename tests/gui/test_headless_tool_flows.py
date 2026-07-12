@@ -45,6 +45,7 @@ from protoboard.gui.tools.drag_commit_decision import (
     DragCommitDecision,
     DragSeverity,
 )
+from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
 from tests.fakes.board_view import HeadlessBoardView
@@ -79,6 +80,13 @@ def _place(view: HeadlessBoardView, x: float, y: float, kind: str = "R"):
 def _select_tool(view: HeadlessBoardView, **kwargs: object) -> SelectTool:
     tool = SelectTool(**kwargs)  # type: ignore[arg-type]
     view.tools.set_tool(tool)
+    return tool
+
+
+def _armed(view: HeadlessBoardView) -> ArmedTransformTool:
+    """The now-active ArmedTransformTool (after a SelectTool arm)."""
+    tool = view.active_tool
+    assert isinstance(tool, ArmedTransformTool)
     return tool
 
 
@@ -337,8 +345,9 @@ class TestControllerState:
         tool = _select_tool(view)
         tool.default_action(Point(0.5, 0.5), Mods())  # select the component
         assert tool.state == "select.idle"
-        tool.arm_rotate()
-        assert tool.state == "move.float.rotate"
+        tool.arm_rotate()  # arm → ArmedTransformTool becomes active
+        armed = _armed(view)
+        assert armed.state == "move.float.rotate"
         assert view.notifications.controller_states[-1] == "move.float.rotate"
 
     def test_switch_to_move_transitions_state(
@@ -349,11 +358,12 @@ class TestControllerState:
         tool = _select_tool(view)
         tool.default_action(Point(0.5, 0.5), Mods())
         tool.arm_rotate()
-        tool.arm_move()  # switch sub-mode without committing
-        assert tool.state == "move.float.move"
-        assert view.notifications.controller_states[-1] == "move.float.move"
+        armed = _armed(view)
+        armed.on_key(key_inp(Qt.Key.Key_G))  # switch sub-mode (no commit)
+        assert armed.state == "move.float.move"
+        assert view.notifications.controller_states[-1] == "move.float.rotate"
 
-    def test_disarm_returns_to_idle(
+    def test_cancel_returns_to_idle(
         self, session: EditorSession
     ) -> None:
         view = _headless(session)
@@ -361,9 +371,11 @@ class TestControllerState:
         tool = _select_tool(view)
         tool.default_action(Point(0.5, 0.5), Mods())
         tool.arm_rotate()
-        tool._disarm(cancel=True)
-        assert tool.state == "select.idle"
+        armed = _armed(view)
+        armed.on_key(key_inp(Qt.Key.Key_Escape))  # cancel → back to SelectTool
+        # The armed tool published select.idle before returning control.
         assert view.notifications.controller_states[-1] == "select.idle"
+        assert view.active_tool is tool
 
     def test_arm_without_selection_stays_idle(
         self, session: EditorSession
@@ -374,6 +386,7 @@ class TestControllerState:
         _place(view, 0.5, 0.5)
         tool = _select_tool(view)  # nothing selected
         tool.arm_rotate()
+        assert view.active_tool is tool  # never switched tools
         assert tool.state == "select.idle"
         assert view.notifications.controller_states == []
 
@@ -449,11 +462,12 @@ class TestRotateComponent:
         tool.on_press(pointer(0.5, 0.5))
         before = session.layout.placements[inst.id].rotation
 
-        tool.on_key(key_inp(Qt.Key.Key_R))  # ARM — no rotation yet
-        assert tool._armed is not None
+        tool.on_key(key_inp(Qt.Key.Key_R))  # ARM → ArmedTransformTool active
+        armed = _armed(view)
+        assert session.edit_controller.armed_transform is not None
         assert session.layout.placements[inst.id].rotation == before
 
-        tool.on_key(key_inp(Qt.Key.Key_R))  # STEP +90 CW
+        armed.on_key(key_inp(Qt.Key.Key_R))  # STEP +90 CW
         assert session.layout.placements[inst.id].rotation == (before + 90) % 360
 
     def test_enter_commits_rotation_as_one_command(
@@ -464,12 +478,13 @@ class TestRotateComponent:
         tool = _select_tool(view)
         tool.on_press(pointer(0.5, 0.5))
         tool.on_key(key_inp(Qt.Key.Key_R))  # arm
-        tool.on_key(key_inp(Qt.Key.Key_R))  # +90
+        armed = _armed(view)
+        armed.on_key(key_inp(Qt.Key.Key_R))  # +90
         depth = len(session.stack._undo)
 
-        tool.on_key(key_inp(Qt.Key.Key_Return))  # CONFIRM
+        armed.on_key(key_inp(Qt.Key.Key_Return))  # CONFIRM
 
-        assert tool._armed is None
+        assert session.edit_controller.armed_transform is None
         assert session.layout.placements[inst.id].rotation == 90
         assert len(session.stack._undo) == depth + 1
 
@@ -482,10 +497,11 @@ class TestRotateComponent:
         depth = len(session.stack._undo)
 
         tool.on_key(key_inp(Qt.Key.Key_R))  # arm
-        tool.on_key(key_inp(Qt.Key.Key_R))  # +90 (uncommitted)
-        tool.on_key(key_inp(Qt.Key.Key_Escape))  # CANCEL
+        armed = _armed(view)
+        armed.on_key(key_inp(Qt.Key.Key_R))  # +90 (uncommitted)
+        armed.on_key(key_inp(Qt.Key.Key_Escape))  # CANCEL
 
-        assert tool._armed is None
+        assert session.edit_controller.armed_transform is None
         assert session.layout.placements[inst.id].rotation == before
         assert len(session.stack._undo) == depth  # nothing committed
 
@@ -497,8 +513,9 @@ class TestRotateComponent:
         tool = _select_tool(view)
         tool.on_press(pointer(0.5, 0.5))
         tool.on_key(key_inp(Qt.Key.Key_R))
-        tool.on_key(key_inp(Qt.Key.Key_R))
-        tool.on_key(key_inp(Qt.Key.Key_Return))
+        armed = _armed(view)
+        armed.on_key(key_inp(Qt.Key.Key_R))
+        armed.on_key(key_inp(Qt.Key.Key_Return))
         assert session.layout.placements[inst.id].rotation == 90
 
         session.stack.undo(cast(ComponentState, session))

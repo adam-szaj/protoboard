@@ -181,6 +181,24 @@ class ArmedTransformTool(_Tool):
             return self._after_verb()
         return False
 
+    def accept(self) -> None:
+        """Commit the armed transform (programmatic; the atomic menu path).
+
+        A committable accept returns to SelectTool; a conflict parks this tool
+        active — same conditional-disarm as the interactive Enter.
+        """
+        controller = self._controller
+        if controller is not None and self._armed is not None:
+            controller.accept_transform()
+            self._after_verb()
+
+    def cancel(self) -> None:
+        """Abort the armed transform, restoring the pre-arm pose (programmatic)."""
+        controller = self._controller
+        if controller is not None and self._armed is not None:
+            controller.cancel_transform()
+            self._after_verb()
+
     def _step_for(self, inp: KeyInput) -> tuple[float, float] | None:
         for action_id, vec in _STEP_VECTORS.items():
             if self._key_matches(inp, action_id):
@@ -310,8 +328,12 @@ class ArmedTransformTool(_Tool):
             self._overlays.clear()
 
     def on_scene_cleared(self) -> None:
+        # A refresh (including the one ToolHost.set_tool fires right after we
+        # arm) wipes the scene — drop the stale pivot items, then re-draw them
+        # so the markers survive the rebuild.
         if self._preview is not None:
             self._preview.on_scene_cleared()
+        self._draw_pivot_markers()
 
     def _status(self, msg: str) -> None:
         from protoboard.gui.ports import StatusEvent
