@@ -111,6 +111,7 @@ Each stage is one commit with a green test suite.
 | 1 | `gui/ports/` → `controller/ports/`; repoint ~20 importer files; Qt adapters stay in `gui/` | suite green; `armed_transform` no longer imports `gui.ports` at runtime |
 | 2 | Add `controller/ports/keycodes.py` (Qt-free key enum) + `gui/qt_keymap` mapping `Qt.Key.*` → enum | keycode-mapping test |
 | 3 | `services/editing/` → `controller/editing/`; repoint importers | suite green; headless CLI runs |
+| 3.5 | **Split `_Tool`**: Qt-free contract base → `controller/tools/base.py`; View bindings (KeyMap/Theme/preview-injection) stay in `gui/` as a mixin | suite green; both bases compose to identical behaviour |
 | 4a | `cut_tool`, `drag_commit_decision`, `select_prompts` → `controller/tools/` (already Qt-free) | suite green |
 | 4b | `place/route/armed/simplify_tool` → `controller/tools/`; QColor → preview, `emit()` → `notify_changed()`, keycodes → enum | **parity tests repointed BEFORE swap** |
 | 4c | `select_tool.py` (180 KB) → `controller/tools/`; remove last Qt residues | behaviour parity tests (FSM, selection, delete/group) green |
@@ -134,6 +135,36 @@ Removing these is what makes `controller/` genuinely Qt-free:
    `HeadlessSession` already exposes a Qt-free `notify_changed()` hook that
    `EditorSession` (the `QObject` subclass) overrides to emit `layout_changed`.
    Fix: route tool notifications through `notify_changed()` instead of `.emit()`.
+
+## Blocker discovered during planning: the `_Tool` base is View-bound
+
+Every tool subclasses `_Tool(BoardViewTool)` from `gui/board_view_tool.py`.
+`BoardViewTool` (ABC) is **mostly a Qt-free contract** — `on_press`/`on_move`/
+`on_key` take Qt-free DTOs (`PointerInput`, `KeyInput`); the verb surface
+(`default_action`/`secondary_action`/`empty_action`) takes `Point`/`Mods`. But a
+handful of members are genuinely View-bound and keep the whole base in `gui/`:
+
+- `make_key_map(parent: AbstractKeyMap) -> KeyMap` — builds a Qt `KeyMap` layer.
+- `_theme() -> Theme` — reads the view's Qt theme.
+- `_key_matches(inp, action_id)` — resolves through `view.keymap` (Qt KeyMap).
+- `activate(session: EditorSession, view)` — typed against the Qt `EditorSession`.
+
+So the tools are **not** self-contained: they cannot move to `controller/`
+without first separating this base.
+
+**Decision (2026-07-12): split `_Tool` along the seam.**
+
+- The Qt-free half — the interaction contract (`on_*` DTO hooks, the verb
+  surface, lifecycle, `key_claims`/`wants_key`, `perform_context_action`) — moves
+  to `controller/` as the tool base, typed against the `EditState` protocol
+  (not `EditorSession`) and the existing `AbstractBoardView` protocol (which
+  stays the View↔Controller seam; its one sanctioned Qt touchpoint is `scene()`).
+- The View bindings (`make_key_map`/`KeyMap`, `_theme`/`Theme`, concrete
+  `Qt*Preview` injection, and any `view.keymap` access) stay in `gui/` as a
+  mixin/adapter the concrete GUI tool composes in.
+
+This split is its own task, done **before** the tool classes move. `KeyMap`,
+`Theme`, and the `Qt*Preview` renderers are View concerns and do not migrate.
 
 ## `select_tool.py` (180 KB) — why it is not a rewrite
 
