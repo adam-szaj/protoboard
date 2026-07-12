@@ -172,3 +172,27 @@ def test_call_with_no_callbacks_raises() -> None:
     cid = _place(session, 0.5, 0.5, "R1")
     with pytest.raises(Exception):
         session.edit_controller.get_item(ItemId.component(cid)).call()
+
+
+# -- get_items() over the current selection ----------------------------------
+
+
+def test_get_items_no_args_is_the_current_selection() -> None:
+    """get_items() with no args returns a handle over the whole selection."""
+    session = _session()
+    c1 = _place(session, 0.5, 0.5, "R1")
+    c2 = _place(session, 1.5, 0.5, "R2")
+    session.select([ItemId.component(c1), ItemId.component(c2)])
+
+    # Rotating the selection handle rotates every selected component.
+    session.edit_controller.get_items().rotate(90)
+    assert session.layout.placements[c1].rotation == 90
+    assert session.layout.placements[c2].rotation == 90
+
+
+def test_get_items_no_args_empty_selection() -> None:
+    """get_items() with nothing selected yields an empty, harmless handle."""
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    session.edit_controller.get_items().rotate(90)
+    assert session.layout.placements[cid].rotation == 0

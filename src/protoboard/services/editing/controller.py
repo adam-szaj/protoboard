@@ -353,21 +353,27 @@ class EditController:
 
     def get_items(
         self,
-        item_ids: ItemId | Iterable[ItemId],
+        item_ids: ItemId | Iterable[ItemId] | None = None,
         *,
         active_group_id: uuid.UUID | None = None,
     ) -> SelectionHandle:
         """Address a set of targets, returning one :class:`SelectionHandle`.
 
-        A single :class:`ItemId` is accepted and treated as a one-element set.
-        Rotate / flip on the returned handle fold every addressed group and the
-        loose components into ONE atomic macro — the seam that lets several
-        groups rotate in a single undoable step.
+        A single :class:`ItemId` is accepted and treated as a one-element set;
+        ``None`` (no argument) addresses the whole current selection. Rotate /
+        flip on the returned handle fold every addressed group and the loose
+        components into ONE atomic macro — the seam that lets several groups
+        rotate in a single undoable step.
         """
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.services.editing.item_handle import ItemId, SelectionHandle
 
-        ids = [item_ids] if isinstance(item_ids, ItemId) else list(item_ids)
+        if item_ids is None:
+            ids = list(self._state.selection())
+        elif isinstance(item_ids, ItemId):
+            ids = [item_ids]
+        else:
+            ids = list(item_ids)
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         return SelectionHandle(
             self,
