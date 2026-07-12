@@ -86,10 +86,39 @@ Tool (Qt-free):     commands[action_id]()   ← executes; knows nothing of keys
 | 2 | `services/editing/` → `controller/editing/`; repoint | green; headless CLI runs |
 | 3 | **Controller facade: `tool_commands()` + `dispatch_tool_command(action_id)` + active-tool ownership**; move `get_context_at` aggregation and `_active_tool`/`set_tool` state into the Controller; delete `trigger_tool_action` round-trip | new controller tests; `get_context_at` behaviour parity |
 | 4 | **Split `_Tool`**: Qt-free command base in `controller/tools/base.py` (commands, verbs, lifecycle on `EditState`); View bindings (KeyMap layer build, theme, preview injection, `on_key`→command translation) stay in `gui/` as a mixin | green; both compose to identical behaviour |
-| 5 | **Default bindings → YAML**: extract each tool's `key_actions()` hardcoded shortcuts into a bindings YAML the KeyMap loads; tools stop declaring shortcuts | green; rebinding + persistence unchanged |
+| 5 | **Default bindings → YAML** (extend `KEYBINDINGS_V2_FILE`, no new file): add a top-level `defaults:` section alongside the existing `overrides:`; extract each tool's `key_actions()` hardcoded shortcuts into `defaults:`; `load` reads both (override wins); tools stop declaring shortcuts | green; rebinding + persistence + default-propagation unchanged |
 | 6 | Move the tools' command logic → `controller/tools/`; each tool exposes `commands() -> dict[str, Callable]`, no `on_key`/`Qt.Key`; GUI mixin translates key→command via KeyMap | **parity tests repointed BEFORE swap** |
 | 7 | `select_tool.py` (180 KB) last, alone: strip `on_key`/`Qt.Key`/`QColor` to GUI mixin + preview; land in `controller/tools/` | FSM/selection/delete/group parity green |
 | 8 | Cleanup: layer guard (`controller/` imports no `gui`), docs, CLAUDE.md §5, modules.md redraw | full suite + smoke |
+
+## Bindings file shape (Stage 5)
+
+`KEYBINDINGS_V2_FILE` today is a flat, **override-only** tree
+(`category → action.name → shortcut`); `save_overrides` deliberately skips
+entries equal to the declared default so default changes propagate. To hold
+defaults without breaking that, the file gains two top-level sections:
+
+```yaml
+defaults:                 # full default bindings (was hardcoded in key_actions())
+  select-tool:
+    action.reroute: "W"
+    action.rotate: "R"
+  global:
+    action.delete: "Del"
+overrides:                # existing minimal user diffs (unchanged semantics)
+  select-tool:
+    action.reroute: "Q"   # user rebind; wins over defaults
+```
+
+- `load` reads `defaults:` into the declared bindings and `overrides:` into the
+  user store; an override wins. A file with no `defaults:` (old file) still
+  loads — defaults then come from the built-in fallback, so this is
+  backward-compatible.
+- `save_overrides` writes only the `overrides:` section, minimised exactly as
+  today (skip == declared default). It never rewrites `defaults:`.
+- The migration seeds `defaults:` from each tool's current `key_actions()`
+  values, then the tools stop declaring shortcuts (they only name their
+  action-ids as commands).
 
 ## `select_tool.py` — why it is not a rewrite
 
