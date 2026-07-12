@@ -53,7 +53,7 @@ from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
 from protoboard.services.debug_trace import traced
-from protoboard.services.editing.item_handle import ItemId
+from protoboard.services.editing.item_handle import ItemId, ItemTag
 
 _log = structlog.get_logger(__name__)
 
@@ -609,13 +609,14 @@ class SelectTool(_Tool):
 
     def _selected_by_kind(self, kind: str) -> set[uuid.UUID]:
         """All selected ids of one Hit kind (``component`` / ``wire`` / ``group``)."""
+        tag = ItemTag.parse(kind)
         out: set[uuid.UUID] = set()
         if self._selection is None:  # pre-activate
             return out
         for sel in self._selection.selected():
-            hit = sel.to_hit()
-            if hit.kind == kind and isinstance(hit.id, uuid.UUID):
-                out.add(hit.id)
+            iid = sel.to_hit().item_id()
+            if iid is not None and iid.tag is tag:
+                out.add(iid.uuid)
         return out
 
     def _set_selection_from_ids(

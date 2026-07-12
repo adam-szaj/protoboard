@@ -201,11 +201,9 @@ class EditorSession(HeadlessSession, QObject):
             return frozenset()
         out: set[ItemId] = set()
         for sel in svc.selected():
-            hit = sel.to_hit()
-            if hit.kind in ("component", "group", "wire") and isinstance(
-                hit.id, uuid.UUID
-            ):
-                out.add(ItemId(ItemTag.parse(hit.kind), hit.id))
+            iid = sel.to_hit().item_id()
+            if iid is not None:
+                out.add(iid)
         return frozenset(out)
 
     def select(self, ids: Iterable[ItemId]) -> None:

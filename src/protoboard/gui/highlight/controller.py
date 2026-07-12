@@ -97,15 +97,17 @@ class HighlightController:
         as component Selectables (Phase 2 group selection); a bare group hit
         carries no comp/wire id of its own.
         """
+        from protoboard.services.editing.item_handle import ItemTag
+
         comp_ids: set[uuid.UUID] = set()
         wire_ids: set[uuid.UUID] = set()
         for sel in selectables:
-            hit = sel.to_hit()
-            if not isinstance(hit.id, uuid.UUID):
+            iid = sel.to_hit().item_id()
+            if iid is None:
                 continue  # test stand-ins may use non-UUID ids
-            if hit.kind == "component":
-                comp_ids.add(hit.id)
-            elif hit.kind == "wire":
-                wire_ids.add(hit.id)
-            # "group" — no own id to dim; members come in as component hits.
+            if iid.tag is ItemTag.component:
+                comp_ids.add(iid.uuid)
+            elif iid.tag is ItemTag.wire:
+                wire_ids.add(iid.uuid)
+            # group — no own id to dim; members come in as component hits.
         return frozenset(comp_ids), frozenset(wire_ids)

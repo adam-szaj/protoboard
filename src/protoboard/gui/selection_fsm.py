@@ -39,12 +39,16 @@ Pop rules ([esc] or empty-canvas click) prune state in order:
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from enum import IntEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from protoboard.gui.selection_axes import RelationClass
+
+if TYPE_CHECKING:
+    from protoboard.services.editing.item_handle import ItemId
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +92,20 @@ class Hit:
             raise ValueError(
                 f"pin_number only valid for component hits; got kind={self.kind!r}"
             )
+
+    def item_id(self) -> ItemId | None:
+        """This hit as a tagged :class:`ItemId`, or None if it has no real id.
+
+        The single ``Hit`` → ``ItemId`` bridge: ``Hit.kind`` is exactly the
+        ``ItemId`` tag space, so the map is 1:1. Returns None when ``id`` is not
+        a ``uuid.UUID`` (test stand-ins use plain strings) — the callers that
+        split a selection into typed id-buckets drop those the same way.
+        """
+        from protoboard.services.editing.item_handle import ItemId, ItemTag
+
+        if not isinstance(self.id, uuid.UUID):
+            return None
+        return ItemId(ItemTag.parse(self.kind), self.id)
 
 
 # ---------------------------------------------------------------------------
