@@ -23,7 +23,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.editing import HeadlessSession
-from protoboard.services.editing.item_handle import ItemId
+from protoboard.services.editing.item_handle import ComponentHandle, ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -95,14 +95,16 @@ def _make_group(session: HeadlessSession, member_ids: list[uuid.UUID]) -> uuid.U
 def test_component_handle_delete() -> None:
     session = _session()
     cid = _place(session, 0.5, 0.5, "R1")
-    session.edit_controller.get_item(ItemId.component(cid)).delete()
+    handle = session.edit_controller.get_component(cid)
+    assert isinstance(handle, ComponentHandle)  # free → editable
+    handle.delete()
     assert cid not in session.layout.placements
 
 
 def test_wire_handle_delete() -> None:
     session = _session()
     wid = _wire(session, Point(0.0, 0.0), Point(2.0, 0.0))
-    session.edit_controller.get_item(ItemId.wire(wid)).delete()
+    session.edit_controller.get_wire(wid).delete()
     assert wid not in {w.id for w in session.layout.wires}
 
 
@@ -112,7 +114,7 @@ def test_group_handle_delete_disbands_keeping_members() -> None:
     cid = _place(session, 0.5, 0.5, "R1")
     gid = _make_group(session, [cid])
 
-    session.edit_controller.get_item(ItemId.group(gid)).delete()
+    session.edit_controller.get_group(gid).delete()
 
     assert gid not in session.layout.groups          # group dissolved
     assert cid in session.layout.placements          # member kept

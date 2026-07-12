@@ -133,9 +133,10 @@ def test_read_only_handle_exposes_properties() -> None:
     cid = _place(session, 0.5, 0.5, "R7", value="4k7")
     _make_group(session, [cid])
 
-    handle = session.edit_controller.get_item(
-        ItemId.component(cid), active_group_id=ROOT_GROUP_ID
+    handle = session.edit_controller.get_component(
+        cid, active_group_id=ROOT_GROUP_ID
     )
+    assert isinstance(handle, ReadOnlyComponentHandle)  # sealed → read-only
     assert handle.value == "4k7"
     assert handle.refdes == "R7"
     assert handle.part_number == "R"
@@ -163,7 +164,7 @@ def test_group_handle_exposes_name_and_members() -> None:
     c2 = _place(session, 1.5, 0.5, "R2")
     gid = _make_group(session, [c1, c2])
 
-    handle = session.edit_controller.get_item(ItemId.group(gid))
+    handle = session.edit_controller.get_group(gid)
     assert handle.name == "G1"
     assert handle.component_ids == frozenset({c1, c2})
 
@@ -179,7 +180,7 @@ def test_wire_handle_exposes_side_and_insulated() -> None:
     session.layout.wires.append(w)
     session.invalidate_graph()
 
-    handle = session.edit_controller.get_item(ItemId.wire(w.id))
+    handle = session.edit_controller.get_wire(w.id)
     assert handle.side == "bottom"
     assert handle.insulated is True
 
@@ -267,3 +268,64 @@ def test_get_items_mixed_selection_filters_by_predicate() -> None:
     assert [h for h in handles if h.supports_rotate()]  # free comp + group
     assert len([h for h in handles if h.is_wire()]) == 1
     assert all(h.is_mutable() for h in handles)  # none sealed in this set
+
+
+# -- module-level capability helpers (the mypy-safe get_item(id) shortcut) ----
+
+
+def test_free_rotate_applies_to_a_component() -> None:
+    """rotate(get_item(id)) rotates a component — the typeable union shortcut."""
+    from protoboard.services.editing.item_handle import rotate
+
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    dropped = rotate(session.edit_controller.get_item(ItemId.component(cid)), 90)
+    assert dropped == 0
+    assert session.layout.placements[cid].rotation == 90
+
+
+def test_free_rotate_on_wire_is_a_noop() -> None:
+    """rotate() on a wire handle does nothing and returns None (not a Transformable)."""
+    from protoboard.services.editing.item_handle import rotate
+
+    session = _session()
+    wid = _wire(session)
+    assert rotate(session.edit_controller.get_item(ItemId.wire(wid)), 90) is None
+
+
+def test_free_rotate_on_sealed_component_is_a_noop() -> None:
+    """rotate() on a read-only (sealed) component is a None no-op."""
+    from protoboard.services.editing.item_handle import rotate
+
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    _make_group(session, [cid])
+    handle = session.edit_controller.get_item(
+        ItemId.component(cid), active_group_id=ROOT_GROUP_ID
+    )
+    assert rotate(handle, 90) is None
+    assert session.layout.placements[cid].rotation == 0
+
+
+def test_free_delete_applies_to_a_wire() -> None:
+    """delete(get_item(id)) removes a wire; a Transformable-only op would not."""
+    from protoboard.services.editing.item_handle import delete
+
+    session = _session()
+    wid = _wire(session)
+    assert delete(session.edit_controller.get_item(ItemId.wire(wid))) is True
+    assert wid not in {w.id for w in session.layout.wires}
+
+
+def test_free_delete_on_sealed_component_is_a_noop() -> None:
+    """delete() on a read-only component does nothing and returns False."""
+    from protoboard.services.editing.item_handle import delete
+
+    session = _session()
+    cid = _place(session, 0.5, 0.5, "R1")
+    _make_group(session, [cid])
+    handle = session.edit_controller.get_item(
+        ItemId.component(cid), active_group_id=ROOT_GROUP_ID
+    )
+    assert delete(handle) is False
+    assert cid in session.layout.placements

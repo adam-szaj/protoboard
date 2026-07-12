@@ -23,7 +23,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.services.editing import HeadlessSession
-from protoboard.services.editing.item_handle import ItemId
+from protoboard.services.editing.item_handle import ComponentHandle, ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -130,7 +130,9 @@ def test_redo_rotate_reapplies_original_target_not_current_selection() -> None:
     c1 = _place(session, 2.0, 2.0, "R1")
     c2 = _place(session, 5.0, 5.0, "R2")
 
-    session.edit_controller.get_item(ItemId.component(c1)).rotate(90)
+    h1 = session.edit_controller.get_component(c1)
+    assert isinstance(h1, ComponentHandle)
+    h1.rotate(90)
     assert session.layout.placements[c1].rotation == 90
 
     session.stack.undo(session)
@@ -148,7 +150,9 @@ def test_rotate_execute_undo_redo_round_trip() -> None:
     session = _session()
     cid = _place(session, 2.5, 2.5, "R1")
 
-    session.edit_controller.get_item(ItemId.component(cid)).rotate(90)
+    h = session.edit_controller.get_component(cid)
+    assert isinstance(h, ComponentHandle)
+    h.rotate(90)
     session.stack.undo(session)
     assert session.layout.placements[cid].rotation == 0
     session.stack.redo(session)
@@ -162,7 +166,7 @@ def test_flip_group_execute_undo_redo_round_trip() -> None:
     gid = _make_group(session, [cid])
     before = session.layout.placements[cid].side
 
-    session.edit_controller.get_item(ItemId.group(gid)).flip()
+    session.edit_controller.get_group(gid).flip()
     flipped_side = session.layout.placements[cid].side
     assert flipped_side != before
 

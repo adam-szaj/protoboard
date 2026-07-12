@@ -28,6 +28,7 @@ addressed target into the same domain commands the verbs build; value objects
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import TYPE_CHECKING, Callable
@@ -119,12 +120,14 @@ class HandleKind:
       mutating op in the current edit context (a component sealed inside a group
       viewed from outside is read-only).
     * ``supports_rotate`` / ``supports_flip`` / ``supports_delete`` — capability
-      sugar, each True iff the concrete handle actually carries that method (a
-      wire supports only ``delete``; a read-only component supports none).
+      sugar. Each is defined as ``isinstance(self, <capability base>)`` so the
+      capability *type* (:class:`Transformable` / :class:`Deletable`) is the one
+      source of truth: a handle supports rotate iff it is a ``Transformable``,
+      full stop. No ``hasattr`` reflection, no per-class boolean to drift.
 
-    Every predicate defaults to False here; each concrete handle flips on the
-    ones it satisfies. So a new handle kind is safe-by-default (offers nothing
-    until it opts in) rather than silently claiming operations it lacks.
+    The ``is_*`` kind predicates default to False here; each concrete handle
+    flips on the ones it satisfies. So a new handle kind is safe-by-default
+    (claims no kind until it opts in).
     """
 
     def is_component(self) -> bool:
@@ -143,13 +146,48 @@ class HandleKind:
         return not self.is_readonly()
 
     def supports_rotate(self) -> bool:
-        return False
+        return isinstance(self, Transformable)
 
     def supports_flip(self) -> bool:
-        return False
+        return isinstance(self, Transformable)
 
     def supports_delete(self) -> bool:
-        return False
+        return isinstance(self, Deletable)
+
+
+class Transformable(HandleKind, ABC):
+    """A handle whose target can be rotated and flipped in place.
+
+    The capability *type* the module-level :func:`rotate` / :func:`flip` narrow
+    to (``isinstance(handle, Transformable)``) — so those helpers stay total over
+    ``HandleKind`` while mypy still proves the call is safe, and a read-only or
+    wire handle (neither a ``Transformable``) is simply skipped, no cast needed.
+    """
+
+    @abstractmethod
+    def rotate(
+        self,
+        delta_deg: int = 90,
+        *,
+        pivot: Point | None = None,
+        remove_crossing_wires: bool = True,
+    ) -> int: ...
+
+    @abstractmethod
+    def flip(self, *, remove_crossing_wires: bool = True) -> int: ...
+
+
+class Deletable(HandleKind, ABC):
+    """A handle whose target can be deleted.
+
+    Wider than :class:`Transformable`: a wire is ``Deletable`` but not
+    ``Transformable``; a group's ``delete`` disbands it. ``force`` lifts the
+    wire-lock guard (ignored by component / group handles, which have no such
+    guard). The narrow target for the module-level :func:`delete`.
+    """
+
+    @abstractmethod
+    def delete(self, *, force: bool = False) -> bool: ...
 
 
 class ComponentHandleBase(HandleKind):
@@ -240,17 +278,8 @@ class ReadOnlyComponentHandle(ComponentHandleBase):
         return True
 
 
-class ComponentHandle(ComponentHandleBase):
+class ComponentHandle(ComponentHandleBase, Transformable, Deletable):
     """An editable single component — the read-only base plus rotate / flip / delete."""
-
-    def supports_rotate(self) -> bool:
-        return True
-
-    def supports_flip(self) -> bool:
-        return True
-
-    def supports_delete(self) -> bool:
-        return True
 
     def rotate(
         self,
@@ -276,8 +305,12 @@ class ComponentHandle(ComponentHandleBase):
             remove_crossing_wires=remove_crossing_wires,
         )
 
-    def delete(self) -> bool:
-        """Remove this component (subject to the group-lock guard)."""
+    def delete(self, *, force: bool = False) -> bool:
+        """Remove this component (subject to the group-lock guard).
+
+        *force* is part of the uniform :class:`Deletable` signature; it lifts the
+        *wire*-lock only, so a component ignores it.
+        """
         return self._controller._delete_targets(
             comp_ids=frozenset({self._comp_id}),
             wire_ids=frozenset(),
@@ -286,7 +319,7 @@ class ComponentHandle(ComponentHandleBase):
         )
 
 
-class GroupHandle(HandleKind):
+class GroupHandle(Transformable, Deletable):
     """An addressed group — rotates / flips as a rigid body (an external op).
 
     A group turns like a transistor turns: the outer transform changes, its
@@ -299,15 +332,6 @@ class GroupHandle(HandleKind):
         self._group_id = group_id
 
     def is_group(self) -> bool:
-        return True
-
-    def supports_rotate(self) -> bool:
-        return True
-
-    def supports_flip(self) -> bool:
-        return True
-
-    def supports_delete(self) -> bool:
         return True
 
     def call(
@@ -363,11 +387,12 @@ class GroupHandle(HandleKind):
             remove_crossing_wires=remove_crossing_wires,
         )
 
-    def delete(self) -> bool:
+    def delete(self, *, force: bool = False) -> bool:
         """Disband this group — dissolve it, keeping its members placed.
 
         The domain's only "remove a group" op; not a delete-members. No group
-        lock applies — a group is addressed as one external object.
+        lock applies — a group is addressed as one external object, so *force*
+        (the wire-lock override) is irrelevant here.
         """
         return self._controller._delete_targets(
             comp_ids=frozenset(),
@@ -377,11 +402,11 @@ class GroupHandle(HandleKind):
         )
 
 
-class WireHandle(HandleKind):
+class WireHandle(Deletable):
     """An addressed wire — rotate / flip are not defined for it (absent by design).
 
     A wire supports :meth:`delete` plus the read properties ``side`` /
-    ``insulated``.
+    ``insulated``. It is a :class:`Deletable` but not a :class:`Transformable`.
     """
 
     def __init__(self, controller: EditController, wire_id: UUID) -> None:
@@ -389,9 +414,6 @@ class WireHandle(HandleKind):
         self._wire_id = wire_id
 
     def is_wire(self) -> bool:
-        return True
-
-    def supports_delete(self) -> bool:
         return True
 
     def call(
@@ -421,9 +443,7 @@ class WireHandle(HandleKind):
         wire = self._wire
         return getattr(wire, "insulated", None) if wire is not None else None
 
-    def delete(
-        self, *, active_group_id: UUID | None = None, force: bool = False
-    ) -> bool:
+    def delete(self, *, force: bool = False) -> bool:
         """Remove this wire (subject to the wire-lock guard, liftable by *force*)."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
@@ -431,20 +451,65 @@ class WireHandle(HandleKind):
             comp_ids=frozenset(),
             wire_ids=frozenset({self._wire_id}),
             group_ids=frozenset(),
-            active_group_id=(
-                active_group_id if active_group_id is not None else ROOT_GROUP_ID
-            ),
+            active_group_id=ROOT_GROUP_ID,
             force=force,
         )
+
+
+# ---------------------------------------------------------------------------
+# Capability-narrowing helpers — total over ``HandleKind``, safe under mypy
+# ---------------------------------------------------------------------------
+#
+# ``get_item(id)`` returns a union of four handle types, so ``get_item(id).
+# rotate(90)`` cannot type-check — a ``WireHandle`` has no ``rotate``. These
+# free functions take *any* ``HandleKind`` and narrow to the capability base
+# with ``isinstance``; mypy proves the call safe inside the branch, and a
+# handle that lacks the capability is a silent no-op (returns None). The
+# untypeable union access stays hidden here, in the module, instead of at
+# every call site: ``rotate(get_item(id), 90)``.
+
+
+def rotate(
+    handle: HandleKind,
+    delta_deg: int = 90,
+    *,
+    pivot: Point | None = None,
+    remove_crossing_wires: bool = True,
+) -> int | None:
+    """Rotate *handle* if its target supports it, else do nothing (returns None)."""
+    if isinstance(handle, Transformable):
+        return handle.rotate(
+            delta_deg, pivot=pivot, remove_crossing_wires=remove_crossing_wires
+        )
+    return None
+
+
+def flip(handle: HandleKind, *, remove_crossing_wires: bool = True) -> int | None:
+    """Flip *handle* if its target supports it, else do nothing (returns None)."""
+    if isinstance(handle, Transformable):
+        return handle.flip(remove_crossing_wires=remove_crossing_wires)
+    return None
+
+
+def delete(handle: HandleKind, *, force: bool = False) -> bool:
+    """Delete *handle* if its target supports it, else do nothing (returns False)."""
+    if isinstance(handle, Deletable):
+        return handle.delete(force=force)
+    return False
 
 
 __all__ = [
     "ComponentHandle",
     "ComponentHandleBase",
+    "Deletable",
     "GroupHandle",
     "HandleKind",
     "ItemId",
     "ItemTag",
     "ReadOnlyComponentHandle",
+    "Transformable",
     "WireHandle",
+    "delete",
+    "flip",
+    "rotate",
 ]
