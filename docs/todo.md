@@ -247,5 +247,15 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
     `services/editing/drag_commit.py`, typed on `EditState` (matching its
     siblings in `services/editing/placement_conflict.py`); GUI callers
     (`drag_controller.py`, `float_transform.py`) and tests repointed to the new
-    home, the GUI re-export dropped. Remaining stages E2–E5 (ArmedTransform core
-    → controller API → thin adapter → preview model) not started.
+    home, the GUI re-export dropped.
+  - **E2 done** (relocate the armed-transform core): the whole `FloatTransform`
+    state machine moved to `services/editing/armed_transform.py` as
+    `ArmedTransform` (Qt-free — every Qt seam is an injected callback: `snap`,
+    `execute`, `matches`, `preview`, `status`; the `ctx` is now typed on
+    `EditState`). `gui/selection/float_transform.py` became a one-line re-export
+    (`FloatTransform = ArmedTransform`), so all callers, imports and `isinstance`
+    checks keep working unchanged — `SelectTool` still constructs it directly.
+    Runtime `services→gui.ports` imports of the Qt-free input DTOs follow the
+    existing `services/drag_detector → gui.tools.drag_commit_decision` precedent.
+    Remaining stages E3–E5 (controller `begin/update/accept/cancel` API → thin
+    GUI adapter → separate preview state) not started.

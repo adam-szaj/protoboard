@@ -2868,8 +2868,8 @@ class SelectTool(_Tool):
         """
         from typing import cast
 
-        from protoboard.gui.selection.drag_controller import DragContext
         from protoboard.gui.selection.float_transform import FloatTransform
+        from protoboard.services.editing.controller import EditState
 
         if isinstance(self._armed, FloatTransform):
             self._armed.switch_mode("rotate")  # already floating — just re-aim
@@ -2889,7 +2889,7 @@ class SelectTool(_Tool):
         seed = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
         self._pivot_capture_pending = False
         self._armed = FloatTransform(
-            cast("DragContext", self._session),
+            cast("EditState", self._session),
             comp_ids=comp_ids,
             group_id=group_id,
             snap=self._snap_free,
@@ -2944,8 +2944,8 @@ class SelectTool(_Tool):
         """
         from typing import cast
 
-        from protoboard.gui.selection.drag_controller import DragContext
         from protoboard.gui.selection.float_transform import FloatTransform
+        from protoboard.services.editing.controller import EditState
 
         if isinstance(self._armed, FloatTransform):
             self._armed.switch_mode("move")  # already floating — just re-aim
@@ -2963,7 +2963,7 @@ class SelectTool(_Tool):
             return
         self._cancel_gesture()
         self._armed = FloatTransform(
-            cast("DragContext", self._session),
+            cast("EditState", self._session),
             comp_ids=comp_ids,
             group_id=group_id,
             snap=self._snap_free,
