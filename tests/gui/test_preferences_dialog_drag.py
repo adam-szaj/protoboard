@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from protoboard.gui import app_settings as app_settings_mod
-from protoboard.gui.app_settings import AppSettings
+from protoboard.controller import app_settings as app_settings_mod
+from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.dialogs.preferences_dialog import _DragPage
 
 

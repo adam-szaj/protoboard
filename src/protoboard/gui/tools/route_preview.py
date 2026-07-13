@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""``RoutePreview`` — RouteTool's transient overlay as a semantic object.
+"""``QtRoutePreview`` — RouteTool's transient overlay as a semantic object.
 
 The qt-ports §3 pattern (like ``DragConflictOverlay`` / ``DragCornerText``):
 the tool states *what the user sees* — committed segments, the live dashed
@@ -10,11 +10,17 @@ semantic calls; the tool body stays scene-free.
 ``on_scene_cleared`` only drops the (already deleted) item references — the
 *tool* re-renders from its own state, because the path points are tool
 state, not preview state.
+
+The ``RoutePreview`` Protocol RouteTool depends on lives in
+:mod:`protoboard.controller.tools.route_preview` (Qt-free); re-exported here
+for existing GUI importers.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
+
+from protoboard.controller.tools.route_preview import RoutePreview as RoutePreview
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,42 +28,10 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
     from protoboard.geometry import Point
-    from protoboard.gui.theme import Theme
+    from protoboard.controller.theme import Theme
     from protoboard.services.routing.astar import RoutingResult
 
 _PREVIEW_WIDTH = 0.12
-
-
-class RoutePreview(Protocol):
-    """What RouteTool shows while a wire is being pulled."""
-
-    def add_segment(self, a: Point, b: Point) -> None:
-        """Append one committed (clicked) segment to the preview polyline."""
-        ...
-
-    def clear_segments(self) -> None: ...
-
-    def show_live(self, a: Point, b: Point) -> None:
-        """Show the dashed last-point→cursor segment (replaces the previous)."""
-        ...
-
-    def clear_live(self) -> None: ...
-
-    def show_hints(self, results: list[RoutingResult]) -> None:
-        """Render the top-K routing hint paths (replaces previous hints)."""
-        ...
-
-    def clear_hints(self) -> None: ...
-
-    def show_dim(self) -> None:
-        """Dim the whole scene below the routed items (route-active mode)."""
-        ...
-
-    def clear_dim(self) -> None: ...
-
-    def on_scene_cleared(self) -> None:
-        """Drop stale item refs after ``scene.clear()`` (C++ objects gone)."""
-        ...
 
 
 class QtRoutePreview:

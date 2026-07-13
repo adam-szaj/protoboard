@@ -23,7 +23,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.renderers.packages import load_renderer_plugins
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.paths import BUILTIN_LIBRARY_DIR
 
 _RED = QColor("#cc4444")

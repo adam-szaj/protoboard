@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.services.routing.astar import RoutingResult
 
 

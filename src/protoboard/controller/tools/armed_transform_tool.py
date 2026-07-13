@@ -30,11 +30,10 @@ from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
-    from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.controller.ports import PointerInput, WheelInput
     from protoboard.controller.editing import EditState
-    from protoboard.gui.tools.select_preview import SelectPreview
-    from protoboard.gui.tools.transform_overlays import TransformOverlays
+    from protoboard.controller.tools.select_preview import SelectPreview
+    from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
     from protoboard.controller.editing.armed_transform import ArmedTransform
     from protoboard.controller.editing.controller import EditController
 
@@ -95,12 +94,12 @@ class ArmedTransformTool(ControllerTool):
         self._return_to = return_to
         self._armed: ArmedTransform | None = None
         self._preview: SelectPreview | None = None
-        self._overlays: TransformOverlays | None = None
+        self._overlays: TransformOverlaysPort | None = None
         self._wheel = WheelNotchAccumulator()
 
     # -- lifecycle ----------------------------------------------------------
 
-    def activate(self, session: EditState, view: AbstractBoardView) -> None:
+    def activate(self, session: EditState, view: object) -> None:
         self._session = session
         self._view = view
         self._armed = session.edit_controller.begin_transform(

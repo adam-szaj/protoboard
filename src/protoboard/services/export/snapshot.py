@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Literal
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.gui.layer_state import LayerOverrides, LayerState
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board

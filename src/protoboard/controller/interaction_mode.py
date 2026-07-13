@@ -3,7 +3,7 @@
 
 Originally part of a larger InteractionMode preset system; the rest of that
 system has been replaced by the orthogonal axes in
-``protoboard.gui.selection_axes`` (SelectionFilter × RelationClass).
+``protoboard.controller.selection_axes`` (SelectionFilter × RelationClass).
 
 This module is kept for ``HighlightProfile``, which is consumed by
 ``HighlightStack`` entries (PROFILE_DIMMED_1 / PROFILE_DIMMED_2 in

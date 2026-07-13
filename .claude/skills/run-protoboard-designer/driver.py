@@ -66,7 +66,7 @@ from PySide6.QtWidgets import QApplication
 app = QApplication([sys.argv[0]])
 app.setApplicationName("Protoboard Designer")
 
-from protoboard.gui.app_settings import load_app_settings
+from protoboard.controller.app_settings import load_app_settings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.renderers.packages import load_renderer_plugins
 from protoboard.gui.session import EditorSession

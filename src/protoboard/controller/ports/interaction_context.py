@@ -4,7 +4,7 @@
 Pure data: *what can be done here, now*.  The view surface answers
 ``get_context_at`` as a plain query and publishes it via ``notify_context``;
 the consumer (MainWindow, a test, a CLI) renders the choice UI and executes
-the picked ``action_id`` through the existing ``trigger_tool_action`` path.
+the picked ``action_id`` through the existing ``dispatch_tool_command`` path.
 No blocking call ever crosses the seam.
 """
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 class ActionOption:
     """One action executable in this context (presentation hints included).
 
-    A plain option (empty ``data``) executes via ``trigger_tool_action``
+    A plain option (empty ``data``) executes via ``dispatch_tool_command``
     (the KeyMap-synthesised dispatch); a parameterised option carries its
     structural payload in ``data`` — the same envelope-with-Mapping shape
     ``StatusEvent`` uses (D7) — and executes via the tool's

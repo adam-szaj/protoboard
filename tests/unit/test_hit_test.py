@@ -16,15 +16,15 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point, Rect
-from protoboard.gui.selection import HitTester, SelectionFilters
-from protoboard.gui.selection.adapters import (
+from protoboard.controller.selection import HitTester, SelectionFilters
+from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     GroupSelectable,
     WireSelectable,
 )
 
 if TYPE_CHECKING:
-    from protoboard.gui.selection.hit_test import HitContext
+    from protoboard.controller.selection.hit_test import HitContext
     from protoboard.types import Side
 
 

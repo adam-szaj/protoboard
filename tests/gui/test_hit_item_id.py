@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.gui.selection_fsm import Hit
+from protoboard.controller.selection_fsm import Hit
 from protoboard.controller.editing.item_handle import ItemId, ItemTag
 
 

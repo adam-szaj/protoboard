@@ -74,7 +74,7 @@ from protoboard.gui.renderers.packages.canvas import (
 )
 from protoboard.gui.qt_geometry import to_qtransform
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.services.debug_trace import traced
 
 __all__ = [

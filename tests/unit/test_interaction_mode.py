@@ -3,8 +3,8 @@
 
 import pytest
 
-from protoboard.gui.interaction_mode import HighlightProfile
-from protoboard.gui.selection_axes import (
+from protoboard.controller.interaction_mode import HighlightProfile
+from protoboard.controller.selection_axes import (
     RELATION_LABELS,
     RELATION_PROFILES,
     RelationClass,

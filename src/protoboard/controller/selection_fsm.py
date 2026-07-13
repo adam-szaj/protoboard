@@ -45,7 +45,7 @@ from dataclasses import dataclass, field, replace
 from enum import IntEnum
 from typing import TYPE_CHECKING, Literal
 
-from protoboard.gui.selection_axes import RelationClass
+from protoboard.controller.selection_axes import RelationClass
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.item_handle import ItemId

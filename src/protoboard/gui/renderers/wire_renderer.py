@@ -25,7 +25,7 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerState, Z_FRONT_WIRES
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 _Z_OUTLINE_OFFSET = -0.05
 _DEFAULT_LAYERS = LayerState()

@@ -3,13 +3,13 @@
 
 ``Selectable`` is a thin GUI-side protocol over the domain board entities
 (component / wire / group / pin / wire-vertex); ``SelectionService`` owns
-selection state (wrapping the pure :mod:`protoboard.gui.selection_fsm`)
+selection state (wrapping the pure :mod:`protoboard.controller.selection_fsm`)
 plus the active-pick API other tools and commands consume.
 """
 
 from __future__ import annotations
 
-from protoboard.gui.selection.adapters import (
+from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     GroupSelectable,
     PinSelectable,
@@ -17,31 +17,31 @@ from protoboard.gui.selection.adapters import (
     WireSelectable,
     WireVertexSelectable,
 )
-from protoboard.gui.selection.hit_test import (
+from protoboard.controller.selection.hit_test import (
     HitTester,
     SelectionFilters,
     WireEditCycle,
 )
-from protoboard.gui.selection.mouse_input import (
+from protoboard.controller.selection.mouse_input import (
     Intent,
     Mods,
     MouseInputController,
 )
-from protoboard.gui.selection.point_pick_controller import PointPickController
-from protoboard.gui.selection.queries import (
+from protoboard.controller.selection.point_pick_controller import PointPickController
+from protoboard.controller.selection.queries import (
     RelationSource,
     SessionConnQuery,
     SessionNetSource,
     relation_correlated,
     source_net_ids,
 )
-from protoboard.gui.selection.selectable import (
+from protoboard.controller.selection.selectable import (
     PickKind,
     Selectable,
     SelectableKey,
     Stop,
 )
-from protoboard.gui.selection.service import PickSession, SelectionService
+from protoboard.controller.selection.service import PickSession, SelectionService
 
 __all__ = [
     "ComponentSelectable",

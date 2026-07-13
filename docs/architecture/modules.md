@@ -17,11 +17,16 @@ Domain Model (pure Python — MUST NOT import Qt)
 Services (DRC, Router, KiCAD I/O, Persistence, Export)
 ```
 
-The **seam** is `EditController` (`services/editing/controller.py`), typed
+The **seam** is `EditController` (`controller/editing/controller.py`), typed
 against the `EditState` protocol. Both the GUI `EditorSession` and the headless
 `HeadlessSession` satisfy it, so GUI tools and the headless CLI drive the *same*
 verbs on one controller instance — `EditorSession(HeadlessSession, QObject)`
 inherits the headless implementation and only adds Qt.
+
+The controller-layer migration (this diagram's previous "Planned" section) has
+**landed**: `controller/` is a single Qt-free top-level package —
+`tests/unit/test_controller_no_gui_import.py` asserts no file under it imports
+`protoboard.gui`, anywhere, including `TYPE_CHECKING`-only imports.
 
 ## Diagram
 
@@ -32,25 +37,39 @@ graph TD
         BV["board_view / AbstractBoardView"]
         TH[tool_host]
         SC[scene_composer]
-        SEL["selection/service"]
-        HL["highlight/controller+renderer"]
-        TOOLS["tools/*"]
         RND["renderers/*"]
-        PORTS["ports/* — Qt-free DTO"]
-        DCD["tools/drag_commit_decision — Qt-free DTO"]
-        THEME["theme / layer_state"]
+        GT["tools/gui_tools — Qt-composed tools
+        (ViewToolMixin + controller/tools/*Tool)"]
+        PREV["tools/*_preview — Qt*Preview
+        (implements controller/tools/*_preview Protocol)"]
+        TO["tools/transform_overlays — TransformOverlays
+        (implements controller TransformOverlaysPort)"]
+        HLR["highlight/renderer + highlight_state::HighlightStack"]
+        KM["keymap::KeyMap / AbstractKeyMap — the View↔Controller seam"]
+        THEME["layer_state"]
         SESS["session::EditorSession"]
     end
 
-    subgraph APP["Application / Controller — Qt-free"]
+    subgraph CTRL["controller — Qt-free (no protoboard.gui import, enforced)"]
         EC["editing/controller::EditController"]
         ES["«protocol» EditState"]
         HS["editing/headless_session::HeadlessSession"]
         CLI["editing/cli"]
         AT[editing/armed_transform]
         PS[editing/preview_state]
-        DD[drag_detector]
         DGC[editing/drag_commit]
+        PORTS["ports/* — Qt-free DTO"]
+        CTOOLS["tools/* — command machines
+        (select_tool, place_tool, route_tool,
+        cut_tool, simplify_tool, armed_transform_tool)"]
+        DCD["tools/drag_commit_decision"]
+        CPREV["tools/*_preview — Protocol only"]
+        CTO["tools/transform_overlays::TransformOverlaysPort"]
+        CSEL["selection/* — SelectionService, hit_test,
+        drag_controller, mouse_input, …"]
+        CTHEME["theme / app_settings / interaction_mode /
+        highlight_entry / highlight_controller /
+        selection_fsm / selection_axes"]
     end
 
     subgraph SVC["Services"]
@@ -66,6 +85,7 @@ graph TD
         EXP["export/* — Qt"]
         KIC["kicad/* — parser/importer/exporter"]
         DBG["debug_trace — imports Qt!"]
+        DD[drag_detector]
     end
 
     subgraph DOMAIN["Domain Model — declared Qt-free"]
@@ -82,13 +102,20 @@ graph TD
     MW --> SESS
     BV --> TH
     BV --> SC
-    BV --> SEL
-    BV --> HL
-    TH --> TOOLS
-    TH --> PORTS
+    BV --> HLR
+    BV --> KM
+    TH --> GT
+    GT --> PREV
+    GT --> TO
     SC --> RND
     SC --> NS[routing/net_status]
     SESS -. inherits .-> HS
+
+    %% GUI composes the controller's Qt-free tools + implements its Protocols
+    GT -. composes .-> CTOOLS
+    PREV -. implements .-> CPREV
+    TO -. implements .-> CTO
+    HLR -. HighlightEntry from .-> CTHEME
 
     %% Controller seam
     HS --> EC
@@ -96,7 +123,14 @@ graph TD
     HS -. satisfies .-> ES
     SESS -. satisfies .-> ES
     CLI --> HS
-    TOOLS --> EC
+    CTOOLS --> EC
+    CTOOLS --> CSEL
+    CTOOLS --> PORTS
+    CTOOLS --> DCD
+    CTOOLS --> CPREV
+    CTOOLS --> CTO
+    CTOOLS --> CTHEME
+    AT --> PORTS
 
     %% EditController outbound verbs (lazy/local imports)
     EC --> AR
@@ -123,43 +157,70 @@ graph TD
     EXP --> DOMAIN
     KIC --> DOMAIN
 
-    %% === Layer VIOLATIONS (upward services -> gui, runtime) ===
-    DD -->|"runtime ⚠"| DCD
-    AT -->|"runtime ⚠"| PORTS
+    %% === Layer VIOLATIONS still open (upward services -> gui, runtime) ===
     PY -->|"runtime ⚠"| THEME
     EXP -->|"runtime ⚠"| THEME
     EXP -->|"runtime ⚠"| RND
+    DD -->|"runtime ⚠"| DCD
 
     %% === Transitive Qt leak into domain ===
     COMP -->|"@traced ⚠"| DBG
 
     classDef qtfree fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
     classDef qttaint fill:#ffebee,stroke:#c62828,color:#b71c1c;
-    class DOMAIN,BOARD,COMP,SCHEM,LAYOUT,CONN,CMDS qtfree;
+    class DOMAIN,BOARD,COMP,SCHEM,LAYOUT,CONN,CMDS,CTRL,EC,ES,HS,CLI,AT,PS,DGC,PORTS,CTOOLS,DCD,CPREV,CTO,CSEL,CTHEME qtfree;
     class DBG,EXP qttaint;
 ```
 
 ## Reading the diagram
 
-- **Green** nodes are (declared) Qt-free. **Red** nodes import Qt.
-- Solid arrows = imports / calls. Dashed = protocol satisfaction / inheritance.
+- **Green** nodes are (declared) Qt-free — includes the whole `controller/`
+  subgraph now that the guard test enforces it. **Red** nodes import Qt.
+- Solid arrows = imports / calls. Dashed = protocol satisfaction / inheritance
+  / implementation.
 - Arrows labelled **⚠** are edges that violate the declared layer direction —
-  see below.
+  see below. The two edges the controller migration was scoped to resolve
+  (`armed_transform → gui.ports`, `drag_detector →
+  gui.tools.drag_commit_decision`) are gone: both targets now live in
+  `controller/`, so what were upward violations are intra-`controller/` edges
+  (`AT --> PORTS`, `CTOOLS --> DCD` above).
 
 ## The seam: EditController / EditState
 
-- `EditState` (`services/editing/controller.py`) is a `@runtime_checkable`
-  `Protocol`. `HeadlessSession` (`services/editing/headless_session.py`)
+- `EditState` (`controller/editing/controller.py`) is a `@runtime_checkable`
+  `Protocol`. `HeadlessSession` (`controller/editing/headless_session.py`)
   satisfies it directly; `EditorSession` (`gui/session.py`) **is a**
   `HeadlessSession` + `QObject` (adds the `layout_changed` signal).
 - One `EditController` per session (`headless_session.py`, lazy
   `edit_controller` property). GUI tools and the CLI (`editing/cli.py`) call the
   same verbs on it: `delete` / `rotate` / `flip` / `place_component` /
   `add_wire` / `begin_transform` / `apply_autoroute` / `run_drc` / `save` /
-  `export`.
+  `export`, plus the Task 7 facade: `tool_commands()` / `dispatch_tool_command()`
+  and active-tool ownership (`set_active_tool` / `active_tool` /
+  `active_tool_changed` notify hook).
 - Every outbound service call from `EditController` uses a **lazy/local import**
   (routing, drc, persistence, export) so the verb layer itself stays Qt-free —
   the Qt-heavy export code is only imported inside `export()`.
+
+## The seam: KeyMap stays in GUI
+
+`controller/tools/*` never resolves a raw `Qt.Key` — each tool declares
+`key_actions()` / `key_claims()` / `command_table()` by **action id**; the GUI
+composition layer (`gui/tools/gui_tools.py`, one class per controller tool,
+mixing in `ViewToolMixin`) resolves actual keys through `gui/keymap.py`'s
+`KeyMap` and either calls the matching `on_key` translation or drives the
+Controller facade's `dispatch_tool_command(action_id)`. `KeyMap`/
+`AbstractKeyMap` are therefore the one View↔Controller seam that stays firmly
+on the GUI side (`controller/tools/base.py::KeyResolver` is the narrow,
+Qt-free Protocol the tool base needs from it — never the full `KeyMap`).
+
+Same pattern for previews and overlays: each `controller/tools/*_preview.py`
+declares a Qt-free `Protocol` (`SelectPreview`, `PlacePreview`,
+`RoutePreview`, `SimplifyPreview`) and `controller/tools/transform_overlays.py`
+declares `TransformOverlaysPort`; the matching `gui/tools/*_preview.py` /
+`gui/tools/transform_overlays.py` hold the `Qt*Preview` / `TransformOverlays`
+implementations, injected by `gui_tools.py`'s `activate()` as the Qt default
+when the tool wasn't constructed with one already (tests inject fakes instead).
 
 ## Known layer violations (as of 2026-07)
 
@@ -168,14 +229,14 @@ These are real edges in the runtime import graph that invert the declared
 several move Qt-free DTOs, following an established precedent.
 
 1. **services → gui (upward), runtime, top-level imports**
-   - `services/drag_detector.py` → `gui.tools.drag_commit_decision`
-     (`DragCommitDecision`, Qt-free DTO)
-   - `services/editing/armed_transform.py` → `gui.ports` (`WheelInput`,
-     `WheelNotchAccumulator`; Qt-free input DTOs)
+   - `services/drag_detector.py` → `controller.tools.drag_commit_decision`
+     (`DragCommitDecision`, Qt-free DTO) — no longer a `gui` import after the
+     controller migration, but still upward relative to `services/`.
    - `services/persistence/project_yaml.py` → `gui.layer_state`
      (`LayerOverrides`, `LayerVisibility`)
    - `services/export/{snapshot,paint,png,pdf,svg}.py` → `gui.{theme,
-     layer_state,renderers}` (export drives the GUI renderers to rasterise)
+     layer_state,renderers}` (export drives the GUI renderers to rasterise) —
+     note `gui.theme` is a re-export of `controller.theme.Theme`.
 
 2. **domain → services → Qt (transitive Qt leak)**
    - `domain/components/package/{solver,loader,reach,shapes}.py` →
@@ -193,31 +254,3 @@ several move Qt-free DTOs, following an established precedent.
 
 > These reflect what was true at the time of writing. Before acting on any of
 > them, re-check the file still imports what's claimed.
-
-## Planned: a first-class `controller/` layer
-
-The diagram above is the **current** import graph. A migration is designed (but
-**not yet executed** — see
-[`docs/superpowers/specs/2026-07-12-controller-layer-migration-design.md`](../superpowers/specs/2026-07-12-controller-layer-migration-design.md))
-that promotes the Controller from its scattered locations into a single Qt-free
-top-level package:
-
-- `gui/ports/*` → `controller/ports/*`
-- `services/editing/*` → `controller/editing/*`
-- `gui/tools/*` (logic only) → `controller/tools/*` — the `*_preview.py` /
-  overlay renderers **stay** in `gui/` (the View half of the tool/preview split)
-
-After the migration the intended dependency direction is
-`gui/` (Qt adapters + renderers) → `controller/` → `domain/` / `services/`, and
-several **⚠** edges above are resolved rather than merely flagged:
-
-- `armed_transform → gui.ports` (violation 1) disappears — `ports/` moves into
-  `controller/`, so the edge becomes an intra-`controller/` import.
-- `drag_detector → gui.tools.drag_commit_decision` (violation 1) disappears —
-  `drag_commit_decision` moves to `controller/tools/`.
-- The three residual Qt touchpoints in the tools (`Qt.Key.*`, `QColor`,
-  `session.signal.emit()`) are removed so `controller/tools/*` is genuinely
-  Qt-free; a Qt→`KeyCode` mapping is added at the `gui/qt_keymap` boundary.
-
-This diagram will be redrawn to show the `controller/` subgraph once the
-migration lands.

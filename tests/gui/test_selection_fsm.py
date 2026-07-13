@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Exhaustive transition tests for ``protoboard.gui.selection_fsm``.
+"""Exhaustive transition tests for ``protoboard.controller.selection_fsm``.
 
 The user formalised the state machine in ``docs/highlight-state-machine.txt``
 on 2026-06-08.  Every transition from that file is covered here, plus the
@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from protoboard.gui.selection_axes import RelationClass
-from protoboard.gui.selection_fsm import (
+from protoboard.controller.selection_axes import RelationClass
+from protoboard.controller.selection_fsm import (
     BasisScope,
     Hit,
     SelectionFSM,

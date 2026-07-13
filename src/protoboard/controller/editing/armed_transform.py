@@ -57,9 +57,9 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment
     from protoboard.geometry import Transform2D
-    from protoboard.gui.drag_preferences import DragPreferences
+    from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.ports import KeyInput
-    from protoboard.gui.selection.drop_resolution import ResolveFn
+    from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.editing.controller import EditState
 
@@ -580,7 +580,7 @@ class ArmedTransform:
     ) -> set[uuid.UUID]:
         if decision is None:
             return set()
-        from protoboard.gui.selection.drop_resolution import resolve_drops
+        from protoboard.controller.selection.drop_resolution import resolve_drops
 
         resolved = resolve_drops(
             decision,

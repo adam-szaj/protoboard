@@ -28,7 +28,7 @@ from protoboard.domain.commands.component_cmds import (
 )
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.gui.selection.wire_edit import (
+from protoboard.controller.selection.wire_edit import (
     WireEditState,
     build_delete_command,
     build_reroute_command,

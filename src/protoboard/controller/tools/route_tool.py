@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 
     from protoboard.controller.editing import EditState
     from protoboard.controller.ports import PointerInput
-    from protoboard.gui.tools.route_preview import RoutePreview
-    from protoboard.gui.wire_net_resolver import NetMergePrompt
+    from protoboard.controller.tools.route_preview import RoutePreview
+    from protoboard.controller.editing.wire_nets import NetMergePrompt
 
 _log = structlog.get_logger(__name__)
 
@@ -343,7 +343,7 @@ class RouteTool(ControllerTool):
         """
         if self._route_highlight_active:
             return
-        from protoboard.gui.highlight_state import (
+        from protoboard.controller.highlight_entry import (
             HighlightEntry,
             PROFILE_ROUTE_ACTIVE,
         )

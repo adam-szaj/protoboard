@@ -397,7 +397,7 @@ class TestMultiGroupMoveConflicts:
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.gui.drag_set import DragSet
+        from protoboard.controller.editing.drag_set import DragSet
 
         net_a, net_b = uuid.uuid4(), uuid.uuid4()
         defn = _defn("A")
@@ -435,7 +435,7 @@ class TestMultiGroupMoveConflicts:
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.gui.drag_set import DragSet
+        from protoboard.controller.editing.drag_set import DragSet
 
         net_a, net_b = uuid.uuid4(), uuid.uuid4()
         defn = _defn("A")
@@ -469,7 +469,7 @@ class TestMultiGroupMoveConflicts:
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.gui.drag_set import DragSet
+        from protoboard.controller.editing.drag_set import DragSet
 
         groups = _root_group()
         result = check_multi_group_move_conflicts(
@@ -490,7 +490,7 @@ class TestMultiGroupMoveConflicts:
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.gui.drag_set import DragSet
+        from protoboard.controller.editing.drag_set import DragSet
 
         defn = _defn("A")
         inst = _inst(defn)

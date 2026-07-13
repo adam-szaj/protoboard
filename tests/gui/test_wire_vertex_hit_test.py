@@ -31,7 +31,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
-from protoboard.gui.selection.hit_test import HitTester, WireEditCycle
+from protoboard.controller.selection.hit_test import HitTester, WireEditCycle
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 

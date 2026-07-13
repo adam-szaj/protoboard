@@ -40,7 +40,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.geometry import Point
 from protoboard.types import Side
 from protoboard.gui.renderers.body_shapes import body_shape_for
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.services.library.loader import load_library
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,

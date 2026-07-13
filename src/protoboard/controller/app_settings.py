@@ -15,9 +15,9 @@ from protoboard.paths import APP_SETTINGS_FILE as _CONFIG_PATH
 # Allowed values for drag soft-conflict resolution preferences.  Any
 # value outside this set in the YAML falls back to the dataclass
 # default — protects against typos cementing into a broken state.
-# Single source of truth lives in protoboard.gui.drag_preferences;
+# Single source of truth lives in protoboard.controller.editing.drag_preferences;
 # this re-export keeps the legacy private name working.
-from protoboard.gui.drag_preferences import (  # noqa: E402
+from protoboard.controller.editing.drag_preferences import (  # noqa: E402
     DRAG_CONFLICT_VALUES as _DRAG_CONFLICT_VALUES,
 )
 

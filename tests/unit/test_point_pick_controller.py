@@ -16,14 +16,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from protoboard.geometry import Point, Rect
-from protoboard.gui.selection.mouse_input import Intent, Mods
-from protoboard.gui.selection.point_pick_controller import PointPickController
-from protoboard.gui.selection.selectable import Selectable, Stop
-from protoboard.gui.selection.service import PickSession
-from protoboard.gui.selection_fsm import Hit
+from protoboard.controller.selection.mouse_input import Intent, Mods
+from protoboard.controller.selection.point_pick_controller import PointPickController
+from protoboard.controller.selection.selectable import Selectable, Stop
+from protoboard.controller.selection.service import PickSession
+from protoboard.controller.selection_fsm import Hit
 
 if TYPE_CHECKING:
-    from protoboard.gui.selection.selectable import ConnQuery
+    from protoboard.controller.selection.selectable import ConnQuery
     from protoboard.types import NetId
 
 _NO_MODS = Mods()
@@ -171,7 +171,7 @@ class TestPreview:
 
 
 def test_is_structurally_a_mouse_input_controller() -> None:
-    from protoboard.gui.selection.mouse_input import MouseInputController
+    from protoboard.controller.selection.mouse_input import MouseInputController
 
     sess = _session(Stop.count(1))
     ctrl = PointPickController(sess, _const_resolver(_FakeSel(1)))

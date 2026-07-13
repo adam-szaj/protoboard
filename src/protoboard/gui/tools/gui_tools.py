@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         GroupTargetChoice,
         GroupTargetRequest,
     )
-    from protoboard.gui.selection.mouse_input import Intent
+    from protoboard.controller.selection.mouse_input import Intent
 
 __all__ = [
     "CutTool",
@@ -197,6 +197,12 @@ class SelectTool(_SelectTool, ViewToolMixin):
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
             self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
+        if not self._group_prompt_injected:  # type: ignore[attr-defined]
+            self._group_prompt = qt_group_target_prompt(  # type: ignore[attr-defined]
+                lambda: view.window()  # type: ignore[attr-defined]
+            )
+        if not self._armed_transform_factory_injected:  # type: ignore[attr-defined]
+            self._armed_transform_factory = ArmedTransformTool  # type: ignore[attr-defined]
         super().activate(session, view)  # type: ignore[arg-type]
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
@@ -212,7 +218,7 @@ class SelectTool(_SelectTool, ViewToolMixin):
         """
         from PySide6.QtCore import Qt
 
-        from protoboard.gui.selection.mouse_input import Intent
+        from protoboard.controller.selection.mouse_input import Intent
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             return Intent.CONFIRM

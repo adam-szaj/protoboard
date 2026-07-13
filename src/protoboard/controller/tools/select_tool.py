@@ -3,14 +3,14 @@
 
 A thin ``ControllerTool`` that wires the headless-tested pieces together:
 
-* :class:`~protoboard.gui.selection.hit_test.HitTester` — point → Selectable,
-* :class:`~protoboard.gui.selection.service.SelectionService` — selection state
+* :class:`~protoboard.controller.selection.hit_test.HitTester` — point → Selectable,
+* :class:`~protoboard.controller.selection.service.SelectionService` — selection state
   and the active-pick routing,
-* :class:`~protoboard.gui.highlight.controller.HighlightController` — dimming,
-* :class:`~protoboard.gui.selection.drag_controller.DragController` and
-  :class:`~protoboard.gui.selection.rubber_band_controller.RubberBandController`
+* :class:`~protoboard.controller.highlight_controller.HighlightController` — dimming,
+* :class:`~protoboard.controller.selection.drag_controller.DragController` and
+  :class:`~protoboard.controller.selection.rubber_band_controller.RubberBandController`
   — concrete interactions behind one
-  :class:`~protoboard.gui.selection.mouse_input.MouseInputController` seam.
+  :class:`~protoboard.controller.selection.mouse_input.MouseInputController` seam.
 
 Covers: hit-test → selection (SET/ADD/REMOVE via the modifier matrix),
 rubber-band area-select, drag / floating of the selection, rotate / flip /
@@ -31,14 +31,14 @@ keeps the command methods those key branches call.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.controller.tools.base import ControllerTool
-from protoboard.gui.highlight.controller import HighlightController
+from protoboard.controller.highlight_controller import HighlightController
 from protoboard.controller.ports import (
     LEFT_BUTTON,
     ActionOption,
@@ -49,12 +49,12 @@ from protoboard.controller.ports import (
     StatusEvent,
     WheelInput,
 )
-from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
-from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
-from protoboard.gui.selection.mouse_input import Intent, Mods
-from protoboard.gui.selection.rubber_band_controller import RubberBandController
-from protoboard.gui.selection.service import SelectionService
-from protoboard.gui.selection_fsm import BasisScope, SetOp
+from protoboard.controller.selection.drag_controller import DragController, FloatingPhase
+from protoboard.controller.selection.hit_test import HitTester, SelectionFilters
+from protoboard.controller.selection.mouse_input import Intent, Mods
+from protoboard.controller.selection.rubber_band_controller import RubberBandController
+from protoboard.controller.selection.service import SelectionService
+from protoboard.controller.selection_fsm import BasisScope, SetOp
 from protoboard.services.debug_trace import traced
 from protoboard.controller.editing.item_handle import ItemId, ItemTag
 
@@ -72,18 +72,18 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
-    from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.drag_set import DragSet
-    from protoboard.gui.selection.adapters import WireVertexSelectable
-    from protoboard.gui.tools.gui_tools import ArmedTransformTool
-    from protoboard.gui.selection.mouse_input import MouseInputController
-    from protoboard.gui.selection.selectable import Selectable
-    from protoboard.gui.selection.wire_edit import WireEditState
+    from protoboard.controller.editing.drag_set import DragSet
+    from protoboard.controller.selection.adapters import WireVertexSelectable
+    from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
+    from protoboard.controller.selection.mouse_input import MouseInputController
+    from protoboard.controller.selection.selectable import Selectable
+    from protoboard.controller.selection.wire_edit import WireEditState
     from protoboard.controller.editing import EditState
+    from protoboard.controller.ports.executor import ExecutorPort
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.select_prompts import GroupTargetPrompt
-    from protoboard.gui.tools.transform_overlays import TransformOverlays
-    from protoboard.gui.tools.select_preview import SelectPreview
+    from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
+    from protoboard.controller.tools.select_preview import SelectPreview
 
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
@@ -114,6 +114,51 @@ _ACT_CONTEXT_MENU = "select-tool.action.context_menu"
 # keybindings.py with their own defaults; the tool dispatches them in on_key.
 _ACT_RELATION_CYCLE = "highlight_cycle"
 _ACT_RELATION_CYCLE_BACK = "relation_cycle_back"
+
+class _ToolsPort(Protocol):
+    """The ``ToolHost`` surface SelectTool drives (arm/read the active tool)."""
+
+    @property
+    def active_tool(self) -> object | None: ...
+
+    def set_tool(self, tool: object | None) -> None: ...
+
+    def get_context_at(
+        self, scene_pos: Point, view_pos: Point
+    ) -> InteractionContext: ...
+
+
+class SelectToolView(Protocol):
+    """The view surface SelectTool depends on (qt-ports §4 pattern).
+
+    Deliberately a *narrower*, Qt-free sibling of ``gui.board_view_tool.
+    AbstractBoardView`` (same rationale as ``ControllerTool``'s ``_ViewProto``)
+    — this tool needs only these members, and importing the full
+    ``AbstractBoardView`` here would make ``controller`` depend on ``gui``.
+    """
+
+    tools: _ToolsPort
+    executor: ExecutorPort
+
+    @property
+    def camera_side(self) -> str: ...
+
+    def snap(
+        self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None
+    ) -> Point: ...
+
+    def board_pad_positions(self) -> list[Point]: ...
+
+    def refresh(self) -> None: ...
+
+    def set_active_group(self, group_id: uuid.UUID) -> None: ...
+
+    def notify_status(self, event: StatusEvent) -> None: ...
+
+    def notify_context(self, ctx: InteractionContext) -> None: ...
+
+    def window(self) -> object | None: ...
+
 
 def _segment_intersects_rect(
     a: Point, b: Point, rx0: float, ry0: float, rx1: float, ry1: float
@@ -150,6 +195,7 @@ class SelectTool(ControllerTool):
         self,
         preview: SelectPreview | None = None,
         group_prompt: GroupTargetPrompt | None = None,
+        armed_transform_factory: Callable[..., ArmedTransformTool] | None = None,
     ) -> None:
         super().__init__()  # sets _session / _view to None up-front
         self._selection: SelectionService = None  # type: ignore[assignment]
@@ -171,6 +217,15 @@ class SelectTool(ControllerTool):
         # activate().
         self._group_prompt: GroupTargetPrompt | None = group_prompt
         self._group_prompt_injected = group_prompt is not None
+        # ArmedTransformTool constructor — injected callable; the GUI-composed
+        # subclass's activate() defaults it to the Qt-composed
+        # ``gui.tools.gui_tools.ArmedTransformTool`` (preview + overlays +
+        # on_key).  Kept Qt-free here: this tool only needs it to be an
+        # ``ArmedTransformTool`` (isinstance check in ``_invoke_armed_atomic``).
+        self._armed_transform_factory: Callable[..., ArmedTransformTool] | None = (
+            armed_transform_factory
+        )
+        self._armed_transform_factory_injected = armed_transform_factory is not None
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
         # (no drag), the release collapses the selection onto this entity — or
@@ -191,7 +246,7 @@ class SelectTool(ControllerTool):
         # headless).  Cleared the moment the drag returns to CLEAR so the
         # frame never lingers after the cursor leaves the conflict zone (the
         # legacy "sticky yellow frame" complaint, 2026-06-19).
-        self._overlays: TransformOverlays | None = None
+        self._overlays: TransformOverlaysPort | None = None
         # Rotate-around-point pivot capture (legacy menu path; seeds the armed
         # rotate's shared pivot).
         self._pivot_capture_pending: bool = False
@@ -204,7 +259,7 @@ class SelectTool(ControllerTool):
         # the cluster-cycle state threaded through the wire-vertex pick.  The
         # operations on the fragment (reroute / autoroute / delete) are actions
         # dispatched by `_wire_edit_on_key` once the fragment is selected.
-        from protoboard.gui.selection.hit_test import WireEditCycle
+        from protoboard.controller.selection.hit_test import WireEditCycle
 
         self._wire_edit: WireEditState | None = None
         self._wire_edit_cycle: WireEditCycle = WireEditCycle()
@@ -217,7 +272,7 @@ class SelectTool(ControllerTool):
         # Net/connectivity relation axis: which set is correlated to a clicked
         # object — drives Alt (RELATION-basis) selection and the auto-highlight
         # that follows any plain SET click.  Default = same logical net.
-        from protoboard.gui.selection_axes import RelationClass, SelectionFilter
+        from protoboard.controller.selection_axes import RelationClass, SelectionFilter
 
         self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
         # Selection filter (which object kinds may be selected).  Shim for
@@ -234,15 +289,9 @@ class SelectTool(ControllerTool):
         return self._preview
 
     @traced()
-    def activate(self, session: EditState, view: AbstractBoardView) -> None:
+    def activate(self, session: EditState, view: SelectToolView) -> None:
         self._session = session
         self._view = view
-        if not self._group_prompt_injected:
-            from protoboard.gui.tools.gui_tools import qt_group_target_prompt
-
-            self._group_prompt = qt_group_target_prompt(
-                lambda: self._view.window()
-            )
         # SelectionService / HighlightController are per-session — reuse one
         # parked on the session if present, else create and park it.
         svc = getattr(session, "selection_service", None)
@@ -285,7 +334,7 @@ class SelectTool(ControllerTool):
         """Translate the held :class:`SelectionFilter` into the hit-test's
         per-kind gate, so the status-bar filter actually excludes kinds from
         selection (a component-only filter ignores wire/group hits, etc.)."""
-        from protoboard.gui.selection_axes import SelectionFilter
+        from protoboard.controller.selection_axes import SelectionFilter
 
         f = self._filter
         return SelectionFilters(
@@ -307,7 +356,7 @@ class SelectTool(ControllerTool):
         kind hit-tests for a board entity.
         """
         if what in ("pad", "point"):
-            from protoboard.gui.selection.adapters import PointSelectable
+            from protoboard.controller.selection.adapters import PointSelectable
 
             return PointSelectable(point=self._snap(scene_pt, frozenset()))
         if what == "wire-vertex":
@@ -528,7 +577,7 @@ class SelectTool(ControllerTool):
         Same resolution as :meth:`_primary_net_id` but for an explicit anchor,
         so a SET click that passes ``primary=`` lights up the right net.
         """
-        from protoboard.gui.selection.queries import SessionConnQuery
+        from protoboard.controller.selection.queries import SessionConnQuery
 
         nets = anchor.net_ids(SessionConnQuery(self._session))
         return next(iter(nets), None)
@@ -596,7 +645,7 @@ class SelectTool(ControllerTool):
         group_ids: set[uuid.UUID],
     ) -> None:
         """Rebuild the service selection from raw id sets (adapter-wrapped)."""
-        from protoboard.gui.selection.adapters import (
+        from protoboard.controller.selection.adapters import (
             ComponentSelectable,
             GroupSelectable,
             WireSelectable,
@@ -724,7 +773,7 @@ class SelectTool(ControllerTool):
         primary = self._primary_selectable()
         if primary is None:
             return None
-        from protoboard.gui.selection.queries import SessionConnQuery
+        from protoboard.controller.selection.queries import SessionConnQuery
 
         nets = primary.net_ids(SessionConnQuery(self._session))
         return next(iter(nets), None)
@@ -843,7 +892,7 @@ class SelectTool(ControllerTool):
         Emits ``session.highlight_mode_changed`` with the relation's label so the
         status bar reflects the active mode — the legacy contract (lost in the v2
         rewrite, restored by the parity test)."""
-        from protoboard.gui.selection_axes import RELATION_LABELS, RelationClass
+        from protoboard.controller.selection_axes import RELATION_LABELS, RelationClass
 
         if isinstance(relation, RelationClass):
             self._relation = relation
@@ -859,7 +908,7 @@ class SelectTool(ControllerTool):
         The keyboard counterpart to the status-bar relation widget; lost in the
         v2 rewrite (the action ids existed in the KeyMap but nothing dispatched
         them), restored by the parity test."""
-        from protoboard.gui.selection_axes import RelationClass
+        from protoboard.controller.selection_axes import RelationClass
 
         relations = list(RelationClass)
         idx = relations.index(self._relation)
@@ -877,14 +926,14 @@ class SelectTool(ControllerTool):
 
     def set_filter(self, f) -> None:  # type: ignore[no-untyped-def]
         """Replace the selection filter wholesale (state only — no enforcement yet)."""
-        from protoboard.gui.selection_axes import SelectionFilter
+        from protoboard.controller.selection_axes import SelectionFilter
 
         if isinstance(f, SelectionFilter):
             self._filter = f
 
     def _relation_source(self, sel: Selectable):  # type: ignore[no-untyped-def]
         """Map a hit Selectable to a :class:`RelationSource` for the queries."""
-        from protoboard.gui.selection.queries import RelationSource
+        from protoboard.controller.selection.queries import RelationSource
 
         hit = sel.to_hit()
         if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
@@ -904,11 +953,11 @@ class SelectTool(ControllerTool):
         the session-backed connectivity seams, then wraps each id in its adapter
         so the selection / highlight pipelines consume them uniformly.
         """
-        from protoboard.gui.selection.adapters import (
+        from protoboard.controller.selection.adapters import (
             ComponentSelectable,
             WireSelectable,
         )
-        from protoboard.gui.selection.queries import (
+        from protoboard.controller.selection.queries import (
             SessionConnQuery,
             SessionNetSource,
             relation_correlated,
@@ -923,7 +972,7 @@ class SelectTool(ControllerTool):
             SessionConnQuery(self._session),
             SessionNetSource(self._session),
         )
-        from protoboard.gui.selection_axes import SelectionFilter
+        from protoboard.controller.selection_axes import SelectionFilter
 
         # Respect the object filter: an Alt+click relation-expansion includes
         # only the kinds the filter admits (wire filter → just the net's wires;
@@ -1150,7 +1199,7 @@ class SelectTool(ControllerTool):
         LTR: only fully-enclosed (every wire vertex inside).  RTL: anything
         touching (a wire vertex inside or a segment crossing the rect).
         """
-        from protoboard.gui.selection.adapters import WireSelectable
+        from protoboard.controller.selection.adapters import WireSelectable
 
         out: list[object] = []
         for wire in self._session.layout.wires:
@@ -1177,7 +1226,7 @@ class SelectTool(ControllerTool):
         touching (any group member intersecting the rect).
         """
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.gui.selection.adapters import GroupSelectable
+        from protoboard.controller.selection.adapters import GroupSelectable
 
         out: list[object] = []
         tree = self._session.group_tree()
@@ -1252,7 +1301,7 @@ class SelectTool(ControllerTool):
 
         from typing import cast
 
-        from protoboard.gui.selection.drag_controller import DragContext
+        from protoboard.controller.selection.drag_controller import DragContext
 
         return DragController(
             cast("DragContext", self._session),
@@ -1355,7 +1404,7 @@ class SelectTool(ControllerTool):
         components move.  Built via :meth:`DragSet.from_selection`, which
         partitions locked-in-group components into their group monolith.
         """
-        from protoboard.gui.drag_set import DragSet
+        from protoboard.controller.editing.drag_set import DragSet
 
         group_ids = self._grabbed_group_ids(sel)
         return DragSet.from_selection(
@@ -1505,9 +1554,9 @@ class SelectTool(ControllerTool):
         """
         from typing import cast
 
-        from protoboard.gui.selection.adapters import ComponentSelectable
-        from protoboard.gui.selection.mouse_input import Mods
-        from protoboard.gui.selection.rubber_band_controller import BandHit
+        from protoboard.controller.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.mouse_input import Mods
+        from protoboard.controller.selection.rubber_band_controller import BandHit
 
         if not isinstance(hit, BandHit):
             return
@@ -1641,7 +1690,7 @@ class SelectTool(ControllerTool):
         is a pin of *comp_id* (rigid or bendable — a rigid grab translates the
         body), then arm the pad pick for that pin.
         """
-        from protoboard.gui.selection import Stop
+        from protoboard.controller.selection import Stop
 
         self._redrag_comp_id = comp_id
         self._status("Click a pin to re-drag  ·  [Esc] Cancel", 0)
@@ -1668,7 +1717,7 @@ class SelectTool(ControllerTool):
         switches the grab (redrawing the overlay) instead of treating the click
         as a pad target; any other click resolves as a pad.
         """
-        from protoboard.gui.selection import Stop
+        from protoboard.controller.selection import Stop
 
         self._redrag_comp_id = comp_id
         self._redrag_pin = pin
@@ -1730,7 +1779,7 @@ class SelectTool(ControllerTool):
         Reads the ``pin_number`` the hit-test recorded on the current selection
         (set only on a true pad click, ``None`` for a body click).
         """
-        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.adapters import ComponentSelectable
 
         if self._selection is None:
             return None
@@ -1750,7 +1799,7 @@ class SelectTool(ControllerTool):
         Any pin is a valid re-drag grab: a bendable pin bends its lead, a rigid
         pin translates the body (feasibility is decided later per target).
         """
-        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.adapters import ComponentSelectable
 
         if (
             isinstance(sel, ComponentSelectable)
@@ -1796,10 +1845,10 @@ class SelectTool(ControllerTool):
         from collections.abc import Callable
         from typing import cast
 
-        from protoboard.gui.selection.point_pick_controller import (
+        from protoboard.controller.selection.point_pick_controller import (
             PointPickController,
         )
-        from protoboard.gui.selection.selectable import PickKind, Stop
+        from protoboard.controller.selection.selectable import PickKind, Stop
 
         # A pick takes over the interaction — abort any in-flight gesture first.
         if self._mouse is not None and not self._mouse.finished:
@@ -1839,7 +1888,7 @@ class SelectTool(ControllerTool):
         return
 
     def _redrag_commit(self, picked: list[Selectable]) -> None:
-        from protoboard.gui.selection.adapters import PointSelectable
+        from protoboard.controller.selection.adapters import PointSelectable
 
         cid, pin = self._redrag_comp_id, self._redrag_pin
         self._redrag_clear()
@@ -2060,8 +2109,8 @@ class SelectTool(ControllerTool):
         the pick (intents route to it); once the fragment is selected the
         op-keys (``[W]`` / ``[A]`` / ``[Del]`` / ``[Esc]``) take over.
         """
-        from protoboard.gui.selection.hit_test import WireEditCycle
-        from protoboard.gui.selection.selectable import Stop
+        from protoboard.controller.selection.hit_test import WireEditCycle
+        from protoboard.controller.selection.selectable import Stop
 
         wire_id = self._selected_wire_id
         if wire_id is None:
@@ -2098,7 +2147,7 @@ class SelectTool(ControllerTool):
             board_pads_for_side,
             insert_pad_nodes,
         )
-        from protoboard.gui.selection.wire_edit import replace_wire_path_cmd
+        from protoboard.controller.selection.wire_edit import replace_wire_path_cmd
 
         wire = self._wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
@@ -2125,7 +2174,7 @@ class SelectTool(ControllerTool):
 
     def _range_progress(self, picked: list[Selectable]) -> None:
         """Repaint the overlay as the two range vertices come in."""
-        from protoboard.gui.selection.adapters import WireVertexSelectable
+        from protoboard.controller.selection.adapters import WireVertexSelectable
 
         if picked and isinstance(picked[-1], WireVertexSelectable):
             self._wire_edit_start = picked[0] if isinstance(
@@ -2135,8 +2184,8 @@ class SelectTool(ControllerTool):
 
     def _range_picked(self, picked: list[Selectable]) -> None:
         """Build the :class:`WireEditState` from the two picked vertices."""
-        from protoboard.gui.selection.adapters import WireVertexSelectable
-        from protoboard.gui.selection.wire_edit import WireEditState
+        from protoboard.controller.selection.adapters import WireVertexSelectable
+        from protoboard.controller.selection.wire_edit import WireEditState
 
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
@@ -2194,7 +2243,7 @@ class SelectTool(ControllerTool):
         ``on_progress`` previews the dashed orange polyline, ``on_preview``
         draws the live cursor segment, Enter (CONFIRM) commits.
         """
-        from protoboard.gui.selection.selectable import Stop
+        from protoboard.controller.selection.selectable import Stop
 
         if self._wire_edit is None:
             return
@@ -2213,7 +2262,7 @@ class SelectTool(ControllerTool):
         )
 
     def _reroute_progress(self, picked: list[Selectable]) -> None:
-        from protoboard.gui.selection.adapters import PointSelectable
+        from protoboard.controller.selection.adapters import PointSelectable
 
         pts = [p.point for p in picked if isinstance(p, PointSelectable)]
         self._draw_reroute_preview(pts)
@@ -2255,7 +2304,7 @@ class SelectTool(ControllerTool):
         its ``PickSession.collected`` list — the authoritative, live record of
         what the user has clicked so far this reroute.
         """
-        from protoboard.gui.selection.adapters import PointSelectable
+        from protoboard.controller.selection.adapters import PointSelectable
 
         mouse = self._mouse
         session = getattr(mouse, "session", None)
@@ -2266,8 +2315,8 @@ class SelectTool(ControllerTool):
 
     def _commit_reroute(self, picked: list[Selectable]) -> None:
         """Commit the reroute: build the path command and execute it."""
-        from protoboard.gui.selection.adapters import PointSelectable
-        from protoboard.gui.selection.wire_edit import build_reroute_command
+        from protoboard.controller.selection.adapters import PointSelectable
+        from protoboard.controller.selection.wire_edit import build_reroute_command
 
         state = self._wire_edit
         if state is None:
@@ -2297,7 +2346,7 @@ class SelectTool(ControllerTool):
 
     def _autoroute_fragment(self) -> None:
         """A* re-route the fragment — ``[A]``."""
-        from protoboard.gui.selection.wire_edit import (
+        from protoboard.controller.selection.wire_edit import (
             autoroute_fragment_path,
             build_reroute_command,
         )
@@ -2331,7 +2380,7 @@ class SelectTool(ControllerTool):
 
     def _delete_fragment(self) -> None:
         """Delete the selected fragment — ``[Del]`` / ``[Backspace]``."""
-        from protoboard.gui.selection.wire_edit import build_delete_command
+        from protoboard.controller.selection.wire_edit import build_delete_command
 
         state = self._wire_edit
         if state is None:
@@ -2373,7 +2422,7 @@ class SelectTool(ControllerTool):
 
     def _wire_edit_clear(self) -> None:
         """Leave wire-edit: drop the fragment, cycle, overlays, status."""
-        from protoboard.gui.selection.hit_test import WireEditCycle
+        from protoboard.controller.selection.hit_test import WireEditCycle
 
         self._clear_wire_edit_overlay()
         self._clear_reroute_overlay()
@@ -2596,7 +2645,9 @@ class SelectTool(ControllerTool):
         No-op (returns ``False``) if *arm* failed to arm anything — e.g. an empty
         selection — so callers needn't pre-check.
         """
-        from protoboard.gui.tools.gui_tools import ArmedTransformTool
+        from protoboard.controller.tools.armed_transform_tool import (
+            ArmedTransformTool,
+        )
 
         arm()
         armed = self._view.tools.active_tool
@@ -2639,7 +2690,7 @@ class SelectTool(ControllerTool):
         active group are handed to the new tool, which arms the controller and
         returns control here on accept / cancel.
         """
-        from protoboard.gui.tools.gui_tools import ArmedTransformTool
+        assert self._armed_transform_factory is not None  # set by activate() / injection
 
         if self._selection.is_empty():
             self._status(empty_msg)
@@ -2651,7 +2702,7 @@ class SelectTool(ControllerTool):
         self._cancel_gesture()  # drop any stray drag/pick first
         self._pivot_capture_pending = False
         self._view.tools.set_tool(
-            ArmedTransformTool(
+            self._armed_transform_factory(
                 comp_ids, group_id,
                 active_group_id=self._current_group_id,
                 mode=mode,
@@ -3164,7 +3215,7 @@ class SelectTool(ControllerTool):
         :class:`SessionNetSource` (net → member comp/wire ids).  Simpler than
         the legacy section (no name-based global-net exclusion, no physical-vs-
         logical split) but covers the common "select the rest of this net"."""
-        from protoboard.gui.selection.queries import SessionConnQuery
+        from protoboard.controller.selection.queries import SessionConnQuery
 
         conn = SessionConnQuery(self._session)
         net_ids: list[uuid.UUID] = []
@@ -3591,7 +3642,7 @@ class SelectTool(ControllerTool):
         self, action: object, net_ids: tuple[uuid.UUID, ...]
     ) -> None:
         """Replace the selection with the components and/or wires of *net_ids*."""
-        from protoboard.gui.selection.queries import SessionNetSource
+        from protoboard.controller.selection.queries import SessionNetSource
 
         src = SessionNetSource(self._session)
         comp_ids: set[uuid.UUID] = set()
@@ -3609,7 +3660,7 @@ class SelectTool(ControllerTool):
     def _menu_highlight_selection(self) -> None:
         """Push the current selection onto the highlight stack at strong dimming
         (persistent #2) — the "spotlight this" action."""
-        from protoboard.gui.highlight_state import (
+        from protoboard.controller.highlight_entry import (
             PROFILE_DIMMED_2,
             HighlightEntry,
         )
@@ -3648,7 +3699,7 @@ class SelectTool(ControllerTool):
         defaults to the opposite of the wire's current side.  Falls back to the
         whole-wire layer move when no fragment is armed.
         """
-        from protoboard.gui.selection.wire_edit import build_flip_fragment_command
+        from protoboard.controller.selection.wire_edit import build_flip_fragment_command
 
         state = self._wire_edit
         if state is None:
@@ -3797,7 +3848,7 @@ class SelectTool(ControllerTool):
         from typing import cast
 
         from protoboard.controller.ports import BlockingJob
-        from protoboard.gui.selection.wire_ops import build_simplify_inputs
+        from protoboard.controller.selection.wire_ops import build_simplify_inputs
         from protoboard.services.routing.postprocess import (
             SimplifyMode,
             generic_simplify_wire,
@@ -3856,7 +3907,7 @@ class SelectTool(ControllerTool):
         if worker_out is None:
             return
 
-        from protoboard.gui.selection.wire_edit import replace_wire_path_cmd
+        from protoboard.controller.selection.wire_edit import replace_wire_path_cmd
 
         cmds: list[object] = []
         for wid, new_path, orig_path in worker_out:

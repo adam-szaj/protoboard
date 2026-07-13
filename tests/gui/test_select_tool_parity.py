@@ -31,7 +31,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.selection_axes import (
+from protoboard.controller.selection_axes import (
     RELATION_LABELS,
     RelationClass,
     SelectionFilter,
@@ -193,8 +193,8 @@ class TestAutoHighlightOnClick:
     def test_logical_net_click_highlights_whole_net(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.selection.adapters import ComponentSelectable
-        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        from protoboard.controller.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection_fsm import BasisScope, SetOp
 
         i1 = _place(board_view, session, 0.5, 0.5)
         i2 = _place(board_view, session, 3.5, 0.5)
@@ -226,8 +226,8 @@ class TestRelationBasisSelection:
     def test_relation_basis_selects_all_net_components(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.selection.adapters import ComponentSelectable
-        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        from protoboard.controller.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection_fsm import BasisScope, SetOp
 
         i1 = _place(board_view, session, 0.5, 0.5)
         i2 = _place(board_view, session, 3.5, 0.5)
@@ -297,8 +297,8 @@ class TestRelationBasisSelection:
         so the second net's click dropped the first.  ADD now rebuilds a
         relation-agnostic union.
         """
-        from protoboard.gui.selection.adapters import ComponentSelectable
-        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        from protoboard.controller.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection_fsm import BasisScope, SetOp
 
         a = _place(board_view, session, 0.5, 0.5)
         b = _place(board_view, session, 2.5, 0.5)

@@ -16,9 +16,9 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.gui import app_settings as APP
+from protoboard.controller import app_settings as APP
 from protoboard.gui import keybindings as KB
-from protoboard.gui.app_settings import AppSettings, load_app_settings
+from protoboard.controller.app_settings import AppSettings, load_app_settings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library

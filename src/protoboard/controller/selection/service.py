@@ -15,7 +15,7 @@ Two ways to consume selection:
   and then a confirm-terminated run of pad waypoints, instead of re-implementing
   hit-testing and a click loop.
 
-The service wraps the pure :class:`~protoboard.gui.selection_fsm.SelectionFSM`
+The service wraps the pure :class:`~protoboard.controller.selection_fsm.SelectionFSM`
 for the passive selection state, and owns the pick machinery itself.  It holds
 no Qt — highlighting is :class:`HighlightController`'s job (the stack-based
 dimming pipeline), never the service's.  This keeps the service and its pick
@@ -27,8 +27,8 @@ from __future__ import annotations
 from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
-from protoboard.gui.selection.selectable import Selectable, Stop
-from protoboard.gui.selection_fsm import (
+from protoboard.controller.selection.selectable import Selectable, Stop
+from protoboard.controller.selection_fsm import (
     Hit,
     SelectionFSM,
     SelectionState,
@@ -37,7 +37,7 @@ from protoboard.gui.selection_fsm import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from protoboard.gui.selection.selectable import PickKind
+    from protoboard.controller.selection.selectable import PickKind
 
 
 class PickSession:

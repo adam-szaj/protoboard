@@ -109,6 +109,35 @@ src/protoboard/
 │   ├── placement/      # spreader, etc.
 │   ├── drag_detector.py
 │   └── pad_strategy.py
+├── controller/         # Qt-free application layer — no `protoboard.gui` import
+│   │                   # anywhere under this tree (enforced by
+│   │                   # tests/unit/test_controller_no_gui_import.py).
+│   │                   # app_settings.py, theme.py, interaction_mode.py,
+│   │                   # highlight_entry.py (HighlightEntry + profiles),
+│   │                   # highlight_controller.py, selection_fsm.py, selection_axes.py
+│   ├── ports/          # inputs.py (PointerInput/KeyInput/WheelInput), viewport.py,
+│   │                   # executor.py, hover.py, help_overlay.py,
+│   │                   # interaction_context.py, status_event.py, tool_controller.py
+│   ├── editing/        # controller.py (EditController facade: tool_commands() /
+│   │                   # dispatch_tool_command() / active-tool ownership),
+│   │                   # headless_session.py (HeadlessSession — Qt-free base of
+│   │                   # gui.session.EditorSession), armed_transform.py,
+│   │                   # drag_commit.py, drag_set.py, drag_preferences.py,
+│   │                   # group_lock.py, item_handle.py (ItemId/ItemTag),
+│   │                   # placement_conflict.py, wire_nets.py, cli.py (CliDriver)
+│   ├── selection/      # SelectTool's Qt-free machinery: selectable.py
+│   │                   # (protocol+adapters), service.py (SelectionService +
+│   │                   # pick-API), hit_test.py, queries.py (net relation),
+│   │                   # wire_edit.py, wire_ops.py, mouse_input.py,
+│   │                   # point_pick_controller.py, drag_controller.py,
+│   │                   # rubber_band_controller.py, drop_resolution.py, adapters.py
+│   └── tools/          # select_tool.py, place_tool.py, route_tool.py, cut_tool.py,
+│                       # simplify_tool.py, armed_transform_tool.py (Qt-free
+│                       # command machines — base.py::ControllerTool);
+│                       # drag_commit_decision.py, select_prompts.py;
+│                       # *_preview.py (Protocol only — the Qt implementation
+│                       # lives in gui/tools/*_preview.py), transform_overlays.py
+│                       # (TransformOverlaysPort Protocol)
 ├── gui/
 │   ├── main_window.py, session.py, board_view.py, board_view_tool.py
 │   │                   # (AbstractBoardView + BoardViewTool seam),
@@ -116,15 +145,15 @@ src/protoboard/
 │   │                   # view_camera.py (zoom/pan-burst/mirror/fit),
 │   │                   # tool_host.py (tool lifecycle, input dispatch, canvas
 │   │                   # menu, [?] overlay), scene_composer.py (refresh:
-│   │                   # groups/fingerprints/overlays + live-drag), selection_fsm.py,
-│   │                   # drag_set.py, keybindings.py, …
-│   ├── selection/      # SelectTool-as-a-service: selectable.py (protocol+adapters),
-│   │                   # service.py (SelectionService + pick-API), hit_test.py,
-│   │                   # queries.py (net relation), wire_edit.py, wire_ops.py,
-│   │                   # mouse_input.py, point_pick_controller.py,
-│   │                   # drag_controller.py, rubber_band_controller.py, adapters.py
-│   ├── highlight/      # controller.py (policy: what to highlight),
-│   │                   # renderer.py (mechanism: dimming/outlines/overlays)
+│   │                   # groups/fingerprints/overlays + live-drag),
+│   │                   # keymap.py (KeyMap/AbstractKeyMap — stays in gui/;
+│   │                   # the View↔Controller seam, never imported by
+│   │                   # controller/), highlight_state.py (HighlightStack —
+│   │                   # the QObject stack; HighlightEntry itself re-exported
+│   │                   # from controller/highlight_entry.py), …
+│   ├── highlight/      # renderer.py (mechanism: dimming/outlines/overlays);
+│   │                   # HighlightController policy moved to
+│   │                   # controller/highlight_controller.py
 │   ├── renderers/      # board_renderer.py, component_renderer.py, wire_renderer.py
 │   ├── dialogs/        # preferences_dialog.py, group_target_dialog.py,
 │   │                   # pad_conflict_dialog.py, drag_disconnect_dialog.py,
@@ -139,10 +168,15 @@ src/protoboard/
 │   │                   # layers_panel.py, performance_panel.py,
 │   │                   # selection_filter_widget.py, highlight_mode_widget.py,
 │   │                   # tree_panel_mixin.py
-│   ├── tools/          # select_tool.py, place_tool.py, route_tool.py,
-│   │                   # cut_tool.py, simplify_tool.py,
-│   │                   # drag_conflict_overlay.py, drag_corner_text.py,
-│   │                   # drag_commit_decision.py
+│   ├── tools/          # gui_tools.py (Qt-composed tools: ViewToolMixin +
+│   │                   # controller/tools/*Tool — the concrete classes
+│   │                   # ToolHost/MainWindow instantiate; on_key raw-key
+│   │                   # translation + Qt-default preview/prompt injection
+│   │                   # live here); *_preview.py (QtSelectPreview etc. —
+│   │                   # the Qt-item implementation of each controller
+│   │                   # Protocol); drag_conflict_overlay.py,
+│   │                   # drag_corner_text.py, transform_overlays.py
+│   │                   # (TransformOverlays, the QColor-drawing implementation)
 │   └── workers/        # background QThread workers for autoroute, DRC, simplify
 └── app.py
 ```

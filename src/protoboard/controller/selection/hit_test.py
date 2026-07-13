@@ -25,7 +25,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from protoboard.gui.selection.adapters import (
+from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     GroupSelectable,
     WireSelectable,
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.placement import PlacementMap
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point, Rect
-    from protoboard.gui.selection.selectable import Selectable
+    from protoboard.controller.selection.selectable import Selectable
     from protoboard.types import Side
 
 HIT_RADIUS = 0.25  # pin reach (Euclidean, raster units)

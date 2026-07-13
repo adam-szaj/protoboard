@@ -25,7 +25,7 @@ from protoboard.gui.renderers.packages.base import (
     _lead_pen,
 )
 from protoboard.gui.renderers.packages.canvas import _body_pen
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 
 class CylinderRenderer(PackageRenderer):

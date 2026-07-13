@@ -32,7 +32,7 @@ from protoboard.gui.actions import (
     ActionSpec,
     strip_mnemonic,
 )
-from protoboard.gui.app_settings import AppSettings
+from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library

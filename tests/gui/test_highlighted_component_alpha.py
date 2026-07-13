@@ -22,7 +22,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.component_renderer import _render_one
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 
 def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlacement, uuid.UUID]:

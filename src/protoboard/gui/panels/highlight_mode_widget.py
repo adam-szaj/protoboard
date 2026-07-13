@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
 
-from protoboard.gui.selection_axes import RELATION_LABELS, RelationClass
+from protoboard.controller.selection_axes import RELATION_LABELS, RelationClass
 
 
 class HighlightModeWidget(QWidget):

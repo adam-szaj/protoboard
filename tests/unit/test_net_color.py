@@ -7,7 +7,7 @@ import uuid
 
 from protoboard.domain.schematic.net import Net
 from protoboard.gui.renderers.net_color import build_net_color_map
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 
 def _make_net(name: str, color: str | None = None) -> Net:

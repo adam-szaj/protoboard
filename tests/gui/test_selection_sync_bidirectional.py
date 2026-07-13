@@ -29,7 +29,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.gui import keybindings as KB
-from protoboard.gui.app_settings import AppSettings
+from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool

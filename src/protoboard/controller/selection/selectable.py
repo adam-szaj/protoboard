@@ -13,7 +13,7 @@ pure domain value objects (:class:`ComponentPlacement`, :class:`Wire`,
 :class:`ComponentGroup`, :class:`PinRef`) without pulling Qt into the domain.
 
 The protocol is pure (no Qt), so
-:class:`~protoboard.gui.selection.service.SelectionService` and its pick
+:class:`~protoboard.controller.selection.service.SelectionService` and its pick
 machinery stay headless-testable.  Highlight *rendering* is not a member:
 it goes through the :class:`HighlightStack` dimming pipeline
 (``gui/highlight/``), keyed by :meth:`identity` / :meth:`net_ids`.
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.geometry import Rect
-    from protoboard.gui.selection_fsm import Hit
+    from protoboard.controller.selection_fsm import Hit
     from protoboard.types import NetId
 
 

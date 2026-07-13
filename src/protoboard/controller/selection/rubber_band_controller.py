@@ -11,7 +11,7 @@ matching the legacy tool and every CAD convention:
 * **right-to-left** — every component the band *touches*.
 
 Like :class:`DragController` it implements the
-:class:`~protoboard.gui.selection.mouse_input.MouseInputController` protocol and owns
+:class:`~protoboard.controller.selection.mouse_input.MouseInputController` protocol and owns
 its own start threshold (a minimum rectangle size — below it the press/release
 is a click, not a band).  The geometry is pure; the only Qt seams are the live
 rectangle overlay and the bbox lookup, injected as callables so the controller
@@ -28,7 +28,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from protoboard.geometry import Point
-from protoboard.gui.selection.mouse_input import Intent, Mods
+from protoboard.controller.selection.mouse_input import Intent, Mods
 
 if TYPE_CHECKING:
     from collections.abc import Callable

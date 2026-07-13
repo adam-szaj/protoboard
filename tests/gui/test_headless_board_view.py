@@ -223,7 +223,7 @@ class TestGroupPromptHeadless:
     @staticmethod
     def _select_all(tool: SelectTool, session: EditorSession) -> None:
         """Select every placed component through the selection service."""
-        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.adapters import ComponentSelectable
 
         tool._selection.set_many([
             ComponentSelectable(component_id=cid, placement=pl)

@@ -31,7 +31,7 @@ from protoboard.gui.renderers.component_renderer import (
     _make_overlay_label,
     _get_refdes_font,
 )
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ class TestGhostHonoursPackageVariant:
     def _theme_and_defn(self):
         import dataclasses
         from pathlib import Path
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,

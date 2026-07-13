@@ -15,7 +15,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.selection import Stop
+from protoboard.controller.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
@@ -144,7 +144,7 @@ class TestCyanSelectionOutline:
     def test_selected_component_outline_turns_cyan(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
 
         inst = _place(board_view, session, 0.5, 0.5)
         board_view.refresh()
@@ -163,7 +163,7 @@ class TestCyanSelectionOutline:
     def test_deselect_restores_outline(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
 
         inst = _place(board_view, session, 0.5, 0.5)
         board_view.refresh()
@@ -250,7 +250,7 @@ class TestGroupSelectAndEdit:
     def test_selected_group_outline_turns_cyan(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
 
         gid = self._make_group(board_view, session)
         select_rgb = QColor(DEFAULT_THEME.select_color).rgb() & 0x00FFFFFF
@@ -980,7 +980,7 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
 
 
 def _select_wire(tool: SelectTool, session: EditorSession) -> None:
-    from protoboard.gui.selection.adapters import WireSelectable
+    from protoboard.controller.selection.adapters import WireSelectable
 
     wire = next(iter(session.layout.wires))
     tool._selection.set(WireSelectable(wire=wire))
@@ -1001,7 +1001,7 @@ class TestWireEdit:
 
         from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
-        from protoboard.gui.selection.adapters import WireSelectable
+        from protoboard.controller.selection.adapters import WireSelectable
 
         session, view = _wire_session(qtbot)
         # Replace the fixture wire with an endpoints-only one spanning 4 pads.
@@ -1198,7 +1198,7 @@ class TestWireEdit:
         commit) so every live segment was drawn from the fragment start.  It now
         reads the live ``PickSession``, like RouteTool's single ``_points``.
         """
-        from protoboard.gui.selection.adapters import PointSelectable
+        from protoboard.controller.selection.adapters import PointSelectable
 
         session, view = _wire_session(qtbot)
         tool = _v2(view)
@@ -1408,7 +1408,7 @@ class TestWireAndPadHighlight:
 
     def test_body_select_no_context_no_discs(self, qtbot) -> None:
         """A body click (no net context) lights no pads, even when netted."""
-        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.adapters import ComponentSelectable
 
         session, view = _wire_session(qtbot)
         view.refresh()
@@ -1611,7 +1611,7 @@ class TestFreePinHint:
     def test_free_pin_click_emits_hint(self, qtbot) -> None:
         from PySide6.QtCore import QPointF
 
-        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.adapters import ComponentSelectable
 
         session, view = _wire_session(qtbot)
         view.refresh()
@@ -1650,7 +1650,7 @@ class TestFreePinHint:
     def test_body_click_no_pin_no_hint(self, qtbot) -> None:
         from PySide6.QtCore import QPointF
 
-        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.controller.selection.adapters import ComponentSelectable
 
         session, view = _wire_session(qtbot)
         view.refresh()
@@ -1680,7 +1680,7 @@ class TestFreePinHint:
     def test_no_hint_for_wire_or_empty(self, qtbot) -> None:
         from PySide6.QtCore import QPointF
 
-        from protoboard.gui.selection.adapters import WireSelectable
+        from protoboard.controller.selection.adapters import WireSelectable
 
         session, view = _wire_session(qtbot)
         view.refresh()
@@ -2128,7 +2128,7 @@ class TestNetRelation:
     def test_relation_none_disables_context_highlight(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.selection_axes import RelationClass
+        from protoboard.controller.selection_axes import RelationClass
 
         i1, i2 = _two_comp_net(board_view, session)
         tool = _v2(board_view)
@@ -2142,7 +2142,7 @@ class TestNetRelation:
     def test_set_relation_changes_axis(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.selection_axes import RelationClass
+        from protoboard.controller.selection_axes import RelationClass
 
         tool = _v2(board_view)
         assert tool.relation == RelationClass.SAME_LOGICAL_NET

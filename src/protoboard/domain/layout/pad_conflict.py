@@ -906,7 +906,7 @@ def check_group_move_conflicts(
 
 
 def check_multi_group_move_conflicts(
-    drag_set: object,  # protoboard.gui.drag_set.DragSet
+    drag_set: object,  # protoboard.controller.editing.drag_set.DragSet
     active_group_id: uuid.UUID,
     layout_placements: PlacementMap,
     layout_wires: list[Wire],
@@ -936,7 +936,7 @@ def check_multi_group_move_conflicts(
     ``moved_ids``.
 
     Args:
-        drag_set: :class:`protoboard.gui.drag_set.DragSet` — the
+        drag_set: :class:`protoboard.controller.editing.drag_set.DragSet` — the
             structured snapshot built at press time.  Typed as
             ``object`` here to keep the domain module Qt-free.
         active_group_id: The user's current group context (root or a

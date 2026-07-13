@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""``PlacePreview`` — PlaceTool's ghost + reach overlay as a semantic object.
+"""``QtPlacePreview`` — PlaceTool's ghost + reach overlay as a semantic object.
 
 The qt-ports §3 pattern: the tool states *what the user sees* — the ghost
 body under the cursor, the green reachable-pad dots, the dashed pin→cursor
@@ -7,11 +7,17 @@ feedback line — and this object owns the ``QGraphicsItem`` mechanism.  The
 ghost's *content* (definition, rotation, offsets, variant, theme) is tool
 policy and travels through :meth:`show_ghost`'s arguments; only the baking
 into items (``make_ghost_item``) is mechanism.
+
+The ``PlacePreview`` Protocol PlaceTool depends on lives in
+:mod:`protoboard.controller.tools.place_preview` (Qt-free); re-exported here
+for existing GUI importers.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
+
+from protoboard.controller.tools.place_preview import PlacePreview as PlacePreview
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,52 +30,9 @@ if TYPE_CHECKING:
 
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.geometry import Point, Vector
-    from protoboard.gui.theme import Theme
+    from protoboard.controller.theme import Theme
 
 _REACH_PAD_RADIUS = 0.18
-
-
-class PlacePreview(Protocol):
-    """What PlaceTool shows while a component is being placed."""
-
-    def show_ghost(
-        self,
-        defn: ComponentDefinition,
-        *,
-        rotation: int,
-        pin_offsets: dict[int, Vector],
-        package_variant: str | None,
-        theme: Theme,
-    ) -> None:
-        """(Re)build the ghost body for the current transform (at 0,0)."""
-        ...
-
-    def move_ghost(self, pos: Point) -> None: ...
-
-    def clear_ghost(self) -> None: ...
-
-    @property
-    def has_ghost(self) -> bool: ...
-
-    def show_reach_dots(self, points: list[Point]) -> None:
-        """Mark the pads the active drag pin may land on (replaces previous)."""
-        ...
-
-    def show_reach_line(self, a: Point, b: Point) -> None:
-        """Dashed feedback line reach-origin→cursor (replaces the previous)."""
-        ...
-
-    def clear_reach_line(self) -> None:
-        """Drop the feedback line only (the reach dots stay)."""
-        ...
-
-    def clear_reach(self) -> None:
-        """Drop the reach dots and the feedback line."""
-        ...
-
-    def on_scene_cleared(self) -> None:
-        """Drop stale item refs after ``scene.clear()`` (C++ objects gone)."""
-        ...
 
 
 class QtPlacePreview:

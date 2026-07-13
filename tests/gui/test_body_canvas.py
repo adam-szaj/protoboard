@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtGui import QColor, QPen, QTransform
 
 from protoboard.gui.renderers.packages import BodyCanvas
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 
 def _canvas(**kw) -> BodyCanvas:

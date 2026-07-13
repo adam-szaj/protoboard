@@ -209,7 +209,7 @@ class ToolHost:
         """The actions executable at *scene_pos* right now (qt-ports §2.4).
 
         A pure query of state — equally usable by the RMB publication, a
-        test (which simulates the choice with ``trigger_tool_action``) or an
+        test (which simulates the choice with ``dispatch_tool_command``) or an
         interactive CLI.  The generic canvas context carries the active
         tool's own actions with their live shortcuts; the consumer adds its
         view chrome (center-here / cancel) itself.

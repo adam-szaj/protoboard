@@ -10,7 +10,7 @@ headless home for it.
 
 The :class:`RelationClass` axis itself (the enum, labels, render profiles, and
 the filter/relation persistence) already lives Qt-free in
-:mod:`protoboard.gui.selection_axes`; this module only adds the *correlation*
+:mod:`protoboard.controller.selection_axes`; this module only adds the *correlation*
 logic on top, reading nets through the narrow :class:`ConnQuery` seam plus a
 small :class:`NetSource` view of the schematic so it stays testable with a fake
 instead of a full session.
@@ -22,7 +22,7 @@ instead of a full session.
 * :func:`source_net_ids` — every logical net the source touches (port of
   ``_resolve_relation_net_ids`` / ``_resolve_logical_net``).
 * :class:`SessionConnQuery` / :class:`SessionNetSource` — concrete adapters over
-  an ``EditorSession`` satisfying the :class:`ConnQuery` / :class:`NetSource`
+  a ``HeadlessSession`` satisfying the :class:`ConnQuery` / :class:`NetSource`
   protocols; the tool builds these, tests pass fakes.
 """
 
@@ -32,13 +32,13 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from protoboard.gui.selection_axes import RelationClass
+from protoboard.controller.selection_axes import RelationClass
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from protoboard.gui.selection.selectable import ConnQuery
-    from protoboard.gui.session import EditorSession
+    from protoboard.controller.editing.headless_session import HeadlessSession
+    from protoboard.controller.selection.selectable import ConnQuery
     from protoboard.types import NetId
 
 __all__ = [
@@ -161,9 +161,9 @@ def relation_correlated(
 
 @dataclass(frozen=True, slots=True)
 class SessionConnQuery:
-    """A :class:`ConnQuery` over an ``EditorSession`` (schematic + wire-net map)."""
+    """A :class:`ConnQuery` over a ``HeadlessSession`` (schematic + wire-net map)."""
 
-    session: EditorSession
+    session: HeadlessSession
 
     def nets_for_component(self, component_id: object) -> frozenset[NetId]:
         return frozenset(
@@ -190,9 +190,9 @@ class SessionConnQuery:
 
 @dataclass(frozen=True, slots=True)
 class SessionNetSource:
-    """A :class:`NetSource` over an ``EditorSession`` (reverse net membership)."""
+    """A :class:`NetSource` over a ``HeadlessSession`` (reverse net membership)."""
 
-    session: EditorSession
+    session: HeadlessSession
 
     def net_component_ids(self, net_id: NetId) -> frozenset[uuid.UUID]:
         net = self.session.schematic.nets.get(net_id)

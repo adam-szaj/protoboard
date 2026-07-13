@@ -59,7 +59,7 @@ from protoboard.gui.renderers.prism_silhouette import (
     SilSilhouette,
     silhouette_for,
 )
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 if TYPE_CHECKING:
     from protoboard.domain.components.package import PackageFamily

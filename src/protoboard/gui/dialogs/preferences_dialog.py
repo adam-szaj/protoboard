@@ -34,9 +34,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protoboard.gui.app_settings import AppSettings, save_app_settings
+from protoboard.controller.app_settings import AppSettings, save_app_settings
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
-from protoboard.gui.theme import Theme, save_theme
+from protoboard.controller.theme import Theme, save_theme
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QComboBox, QFormLayout
@@ -1174,7 +1174,7 @@ class _RoutingPage(QWidget):
         the user is not left with redundant deltas.
         """
         from PySide6.QtWidgets import QInputDialog, QMessageBox
-        from protoboard.gui.app_settings import save_app_settings
+        from protoboard.controller.app_settings import save_app_settings
         from protoboard.services.routing.cost_presets import builtin_preset_names
 
         # Snapshot the current effective weights as the user sees them in
@@ -1463,7 +1463,7 @@ class _DragPage(QWidget):
     """
 
     # (value, label) pairs.  Values MUST stay in sync with
-    # ``protoboard.gui.drag_preferences.DRAG_CONFLICT_VALUES`` — the
+    # ``protoboard.controller.editing.drag_preferences.DRAG_CONFLICT_VALUES`` — the
     # assertion below catches drift.  Labels are UI-facing only.
     _CONFLICT_CHOICES: list[tuple[str, str]] = [
         ("auto-remove", "Auto-remove (silent)"),
@@ -1477,7 +1477,7 @@ class _DragPage(QWidget):
         self, settings: AppSettings, parent: QWidget | None = None,
     ) -> None:
         from PySide6.QtWidgets import QFormLayout
-        from protoboard.gui.drag_preferences import DRAG_CONFLICT_VALUES
+        from protoboard.controller.editing.drag_preferences import DRAG_CONFLICT_VALUES
         assert {v for v, _l in self._CONFLICT_CHOICES} == DRAG_CONFLICT_VALUES, (
             "DragPage choices drifted from DRAG_CONFLICT_VALUES — keep them in sync"
         )

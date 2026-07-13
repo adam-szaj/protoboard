@@ -44,10 +44,10 @@ from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.gui.placement_conflict import PlacementPrompts
+    from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing import EditState
     from protoboard.controller.ports import PointerInput
-    from protoboard.gui.tools.place_preview import PlacePreview
+    from protoboard.controller.tools.place_preview import PlacePreview
     from protoboard.controller.editing.controller import ResolvedPlacement
 
 _log = structlog.get_logger(__name__)
@@ -607,7 +607,7 @@ class PlaceTool(ControllerTool):
 
         has_wire_conflict = bool(resolved.wire_cmds)
 
-        from protoboard.gui.app_settings import load_app_settings
+        from protoboard.controller.app_settings import load_app_settings
         auto_accept = load_app_settings().auto_accept_placement
 
         if auto_accept and not has_wire_conflict:

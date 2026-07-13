@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Concrete :class:`~protoboard.gui.selection.selectable.Selectable` adapters.
+"""Concrete :class:`~protoboard.controller.selection.selectable.Selectable` adapters.
 
 One thin wrapper per board entity the user can select or pick.  Each wraps a
 pure domain value object and supplies the polymorphic behaviour the legacy
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from protoboard.geometry import Point
-from protoboard.gui.selection_fsm import Hit
+from protoboard.controller.selection_fsm import Hit
 
 if TYPE_CHECKING:
     from protoboard.domain.layout.group import ComponentGroup
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.net import PinRef
     from protoboard.geometry import Rect
-    from protoboard.gui.selection.selectable import (
+    from protoboard.controller.selection.selectable import (
         ConnQuery,
         SelectableKey,
     )

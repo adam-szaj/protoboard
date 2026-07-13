@@ -39,8 +39,8 @@ from typing import TYPE_CHECKING, Protocol
 import structlog
 
 from protoboard.geometry import Point, Vector
-from protoboard.gui.drag_set import DragSet
-from protoboard.gui.selection.mouse_input import Intent, Mods
+from protoboard.controller.editing.drag_set import DragSet
+from protoboard.controller.selection.mouse_input import Intent, Mods
 from protoboard.controller.tools.drag_commit_decision import DragSeverity
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     )
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.gui.drag_preferences import DragPreferences
+    from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
 __all__ = ["DragContext", "DragController", "DragOutcome", "FloatingPhase"]
@@ -142,7 +142,7 @@ class DragController:
     """Headless drag / floating gesture over a :class:`DragContext`.
 
     Implements the
-    :class:`~protoboard.gui.selection.mouse_input.MouseInputController` protocol
+    :class:`~protoboard.controller.selection.mouse_input.MouseInputController` protocol
     (``on_move`` drives the drag, ``on_release`` finalizes, ``on_event`` handles
     CONFIRM / CANCEL while floating); armed by constructing it on press with the
     snapshot of what to drag.
@@ -505,7 +505,7 @@ class DragController:
         Delegates to the shared :func:`drop_resolution.resolve_drops` so a
         float-transform commit resolves drops identically (same dialogs).
         """
-        from protoboard.gui.selection.drop_resolution import resolve_drops
+        from protoboard.controller.selection.drop_resolution import resolve_drops
 
         return resolve_drops(
             decision,

@@ -30,7 +30,7 @@ from protoboard.gui.renderers.component_renderer import (
     _get_refdes_font,
     _make_overlay_label,
 )
-from protoboard.gui.theme import Theme
+from protoboard.controller.theme import Theme
 
 
 # Distance (raster units) between the board edge and the closest edge of the

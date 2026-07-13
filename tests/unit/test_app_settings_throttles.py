@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from protoboard.gui.app_settings import (
+from protoboard.controller.app_settings import (
     AppSettings,
     load_app_settings,
     save_app_settings,
@@ -21,7 +21,7 @@ from protoboard.gui.app_settings import (
 def _isolate_settings_file(tmp_path, monkeypatch):
     """Redirect both load and save to a fresh path per test."""
     target = tmp_path / "app_settings.yaml"
-    monkeypatch.setattr("protoboard.gui.app_settings._CONFIG_PATH", target)
+    monkeypatch.setattr("protoboard.controller.app_settings._CONFIG_PATH", target)
     return target
 
 

@@ -44,7 +44,7 @@ from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import BOARD_GHOST_ALPHA, Z_BOARD, LayerState
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 # Per-pad colour mapping passed to ``build_board_display_list``.
 # Key is the pad centre (cx, cy) rounded to 3 decimals; value is either

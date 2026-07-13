@@ -14,8 +14,8 @@ from typing import cast
 
 import pytest  # pyright: ignore[reportMissingImports]  # resolvable; worktree lacks [tool.pyright] venv
 
-from protoboard.gui.selection import Selectable, SelectionService, Stop
-from protoboard.gui.selection_fsm import Hit
+from protoboard.controller.selection import Selectable, SelectionService, Stop
+from protoboard.controller.selection_fsm import Hit
 
 
 class _FakeSelectable:
@@ -289,7 +289,7 @@ class TestAdapters:
     def test_component_adapter(self) -> None:
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.geometry import Point
-        from protoboard.gui.selection import ComponentSelectable
+        from protoboard.controller.selection import ComponentSelectable
 
         cid = uuid.uuid4()
         pl = ComponentPlacement(
@@ -303,7 +303,7 @@ class TestAdapters:
         assert hit.pin_number == 3
 
     def test_wire_adapter(self) -> None:
-        from protoboard.gui.selection import WireSelectable
+        from protoboard.controller.selection import WireSelectable
 
         wid = uuid.uuid4()
         sel = WireSelectable(wire=_wire(wid))
@@ -312,7 +312,7 @@ class TestAdapters:
 
     def test_group_adapter(self) -> None:
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.gui.selection import GroupSelectable
+        from protoboard.controller.selection import GroupSelectable
 
         gid = uuid.uuid4()
         sel = GroupSelectable(group=ComponentGroup(id=gid, name="G"))
@@ -321,7 +321,7 @@ class TestAdapters:
 
     def test_pin_adapter_bridges_to_component_hit(self) -> None:
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.gui.selection import PinSelectable
+        from protoboard.controller.selection import PinSelectable
 
         cid = uuid.uuid4()
         sel = PinSelectable(pin=PinRef(component_id=cid, pin_number=2))
@@ -330,7 +330,7 @@ class TestAdapters:
         assert sel.to_hit() == Hit("component", cid, pin_number=2)
 
     def test_wire_vertex_adapter_bridges_to_wire_hit(self) -> None:
-        from protoboard.gui.selection import WireVertexSelectable
+        from protoboard.controller.selection import WireVertexSelectable
 
         wid = uuid.uuid4()
         sel = WireVertexSelectable(wire_id=wid, index=1)
@@ -339,7 +339,7 @@ class TestAdapters:
         assert sel.to_hit() == Hit("wire", wid)
 
     def test_adapters_are_structurally_selectable(self) -> None:
-        from protoboard.gui.selection import Selectable, WireSelectable
+        from protoboard.controller.selection import Selectable, WireSelectable
 
         # @runtime_checkable: the adapter exposes the full protocol surface.
         assert isinstance(WireSelectable(wire=_wire()), Selectable)
@@ -347,7 +347,7 @@ class TestAdapters:
 
 class TestServiceWithAdapters:
     def test_set_then_selected_returns_adapter(self) -> None:
-        from protoboard.gui.selection import WireSelectable
+        from protoboard.controller.selection import WireSelectable
 
         svc = SelectionService()
         wire_sel = WireSelectable(wire=_wire())
@@ -358,7 +358,7 @@ class TestServiceWithAdapters:
         assert svc.is_empty() is False
 
     def test_clear_empties_selection(self) -> None:
-        from protoboard.gui.selection import WireSelectable
+        from protoboard.controller.selection import WireSelectable
 
         svc = SelectionService()
         svc.set(WireSelectable(wire=_wire()))

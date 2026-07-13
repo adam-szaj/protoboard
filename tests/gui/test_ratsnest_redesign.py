@@ -35,7 +35,7 @@ from protoboard.gui.renderers.wire_renderer import (
     _lines_within_island,
     render_ratsnest,
 )
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot

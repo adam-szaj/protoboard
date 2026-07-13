@@ -81,7 +81,7 @@ def _medium_hit_tester(session, board_view):
     """A HitTester bound to the medium fixture (v2's hit-test home)."""
     from typing import cast
 
-    from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
+    from protoboard.controller.selection.hit_test import HitTester, SelectionFilters
     from protoboard.types import Side
 
     tester = HitTester(session, camera_side=cast(Side, board_view.camera_side))

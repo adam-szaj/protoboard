@@ -2,9 +2,9 @@
 """``HighlightController`` — drive the highlight-stack dimming from Selectables.
 
 A thin service that turns a set of
-:class:`~protoboard.gui.selection.selectable.Selectable` entities into an
-auto-tier :class:`~protoboard.gui.highlight_state.HighlightEntry` on the shared
-:class:`~protoboard.gui.highlight_state.HighlightStack`.  ``BoardView``
+:class:`~protoboard.controller.selection.selectable.Selectable` entities into an
+auto-tier :class:`~protoboard.controller.highlight_entry.HighlightEntry` on the
+shared :class:`~protoboard.gui.highlight_state.HighlightStack`.  ``BoardView``
 already subscribes to the stack's ``changed`` signal and applies opacity dimming,
 so the controller never touches the scene — it only publishes "what is
 highlighted" and the existing pipeline does the rest.
@@ -21,17 +21,29 @@ the entry it publishes.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
-from protoboard.gui.highlight_state import HighlightEntry
-from protoboard.gui.interaction_mode import HighlightProfile
+from protoboard.controller.highlight_entry import HighlightEntry
+from protoboard.controller.interaction_mode import HighlightProfile
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from protoboard.gui.highlight_state import HighlightStack
-    from protoboard.gui.selection.selectable import Selectable
+    from protoboard.controller.selection.selectable import Selectable
     from protoboard.types import NetId
+
+
+class HighlightStackPort(Protocol):
+    """The two ``HighlightStack`` (auto-tier) methods this controller calls.
+
+    A structural seam so this module stays Qt-free: the concrete
+    ``gui.highlight_state.HighlightStack`` (a ``QObject``) satisfies it
+    without this module importing it.
+    """
+
+    def push_auto(self, entry: HighlightEntry, *, source_id: str) -> None: ...
+
+    def clear_auto(self, source_id: str) -> None: ...
 
 
 class HighlightController:
@@ -42,7 +54,7 @@ class HighlightController:
     """
 
     def __init__(
-        self, stack: HighlightStack, *, source_id: str = "select_tool"
+        self, stack: HighlightStackPort, *, source_id: str = "select_tool"
     ) -> None:
         self._stack = stack
         self._source_id = source_id

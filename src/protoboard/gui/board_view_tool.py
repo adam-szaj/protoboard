@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from protoboard.gui.paint_pipeline import PaintPipeline
     from protoboard.gui.scene_composer import SceneComposer
     from protoboard.gui.session import EditorSession
-    from protoboard.gui.theme import Theme
+    from protoboard.controller.theme import Theme
     from protoboard.gui.tool_host import ToolHost
     from protoboard.gui.view_camera import ViewCamera
 
@@ -383,7 +383,7 @@ class ViewToolMixin:
         pass
 
     def _theme(self) -> Theme:
-        from protoboard.gui.theme import DEFAULT_THEME, Theme
+        from protoboard.controller.theme import DEFAULT_THEME, Theme
         t = getattr(self._view, "_theme_override", None)
         return t if isinstance(t, Theme) else DEFAULT_THEME
 

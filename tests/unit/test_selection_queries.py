@@ -14,14 +14,14 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from protoboard.gui.selection.queries import (
+from protoboard.controller.selection.queries import (
     RelationSource,
     SessionConnQuery,
     SessionNetSource,
     relation_correlated,
     source_net_ids,
 )
-from protoboard.gui.selection_axes import RelationClass
+from protoboard.controller.selection_axes import RelationClass
 
 
 @dataclass

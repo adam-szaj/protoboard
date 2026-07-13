@@ -55,7 +55,7 @@ from protoboard.gui.paint_pipeline import PaintPipeline
 from protoboard.gui.renderers.board_renderer import BOARD_BG
 from protoboard.gui.scene_composer import SceneComposer
 from protoboard.gui.session import EditorSession
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
 from protoboard.gui.qt_executor import QtExecutor
 from protoboard.gui.qt_help_overlay import QtHelpOverlay
@@ -373,7 +373,7 @@ class BoardView(QGraphicsView):
 
     @traced()
     def set_theme(self, theme: object) -> None:
-        from protoboard.gui.theme import Theme
+        from protoboard.controller.theme import Theme
         if isinstance(theme, Theme):
             self._theme_override = theme
             # board_bg is applied as the QGraphicsView background brush, not
@@ -601,7 +601,7 @@ class BoardView(QGraphicsView):
         would re-pass already-selected items to ``set_many``, which toggles them
         back OFF (the documented FSM trap).
         """
-        from protoboard.gui.selection.queries import SessionNetSource
+        from protoboard.controller.selection.queries import SessionNetSource
         from protoboard.gui.tools.gui_tools import SelectTool
 
         if not isinstance(self._active_tool, SelectTool):

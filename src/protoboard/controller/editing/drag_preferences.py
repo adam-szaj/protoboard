@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from protoboard.gui.app_settings import AppSettings
+    from protoboard.controller.app_settings import AppSettings
 
 
 __all__ = [

@@ -306,7 +306,7 @@ class TestTO220Plugin:
     ) -> None:
         from PySide6.QtGui import QColor
 
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
         from protoboard.paths import BUILTIN_LIBRARY_DIR
 
         loaded = load_renderer_plugins([BUILTIN_LIBRARY_DIR])
@@ -335,7 +335,7 @@ class TestTO220Plugin:
         # INSIDE the body rectangle and run its full length along the pin row.
         from PySide6.QtGui import QColor
 
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
         from protoboard.paths import BUILTIN_LIBRARY_DIR
 
         load_renderer_plugins([BUILTIN_LIBRARY_DIR])
@@ -375,7 +375,7 @@ class TestPaintState:
     def test_draw_exposes_resolved_paint(self, qtbot, do_test_package) -> None:
         from PySide6.QtGui import QColor
 
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
 
         seen = {}
 
@@ -399,7 +399,7 @@ class TestPaintState:
     ) -> None:
         from PySide6.QtGui import QColor
 
-        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.controller.theme import DEFAULT_THEME
 
         class Overrider(CylinderRenderer):
             def render_body(self, positions):

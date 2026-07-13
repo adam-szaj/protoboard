@@ -1,15 +1,23 @@
 # SPDX-License-Identifier: MIT
-"""``SimplifyPreview`` — SimplifyTool's draft overlay as a semantic object.
+"""``QtSimplifyPreview`` — SimplifyTool's draft overlay as a semantic object.
 
 The qt-ports §3 pattern: the tool states "this simplified path is drafted"
 and this object owns the dashed-polyline ``QGraphicsItem`` mechanism.  The
 draft *state* (which wire, which path) stays on the tool; the preview only
 carries the visible overlay.
+
+The ``SimplifyPreview`` Protocol SimplifyTool depends on lives in
+:mod:`protoboard.controller.tools.simplify_preview` (Qt-free); re-exported
+here for existing GUI importers.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
+
+from protoboard.controller.tools.simplify_preview import (
+    SimplifyPreview as SimplifyPreview,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -17,23 +25,9 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
     from protoboard.geometry import Point
-    from protoboard.gui.theme import Theme
+    from protoboard.controller.theme import Theme
 
 _PREVIEW_WIDTH = 0.12
-
-
-class SimplifyPreview(Protocol):
-    """The dashed draft polyline SimplifyTool shows before applying."""
-
-    def show_draft(self, path: list[Point]) -> None:
-        """Draw the drafted path as a dashed overlay (replaces the previous)."""
-        ...
-
-    def clear_draft(self) -> None: ...
-
-    def on_scene_cleared(self) -> None:
-        """Drop stale item refs after ``scene.clear()`` (C++ objects gone)."""
-        ...
 
 
 class QtSimplifyPreview:

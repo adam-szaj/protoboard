@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Tests for protoboard.gui.drag_set.
+"""Tests for protoboard.controller.editing.drag_set.
 
 `DragSet` is the GUI-level snapshot of what the user is dragging:
 free top-level components + monolithic groups + wires.  These tests
@@ -17,7 +17,7 @@ from typing import Callable, TypedDict
 import pytest
 
 from protoboard.domain.layout.group import ComponentGroup
-from protoboard.gui.drag_set import DragSet
+from protoboard.controller.editing.drag_set import DragSet
 
 
 class World(TypedDict):

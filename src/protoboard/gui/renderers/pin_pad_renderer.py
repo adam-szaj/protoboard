@@ -45,7 +45,7 @@ from protoboard.gui.layer_state import (
     Z_PIN_MODIFIERS,
     Z_PIN_PADS,
 )
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 
 # ---------------------------------------------------------------------------

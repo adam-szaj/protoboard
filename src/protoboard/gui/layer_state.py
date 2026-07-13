@@ -336,7 +336,7 @@ def layer_state_for_tool(
     )
     if theme is not None:
         import dataclasses
-        from protoboard.gui.theme import Theme
+        from protoboard.controller.theme import Theme
         if isinstance(theme, Theme):
             state = dataclasses.replace(
                 state,

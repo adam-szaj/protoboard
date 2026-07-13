@@ -31,7 +31,7 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
 from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS, Z_LABELS_TOP
 from protoboard.gui.renderers.body_shapes import body_shape_for
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 _ALPHA_ACTIVE = 1.0      # components in the active group
 _ALPHA_SUBGROUP = 0.45   # components inside a child group of the active group

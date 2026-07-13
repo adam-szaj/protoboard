@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
-from protoboard.gui.selection_axes import SelectionFilter
+from protoboard.controller.selection_axes import SelectionFilter
 
 
 class SelectionFilterWidget(QWidget):

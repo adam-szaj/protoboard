@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Tests for protoboard.gui.drag_preferences and AppSettings drag fields.
+"""Tests for protoboard.controller.editing.drag_preferences and AppSettings drag fields.
 
 Covers:
 * defaults from AppSettings,
@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 from ruamel.yaml import YAML  # type: ignore[import-untyped]
 
-from protoboard.gui import app_settings as app_settings_mod
-from protoboard.gui.app_settings import AppSettings, load_app_settings, save_app_settings
-from protoboard.gui.drag_preferences import (
+from protoboard.controller import app_settings as app_settings_mod
+from protoboard.controller.app_settings import AppSettings, load_app_settings, save_app_settings
+from protoboard.controller.editing.drag_preferences import (
     DRAG_CONFLICT_VALUES,
     DragPreferences,
     DragSessionOverrides,

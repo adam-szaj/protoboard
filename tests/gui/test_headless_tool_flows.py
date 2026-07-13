@@ -36,7 +36,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.controller.editing.drag_commit import classify_drag_commit
 from protoboard.controller.ports import Mods
-from protoboard.gui.selection.adapters import (
+from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     WireSelectable,
 )

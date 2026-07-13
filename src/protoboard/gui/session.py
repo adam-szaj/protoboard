@@ -27,7 +27,7 @@ from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
 
 if TYPE_CHECKING:
-    from protoboard.gui.selection.service import SelectionService
+    from protoboard.controller.selection.service import SelectionService
 
 
 @dataclass
@@ -230,12 +230,12 @@ class EditorSession(HeadlessSession, QObject):
         svc = self.selection_service
         if svc is None:
             return
-        from protoboard.gui.selection.adapters import (
+        from protoboard.controller.selection.adapters import (
             ComponentSelectable,
             GroupSelectable,
             WireSelectable,
         )
-        from protoboard.gui.selection.selectable import Selectable
+        from protoboard.controller.selection.selectable import Selectable
 
         id_set = frozenset(ids)
         targets: list[Selectable] = []

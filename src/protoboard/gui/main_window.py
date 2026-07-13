@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.controller.ports import InteractionContext, StatusEvent
 
-from protoboard.gui.app_settings import AppSettings
+from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
 
 from PySide6.QtCore import Qt, QFileSystemWatcher, Signal
@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         self._watched_net_path: Path | None = None
         self._kicad_watcher = QFileSystemWatcher(self)
         self._kicad_watcher.fileChanged.connect(self._on_kicad_net_changed)
-        from protoboard.gui.theme import load_theme, Theme as _Theme
+        from protoboard.controller.theme import load_theme, Theme as _Theme
         self._theme: _Theme = load_theme()
         self._update_title()
         self.resize(1280, 800)
@@ -1068,7 +1068,7 @@ class MainWindow(QMainWindow):
 
     def _persist_wire_defaults(self) -> None:
         """Save the current manual-wire choice as the persistent default."""
-        from protoboard.gui.app_settings import save_app_settings
+        from protoboard.controller.app_settings import save_app_settings
 
         self._app_settings.wire_default_insulated = self._wire_insulated
         self._app_settings.wire_default_side = self._wire_side
@@ -3028,13 +3028,13 @@ class MainWindow(QMainWindow):
             act.setShortcut(self._ks(action_id))
 
     def _on_theme_applied(self, theme: object) -> None:
-        from protoboard.gui.theme import Theme
+        from protoboard.controller.theme import Theme
         if isinstance(theme, Theme):
             self._theme = theme
             self._board_view.set_theme(theme)
 
     def _on_paths_applied(self, settings: object) -> None:
-        from protoboard.gui.app_settings import AppSettings
+        from protoboard.controller.app_settings import AppSettings
         from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.services.library.loader import load_library
         if not isinstance(settings, AppSettings):
@@ -3074,7 +3074,7 @@ class MainWindow(QMainWindow):
         The seam publishes *what can be done here* (qt-ports §2.4); showing a
         modal menu is this consumer's choice.  The tool-action section comes
         from ``ctx.actions`` and executes through the existing
-        ``trigger_tool_action`` path; center-here / cancel are view chrome
+        ``dispatch_tool_command`` path; center-here / cancel are view chrome
         this window adds itself (parity with the old ToolHost canvas menu).
         """
         from PySide6.QtCore import QPointF
@@ -3295,7 +3295,7 @@ class MainWindow(QMainWindow):
 
     def _apply_selection_settings_to_tool(self, tool: SelectTool) -> None:
         """Push filter+relation from app_settings into a freshly built SelectTool."""
-        from protoboard.gui.selection_axes import (
+        from protoboard.controller.selection_axes import (
             filter_from_tokens,
             relation_from_str,
         )
@@ -3303,16 +3303,16 @@ class MainWindow(QMainWindow):
         tool.set_relation(relation_from_str(self._app_settings.selection_relation))
 
     def _on_filter_changed(self, new_filter: object) -> None:
-        from protoboard.gui.app_settings import save_app_settings
-        from protoboard.gui.selection_axes import SelectionFilter, filter_to_tokens
+        from protoboard.controller.app_settings import save_app_settings
+        from protoboard.controller.selection_axes import SelectionFilter, filter_to_tokens
         if not isinstance(new_filter, SelectionFilter):
             return
         self._app_settings.selection_filter_tokens = filter_to_tokens(new_filter)
         save_app_settings(self._app_settings)
 
     def _on_relation_changed(self, new_relation: object) -> None:
-        from protoboard.gui.app_settings import save_app_settings
-        from protoboard.gui.selection_axes import RelationClass
+        from protoboard.controller.app_settings import save_app_settings
+        from protoboard.controller.selection_axes import RelationClass
         if not isinstance(new_relation, RelationClass):
             return
         self._app_settings.selection_relation = new_relation.value
@@ -3324,7 +3324,7 @@ class MainWindow(QMainWindow):
         Pushes the new value back through SelectionFilterWidget so the
         status-bar buttons stay in sync and the change is persisted.
         """
-        from protoboard.gui.selection_axes import SelectionFilter
+        from protoboard.controller.selection_axes import SelectionFilter
         current = self._select_tool.filter
         flag = {
             "components": SelectionFilter.COMPONENTS,
@@ -3341,7 +3341,7 @@ class MainWindow(QMainWindow):
 
     def _set_relation_by_name(self, value: str) -> None:
         """Set the SelectTool's relation class from a string identifier."""
-        from protoboard.gui.selection_axes import relation_from_str
+        from protoboard.controller.selection_axes import relation_from_str
         relation = relation_from_str(value)
         self._select_tool.set_relation(relation)
         self._hl_mode_widget.set_tool(self._select_tool)
@@ -3349,7 +3349,7 @@ class MainWindow(QMainWindow):
 
     def _cycle_relation(self, forward: bool) -> None:
         """Cycle through RelationClass values forward or backward."""
-        from protoboard.gui.selection_axes import RelationClass
+        from protoboard.controller.selection_axes import RelationClass
         relations = list(RelationClass)
         idx = relations.index(self._select_tool.relation)
         step = 1 if forward else -1

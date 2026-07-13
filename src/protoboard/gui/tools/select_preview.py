@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""``SelectPreview`` — SelectTool's transient overlays as semantic objects.
+"""``QtSelectPreview`` — SelectTool's transient overlays as semantic objects.
 
 The qt-ports §3 pattern, applied to the five overlay concepts SelectTool
 draws (armed-rotate pivot markers, the rubber band, the re-drag landing
@@ -10,14 +10,20 @@ test can inject one recorder.
 
 Policy stays in the tool (which pads are feasible, which vertices are
 marked, where the anchor is); only the item mechanism lives here.
+
+The ``SelectPreview`` Protocol SelectTool depends on lives in
+:mod:`protoboard.controller.tools.select_preview` (Qt-free); re-exported here
+for existing GUI importers.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
+
+from protoboard.controller.tools.select_preview import SelectPreview as SelectPreview
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
@@ -47,70 +53,6 @@ _NODE_RADIUS = 0.13
 
 _REDRAG_PAD_RADIUS = 0.18
 _REDRAG_GREEN = QColor(0, 200, 80, 120)
-
-
-class SelectPreview(Protocol):
-    """The transient overlays SelectTool shows (semantic surface)."""
-
-    # armed-rotate pivot markers
-    def show_pivot(self, pos: Point, *, shared: bool) -> None:
-        """Add one ⊕ pivot marker (shared = bigger/brighter)."""
-        ...
-
-    def clear_pivots(self) -> None: ...
-
-    # rubber band
-    def show_band(self, a: Point, b: Point, ltr: bool) -> None:
-        """Show/update the rubber band (ltr picks the solid-vs-dash style)."""
-        ...
-
-    def clear_band(self) -> None: ...
-
-    # re-drag landing overlay
-    def show_redrag_pad(self, pt: Point) -> None:
-        """Add one green landing-pad dot."""
-        ...
-
-    def show_reach_disc(self, centre: Point, radius: float) -> None:
-        """Outline the grabbed pin's reach disc."""
-        ...
-
-    def show_redrag_live(self, pos: Point, ok: bool) -> None:
-        """Validity tint under the cursor: green ring, or red ring + X cross
-        (the cross is the non-colour accessibility cue).  Replaces the
-        previous marker."""
-        ...
-
-    def clear_redrag_live(self) -> None: ...
-
-    def clear_redrag(self) -> None:
-        """Drop the pads, the reach disc and the live marker."""
-        ...
-
-    # wire-edit fragment overlay
-    def show_wire_edit_wire(self, path: list[Point], marked: Collection[int]) -> None:
-        """Add one wire's cyan segments + vertex dots (*marked* indices red)."""
-        ...
-
-    def clear_wire_edit(self) -> None: ...
-
-    # reroute waypoint preview
-    def show_reroute_path(self, points: list[Point]) -> None:
-        """Dashed orange polyline through *points* (replaces the previous,
-        including the live segment)."""
-        ...
-
-    def show_reroute_live(self, a: Point, b: Point) -> None:
-        """Live anchor→cursor segment (replaces the previous)."""
-        ...
-
-    def clear_reroute_live(self) -> None: ...
-
-    def clear_reroute(self) -> None: ...
-
-    def on_scene_cleared(self) -> None:
-        """Drop stale item refs after ``scene.clear()`` (C++ objects gone)."""
-        ...
 
 
 # -- one small class per overlay concept ---------------------------------------

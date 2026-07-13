@@ -20,7 +20,7 @@ import uuid
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from protoboard.gui.drag_preferences import DragPreferences
+    from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
     ResolveFn = Callable[

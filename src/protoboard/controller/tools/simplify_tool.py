@@ -38,7 +38,7 @@ from protoboard.services.routing.postprocess import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.gui.tools.simplify_preview import SimplifyPreview
+    from protoboard.controller.tools.simplify_preview import SimplifyPreview
 
 
 def compute_simplified_wire(

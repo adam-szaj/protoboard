@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protoboard.gui.app_settings import AppSettings, save_app_settings
+from protoboard.controller.app_settings import AppSettings, save_app_settings
 from protoboard.services.routing.cost_model import (
     merged_cost_key_docs,
     merged_user_tunable_cost_keys,

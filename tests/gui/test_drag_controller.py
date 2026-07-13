@@ -25,13 +25,13 @@ from PySide6.QtGui import QMouseEvent
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.drag_set import DragSet
-from protoboard.gui.selection.drag_controller import (
+from protoboard.controller.editing.drag_set import DragSet
+from protoboard.controller.selection.drag_controller import (
     DragContext,
     DragController,
     FloatingPhase,
 )
-from protoboard.gui.selection.mouse_input import Intent, Mods
+from protoboard.controller.selection.mouse_input import Intent, Mods
 from protoboard.gui.session import EditorSession
 from protoboard.controller.tools.drag_commit_decision import (
     DragCommitDecision,

@@ -51,8 +51,8 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Vector
-    from protoboard.gui.drag_preferences import DragPreferences
-    from protoboard.gui.selection.drop_resolution import ResolveFn
+    from protoboard.controller.editing.drag_preferences import DragPreferences
+    from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.services.drc.engine import DRCIssue
     from protoboard.controller.editing.armed_transform import ArmedTransform
     from protoboard.controller.editing.item_handle import (

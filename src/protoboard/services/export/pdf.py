@@ -13,7 +13,7 @@ from PySide6.QtPrintSupport import QPrinter
 
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot
 

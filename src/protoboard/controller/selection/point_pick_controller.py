@@ -4,10 +4,10 @@
 A *pick* asks the user to click a sequence of things (wire vertices, pad
 waypoints) with a live preview and a correction phase — the EditWire / redrag
 use-case.  The acquisition state machine already exists as
-:class:`~protoboard.gui.selection.service.PickSession` (feed / undo / confirm /
+:class:`~protoboard.controller.selection.service.PickSession` (feed / undo / confirm /
 cancel / on_progress, with the ``Stop`` termination strategy).  This controller
 is the thin adapter that lets that machine ride the same
-:class:`~protoboard.gui.selection.mouse_input.MouseInputController` routing the
+:class:`~protoboard.controller.selection.mouse_input.MouseInputController` routing the
 tool uses for drag and rubber-band — so the tool forwards every interaction
 through one ``self._mouse`` slot, with no branching on which kind it is.
 
@@ -25,15 +25,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from protoboard.gui.selection.mouse_input import Intent
+from protoboard.controller.selection.mouse_input import Intent
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.geometry import Point
-    from protoboard.gui.selection.mouse_input import Mods
-    from protoboard.gui.selection.selectable import Selectable
-    from protoboard.gui.selection.service import PickSession
+    from protoboard.controller.selection.mouse_input import Mods
+    from protoboard.controller.selection.selectable import Selectable
+    from protoboard.controller.selection.service import PickSession
 
     Resolve = Callable[["Point", Mods], "Selectable | None"]
     """``(scene_pt, mods) -> Selectable | None`` — the clicked entity, or None

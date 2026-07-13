@@ -26,7 +26,7 @@ from protoboard.controller.ports import (
 )
 from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
 from protoboard.controller.ports.viewport_details import CameraMath
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
 
 if TYPE_CHECKING:

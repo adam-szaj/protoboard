@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """HighlightRenderer — the *mechanism* half of the highlight pipeline.
 
-:class:`~protoboard.gui.highlight.controller.HighlightController` (policy)
+:class:`~protoboard.controller.highlight_controller.HighlightController` (policy)
 decides WHAT to highlight and publishes it to the ``HighlightStack``; this
 renderer decides HOW that looks on the scene: opacity dimming, the cyan
 selection outline, neon overlays on selected wires, bright net-pad discs,
@@ -34,7 +34,7 @@ from protoboard.services.debug_trace import traced
 if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
-    from protoboard.gui.theme import Theme
+    from protoboard.controller.theme import Theme
 
 _click_log = structlog.get_logger("protoboard.gui.highlight.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -286,7 +286,7 @@ class HighlightRenderer:
         opacity; everything else is dimmed by the active profile.
         """
         from protoboard.gui.highlight_state import PROFILE_DIMMED_1, HighlightEntry
-        from protoboard.gui.interaction_mode import HighlightProfile
+        from protoboard.controller.interaction_mode import HighlightProfile
 
         session = self._view.session
         _base = self._view.theme

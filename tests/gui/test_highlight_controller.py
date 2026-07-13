@@ -16,8 +16,8 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.highlight import HighlightController
 from protoboard.gui.highlight_state import HighlightStack
-from protoboard.gui.interaction_mode import HighlightProfile
-from protoboard.gui.selection import (
+from protoboard.controller.interaction_mode import HighlightProfile
+from protoboard.controller.selection import (
     ComponentSelectable,
     GroupSelectable,
     WireSelectable,

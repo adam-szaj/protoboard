@@ -16,7 +16,7 @@ import structlog as _structlog
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from protoboard.gui import recent_projects
-from protoboard.gui.app_settings import AppSettings, load_app_settings
+from protoboard.controller.app_settings import AppSettings, load_app_settings
 from protoboard.gui.dialogs.welcome_dialog import WelcomeDialog
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession

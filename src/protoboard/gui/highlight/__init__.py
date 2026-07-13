@@ -15,6 +15,6 @@ the ``Selectable`` protocol; it never gained a consumer and was removed
 
 from __future__ import annotations
 
-from protoboard.gui.highlight.controller import HighlightController
+from protoboard.controller.highlight_controller import HighlightController
 
 __all__ = ["HighlightController"]

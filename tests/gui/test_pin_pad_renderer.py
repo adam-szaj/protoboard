@@ -36,7 +36,7 @@ from protoboard.gui.renderers.pin_pad_renderer import (
     render_pin_modifiers,
     render_pin_pads,
 )
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.controller.theme import DEFAULT_THEME
 
 
 @pytest.fixture

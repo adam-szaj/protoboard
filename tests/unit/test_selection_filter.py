@@ -6,7 +6,7 @@ v2 holds the :class:`SelectionFilter` (state contract below) AND now enforces it
 component-only filter excludes wire/group hits, etc.
 """
 
-from protoboard.gui.selection_axes import SelectionFilter
+from protoboard.controller.selection_axes import SelectionFilter
 from protoboard.gui.tools.gui_tools import SelectTool
 
 
