@@ -234,9 +234,10 @@ several move Qt-free DTOs, following an established precedent.
      controller migration, but still upward relative to `services/`.
    - `services/persistence/project_yaml.py` → `gui.layer_state`
      (`LayerOverrides`, `LayerVisibility`)
-   - `services/export/{snapshot,paint,png,pdf,svg}.py` → `gui.{theme,
-     layer_state,renderers}` (export drives the GUI renderers to rasterise) —
-     note `gui.theme` is a re-export of `controller.theme.Theme`.
+   - `services/export/{snapshot,paint,png,pdf,svg}.py` → `gui.{layer_state,
+     renderers}` (export drives the GUI renderers to rasterise). `Theme` is no
+     longer part of this violation — `gui/theme.py` moved to
+     `controller/theme.py`, so export now imports `controller.theme` directly.
 
 2. **domain → services → Qt (transitive Qt leak)**
    - `domain/components/package/{solver,loader,reach,shapes}.py` →
