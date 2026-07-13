@@ -692,10 +692,12 @@ git mv src/protoboard/gui/tools/select_tool.py src/protoboard/controller/tools/s
 
 - [ ] **Step 6: Add GUI-composed SelectTool + repoint importers/tests**
 
-In `gui/tools/gui_tools.py`:
+In `gui/tools/gui_tools.py` — use the SAME MRO recipe Task 5 established (base order = controller tool FIRST, mixin second, plus explicit re-pointing of `make_key_map`/`_theme`; the naive `(ViewToolMixin, _SelectTool)` order silently shadows the tool's real `on_press`/`on_key` with the mixin stubs):
 ```python
 from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
-class SelectTool(ViewToolMixin, _SelectTool):
+class SelectTool(_SelectTool, ViewToolMixin):
+    make_key_map = ViewToolMixin.make_key_map   # C3 puts ControllerTool's stub between
+    _theme = ViewToolMixin._theme               # the two candidates — re-point explicitly
     def activate(self, session, view):
         if self._preview is None:
             from protoboard.gui.tools.select_preview import QtSelectPreview
@@ -703,7 +705,10 @@ class SelectTool(ViewToolMixin, _SelectTool):
         super().activate(session, view)
     # on_key body (raw-key → command) lives here
 ```
-`SimplifyTool` (Task 5) subclasses the pure controller `SelectTool`; its GUI-composed form subclasses the GUI-composed `SelectTool`. Repoint `from protoboard.gui.tools.select_tool import SelectTool` in: `test_select_tool.py:22`, `test_armed_transform_tool.py:30`, `test_simplify_tool.py:131`, `test_select_tool_parity.py:41`, `test_headless_tool_flows.py:50`, `test_editor_session_selection.py:22`, `test_selection_sync_bidirectional.py:35`, `test_board_view.py:14`, `test_headless_board_view.py:18`, `test_view_notifications.py:15`, `test_optimize_selected_wires.py:21`, `tests/unit/test_selection_filter.py:10`. KeyMap/on_key-driving tests → `gui_tools.py`; headless → `controller.tools.select_tool`. `tool_host.py` constructs from `gui_tools.py`.
+
+**Also UNBLOCK simplify_tool (deferred from Task 5).** `SimplifyTool` subclasses `SelectTool`; Task 5 could not move it while `SelectTool` was still Qt-laden (C3 MRO fail on `(ViewToolMixin, _SimplifyTool, SelectTool)`). Now that `SelectTool` becomes the Qt-free `controller.tools.select_tool.SelectTool` in this task, move `simplify_tool.py` the same way as the Task-5 tools: `git mv` → `controller/tools/simplify_tool.py`, `class SimplifyTool(_SelectTool)` (the pure controller SelectTool), strip its raw `Qt.Key.Key_Escape` (`simplify_tool.py:173`) into the GUI-composed subclass; add `gui_tools.SimplifyTool(_SimplifyTool, ViewToolMixin)` with the same explicit `make_key_map`/`_theme` re-point. Repoint `test_simplify_tool.py` + `main_window.py`'s `SimplifyTool` import to `gui.tools.gui_tools`.
+
+Repoint `from protoboard.gui.tools.select_tool import SelectTool` in: `test_select_tool.py:22`, `test_armed_transform_tool.py:30`, `test_simplify_tool.py:131`, `test_select_tool_parity.py:41`, `test_headless_tool_flows.py:50`, `test_editor_session_selection.py:22`, `test_selection_sync_bidirectional.py:35`, `test_board_view.py:14`, `test_headless_board_view.py:18`, `test_view_notifications.py:15`, `test_optimize_selected_wires.py:21`, `tests/unit/test_selection_filter.py:10`. KeyMap/on_key-driving tests → `gui_tools.py`; headless → `controller.tools.select_tool`. `tool_host.py` constructs from `gui_tools.py`.
 
 - [ ] **Step 7: Run SelectTool parity suites, then full suite**
 
@@ -816,6 +821,8 @@ def dispatch_tool_command(self, action_id: str) -> bool:
 - [ ] **Step 4: Give tools a `command_table()` (action-id → callable)**
 
 On `ControllerTool` (base), add a default `command_table() -> dict[str, Callable[[], None]]` returning `{}`. Each tool overrides it to expose its commands keyed by action-id — reuse the existing `key_dispatch()` table (place/armed already have it) and SelectTool's dispatch branches. This is the data the KeyMap resolves an action-id INTO. Example (place_tool): `return {_ACT_ROTATE_CW: lambda: self._key_rotate(90), ...}`.
+
+**Also close the Task-5 deferral — remove `on_key`/`_dispatch_key`/`key_actions` from the CONTROLLER tools now.** Task 5 left `PlaceTool` (controller) with a Qt-free `on_key(KeyInput)` + `key_actions()` (a `resolve()`-bug workaround) because the command seam did not exist yet. Now it does: once `command_table()` is the source of truth and `dispatch_tool_command(action_id)` (Step 3) drives commands, the controller tool no longer needs `on_key`/`_dispatch_key`/`key_actions` — the GUI-composed subclass's `on_key` (in `gui_tools.py`) resolves the key→action-id via KeyMap and calls `dispatch_tool_command`. Delete those from every controller tool (place/route/armed/cut and, after Task 6, select). The controller tool then genuinely "knows nothing of keys" — the model's end state. Verify: `grep -n "def on_key\|def key_actions\|_dispatch_key" src/protoboard/controller/tools/*.py` → nothing. Keep `displayable_action_ids()` (names ids, not shortcuts) for the `[?]` overlay / RMB menu.
 
 - [ ] **Step 5: Add the notify hook + signal**
 
