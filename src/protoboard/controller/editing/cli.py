@@ -38,9 +38,9 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.geometry import Point
 from protoboard.paths import BUILTIN_LIBRARY_DIR
-from protoboard.services.editing.headless_session import HeadlessSession
-from protoboard.services.editing.item_handle import ItemId
-from protoboard.services.editing.placement_conflict import (
+from protoboard.controller.editing.headless_session import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId
+from protoboard.controller.editing.placement_conflict import (
     PadConflictRequest,
     PlacementPrompts,
     WireConflictAction,

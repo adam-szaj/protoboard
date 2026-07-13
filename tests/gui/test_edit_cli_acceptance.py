@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pytestqt.qtbot import QtBot
 
-from protoboard.services.editing.cli import CliDriver
+from protoboard.controller.editing.cli import CliDriver
 
 
 def _journey(save_dir: Path) -> list[str]:
@@ -55,7 +55,7 @@ def test_cli_selection_is_the_session_selection() -> None:
     session selection reflects it; ``select`` sets it directly. Confirms the CLI
     no longer keeps a private selection set.
     """
-    from protoboard.services.editing.item_handle import ItemId
+    from protoboard.controller.editing.item_handle import ItemId
 
     driver = CliDriver.new()
     driver.execute("place R at 3,5")

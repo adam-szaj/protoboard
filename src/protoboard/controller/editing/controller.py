@@ -11,7 +11,7 @@ stateful the way an active place-tool is. Selection is model state (read from
 group and passes it in.
 
 State is taken through the :class:`EditState` Protocol, satisfied structurally
-by both :class:`~protoboard.services.editing.headless_session.HeadlessSession`
+by both :class:`~protoboard.controller.editing.headless_session.HeadlessSession`
 and the GUI ``EditorSession``. Qt-free by construction — the same mechanical
 rule that keeps ``domain/`` display-independent (CLAUDE.md §3).
 
@@ -35,7 +35,7 @@ from protoboard.domain.commands.base import (
     ComponentState,
     SchematicState,
 )
-from protoboard.services.editing.item_handle import ItemTag
+from protoboard.controller.editing.item_handle import ItemTag
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -54,8 +54,8 @@ if TYPE_CHECKING:
     from protoboard.gui.drag_preferences import DragPreferences
     from protoboard.gui.selection.drop_resolution import ResolveFn
     from protoboard.services.drc.engine import DRCIssue
-    from protoboard.services.editing.armed_transform import ArmedTransform
-    from protoboard.services.editing.item_handle import (
+    from protoboard.controller.editing.armed_transform import ArmedTransform
+    from protoboard.controller.editing.item_handle import (
         ComponentHandle,
         GroupHandle,
         HandleKind,
@@ -63,8 +63,8 @@ if TYPE_CHECKING:
         ReadOnlyComponentHandle,
         WireHandle,
     )
-    from protoboard.services.editing.placement_conflict import PlacementPrompts
-    from protoboard.services.editing.wire_nets import NetMergePrompt
+    from protoboard.controller.editing.placement_conflict import PlacementPrompts
+    from protoboard.controller.editing.wire_nets import NetMergePrompt
     from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.types import Side
 
@@ -137,7 +137,7 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
         RemoveWireCommand,
     )
     from protoboard.domain.commands.group_cmds import DisbandGroupCommand
-    from protoboard.services.editing.group_lock import (
+    from protoboard.controller.editing.group_lock import (
         component_locked_in_group,
         wire_locked_in_group,
     )
@@ -377,8 +377,8 @@ class EditController:
         ROOT).
         """
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.services.editing.group_lock import component_locked_in_group
-        from protoboard.services.editing.item_handle import (
+        from protoboard.controller.editing.group_lock import component_locked_in_group
+        from protoboard.controller.editing.item_handle import (
             ComponentHandle,
             GroupHandle,
             ReadOnlyComponentHandle,
@@ -401,7 +401,7 @@ class EditController:
         ``KeyError`` if *group_id* is not a group in the current layout — the id
         is mistyped, not a silently-wrong handle.
         """
-        from protoboard.services.editing.item_handle import GroupHandle
+        from protoboard.controller.editing.item_handle import GroupHandle
 
         if group_id not in self._state.layout.groups:
             raise KeyError(f"no group with id {group_id}")
@@ -412,7 +412,7 @@ class EditController:
 
         Raises ``KeyError`` if *wire_id* is not a wire in the current layout.
         """
-        from protoboard.services.editing.item_handle import WireHandle
+        from protoboard.controller.editing.item_handle import WireHandle
 
         if self._state.wire_by_id(wire_id) is None:
             raise KeyError(f"no wire with id {wire_id}")
@@ -428,8 +428,8 @@ class EditController:
         ``KeyError`` if *comp_id* has no placement.
         """
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.services.editing.group_lock import component_locked_in_group
-        from protoboard.services.editing.item_handle import (
+        from protoboard.controller.editing.group_lock import component_locked_in_group
+        from protoboard.controller.editing.item_handle import (
             ComponentHandle,
             ReadOnlyComponentHandle,
         )
@@ -464,7 +464,7 @@ class EditController:
         naive ``for h in get_items(): h.rotate()`` loop would be N undo steps,
         not one.
         """
-        from protoboard.services.editing.item_handle import ItemId
+        from protoboard.controller.editing.item_handle import ItemId
 
         if item_ids is None:
             ids: list[ItemId] = list(self._state.selection())
@@ -745,7 +745,7 @@ class EditController:
             board_pads_for_side,
             insert_pad_nodes,
         )
-        from protoboard.services.editing.wire_nets import resolve_wire_nets
+        from protoboard.controller.editing.wire_nets import resolve_wire_nets
 
         if len(path) < 2:
             return None
@@ -801,7 +801,7 @@ class EditController:
         """
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.layout.placement import ComponentPlacement
-        from protoboard.services.editing.placement_conflict import check_and_resolve
+        from protoboard.controller.editing.placement_conflict import check_and_resolve
 
         state = self._state
         defn = state.components.get(ref)
@@ -1218,7 +1218,7 @@ class EditController:
     ) -> frozenset[uuid.UUID]:
         """Loose components that are placed and not sealed inside another group."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.services.editing.group_lock import (
+        from protoboard.controller.editing.group_lock import (
             component_locked_in_group,
         )
 
@@ -1310,7 +1310,7 @@ class EditController:
         control soft-conflict wire drops (None ⇒ headless auto-remove). Snapping
         a clicked pivot goes through :meth:`snap`, closed over *active_group_id*.
         """
-        from protoboard.services.editing.armed_transform import ArmedTransform
+        from protoboard.controller.editing.armed_transform import ArmedTransform
 
         def _snap(raw: Point) -> Point | None:
             return self.snap(raw, active_group_id=active_group_id)
@@ -1401,7 +1401,7 @@ class EditController:
         # layout stays pristine) so a pivot-click lands on the moved pins.
         state: EditState = self._state
         if self._armed is not None:
-            from protoboard.services.editing.preview_state import PreviewState
+            from protoboard.controller.editing.preview_state import PreviewState
 
             state = PreviewState(self._state, self._armed.preview_layout())
         groups = state.layout.groups

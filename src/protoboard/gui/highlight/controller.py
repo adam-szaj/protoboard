@@ -97,7 +97,7 @@ class HighlightController:
         as component Selectables (Phase 2 group selection); a bare group hit
         carries no comp/wire id of its own.
         """
-        from protoboard.services.editing.item_handle import ItemTag
+        from protoboard.controller.editing.item_handle import ItemTag
 
         comp_ids: set[uuid.UUID] = set()
         wire_ids: set[uuid.UUID] = set()

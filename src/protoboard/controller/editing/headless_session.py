@@ -33,8 +33,8 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
-    from protoboard.services.editing.controller import EditController
-    from protoboard.services.editing.item_handle import ItemId
+    from protoboard.controller.editing.controller import EditController
+    from protoboard.controller.editing.item_handle import ItemId
 
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
@@ -178,7 +178,7 @@ class HeadlessSession:
     def edit_controller(self) -> EditController:
         """The session's :class:`EditController` (built once, on first use)."""
         if self._edit_controller is None:
-            from protoboard.services.editing.controller import EditController
+            from protoboard.controller.editing.controller import EditController
             self._edit_controller = EditController(self)
         return self._edit_controller
 

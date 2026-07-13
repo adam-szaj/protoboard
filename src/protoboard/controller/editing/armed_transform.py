@@ -19,7 +19,7 @@ by translating placements + owned wires).  Because every op writes the same
 preview layout, the user can freely *mix* rotate and move — and a conflict
 raised by one can be cleared by the other, which is the whole point.  Snap and
 conflict classification see the previewed pose through a
-:class:`~protoboard.services.editing.preview_state.PreviewState` (the live
+:class:`~protoboard.controller.editing.preview_state.PreviewState` (the live
 session with the preview layout swapped in).
 
 ``accept`` diffs ``committed_original → current`` into one
@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     from protoboard.controller.ports import KeyInput
     from protoboard.gui.selection.drop_resolution import ResolveFn
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
-    from protoboard.services.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditState
 
     SnapFn = Callable[[Point], "Point | None"]
     ExecuteFn = Callable[["Command[ComponentState]"], bool]
@@ -442,10 +442,10 @@ class ArmedTransform:
     # -- commit-readiness + terminal ---------------------------------------
 
     def _classify(self) -> DragCommitDecision | None:
-        from protoboard.services.editing.drag_commit import (
+        from protoboard.controller.editing.drag_commit import (
             classify_drag_commit,
         )
-        from protoboard.services.editing.preview_state import PreviewState
+        from protoboard.controller.editing.preview_state import PreviewState
 
         if not self._is_transformed():
             return None

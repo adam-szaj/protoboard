@@ -21,7 +21,7 @@ from protoboard.domain.commands.component_cmds import (
 )
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.services.editing import EditController, EditState, HeadlessSession
+from protoboard.controller.editing import EditController, EditState, HeadlessSession
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"

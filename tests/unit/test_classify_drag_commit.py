@@ -16,7 +16,7 @@ from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
 from protoboard.gui.tools.drag_commit_decision import DragSeverity
-from protoboard.services.editing.drag_commit import classify_drag_commit
+from protoboard.controller.editing.drag_commit import classify_drag_commit
 
 
 # ---------------------------------------------------------------------------

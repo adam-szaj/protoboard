@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.services.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditState
 
 _log = structlog.get_logger(__name__)
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 
 from protoboard.gui.selection_fsm import Hit
-from protoboard.services.editing.item_handle import ItemId, ItemTag
+from protoboard.controller.editing.item_handle import ItemId, ItemTag
 
 
 def test_component_hit_maps_to_component_item_id() -> None:

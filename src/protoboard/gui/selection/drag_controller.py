@@ -367,7 +367,7 @@ class DragController:
 
     def _classify(self) -> DragCommitDecision | None:
         """Run the shared classifier over the current (post-drag) layout."""
-        from protoboard.services.editing.drag_commit import (
+        from protoboard.controller.editing.drag_commit import (
             classify_drag_commit,
         )
 

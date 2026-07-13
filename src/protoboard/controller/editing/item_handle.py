@@ -36,7 +36,7 @@ from uuid import UUID
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
-    from protoboard.services.editing.controller import EditController
+    from protoboard.controller.editing.controller import EditController
 
 
 def _require_one(*callbacks: object) -> None:

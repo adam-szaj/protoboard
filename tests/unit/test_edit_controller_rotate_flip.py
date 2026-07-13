@@ -20,8 +20,8 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.services.editing import HeadlessSession
-from protoboard.services.editing.item_handle import ItemId
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"

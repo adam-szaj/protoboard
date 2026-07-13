@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
 if TYPE_CHECKING:
-    from protoboard.services.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditState
 
 
 def component_locked_in_group(

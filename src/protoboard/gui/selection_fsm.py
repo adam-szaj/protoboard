@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Literal
 from protoboard.gui.selection_axes import RelationClass
 
 if TYPE_CHECKING:
-    from protoboard.services.editing.item_handle import ItemId
+    from protoboard.controller.editing.item_handle import ItemId
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ class Hit:
         a ``uuid.UUID`` (test stand-ins use plain strings) — the callers that
         split a selection into typed id-buckets drop those the same way.
         """
-        from protoboard.services.editing.item_handle import ItemId, ItemTag
+        from protoboard.controller.editing.item_handle import ItemId, ItemTag
 
         if not isinstance(self.id, uuid.UUID):
             return None

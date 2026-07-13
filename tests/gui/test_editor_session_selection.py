@@ -20,7 +20,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.select_tool import SelectTool
-from protoboard.services.editing.item_handle import ItemId
+from protoboard.controller.editing.item_handle import ItemId
 
 
 def _activate_select(board_view: BoardView) -> SelectTool:

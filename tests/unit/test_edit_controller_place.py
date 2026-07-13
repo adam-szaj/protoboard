@@ -15,8 +15,8 @@ from pathlib import Path
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.geometry import Point
-from protoboard.services.editing import HeadlessSession
-from protoboard.services.editing.placement_conflict import PlacementPrompts
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.placement_conflict import PlacementPrompts
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"

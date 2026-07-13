@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from protoboard.gui.placement_conflict import PlacementPrompts
     from protoboard.controller.ports import KeyInput, PointerInput
     from protoboard.gui.tools.place_preview import PlacePreview
-    from protoboard.services.editing.controller import ResolvedPlacement
+    from protoboard.controller.editing.controller import ResolvedPlacement
 
 _log = structlog.get_logger(__name__)
 

@@ -20,7 +20,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
-from protoboard.services.editing import HeadlessSession
+from protoboard.controller.editing import HeadlessSession
 from protoboard.services.library.loader import load_library
 from protoboard.services.routing.autorouter import AutorouteResult
 

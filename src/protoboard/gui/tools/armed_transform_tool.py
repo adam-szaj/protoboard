@@ -4,7 +4,7 @@
 Entered from :class:`~protoboard.gui.tools.select_tool.SelectTool` on ``[R]`` /
 ``[G]`` (which resolves the selection to a target snapshot and swaps to this
 tool), it is a thin **input adapter** over the controller's stateful armed API
-(:meth:`~protoboard.services.editing.controller.EditController.begin_transform`
+(:meth:`~protoboard.controller.editing.controller.EditController.begin_transform`
 and the ``*_armed`` verbs, shipped in E3). Being its own registered tool, it
 carries its own KeyMap layer (rotate/move/flip/step/wheel) — pushed by
 ``ToolHost.set_tool``, so it shadows the global shortcuts for as long as a
@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from protoboard.gui.session import EditorSession
     from protoboard.gui.tools.select_preview import SelectPreview
     from protoboard.gui.tools.transform_overlays import TransformOverlays
-    from protoboard.services.editing.armed_transform import ArmedTransform
-    from protoboard.services.editing.controller import EditController
+    from protoboard.controller.editing.armed_transform import ArmedTransform
+    from protoboard.controller.editing.controller import EditController
 
 
 # Own action namespace — the armed keys move off ``select-tool.action.*`` onto

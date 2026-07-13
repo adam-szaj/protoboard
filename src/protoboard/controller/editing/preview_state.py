@@ -43,8 +43,8 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
     from protoboard.services.drc.engine import DRCIssue
-    from protoboard.services.editing.controller import EditState
-    from protoboard.services.editing.item_handle import ItemId
+    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.item_handle import ItemId
 
 
 class PreviewState:
@@ -73,7 +73,7 @@ class PreviewState:
         so it is rebuilt from the preview each call rather than served from the
         live session's placement-keyed cache.
         """
-        from protoboard.services.editing.headless_session import (
+        from protoboard.controller.editing.headless_session import (
             _build_comp_spatial_index,
         )
 

@@ -53,7 +53,7 @@ from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
 from protoboard.services.debug_trace import traced
-from protoboard.services.editing.item_handle import ItemId, ItemTag
+from protoboard.controller.editing.item_handle import ItemId, ItemTag
 
 _log = structlog.get_logger(__name__)
 
@@ -770,9 +770,9 @@ class SelectTool(_Tool):
         Mirrors :meth:`_is_locked_in_group` for components: selecting a locked
         wire (for highlight) stays allowed, but mutating it (delete/edit) gates
         here and skips it.  Delegates to the shared pure guard in
-        ``services.editing.group_lock``.
+        ``controller.editing.group_lock``.
         """
-        from protoboard.services.editing.group_lock import wire_locked_in_group
+        from protoboard.controller.editing.group_lock import wire_locked_in_group
 
         return wire_locked_in_group(
             self._session, wire_id, active_group_id=self._current_group_id
@@ -1471,11 +1471,11 @@ class SelectTool(_Tool):
 
         Locked iff the component's *direct* group is NOT the active group.
 
-        Delegates to the pure guard in ``services.editing.group_lock`` (shared
+        Delegates to the pure guard in ``controller.editing.group_lock`` (shared
         with :meth:`EditController.delete`), binding the active group from this
         tool's interaction context.
         """
-        from protoboard.services.editing.group_lock import (
+        from protoboard.controller.editing.group_lock import (
             component_locked_in_group,
         )
 

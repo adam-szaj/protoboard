@@ -21,8 +21,8 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.services.editing import HeadlessSession
-from protoboard.services.editing.item_handle import (
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import (
     ComponentHandle,
     ItemId,
     ReadOnlyComponentHandle,
@@ -275,7 +275,7 @@ def test_get_items_mixed_selection_filters_by_predicate() -> None:
 
 def test_free_rotate_applies_to_a_component() -> None:
     """rotate(get_item(id)) rotates a component — the typeable union shortcut."""
-    from protoboard.services.editing.item_handle import rotate
+    from protoboard.controller.editing.item_handle import rotate
 
     session = _session()
     cid = _place(session, 0.5, 0.5, "R1")
@@ -286,7 +286,7 @@ def test_free_rotate_applies_to_a_component() -> None:
 
 def test_free_rotate_on_wire_is_a_noop() -> None:
     """rotate() on a wire handle does nothing and returns None (not a Transformable)."""
-    from protoboard.services.editing.item_handle import rotate
+    from protoboard.controller.editing.item_handle import rotate
 
     session = _session()
     wid = _wire(session)
@@ -295,7 +295,7 @@ def test_free_rotate_on_wire_is_a_noop() -> None:
 
 def test_free_rotate_on_sealed_component_is_a_noop() -> None:
     """rotate() on a read-only (sealed) component is a None no-op."""
-    from protoboard.services.editing.item_handle import rotate
+    from protoboard.controller.editing.item_handle import rotate
 
     session = _session()
     cid = _place(session, 0.5, 0.5, "R1")
@@ -309,7 +309,7 @@ def test_free_rotate_on_sealed_component_is_a_noop() -> None:
 
 def test_free_delete_applies_to_a_wire() -> None:
     """delete(get_item(id)) removes a wire; a Transformable-only op would not."""
-    from protoboard.services.editing.item_handle import delete
+    from protoboard.controller.editing.item_handle import delete
 
     session = _session()
     wid = _wire(session)
@@ -319,7 +319,7 @@ def test_free_delete_applies_to_a_wire() -> None:
 
 def test_free_delete_on_sealed_component_is_a_noop() -> None:
     """delete() on a read-only component does nothing and returns False."""
-    from protoboard.services.editing.item_handle import delete
+    from protoboard.controller.editing.item_handle import delete
 
     session = _session()
     cid = _place(session, 0.5, 0.5, "R1")

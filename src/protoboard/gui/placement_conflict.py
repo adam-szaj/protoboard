@@ -2,8 +2,8 @@
 """GUI-level placement-conflict seam.
 
 The conflict-resolution logic itself is Qt-free and lives in
-``services.editing.placement_conflict``; the drag-commit classifier moved to
-``services.editing.drag_commit``. This module keeps the Qt default prompts
+``controller.editing.placement_conflict``; the drag-commit classifier moved to
+``controller.editing.drag_commit``. This module keeps the Qt default prompts
 (:func:`qt_placement_prompts`, the modal Pad/Wire conflict dialogs) and a thin
 GUI :func:`check_and_resolve` wrapper that falls back to them. The moved names
 (including :func:`classify_drag_commit`) are re-exported so existing GUI callers
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from protoboard.geometry import round_coord as _round  # noqa: F401  legacy alias
-from protoboard.services.editing.placement_conflict import (
+from protoboard.controller.editing.placement_conflict import (
     PadConflictRequest,
     PlacementPrompts,
     PlacementResolution,
@@ -28,7 +28,7 @@ from protoboard.services.editing.placement_conflict import (
     _try_reroute_wire,  # noqa: F401  re-exported for tests
     build_wire_removal_cmds,
 )
-from protoboard.services.editing.placement_conflict import (
+from protoboard.controller.editing.placement_conflict import (
     check_and_resolve as _check_and_resolve,
 )
 

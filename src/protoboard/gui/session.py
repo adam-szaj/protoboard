@@ -21,8 +21,8 @@ from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.highlight_state import HighlightStack
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.services.drc.engine import DRCIssue
-from protoboard.services.editing.headless_session import HeadlessSession
-from protoboard.services.editing.item_handle import ItemId, ItemTag
+from protoboard.controller.editing.headless_session import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId, ItemTag
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
 
@@ -93,7 +93,7 @@ class EditorSession(HeadlessSession, QObject):
     layout / schematic / instances / components + CommandStack + read caches)
     with a ``QObject`` and the signals GUI panels observe. The pure-Python
     state and lookups live on the base so a headless CLI / test front-end can
-    drive the same :class:`~protoboard.services.editing.controller.EditController`
+    drive the same :class:`~protoboard.controller.editing.controller.EditController`
     verbs without a display server.
     """
 

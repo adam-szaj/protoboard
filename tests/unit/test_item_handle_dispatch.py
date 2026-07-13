@@ -24,8 +24,8 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.services.editing import HeadlessSession
-from protoboard.services.editing.item_handle import (
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import (
     ComponentHandle,
     GroupHandle,
     ItemId,

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
         WireNetClassification,
         _SessionLike,
     )
-    from protoboard.services.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditState
 
 # The injectable merge prompt (qt-ports D4): given the two nets the new wire
 # would fuse, return the survivor's name — or None on cancel.

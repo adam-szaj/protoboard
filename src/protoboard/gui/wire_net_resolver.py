@@ -2,7 +2,7 @@
 """GUI-level wire-to-net resolver seam.
 
 The resolution logic itself is Qt-free and lives in
-``services.editing.wire_nets`` (:func:`resolve_wire_nets` +
+``controller.editing.wire_nets`` (:func:`resolve_wire_nets` +
 :data:`NetMergePrompt`). This module keeps the Qt default prompt
 (:func:`qt_net_merge_prompt`, the modal ``NetMergeDialog``) and a thin
 GUI-facing :func:`resolve_wire_nets` wrapper that falls back to it, so existing
@@ -18,14 +18,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from protoboard.domain.schematic.net import Net
-from protoboard.services.editing.wire_nets import (
+from protoboard.controller.editing.wire_nets import (
     NetMergePrompt,
     _create_new_net,
     _extend_net,
     _merge_nets,
     _snapshot,
 )
-from protoboard.services.editing.wire_nets import (
+from protoboard.controller.editing.wire_nets import (
     resolve_wire_nets as _resolve_wire_nets,
 )
 
@@ -74,7 +74,7 @@ def resolve_wire_nets(
     cmd: AddWireWithNetsCommand,
     merge_prompt: NetMergePrompt | None = None,
 ) -> bool:
-    """GUI wrapper over :func:`services.editing.wire_nets.resolve_wire_nets`.
+    """GUI wrapper over :func:`controller.editing.wire_nets.resolve_wire_nets`.
 
     Defaults *merge_prompt* to the parentless Qt ``NetMergeDialog`` so existing
     GUI callers keep their behaviour; the Qt-free library function raises when no
