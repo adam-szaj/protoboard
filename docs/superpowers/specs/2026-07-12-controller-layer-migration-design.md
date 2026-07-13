@@ -81,14 +81,22 @@ Tool (Qt-free):     commands[action_id]()   ← executes; knows nothing of keys
 
 | # | Stage | Verify |
 |---|---|---|
+**Ordering decision (2026-07-13):** the Controller facade comes AFTER the tool
+relocation, not before. The facade owns the active tool as an instance; a tool is
+only Qt-free after relocation, so building the facade first would force a bridge
+protocol. Relocate the tools to Qt-free command machines first, then the facade
+aggregates their commands and takes ownership.
+
+| # | Stage | Verify |
+|---|---|---|
 | 0 | Scaffold `controller/`; add to pyproject | import works; suite green |
 | 1 | `gui/ports/` → `controller/ports/`; repoint importers | green; `armed_transform` no longer imports `gui.ports` |
 | 2 | `services/editing/` → `controller/editing/`; repoint | green; headless CLI runs |
-| 3 | **Controller facade: `tool_commands()` + `dispatch_tool_command(action_id)` + active-tool ownership**; move `get_context_at` aggregation and `_active_tool`/`set_tool` state into the Controller; delete `trigger_tool_action` round-trip | new controller tests; `get_context_at` behaviour parity |
-| 4 | **Split `_Tool`**: Qt-free command base in `controller/tools/base.py` (commands, verbs, lifecycle on `EditState`); View bindings (KeyMap layer build, theme, preview injection, `on_key`→command translation) stay in `gui/` as a mixin | green; both compose to identical behaviour |
-| 5 | **Default bindings → YAML** (extend `KEYBINDINGS_V2_FILE`, no new file): add a top-level `defaults:` section alongside the existing `overrides:`; extract each tool's `key_actions()` hardcoded shortcuts into `defaults:`; `load` reads both (override wins); tools stop declaring shortcuts | green; rebinding + persistence + default-propagation unchanged |
-| 6 | Move the tools' command logic → `controller/tools/`; each tool exposes `commands() -> dict[str, Callable]`, no `on_key`/`Qt.Key`; GUI mixin translates key→command via KeyMap | **parity tests repointed BEFORE swap** |
-| 7 | `select_tool.py` (180 KB) last, alone: strip `on_key`/`Qt.Key`/`QColor` to GUI mixin + preview; land in `controller/tools/` | FSM/selection/delete/group parity green |
+| 3 | **Split `_Tool`**: Qt-free command base in `controller/tools/base.py` (commands, verbs, lifecycle on `EditState`); View bindings (KeyMap layer build, theme, preview injection, `on_key`→command translation) stay in `gui/` as a mixin | green; both compose to identical behaviour |
+| 4 | **Default bindings → YAML** (extend `KEYBINDINGS_V2_FILE`, no new file): add a top-level `defaults:` section alongside the existing `overrides:`; extract each tool's `key_actions()` hardcoded shortcuts into `defaults:`; `load` reads both (override wins); tools stop declaring shortcuts | green; rebinding + persistence + default-propagation unchanged |
+| 5 | Move the tools' command logic → `controller/tools/`; each tool exposes `commands() -> dict[str, Callable]`, no `on_key`/`Qt.Key`; GUI mixin translates key→command via KeyMap | **parity tests repointed BEFORE swap** |
+| 6 | `select_tool.py` (180 KB) last, alone: strip `on_key`/`Qt.Key`/`QColor` to GUI mixin + preview; land in `controller/tools/` | FSM/selection/delete/group parity green |
+| 7 | **Controller facade** (tools now Qt-free): add `tool_commands()` + `dispatch_tool_command(action_id)` to the Controller; move active-tool ownership (`_active_tool`/`set_tool`) + `get_context_at` aggregation into the Controller; add an `active_tool_changed` notify hook the View consumes to swap the KeyMap layer; delete `trigger_tool_action` round-trip | facade tests; `get_context_at` + RMB-menu parity; CLI drives a tool by action-id |
 | 8 | Cleanup: layer guard (`controller/` imports no `gui`), docs, CLAUDE.md §5, modules.md redraw | full suite + smoke |
 
 ## Bindings file shape (Stage 5)
