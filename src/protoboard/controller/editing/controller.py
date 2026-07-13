@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     )
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing.wire_nets import NetMergePrompt
+    from protoboard.controller.tools.base import ControllerTool
     from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.types import Side
 
@@ -233,6 +234,11 @@ class EditState(SchematicState, Protocol):
         """Signal that a command mutated the layout (GUI: emit; headless: no-op)."""
         ...
 
+    def notify_active_tool_changed(self) -> None:
+        """Signal that :attr:`EditController.active_tool` changed (GUI: emit;
+        headless: no-op).  The View consumes this to swap its KeyMap layer."""
+        ...
+
 
 def _never_matches(inp: object, action_id: str) -> bool:
     """A ``matches`` that never fires — the controller drives the armed
@@ -262,6 +268,13 @@ class EditController:
         # None unless a transform is currently armed — the controller is
         # stateful only within the scope of that one active sub-tool.
         self._armed: ArmedTransform | None = None
+        # The active tool (Select/Place/Route/Cut/Simplify/ArmedTransform) —
+        # the Controller's other piece of interaction state, alongside the
+        # armed transform above.  None when no tool is active.  Owned here
+        # (not by the View/ToolHost) so a headless driver can activate a tool
+        # and drive its commands with no Qt at all (see tool_commands() /
+        # dispatch_tool_command()).
+        self._active_tool: ControllerTool | None = None
 
     @property
     def state(self) -> EditState:
@@ -271,6 +284,40 @@ class EditController:
     def armed_transform(self) -> ArmedTransform | None:
         """The live armed transform, or None when nothing is armed."""
         return self._armed
+
+    # ------------------------------------------------------------------
+    # Active-tool facade
+    # ------------------------------------------------------------------
+
+    @property
+    def active_tool(self) -> ControllerTool | None:
+        """The tool currently owning interaction (None ⇒ no tool active)."""
+        return self._active_tool
+
+    def set_active_tool(self, tool: ControllerTool | None) -> None:
+        """Record *tool* as active and notify the state (KeyMap-layer swap).
+
+        Ownership only — activation/deactivation (session/view binding) stays
+        with the caller (``ToolHost.set_tool``), which already sequences
+        deactivate-old / activate-new around this call.
+        """
+        self._active_tool = tool
+        self._state.notify_active_tool_changed()
+
+    def tool_commands(self) -> dict[str, Callable[[], object]]:
+        """The active tool's ``action_id -> command`` table (``{}`` if none)."""
+        tool = self._active_tool
+        if tool is None:
+            return {}
+        return dict(tool.command_table())
+
+    def dispatch_tool_command(self, action_id: str) -> bool:
+        """Run the active tool's command for *action_id*. True if handled."""
+        handler = self.tool_commands().get(action_id)
+        if handler is None:
+            return False
+        handler()
+        return True
 
     # ------------------------------------------------------------------
     # Edit verbs

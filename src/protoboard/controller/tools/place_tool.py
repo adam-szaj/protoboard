@@ -46,7 +46,7 @@ from protoboard.services.debug_trace import traced
 if TYPE_CHECKING:
     from protoboard.gui.placement_conflict import PlacementPrompts
     from protoboard.controller.editing import EditState
-    from protoboard.controller.ports import KeyInput, PointerInput
+    from protoboard.controller.ports import PointerInput
     from protoboard.gui.tools.place_preview import PlacePreview
     from protoboard.controller.editing.controller import ResolvedPlacement
 
@@ -312,34 +312,40 @@ class PlaceTool(ControllerTool):
         return True
 
     @traced()
-    def key_dispatch(self) -> tuple[tuple[str, Callable[[KeyInput], bool]], ...]:
-        """Ghost-transform ops, dispatched by action id (rebind-safe)."""
-        return (
-            (_ACT_FLIP, self._key_flip_pin_pair),
-            (_ACT_ROTATE_CW, lambda _i: self._key_rotate(90)),
-            (_ACT_ROTATE_CCW, lambda _i: self._key_rotate(-90)),
-            (_ACT_REDRAG, self._key_redrag),
-        )
+    def command_table(self) -> dict[str, Callable[[], object]]:
+        """``action_id -> command`` — the data ``EditController.dispatch_tool_
+        command`` runs (the GUI-composed subclass's ``on_key`` resolves a key
+        to one of these ids via the KeyMap and calls it).
+
+        ``confirm`` / ``cancel`` are phase-sensitive (floating commit/cancel
+        vs. drag-pin cancel) — the wrappers here reproduce the same
+        precedence the old raw ``on_key`` dispatch had.
+        """
+        return {
+            _ACT_FLIP: self._key_flip_pin_pair,
+            _ACT_ROTATE_CW: lambda: self._key_rotate(90),
+            _ACT_ROTATE_CCW: lambda: self._key_rotate(-90),
+            _ACT_REDRAG: self._key_redrag,
+            _ACT_CONFIRM: self._confirm_cmd,
+            _ACT_CANCEL: self._cancel_cmd,
+        }
 
     @traced()
-    def on_key(self, inp: KeyInput) -> bool:
-        # Floating phase: confirm commits, cancel cancels (action ids, KeyMap-
-        # resolved — ``place-tool.action.confirm`` deliberately does not
-        # inherit the generic global's ``Space`` alternative).
+    def _confirm_cmd(self) -> bool:
+        """``[Enter]``: commit the floating placement (only phase it applies)."""
         if self._is_phase(PhaseEnum.FLOATING):
-            if self._key_matches(inp, _ACT_CONFIRM):
-                self._commit_floating_place()
-                return True
-            if self._key_matches(inp, _ACT_CANCEL):
-                self._cancel_floating_place()
-                self._rebuild_ghost()
-                return True
-            return False
-
-        if self._dispatch_key(inp):
+            self._commit_floating_place()
             return True
+        return False
 
-        if self._key_matches(inp, _ACT_CANCEL) and self._is_phase(PhaseEnum.DRAG_PIN):
+    @traced()
+    def _cancel_cmd(self) -> bool:
+        """``[Esc]``: cancel the floating placement, or back out of a pin drag."""
+        if self._is_phase(PhaseEnum.FLOATING):
+            self._cancel_floating_place()
+            self._rebuild_ghost()
+            return True
+        if self._is_phase(PhaseEnum.DRAG_PIN):
             self.preview.clear_reach()
             self._reset_phase()
             self._rebuild_ghost()
@@ -347,7 +353,7 @@ class PlaceTool(ControllerTool):
         return False
 
     @traced()
-    def _key_flip_pin_pair(self, _inp: KeyInput) -> bool:
+    def _key_flip_pin_pair(self) -> bool:
         """Flip pin1/pin2 while dragging a pin — anchor moves to old pin2 pad."""
         if not self._is_phase(PhaseEnum.DRAG_PIN):
             return False
@@ -387,7 +393,7 @@ class PlaceTool(ControllerTool):
         return True
 
     @traced()
-    def _key_redrag(self, _inp: KeyInput) -> bool:
+    def _key_redrag(self) -> bool:
         """Re-drag — restart drag for the current bendable pin from default."""
         defn = self._session.components.get(self._definition_ref)
         specs = self._bend_specs(defn) if defn else {}

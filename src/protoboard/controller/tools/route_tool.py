@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.editing import EditState
-    from protoboard.controller.ports import KeyInput, PointerInput
+    from protoboard.controller.ports import PointerInput
     from protoboard.gui.tools.route_preview import RoutePreview
     from protoboard.gui.wire_net_resolver import NetMergePrompt
 
@@ -158,34 +158,35 @@ class RouteTool(ControllerTool):
         if updater is not None:
             updater(self._insulated, self._side)
 
-    def key_dispatch(self) -> tuple[tuple[str, "Callable[[KeyInput], bool]"], ...]:
-        """Ordered ``(action_id, handler)`` table — the GUI subclass's
-        ``on_key`` calls :meth:`ControllerTool._dispatch_key` with this."""
-        return (
-            (ACT_COMMIT, self._key_commit),
-            (ACT_CANCEL, self._key_cancel),
-            (ACT_INSULATE, self._key_toggle_insulated),
-            (ACT_SIDE_TOP, self._key_side_top),
-            (ACT_SIDE_BOTTOM, self._key_side_bottom),
-        )
+    def command_table(self) -> dict[str, "Callable[[], object]"]:
+        """``action_id -> command`` — the data ``EditController.dispatch_tool_
+        command`` runs (the GUI subclass's ``on_key`` resolves a key to one of
+        these ids via the KeyMap and calls it)."""
+        return {
+            ACT_COMMIT: self._key_commit,
+            ACT_CANCEL: self._key_cancel,
+            ACT_INSULATE: self._key_toggle_insulated,
+            ACT_SIDE_TOP: self._key_side_top,
+            ACT_SIDE_BOTTOM: self._key_side_bottom,
+        }
 
-    def _key_commit(self, _inp: KeyInput) -> bool:
+    def _key_commit(self) -> bool:
         self._commit()
         return True
 
-    def _key_cancel(self, _inp: KeyInput) -> bool:
+    def _key_cancel(self) -> bool:
         self._cancel()
         return True
 
-    def _key_toggle_insulated(self, _inp: KeyInput) -> bool:
+    def _key_toggle_insulated(self) -> bool:
         self._set_insulated(not self._insulated)
         return True
 
-    def _key_side_top(self, _inp: KeyInput) -> bool:
+    def _key_side_top(self) -> bool:
         self._set_side("top")
         return True
 
-    def _key_side_bottom(self, _inp: KeyInput) -> bool:
+    def _key_side_bottom(self) -> bool:
         self._set_side("bottom")
         return True
 

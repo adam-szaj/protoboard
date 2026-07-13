@@ -732,3 +732,35 @@ class TestPlaceRotationBeforeCommit:
         tool.on_press(pointer(0.5, 0.5))
         placement = next(iter(session.layout.placements.values()))
         assert placement.rotation == 90
+
+
+# --------------------------------------------------------------------------- #
+# North star — the View/Controller boundary proof (Task 7): activate a tool
+# via ``EditController.set_active_tool`` and run its command by *action id*
+# through ``EditController.dispatch_tool_command`` — no key ever touched.
+# --------------------------------------------------------------------------- #
+
+
+class TestDispatchToolCommandIsTheBoundary:
+    def test_delete_by_action_id_with_no_key_touched(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        inst = _place(view, 0.5, 0.5)
+
+        # Activate SelectTool the same way ToolHost.set_tool does (which now
+        # registers it with the Controller via set_active_tool); select the
+        # placed component through the model-side selection — no on_press,
+        # no on_key anywhere in this test.
+        view.tools.set_tool(SelectTool())
+        from protoboard.controller.editing.item_handle import ItemId
+
+        session.select([ItemId.component(inst.id)])
+
+        ctl = session.edit_controller
+        assert ctl.active_tool is view.active_tool
+
+        handled = ctl.dispatch_tool_command("select-tool.action.delete")
+
+        assert handled is True
+        assert inst.id not in session.layout.placements

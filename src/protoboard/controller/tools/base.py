@@ -227,6 +227,19 @@ class ControllerTool:
         return list(self.key_actions().keys())
 
     @traced()
+    def command_table(self) -> dict[str, Callable[[], object]]:
+        """``action_id -> zero-arg command`` — the data the Controller facade
+        (:meth:`~protoboard.controller.editing.controller.EditController.
+        tool_commands`) exposes and :meth:`~protoboard.controller.editing.
+        controller.EditController.dispatch_tool_command` runs.  Default: no
+        commands.  A tool overrides this to expose the same operations its
+        ``key_dispatch()`` table (or dispatch branches) already name — the
+        View resolves a key to an action id via the KeyMap and drives it
+        through the controller instead of calling the tool directly.
+        """
+        return {}
+
+    @traced()
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
         pass

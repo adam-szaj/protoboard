@@ -175,9 +175,6 @@ class AbstractBoardView(Protocol):
     def set_active_group(self, group_id: uuid.UUID) -> None:
         """Set the group whose context the renderer highlights."""
 
-    def trigger_tool_action(self, action_id: str) -> None:
-        """Dispatch *action_id* to the active tool as a synthesised key press."""
-
     # -- highlight / overlay API ----------------------------------------------
 
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
@@ -219,8 +216,9 @@ class AbstractBoardView(Protocol):
     def perform_context_action(self, option: ActionOption) -> None:
         """Execute a chosen context option (qt-ports §2.4, variant 1).
 
-        Plain options route through ``trigger_tool_action`` (synthesised-key
-        parity); parameterised ones reach the active tool's
+        Plain options run the active tool's command for ``option.action_id``
+        through the Controller facade (``EditController.dispatch_tool_
+        command``); parameterised ones reach the active tool's
         ``perform_context_action(action_id, data)``.
         """
 

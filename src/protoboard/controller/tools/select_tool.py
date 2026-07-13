@@ -2468,6 +2468,42 @@ class SelectTool(ControllerTool):
             _ACT_FLIP_FRAGMENT: "F",  # wire-edit op: flip fragment to other layer
         }
 
+    def command_table(self) -> dict[str, Callable[[], object]]:
+        """``action_id -> command`` — the data ``EditController.dispatch_tool_
+        command`` runs (the View resolves a key to one of these ids via the
+        KeyMap; a headless driver calls the id directly).
+
+        ``delete`` / ``cancel`` are context-sensitive in ``on_key`` (a
+        selected wire-edit fragment claims them first via
+        :meth:`_wire_edit_on_key`) — the entries here reproduce that same
+        precedence, so dispatching by id behaves identically to the raw-key
+        path.
+        """
+        return {
+            _ACT_EDIT: self._begin_edit_selected,
+            _ACT_REROUTE: self._begin_reroute,
+            _ACT_AUTOROUTE: self._autoroute_fragment,
+            _ACT_FLIP_FRAGMENT: self._flip_wire_fragment,
+            _ACT_DELETE: self._delete_selection_or_fragment,
+            _ACT_CANCEL: self._wire_edit_clear,
+            _ACT_ROTATE: self.arm_rotate,
+            _ACT_MOVE: self.arm_move,
+            _ACT_FLIP: self._flip_selected,
+            _ACT_RELATION_CYCLE: self._cycle_relation,
+            _ACT_RELATION_CYCLE_BACK: self._cycle_relation_back,
+        }
+
+    def _delete_selection_or_fragment(self) -> bool:
+        """``[Del]``: delete the selected wire-edit fragment if one is armed,
+        else the plain selection — mirrors ``on_key``'s precedence."""
+        if self._wire_edit is not None:
+            self._delete_fragment()
+            return True
+        return self._delete_selection()
+
+    def _cycle_relation_back(self) -> None:
+        self._cycle_relation(forward=False)
+
     def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
         """Contextual key claims (see :meth:`_Tool.wants_key` for the veto).
 

@@ -314,9 +314,6 @@ class HeadlessBoardView:
     def set_active_group(self, group_id: uuid.UUID) -> None:
         self._active_group_id = group_id
 
-    def trigger_tool_action(self, action_id: str) -> None:
-        self.tools.trigger_tool_action(action_id)
-
     def perform_context_action(self, option: object) -> None:
         from protoboard.controller.ports import ActionOption
 

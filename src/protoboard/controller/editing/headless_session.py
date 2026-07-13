@@ -189,6 +189,13 @@ class HeadlessSession:
         ``EditorSession`` overrides it to emit ``layout_changed``.
         """
 
+    def notify_active_tool_changed(self) -> None:
+        """Hook fired by :meth:`EditController.set_active_tool`.
+
+        No-op in the headless base — a bare driver has no KeyMap layer to
+        swap. ``EditorSession`` overrides it to emit ``active_tool_changed``.
+        """
+
     # ------------------------------------------------------------------
     # Selection (model-side, ItemId-based)
     # ------------------------------------------------------------------

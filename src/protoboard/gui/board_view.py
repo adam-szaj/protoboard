@@ -755,11 +755,6 @@ class BoardView(QGraphicsView):
         """Execute a chosen context option (delegates to the tool host)."""
         self.tools.perform_context_action(option)
 
-    @traced()
-    def trigger_tool_action(self, action_id: str) -> None:
-        """Run *action_id* by synthesising its resolved key into the tool."""
-        self.tools.trigger_tool_action(action_id)
-
     # ------------------------------------------------------------------
     # Qt event handlers
     # ------------------------------------------------------------------

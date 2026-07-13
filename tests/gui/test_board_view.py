@@ -261,7 +261,7 @@ class TestShortcutsHelp:
         assert "select-tool.action.reroute" in ids
         assert "select-tool.action.edit" in ids
 
-    def test_trigger_tool_action_rotates(
+    def test_dispatch_tool_command_rotates(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         from protoboard.gui.tools.gui_tools import PlaceTool
@@ -270,6 +270,7 @@ class TestShortcutsHelp:
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
         before = tool._rotation
-        # Triggering the rotate action synthesises its key into on_key.
-        board_view.trigger_tool_action("place-tool.action.rotate_cw")
+        # Dispatching the rotate action by id, through the Controller facade
+        # — no synthesised key (trigger_tool_action is gone, Task 7).
+        session.edit_controller.dispatch_tool_command("place-tool.action.rotate_cw")
         assert tool._rotation == (before + 90) % 360

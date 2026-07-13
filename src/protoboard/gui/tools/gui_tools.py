@@ -52,6 +52,27 @@ __all__ = [
     "qt_group_target_prompt",
 ]
 
+
+def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
+    """Resolve *inp* to one of the active tool's ``command_table()`` action
+    ids via the KeyMap, then run that command and return ITS verdict.
+
+    The command-dispatch counterpart of the old ``ControllerTool._dispatch_
+    key`` (removed from the controller tools — Task 7): the View now owns the
+    key→action-id resolution (``tool._key_matches``, KeyMap-backed); the
+    command table itself comes from the Controller facade
+    (``EditController.tool_commands()``) so it is read from the same place a
+    headless driver would. Mirrors an ``elif`` ladder — the first matching
+    action id's handler decides, and its own return value (not just "a
+    command ran") is what ``on_key`` reports as consumed — some handlers
+    (e.g. PlaceTool's Esc-in-ANCHOR) legitimately decline.
+    """
+    commands = tool._session.edit_controller.tool_commands()  # type: ignore[attr-defined]
+    for action_id, handler in commands.items():
+        if tool._key_matches(inp, action_id):  # type: ignore[attr-defined]
+            return bool(handler())
+    return False
+
 # Composition order note: every class below lists the controller tool BEFORE
 # ViewToolMixin (``_XTool, ViewToolMixin`` — not the reverse).  Both
 # ControllerTool and ViewToolMixin define on_press/on_key/on_key_release
@@ -72,7 +93,13 @@ class CutTool(_CutTool, ViewToolMixin):
 
 
 class PlaceTool(_PlaceTool, ViewToolMixin):
-    """PlaceTool with the default ghost/reach Qt preview + Qt conflict prompts."""
+    """PlaceTool with the default ghost/reach Qt preview + Qt conflict prompts.
+
+    ``on_key`` is the raw-key translation a GUI subclass owns: the controller
+    tool knows nothing of keys (Task 7) — its ``command_table()`` maps every
+    action id to its command handler, so this just resolves the key to an id
+    via the KeyMap and dispatches it through the Controller.
+    """
 
     make_key_map = ViewToolMixin.make_key_map
     _theme = ViewToolMixin._theme
@@ -95,12 +122,15 @@ class PlaceTool(_PlaceTool, ViewToolMixin):
             self._prompts = qt_placement_prompts(lambda: self._view.window())
         self.finish_activate()
 
+    def on_key(self, inp: KeyInput) -> bool:
+        return _dispatch_key_by_action_id(self, inp)
+
 
 class RouteTool(_RouteTool, ViewToolMixin):
     """RouteTool with the default segment/hint Qt preview + net-merge prompt.
 
     ``on_key`` is the one raw-key translation left for a GUI subclass to own:
-    the controller tool's ``key_dispatch()`` already maps every action id to
+    the controller tool's ``command_table()`` already maps every action id to
     its command handler — this just resolves the key through it.
     """
 
@@ -119,11 +149,17 @@ class RouteTool(_RouteTool, ViewToolMixin):
             self._merge_prompt = qt_net_merge_prompt(lambda: self._view.window())
 
     def on_key(self, inp: KeyInput) -> bool:
-        return self._dispatch_key(inp)
+        return _dispatch_key_by_action_id(self, inp)
 
 
 class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
-    """ArmedTransformTool with the default pivot-marker preview + conflict overlay."""
+    """ArmedTransformTool with the default pivot-marker preview + conflict overlay.
+
+    ``on_key`` is the raw-key translation a GUI subclass owns: the controller
+    tool's ``command_table()`` maps every action id (confirm/cancel/flip/
+    rotate/move/step) to its command handler — this resolves the key to an id
+    via the KeyMap and dispatches it through the Controller.
+    """
 
     make_key_map = ViewToolMixin.make_key_map
     _theme = ViewToolMixin._theme
@@ -138,6 +174,9 @@ class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
         # The base activate() already drew pivot markers / published status
         # before this preview existed — redraw now that it does.
         self._draw_pivot_markers()  # type: ignore[attr-defined]
+
+    def on_key(self, inp: KeyInput) -> bool:
+        return _dispatch_key_by_action_id(self, inp)
 
 
 class SelectTool(_SelectTool, ViewToolMixin):

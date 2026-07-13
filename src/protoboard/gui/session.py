@@ -124,6 +124,10 @@ class EditorSession(HeadlessSession, QObject):
     # applying its result alongside live edits would corrupt the undo stack
     # and silently nullify user changes made mid-route.
     autoroute_active_changed = Signal(bool)
+    # Emitted by EditController.set_active_tool whenever the active tool
+    # changes. ToolHost subscribes to rebuild its KeyMap layer for the new
+    # tool (tool.make_key_map(self._base_keymap)).
+    active_tool_changed = Signal()
 
     def __init__(
         self,
@@ -175,6 +179,13 @@ class EditorSession(HeadlessSession, QObject):
         tools' old ``_execute_command`` fired directly.
         """
         self.layout_changed.emit()
+
+    def notify_active_tool_changed(self) -> None:
+        """Hook for :meth:`EditController.set_active_tool` — emit the signal.
+
+        ``ToolHost`` subscribes to swap its KeyMap layer for the new tool.
+        """
+        self.active_tool_changed.emit()
 
     def notify_selection(
         self,

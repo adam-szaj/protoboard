@@ -31,7 +31,7 @@ from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.controller.ports import KeyInput, PointerInput, WheelInput
+    from protoboard.controller.ports import PointerInput, WheelInput
     from protoboard.controller.editing import EditState
     from protoboard.gui.tools.select_preview import SelectPreview
     from protoboard.gui.tools.transform_overlays import TransformOverlays
@@ -144,43 +144,75 @@ class ArmedTransformTool(ControllerTool):
             return f"move.float.{armed.mode}"
         return "select.idle"
 
-    # -- keys ---------------------------------------------------------------
+    # -- commands -------------------------------------------------------------
 
-    def on_key(self, inp: KeyInput) -> bool:
+    def command_table(self) -> dict[str, Callable[[], object]]:
+        """``action_id -> command`` — the data ``EditController.dispatch_tool_
+        command`` runs (the GUI-composed subclass's ``on_key`` resolves a key
+        to one of these ids via the KeyMap and calls it)."""
+        table: dict[str, Callable[[], object]] = {
+            _ACT_CONFIRM: self._cmd_confirm,
+            _ACT_CANCEL: self._cmd_cancel,
+            _ACT_FLIP: self._cmd_flip,
+            _ACT_ROTATE: self._cmd_rotate,
+            _ACT_MOVE: self._cmd_move,
+        }
+        for action_id, vec in _STEP_VECTORS.items():
+            table[action_id] = self._make_step_cmd(vec)
+        return table
+
+    def _cmd_confirm(self) -> bool:
         controller = self._controller
         if controller is None or self._armed is None:
             return False
-        # Confirm / cancel resolve through this tool's own action ids (KeyMap
-        # — no raw keycodes); step / mode / flip keys likewise.
-        if self._key_matches(inp, _ACT_CONFIRM):
-            controller.accept_transform()
-            return self._after_verb()
-        if self._key_matches(inp, _ACT_CANCEL):
-            controller.cancel_transform()
-            return self._after_verb()
-        if self._key_matches(inp, _ACT_FLIP):
-            controller.flip_armed()
-            return self._after_verb()
-        if self._key_matches(inp, _ACT_ROTATE):
-            # [R] re-aims into rotate (keeping the float pose) or, when already
-            # in rotate, steps +90°.
-            if self._armed.mode != "rotate":
-                controller.switch_transform_mode("rotate")
-            else:
-                controller.rotate_armed(90)
-            return self._after_verb()
-        if self._key_matches(inp, _ACT_MOVE):
-            controller.switch_transform_mode("move")
-            return self._after_verb()
-        step = self._step_for(inp)
-        if step is not None:
-            dx, dy = step
+        controller.accept_transform()
+        return self._after_verb()
+
+    def _cmd_cancel(self) -> bool:
+        controller = self._controller
+        if controller is None or self._armed is None:
+            return False
+        controller.cancel_transform()
+        return self._after_verb()
+
+    def _cmd_flip(self) -> bool:
+        controller = self._controller
+        if controller is None or self._armed is None:
+            return False
+        controller.flip_armed()
+        return self._after_verb()
+
+    def _cmd_rotate(self) -> bool:
+        """[R] re-aims into rotate (keeping the float pose) or, when already
+        in rotate, steps +90°."""
+        controller = self._controller
+        if controller is None or self._armed is None:
+            return False
+        if self._armed.mode != "rotate":
+            controller.switch_transform_mode("rotate")
+        else:
+            controller.rotate_armed(90)
+        return self._after_verb()
+
+    def _cmd_move(self) -> bool:
+        controller = self._controller
+        if controller is None or self._armed is None:
+            return False
+        controller.switch_transform_mode("move")
+        return self._after_verb()
+
+    def _make_step_cmd(self, vec: tuple[float, float]) -> Callable[[], bool]:
+        def _cmd() -> bool:
+            controller = self._controller
+            if controller is None or self._armed is None:
+                return False
+            dx, dy = vec
             if self._armed.mode == "rotate":
                 controller.rotate_armed(90 if dy < 0 else -90)
             else:
                 controller.move_armed(dx, dy)
             return self._after_verb()
-        return False
+        return _cmd
 
     def accept(self) -> None:
         """Commit the armed transform (programmatic; the atomic menu path).
@@ -199,12 +231,6 @@ class ArmedTransformTool(ControllerTool):
         if controller is not None and self._armed is not None:
             controller.cancel_transform()
             self._after_verb()
-
-    def _step_for(self, inp: KeyInput) -> tuple[float, float] | None:
-        for action_id, vec in _STEP_VECTORS.items():
-            if self._key_matches(inp, action_id):
-                return vec
-        return None
 
     def _after_verb(self) -> bool:
         """Common tail after a consumed verb: publish state, return on terminal.

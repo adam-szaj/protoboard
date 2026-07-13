@@ -18,7 +18,6 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.controller.ports import KeyInput
 from protoboard.controller.ports.viewport import CursorKind
 from protoboard.gui.qt_geometry import from_qpointf, to_qpointf
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
@@ -53,7 +52,6 @@ class ToolHost:
 
     def __init__(self, view: AbstractBoardView) -> None:
         self._view = view
-        self._active_tool: _Tool | None = None
         # Tools always notified on scene_cleared, active or not (MainWindow
         # parks the long-lived SelectTool here).
         self.permanent_tools: list[_Tool] = []
@@ -91,8 +89,25 @@ class ToolHost:
         self._hover_throttle: ParkLatestThrottle[tuple[Point, Mods]] = (
             ParkLatestThrottle(33, self._fire_hover)
         )
+        # KeyMap-layer swap on active-tool change (Controller facade, Task 7):
+        # ``EditController.set_active_tool`` fires ``notify_active_tool_
+        # changed``, which the GUI session turns into this signal.
+        view.session.active_tool_changed.connect(self._on_active_tool_changed)
 
     # -- tool lifecycle ----------------------------------------------------------
+
+    @property
+    def _active_tool(self) -> _Tool | None:
+        """The tool the EditController currently owns (Controller facade).
+
+        A read-only property backed by ``edit_controller.active_tool`` —
+        ownership lives on the Controller (Task 7), so every call site here
+        (input dispatch, scene-cleared fan-out, …) reads the same source of
+        truth a headless driver would.
+        """
+        from typing import cast
+
+        return cast("_Tool | None", self._view.session.edit_controller.active_tool)
 
     @property
     def active_tool(self) -> _Tool | None:
@@ -115,7 +130,13 @@ class ToolHost:
 
     @traced()
     def set_tool(self, tool: _Tool | None) -> None:
-        """Swap the active tool (deactivate old, activate + register new)."""
+        """Swap the active tool (deactivate old, activate + register new).
+
+        Ownership is the Controller's (:meth:`EditController.set_active_tool`);
+        that call fires ``notify_active_tool_changed``, which
+        :meth:`_on_active_tool_changed` (subscribed once, in ``__init__``)
+        consumes to rebuild the KeyMap layer for the new tool.
+        """
         view = self._view
         # While autoroute is running, mutating tools (Place / Route / Cut)
         # are not allowed — fall back to the SelectTool instance (which is
@@ -126,22 +147,33 @@ class ToolHost:
                 tool = None
         if self._active_tool is not None:
             self._active_tool.deactivate()
-        self._tool_keymap = None  # pop the old tool's layer
-        self._active_tool = tool
         view.highlight.set_highlighted_net_silent(None)
         # Tool change may affect board_alpha (e.g. ghost mode) — rebuild board layer.
         view.mark_board_layer_dirty()
         if tool is not None:
             tool.activate(view.session, view)
-            self._tool_keymap = tool.make_key_map(self._base_keymap)
+        view.session.edit_controller.set_active_tool(tool)
         view.refresh()
+
+    @traced()
+    def _on_active_tool_changed(self) -> None:
+        """Rebuild the tool KeyMap layer for the (now) active tool.
+
+        Subscribed to ``EditorSession.active_tool_changed`` in ``__init__``;
+        a headless session has no such signal to fire, so this only runs in
+        the GUI.
+        """
+        tool = self._active_tool
+        self._tool_keymap = (
+            tool.make_key_map(self._base_keymap) if tool is not None else None
+        )
 
     @traced()
     def detach_active_tool(self) -> None:
         """Deactivate + drop the active tool without a refresh (session swap)."""
         if self._active_tool is not None:
             self._active_tool.deactivate()
-            self._active_tool = None
+            self._view.session.edit_controller.set_active_tool(None)
             self._tool_keymap = None  # pop its layer
 
     @traced()
@@ -157,36 +189,20 @@ class ToolHost:
     # -- tool actions (menu / synthesised keys) --------------------------------------
 
     @traced()
-    def trigger_tool_action(self, action_id: str) -> None:
-        """Run *action_id* by synthesising its resolved key into the tool."""
-        from protoboard.gui.shortcuts_help import shortcut_to_key_mods
-        tool = self._active_tool
-        if tool is None:
-            return
-        decoded = shortcut_to_key_mods(self.keymap.resolve(action_id))
-        if decoded is None:
-            return
-        key, mods = decoded
-        tool.on_key(KeyInput(
-            key=int(key),
-            native_mods=int(mods),
-            is_auto_repeat=False,
-            mods=mods_from_qt(Qt.KeyboardModifier(mods)),
-        ))
-
-    @traced()
     def perform_context_action(self, option: ActionOption) -> None:
         """Execute a chosen context option (qt-ports §2.4, variant 1).
 
         A parameterised option (non-empty ``data``) goes to the active
-        tool's ``perform_context_action``; a plain one keeps the
-        synthesised-key parity path through :meth:`trigger_tool_action`.
+        tool's ``perform_context_action``; a plain one runs the active
+        tool's command for ``option.action_id`` through the Controller
+        facade (:meth:`EditController.dispatch_tool_command`) — no
+        synthesised key.
         """
         tool = self._active_tool
         if option.data and tool is not None:
             tool.perform_context_action(option.action_id, option.data)
             return
-        self.trigger_tool_action(option.action_id)
+        self._view.session.edit_controller.dispatch_tool_command(option.action_id)
 
     @traced()
     def get_context_at(self, scene_pos: Point, view_pos: Point) -> InteractionContext:
