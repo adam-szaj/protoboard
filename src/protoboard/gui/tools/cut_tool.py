@@ -9,11 +9,11 @@ from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.commands.board_cmds import SplitStripCommand
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.ports import LEFT_BUTTON
+from protoboard.controller.ports import LEFT_BUTTON
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
-    from protoboard.gui.ports import PointerInput
+    from protoboard.controller.ports import PointerInput
 
 # Maximum scene-unit distance to accept a click as targeting a strip.
 _MAX_DIST = 0.65

@@ -49,8 +49,8 @@ from protoboard.domain.layout.placement import (
     PlacementMap,
 )
 from protoboard.geometry import Point, Vector
-from protoboard.gui.ports import WheelInput
-from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
+from protoboard.controller.ports import WheelInput
+from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import Command, ComponentState
@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Fragment
     from protoboard.geometry import Transform2D
     from protoboard.gui.drag_preferences import DragPreferences
-    from protoboard.gui.ports import KeyInput
+    from protoboard.controller.ports import KeyInput
     from protoboard.gui.selection.drop_resolution import ResolveFn
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
     from protoboard.services.editing.controller import EditState

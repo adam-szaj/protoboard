@@ -2,7 +2,7 @@
 """Qt event → seam input-DTO factories (qt-ports §2.2).
 
 The single sanctioned conversion site between raw Qt input events and the
-Qt-free DTOs in :mod:`protoboard.gui.ports.inputs`.  Only Qt-side code
+Qt-free DTOs in :mod:`protoboard.controller.ports.inputs`.  Only Qt-side code
 (``BoardView`` / ``ToolHost``) imports this module.
 """
 
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 
 from protoboard.geometry import Point
-from protoboard.gui.ports import KeyInput, Mods, PointerInput, WheelInput
+from protoboard.controller.ports import KeyInput, Mods, PointerInput, WheelInput
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent

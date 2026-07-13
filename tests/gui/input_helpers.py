@@ -11,7 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 
 from protoboard.geometry import Point
-from protoboard.gui.ports import LEFT_BUTTON, KeyInput, Mods, PointerInput, WheelInput
+from protoboard.controller.ports import LEFT_BUTTON, KeyInput, Mods, PointerInput, WheelInput
 from protoboard.gui.qt_inputs import mods_from_qt
 
 

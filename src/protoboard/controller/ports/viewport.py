@@ -11,7 +11,7 @@ headless-testable.
 
 The Qt adapter is :class:`protoboard.gui.qt_viewport.QtViewport` — the only
 QPointF/QTransform conversion site; the test fake implements the mapping
-with exact :class:`~protoboard.gui.ports.viewport_details.CameraMath`
+with exact :class:`~protoboard.controller.ports.viewport_details.CameraMath`
 affine math.
 """
 

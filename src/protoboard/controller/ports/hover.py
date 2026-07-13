@@ -5,7 +5,7 @@ The verb layer (docs MVC step 1) translates a throttled pointer move into
 ``empty_action(point, mods)``; the Controller answers with *what is under the
 cursor*, already hit-tested to domain identity.  Kept deliberately narrow —
 ``point`` plus the uuids hit — so it can ride the hover stream without building
-the heavy :class:`~protoboard.gui.ports.interaction_context.InteractionContext`
+the heavy :class:`~protoboard.controller.ports.interaction_context.InteractionContext`
 (actions + menu) that ``notify_context`` carries for a right-click.
 """
 

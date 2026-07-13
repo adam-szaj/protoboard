@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, cast
 
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.gui.layer_state import LayerOverrides, LayerState
-from protoboard.gui.ports import (
+from protoboard.controller.ports import (
     BlockingJob,
     ExecutorPort,
     HelpOverlayPort,
@@ -24,8 +24,8 @@ from protoboard.gui.ports import (
     StatusEvent,
     ViewportPort,
 )
-from protoboard.gui.ports.viewport import CursorKind, ScreenMetrics
-from protoboard.gui.ports.viewport_details import CameraMath
+from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
+from protoboard.controller.ports.viewport_details import CameraMath
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
 
@@ -318,7 +318,7 @@ class HeadlessBoardView:
         self.tools.trigger_tool_action(action_id)
 
     def perform_context_action(self, option: object) -> None:
-        from protoboard.gui.ports import ActionOption
+        from protoboard.controller.ports import ActionOption
 
         assert isinstance(option, ActionOption)
         self.tools.perform_context_action(option)

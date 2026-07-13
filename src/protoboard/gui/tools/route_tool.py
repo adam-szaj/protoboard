@@ -13,13 +13,13 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
+from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.gui.tools.route_preview import QtRoutePreview
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
-    from protoboard.gui.ports import KeyInput, PointerInput
+    from protoboard.controller.ports import KeyInput, PointerInput
     from protoboard.gui.tools.route_preview import RoutePreview
     from protoboard.gui.wire_net_resolver import NetMergePrompt
 

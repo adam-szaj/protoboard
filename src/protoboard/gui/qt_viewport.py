@@ -5,7 +5,7 @@ The **only** place that converts between the port's geometry vocabulary and
 ``QPointF`` / ``QTransform`` / scrollbars / cursors.  Everything above it
 (ViewCamera policy, tools) speaks ``protoboard.geometry`` types; the
 Qt-vs-fake property test pins this adapter to the pure
-:class:`~protoboard.gui.ports.viewport_details.CameraMath` model.
+:class:`~protoboard.controller.ports.viewport_details.CameraMath` model.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QPoint, Qt
 
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
-from protoboard.gui.ports.viewport import CursorKind, ScreenMetrics
+from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
 from protoboard.gui.qt_geometry import (
     from_qpointf,
     from_qtransform,

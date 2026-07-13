@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.ports import StatusEvent
+from protoboard.controller.ports import StatusEvent
 from protoboard.gui.tools.select_tool import SelectTool
 
 
@@ -72,7 +72,7 @@ class TestToolStatusPublication:
 
 class TestWheelNotchAccumulator:
     def test_sub_detent_ticks_fold_into_one_notch(self) -> None:
-        from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
+        from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
         acc = WheelNotchAccumulator()
         assert acc.add(40) == 0
@@ -80,13 +80,13 @@ class TestWheelNotchAccumulator:
         assert acc.add(40) == 1  # 3 × 40 = one detent
 
     def test_hard_spin_yields_multiple_notches(self) -> None:
-        from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
+        from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
         acc = WheelNotchAccumulator()
         assert acc.add(240) == 2
 
     def test_direction_flip_drops_residue(self) -> None:
-        from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
+        from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
         acc = WheelNotchAccumulator()
         assert acc.add(100) == 0    # residue +100
@@ -113,7 +113,7 @@ class TestInteractionContext:
     def test_notify_context_reemits_context_published(
         self, board_view: BoardView
     ) -> None:
-        from protoboard.gui.ports import InteractionContext
+        from protoboard.controller.ports import InteractionContext
 
         seen: list[InteractionContext] = []
         board_view.context_published.connect(seen.append)

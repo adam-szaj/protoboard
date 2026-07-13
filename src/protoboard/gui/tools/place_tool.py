@@ -42,12 +42,12 @@ from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.tools.place_preview import QtPlacePreview
 
-from protoboard.gui.ports import LEFT_BUTTON, StatusEvent
+from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.gui.placement_conflict import PlacementPrompts
-    from protoboard.gui.ports import KeyInput, PointerInput
+    from protoboard.controller.ports import KeyInput, PointerInput
     from protoboard.gui.tools.place_preview import PlacePreview
     from protoboard.services.editing.controller import ResolvedPlacement
 

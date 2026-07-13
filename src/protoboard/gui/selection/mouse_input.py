@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 # The value types moved to the seam's Qt-free port vocabulary (qt-ports §2.2);
 # re-exported here so controller code keeps its historical import path.
-from protoboard.gui.ports.inputs import Intent, Mods
+from protoboard.controller.ports.inputs import Intent, Mods
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point

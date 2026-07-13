@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QWidget
 
-    from protoboard.gui.ports.executor import BlockingJob
+    from protoboard.controller.ports.executor import BlockingJob
 
 
 class QtExecutor:

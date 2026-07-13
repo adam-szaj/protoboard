@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsScene
 
     from protoboard.geometry import Point
-    from protoboard.gui.ports import (
+    from protoboard.controller.ports import (
         ActionOption,
         ExecutorPort,
         HelpOverlayPort,
@@ -432,7 +432,7 @@ class _Tool(BoardViewTool):
     @traced()
     def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
         """Hover/move — delegates to :meth:`on_move`, reports nothing hit."""
-        from protoboard.gui.ports import HoverEvent
+        from protoboard.controller.ports import HoverEvent
         self.on_move(self._synth_pointer(point, mods, primary=False))
         return HoverEvent(point=point)
 
@@ -450,7 +450,7 @@ class _Tool(BoardViewTool):
         legacy ``on_*`` hooks still want a DTO, so we synthesise one whose
         ``button`` is the primary button for a click and ``0`` for a move.
         """
-        from protoboard.gui.ports import LEFT_BUTTON, PointerInput
+        from protoboard.controller.ports import LEFT_BUTTON, PointerInput
         return PointerInput(
             view_pos=point,
             scene_pos=point,

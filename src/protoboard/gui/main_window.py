@@ -13,7 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.gui.ports import InteractionContext, StatusEvent
+    from protoboard.controller.ports import InteractionContext, StatusEvent
 
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
@@ -1722,7 +1722,7 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        from protoboard.gui.ports import KeyInput, Mods
+        from protoboard.controller.ports import KeyInput, Mods
         # Simulate Del key through SelectTool's handler.
         tool.on_key(KeyInput(
             key=int(Qt.Key.Key_Delete), native_mods=0,
@@ -3081,7 +3081,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QPointF
         from PySide6.QtWidgets import QMenu
 
-        from protoboard.gui.ports import ActionOption
+        from protoboard.controller.ports import ActionOption
 
         view = self._board_view
         menu = QMenu(view)

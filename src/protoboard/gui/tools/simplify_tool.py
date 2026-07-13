@@ -28,7 +28,7 @@ from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsComman
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
-from protoboard.gui.ports import LEFT_BUTTON, KeyInput, PointerInput
+from protoboard.controller.ports import LEFT_BUTTON, KeyInput, PointerInput
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
 from protoboard.services.routing.postprocess import (

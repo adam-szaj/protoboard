@@ -18,8 +18,8 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.ports import KeyInput
-from protoboard.gui.ports.viewport import CursorKind
+from protoboard.controller.ports import KeyInput
+from protoboard.controller.ports.viewport import CursorKind
 from protoboard.gui.qt_geometry import from_qpointf, to_qpointf
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
 from protoboard.gui.keymap import (
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.ports import (
+    from protoboard.controller.ports import (
         ActionOption,
         InteractionContext,
         Mods,
@@ -192,7 +192,7 @@ class ToolHost:
         tool's own actions with their live shortcuts; the consumer adds its
         view chrome (center-here / cancel) itself.
         """
-        from protoboard.gui.ports import ActionOption, InteractionContext
+        from protoboard.controller.ports import ActionOption, InteractionContext
         from protoboard.gui.shortcuts_help import (
             category_label,
             tool_shortcut_rows,

@@ -19,7 +19,7 @@ from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.ports import ViewportPort, WheelInput
+    from protoboard.controller.ports import ViewportPort, WheelInput
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
 GRID_PX = 60.0  # initial pixels-per-raster-unit

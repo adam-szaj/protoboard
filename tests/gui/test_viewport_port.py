@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.ports.viewport_details import CameraMath
+from protoboard.controller.ports.viewport_details import CameraMath
 from protoboard.gui.qt_viewport import QtViewport
 
 

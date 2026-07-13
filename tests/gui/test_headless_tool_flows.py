@@ -35,7 +35,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, move_blocked
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.editing.drag_commit import classify_drag_commit
-from protoboard.gui.ports import Mods
+from protoboard.controller.ports import Mods
 from protoboard.gui.selection.adapters import (
     ComponentSelectable,
     WireSelectable,
@@ -267,7 +267,7 @@ class TestVerbParity:
     ) -> None:
         # Sub-commit 5: the RMB mouse chord dispatches to secondary_action,
         # which publishes the item context (parity with the old on_right_press).
-        from protoboard.gui.ports import RIGHT_BUTTON
+        from protoboard.controller.ports import RIGHT_BUTTON
         view = _headless(session)
         inst = _place(view, 0.5, 0.5)
         tool = _select_tool(view)

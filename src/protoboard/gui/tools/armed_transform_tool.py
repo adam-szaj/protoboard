@@ -28,12 +28,12 @@ from typing import TYPE_CHECKING, Callable
 from PySide6.QtCore import Qt
 
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.ports.inputs_details import WheelNotchAccumulator
+from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.ports import KeyInput, PointerInput, WheelInput
+    from protoboard.controller.ports import KeyInput, PointerInput, WheelInput
     from protoboard.gui.session import EditorSession
     from protoboard.gui.tools.select_preview import SelectPreview
     from protoboard.gui.tools.transform_overlays import TransformOverlays
@@ -274,7 +274,7 @@ class ArmedTransformTool(_Tool):
         return ((_ACT_WHEEL_ROTATE, self._mouse_wheel_rotate),)
 
     def _mouse_wheel_rotate(self, inp: PointerInput | WheelInput) -> bool:
-        from protoboard.gui.ports import WheelInput
+        from protoboard.controller.ports import WheelInput
 
         if not isinstance(inp, WheelInput) or not self.wants_wheel(inp):
             return False  # not armed → the chord falls through to zoom
@@ -336,7 +336,7 @@ class ArmedTransformTool(_Tool):
         self._draw_pivot_markers()
 
     def _status(self, msg: str) -> None:
-        from protoboard.gui.ports import StatusEvent
+        from protoboard.controller.ports import StatusEvent
 
         view = self._view
         if view is not None:

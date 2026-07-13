@@ -36,7 +36,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.ports import (
+from protoboard.controller.ports import (
     LEFT_BUTTON,
     ActionOption,
     HoverEvent,
@@ -3884,7 +3884,7 @@ class SelectTool(_Tool):
         """Run generic_simplify_wire on each wire id (in a worker), apply changes."""
         from typing import cast
 
-        from protoboard.gui.ports import BlockingJob
+        from protoboard.controller.ports import BlockingJob
         from protoboard.gui.selection.wire_ops import build_simplify_inputs
         from protoboard.services.routing.postprocess import (
             SimplifyMode,
@@ -3969,7 +3969,7 @@ class SelectTool(_Tool):
             AddWireCommand,
             RemoveWireCommand,
         )
-        from protoboard.gui.ports import BlockingJob
+        from protoboard.controller.ports import BlockingJob
         from protoboard.services.routing.unweave import (
             count_mutual_crossings,
             unweave_wires,

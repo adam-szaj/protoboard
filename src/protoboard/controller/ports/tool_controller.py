@@ -13,7 +13,7 @@ active tool through this protocol:
 
 The boundary rule: a headless test drives the app as a sequence of these verbs
 with :class:`~protoboard.geometry.Point` (already in model units) and
-:class:`~protoboard.gui.ports.inputs.Mods`; anything it must fake or bypass —
+:class:`~protoboard.controller.ports.inputs.Mods`; anything it must fake or bypass —
 Qt events, the ``KeyMap``, throttling — is *View*, not *Controller*.
 
 :attr:`state` is a first-class, assertable Controller fact (e.g. ``"select.idle"``
@@ -34,8 +34,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
-    from protoboard.gui.ports.hover import HoverEvent
-    from protoboard.gui.ports.inputs import Mods
+    from protoboard.controller.ports.hover import HoverEvent
+    from protoboard.controller.ports.inputs import Mods
 
 
 @runtime_checkable

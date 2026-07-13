@@ -13,7 +13,7 @@ import structlog
 
 if TYPE_CHECKING:
     from protoboard.gui.keymap import KeyMap
-    from protoboard.gui.ports import (
+    from protoboard.controller.ports import (
         ActionOption,
         ExecutorPort,
         HelpOverlayPort,
