@@ -346,6 +346,10 @@ class AbstractKeyMap(ABC):
         ...
 
     @abstractmethod
+    def load_defaults(self) -> None:
+        ...
+
+    @abstractmethod
     def load_overrides(self) -> None:
         ...
 
@@ -662,6 +666,44 @@ class KeyMap(AbstractKeyMap):
     # -- disk ---------------------------------------------------------------
 
     @traced()
+    def load_defaults(self) -> None:
+        """Read the ``defaults:`` section (declared bindings) if present.
+
+        Shape mirrors :meth:`load_overrides`'s tree, nested one level under
+        ``defaults:``.  Declares each entry via :meth:`register_tool_actions`,
+        so it behaves exactly like a tool's own ``key_actions()`` — a later
+        user override (loaded after this, see :meth:`load_overrides`) still
+        wins.  Missing file / missing section / corrupt file are no-ops.
+        """
+        from protoboard.paths import KEYBINDINGS_V2_FILE
+
+        if not KEYBINDINGS_V2_FILE.exists():
+            return
+        try:
+            from ruamel.yaml import \
+                YAML  # type: ignore[import-untyped,unused-ignore]
+
+            yaml = YAML()
+            raw = yaml.load(KEYBINDINGS_V2_FILE)
+            if not isinstance(raw, dict):
+                return
+            defaults = raw.get("defaults")
+            if not isinstance(defaults, dict):
+                return
+            for category, entries in defaults.items():
+                if not isinstance(category, str) or not isinstance(
+                        entries, dict):
+                    continue
+                actions: dict[str, str | None] = {}
+                for name, value in entries.items():
+                    if isinstance(name, str) and isinstance(value, str):
+                        actions[f"{category}.{name}"] = value
+                if actions:
+                    self.register_tool_actions(actions)
+        except Exception:  # noqa: BLE001 — corrupt file → defaults
+            return
+
+    @traced()
     def load_overrides(self) -> None:
         """Read user overrides from the namespaced tree YAML, if present.
 
@@ -689,7 +731,11 @@ class KeyMap(AbstractKeyMap):
             raw = yaml.load(KEYBINDINGS_V2_FILE)
             if not isinstance(raw, dict):
                 return
-            for category, entries in raw.items():
+            # New shape nests overrides under `overrides:` (alongside
+            # `defaults:`); an old flat file has no such key, so the whole
+            # dict IS the override tree (backward compat).
+            tree = raw.get("overrides", raw)
+            for category, entries in tree.items():
                 if not isinstance(category, str) or not isinstance(
                         entries, dict):
                     continue
@@ -702,12 +748,15 @@ class KeyMap(AbstractKeyMap):
 
     @traced()
     def save_overrides(self) -> None:
-        """Persist user overrides to the namespaced tree YAML.
+        """Persist user overrides to the namespaced tree YAML, under ``overrides:``.
 
         Only entries that differ from the action's declared default are written,
-        so the file stays minimal and future default changes propagate.
+        so the file stays minimal and future default changes propagate.  Any
+        existing ``defaults:`` section is read back and re-emitted unchanged.
         """
         from protoboard.paths import CONFIG_DIR, KEYBINDINGS_V2_FILE
+        from ruamel.yaml import \
+            YAML  # type: ignore[import-untyped,unused-ignore]
 
         tree: dict[str, dict[str, str]] = {}
         for action_id, shortcut in self._overrides.items():
@@ -719,18 +768,28 @@ class KeyMap(AbstractKeyMap):
                 continue
             tree.setdefault(category, {})[name] = shortcut
 
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        from ruamel.yaml import \
-            YAML  # type: ignore[import-untyped,unused-ignore]
+        existing_defaults = None
+        if KEYBINDINGS_V2_FILE.exists():
+            try:
+                raw = YAML().load(KEYBINDINGS_V2_FILE)
+                if isinstance(raw, dict):
+                    existing_defaults = raw.get("defaults")
+            except Exception:  # noqa: BLE001 — corrupt file → don't preserve
+                existing_defaults = None
 
+        out: dict[str, object] = {}
+        if existing_defaults:
+            out["defaults"] = existing_defaults
+        out["overrides"] = tree
+
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         yaml = YAML()
         yaml.default_flow_style = False
         with KEYBINDINGS_V2_FILE.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — namespaced keyboard shortcuts\n")
             fh.write(
                 "# Grouped by category. null = inherit the global default.\n")
-            if tree:
-                yaml.dump(tree, fh)
+            yaml.dump(out, fh)
 
     @override
     def resolve_action(self, action_id: str) -> KeyAction | None:
