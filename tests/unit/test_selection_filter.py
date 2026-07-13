@@ -7,7 +7,7 @@ component-only filter excludes wire/group hits, etc.
 """
 
 from protoboard.gui.selection_axes import SelectionFilter
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool
 
 
 def test_filter_defaults_to_all() -> None:

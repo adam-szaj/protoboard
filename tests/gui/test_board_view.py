@@ -11,7 +11,7 @@ from pytestqt.qtbot import QtBot
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView, _Tool
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool
 
 
 class TestSnap:

@@ -121,7 +121,7 @@ class ToolHost:
         # are not allowed — fall back to the SelectTool instance (which is
         # purely read-only).  SelectTool itself, or None, is always allowed.
         if tool is not None and view.session.autoroute_active:
-            from protoboard.gui.tools.select_tool import SelectTool as _ST
+            from protoboard.gui.tools.gui_tools import SelectTool as _ST
             if not isinstance(tool, _ST):
                 tool = None
         if self._active_tool is not None:

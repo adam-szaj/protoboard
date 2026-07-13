@@ -12,7 +12,7 @@ from __future__ import annotations
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.controller.ports import StatusEvent
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool
 
 
 class TestStatusEvent:

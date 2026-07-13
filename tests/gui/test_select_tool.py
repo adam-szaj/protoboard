@@ -17,9 +17,8 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import PlaceTool
+from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
-from protoboard.gui.tools.select_tool import SelectTool
 from tests.gui.input_helpers import key_inp, pointer, wheel
 
 

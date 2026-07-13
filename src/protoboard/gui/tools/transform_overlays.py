@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Shared transform-preview overlays: the conflict corner + selection outline.
 
-Both the live drag (in :class:`~protoboard.gui.tools.select_tool.SelectTool`)
+Both the live drag (in :class:`~protoboard.gui.tools.gui_tools.SelectTool`)
 and the armed transform (in
 :class:`~protoboard.gui.tools.gui_tools.ArmedTransformTool`) show the
 same SOFT-amber / HARD-red corner label and recolour the selection outline to

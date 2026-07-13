@@ -18,7 +18,7 @@ from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool
 from protoboard.services.routing.autorouter import AutorouteResult
 from protoboard.services.routing.optimizer import (
     OptimizerCapabilities,

@@ -7,10 +7,6 @@ the default Qt preview / prompt construction (``activate()``), and — where
 the controller tool doesn't already resolve its keys purely by action id —
 the ``on_key`` raw-key-to-command translation.  ``ToolHost`` / ``MainWindow``
 import tools from this module, never from ``controller.tools`` directly.
-
-``select_tool`` / ``simplify_tool`` (a ``SelectTool`` subclass) are not
-composed here — ``SelectTool`` itself is still Qt-laden (Task 6), so
-``SimplifyTool`` stays in :mod:`protoboard.gui.tools.simplify_tool` for now.
 """
 
 from __future__ import annotations
@@ -24,6 +20,17 @@ from protoboard.controller.tools.route_tool import RouteTool as _RouteTool
 from protoboard.controller.tools.armed_transform_tool import (
     ArmedTransformTool as _ArmedTransformTool,
 )
+from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
+from protoboard.controller.tools.select_tool import (
+    _ACT_DELETE,
+    _ACT_EDIT,
+    _ACT_FLIP,
+    _ACT_MOVE,
+    _ACT_RELATION_CYCLE,
+    _ACT_RELATION_CYCLE_BACK,
+    _ACT_ROTATE,
+)
+from protoboard.controller.tools.simplify_tool import SimplifyTool as _SimplifyTool
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -33,12 +40,15 @@ if TYPE_CHECKING:
         GroupTargetChoice,
         GroupTargetRequest,
     )
+    from protoboard.gui.selection.mouse_input import Intent
 
 __all__ = [
     "CutTool",
     "PlaceTool",
     "RouteTool",
     "ArmedTransformTool",
+    "SelectTool",
+    "SimplifyTool",
     "qt_group_target_prompt",
 ]
 
@@ -130,9 +140,181 @@ class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
         self._draw_pivot_markers()  # type: ignore[attr-defined]
 
 
+class SelectTool(_SelectTool, ViewToolMixin):
+    """SelectTool with the default Qt preview, group-target prompt, overlays.
+
+    ``on_key`` is the raw-key → command translation the controller tool can't
+    own itself (KeyMap action ids where bound, headless-safe raw-key
+    fallbacks otherwise) — see the module docstring on
+    :mod:`protoboard.controller.tools.select_tool` for the full list of
+    command methods it dispatches into.
+    """
+
+    make_key_map = ViewToolMixin.make_key_map
+    _theme = ViewToolMixin._theme
+
+    def activate(self, session: object, view: object) -> None:
+        if not self._preview_injected:  # type: ignore[attr-defined]
+            from protoboard.gui.tools.select_preview import QtSelectPreview
+
+            self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
+        super().activate(session, view)  # type: ignore[arg-type]
+        from protoboard.gui.tools.transform_overlays import TransformOverlays
+
+        self._overlays = TransformOverlays(view)  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _key_to_intent(key: int) -> Intent | None:
+        """Map a Qt key to a semantic interaction intent.
+
+        The one place keys become intents, so controllers never see raw
+        keycodes.  A future revision can resolve this through the app's
+        keybinding registry; the defaults match the conventional bindings.
+        """
+        from PySide6.QtCore import Qt
+
+        from protoboard.gui.selection.mouse_input import Intent
+
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return Intent.CONFIRM
+        if key == Qt.Key.Key_Escape:
+            return Intent.CANCEL
+        if key == Qt.Key.Key_Backspace:
+            return Intent.UNDO
+        return None
+
+    def on_key(self, inp: KeyInput) -> bool:
+        from PySide6.QtCore import Qt
+
+        key = inp.key
+        ctrl = inp.mods.ctrl
+        shift = inp.mods.shift
+        alt = inp.mods.alt
+
+        # Pivot mode: Esc clears it first.
+        if self._pivot_capture_pending or self._rotate_pivot is not None:
+            if key == Qt.Key.Key_Escape:
+                self._clear_pivot()
+                self._status("Pivot cleared")
+                return True
+
+        # Translate the key into a semantic intent and offer it to the active
+        # mouse interaction (a floating drag, or a pick via PointPickController:
+        # CONFIRM ends it, CANCEL aborts, UNDO drops the last pick).  One path —
+        # no controller-type branching; the controller decides.  A wire-vertex
+        # or reroute-waypoint pick is live here, so its Enter/Esc/Backspace
+        # route to the pick before the op-keys get a turn.
+        intent = self._key_to_intent(key)
+        if intent is not None and self._dispatch_intent(intent):
+            return True
+
+        # Fragment selected and no pick in flight → the op-keys act on it
+        # ([W] reroute · [A] autoroute · [Del] delete · [Esc] cancel).  This is
+        # the "operations are actions on the selected fragment" branch.
+        if self._wire_edit is not None and self._mouse is None:
+            if self._wire_edit_on_key(inp):
+                return True
+
+        # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
+        # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it
+        # works headless where the KeyMap may be absent.
+        if self._key_matches(inp, _ACT_RELATION_CYCLE_BACK) or (
+            key == Qt.Key.Key_QuoteLeft and shift
+        ):
+            self._cycle_relation(forward=False)
+            return True
+        if self._key_matches(inp, _ACT_RELATION_CYCLE) or (
+            key == Qt.Key.Key_QuoteLeft and not shift
+        ):
+            self._cycle_relation(forward=True)
+            return True
+
+        if (
+            self._key_matches(inp, _ACT_DELETE)
+            or (key == Qt.Key.Key_Backspace and not ctrl)
+        ):
+            return self._delete_selection(force=shift)
+
+        if self._key_matches(inp, _ACT_EDIT):
+            self._begin_edit_selected()  # edit the selected object
+            return True
+
+        if key == Qt.Key.Key_R and ctrl:
+            self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
+            return True
+
+        if self._key_matches(inp, _ACT_MOVE) and not self._selection.is_empty():
+            self.arm_move()  # [G] — keyboard float-move (arrows / WSAD)
+            return True
+
+        # Alt+R flips (immediate 2-pin flip, kept as a one-shot until flip joins
+        # the armed transform mode); the bare rotate action arms float-rotate.
+        if self._key_matches(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
+            self._flip_selected()
+            return True
+
+        if self._key_matches(inp, _ACT_ROTATE) and not ctrl:
+            self.arm_rotate()
+            return True
+
+        if key == Qt.Key.Key_Escape:
+            if len(self._group_stack) > 1:
+                self.exit_group()
+            else:
+                self._selection.clear()
+                self._context_net_id = None  # deselect drops the net context
+                self._clear_free_pad_ring()
+                self._refresh_highlight()
+            return True
+        return False
+
+    def on_key_release(self, inp: KeyInput) -> None:
+        pass
+
+
+class SimplifyTool(_SimplifyTool, ViewToolMixin):
+    """SimplifyTool with the default Qt draft-overlay preview.
+
+    ``on_key`` is just the ``[Esc]`` clear-draft raw-key check ahead of
+    SelectTool's own ``on_key`` (KeyMap action ids + fallbacks).
+
+    ``_SimplifyTool`` extends the *pure controller* ``SelectTool``
+    (``controller.tools.select_tool.SelectTool``), not this module's
+    Qt-composed one — so ``gui_tools.SelectTool.activate``'s preview/overlays
+    injection is not in this class's MRO and has to be repeated here.
+    """
+
+    make_key_map = ViewToolMixin.make_key_map
+    _theme = ViewToolMixin._theme
+
+    def activate(self, session: object, view: object) -> None:
+        if not self._preview_injected:  # type: ignore[attr-defined]
+            from protoboard.gui.tools.select_preview import QtSelectPreview
+
+            self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
+        super().activate(session, view)  # type: ignore[arg-type]
+        from protoboard.gui.tools.transform_overlays import TransformOverlays
+
+        self._overlays = TransformOverlays(view)  # type: ignore[attr-defined]
+        if not self._draft_preview_injected:  # type: ignore[attr-defined]
+            from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
+
+            self._draft_preview = QtSimplifyPreview(  # type: ignore[attr-defined]
+                self._view.scene, self._theme  # type: ignore[attr-defined]
+            )
+
+    def on_key(self, inp: KeyInput) -> bool:
+        from PySide6.QtCore import Qt
+
+        if inp.key == Qt.Key.Key_Escape:
+            self._clear_draft()  # type: ignore[attr-defined]
+        return super().on_key(inp)
+
+
 # ---------------------------------------------------------------------------
-# select_tool's Qt prompt factories (select_tool.py stays gui-side / Task 6,
-# but its data types already moved to controller.tools.select_prompts).
+# select_tool's Qt prompt factories (data types live in
+# controller.tools.select_prompts; the default Qt prompt implementation stays
+# gui-side, injected by SelectTool.activate()).
 # ---------------------------------------------------------------------------
 
 

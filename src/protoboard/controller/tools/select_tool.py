@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """``SelectTool`` — the selection tool (rewritten as a service).
 
-A thin ``_Tool`` that wires the headless-tested pieces together:
+A thin ``ControllerTool`` that wires the headless-tested pieces together:
 
 * :class:`~protoboard.gui.selection.hit_test.HitTester` — point → Selectable,
 * :class:`~protoboard.gui.selection.service.SelectionService` — selection state
@@ -21,6 +21,11 @@ The tool keeps almost no logic of its own — on press it arms a mouse-interacti
 controller or mutates the selection; pointer events and translated intents
 (CONFIRM / CANCEL / UNDO) forward to the active controller; the behaviour lives
 in tested, Qt-free controllers.
+
+Qt-free (controller/tools/): raw-key dispatch (``on_key`` / ``_key_to_intent``)
+and the default Qt preview / group-target prompt construction live on the
+GUI-composed subclass in :mod:`protoboard.gui.tools.gui_tools`; this module
+keeps the command methods those key branches call.
 """
 
 from __future__ import annotations
@@ -29,12 +34,10 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.gui.highlight.controller import HighlightController
 from protoboard.controller.ports import (
     LEFT_BUTTON,
@@ -62,9 +65,6 @@ if TYPE_CHECKING:
 
     from collections.abc import Mapping
 
-    from PySide6.QtGui import QKeyEvent
-    from PySide6.QtWidgets import QGraphicsItem
-
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import RedragResult
@@ -79,10 +79,10 @@ if TYPE_CHECKING:
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.selection.wire_edit import WireEditState
-    from protoboard.gui.session import EditorSession
+    from protoboard.controller.editing import EditState
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.select_prompts import GroupTargetPrompt
-    from protoboard.gui.tools.drag_corner_text import DragCornerText
+    from protoboard.gui.tools.transform_overlays import TransformOverlays
     from protoboard.gui.tools.select_preview import SelectPreview
 
 # Below this travel (raster units) a press+release is a click, not a drag —
@@ -92,8 +92,8 @@ _CLICK_THRESHOLD = 0.3
 # Namespaced key actions this tool declares.  None → inherit the generic
 # ``global.action.<name>`` default (so Delete/Edit/Cancel follow whatever the
 # user bound globally); a literal overrides for this tool.  The shortcut veto
-# and on_key dispatch resolve keys against these *by id*, never by hard-coded
-# Qt.Key literals — so a user rebinding any of them is honoured automatically.
+# and key dispatch resolve keys against these *by id*, never by hard-coded raw
+# key literals — so a user rebinding any of them is honoured automatically.
 _ACT_EDIT = "select-tool.action.edit"
 _ACT_REROUTE = "select-tool.action.reroute"
 _ACT_AUTOROUTE = "select-tool.action.autoroute"
@@ -143,7 +143,7 @@ def _segment_intersects_rect(
     return True
 
 
-class SelectTool(_Tool):
+class SelectTool(ControllerTool):
     """Selection tool built on the SelectionService / HitTester / Highlight stack."""
 
     def __init__(
@@ -184,11 +184,14 @@ class SelectTool(_Tool):
         # refresh / rotate / drag until the selection changes.  ``None`` ⇒ no
         # net context ⇒ no bright pad discs.
         self._context_net_id: uuid.UUID | None = None
-        # Live-drag conflict label (corner text).  Lazily built on first
-        # conflicting drag step; cleared the moment the drag returns to CLEAR
-        # so the frame never lingers after the cursor leaves the conflict zone
-        # (the legacy "sticky yellow frame" complaint, 2026-06-19).
-        self._drag_corner: DragCornerText | None = None
+        # Live-drag conflict corner label + selection-outline override — the
+        # SOFT-amber/HARD-red feedback shared with ArmedTransformTool (Qt-side
+        # in :class:`~protoboard.gui.tools.transform_overlays.TransformOverlays`,
+        # injected by the GUI-composed subclass's ``activate()``; ``None``
+        # headless).  Cleared the moment the drag returns to CLEAR so the
+        # frame never lingers after the cursor leaves the conflict zone (the
+        # legacy "sticky yellow frame" complaint, 2026-06-19).
+        self._overlays: TransformOverlays | None = None
         # Rotate-around-point pivot capture (legacy menu path; seeds the armed
         # rotate's shared pivot).
         self._pivot_capture_pending: bool = False
@@ -223,7 +226,7 @@ class SelectTool(_Tool):
         # Enforcement in the hit-test is a deferred follow-up.
         self._filter: SelectionFilter = SelectionFilter.ALL
 
-    # -- _Tool lifecycle ----------------------------------------------------
+    # -- ControllerTool lifecycle --------------------------------------------
 
     @property
     def preview(self) -> SelectPreview:
@@ -231,13 +234,9 @@ class SelectTool(_Tool):
         return self._preview
 
     @traced()
-    def activate(self, session: EditorSession, view: AbstractBoardView) -> None:
+    def activate(self, session: EditState, view: AbstractBoardView) -> None:
         self._session = session
         self._view = view
-        if not self._preview_injected:
-            from protoboard.gui.tools.select_preview import QtSelectPreview
-
-            self._preview = QtSelectPreview(view.scene)
         if not self._group_prompt_injected:
             from protoboard.gui.tools.gui_tools import qt_group_target_prompt
 
@@ -268,7 +267,8 @@ class SelectTool(_Tool):
         # The scene was rebuilt — our overlay QGraphicsItems are gone; drop the
         # stale references so a later clear doesn't touch freed items.
         self.preview.on_scene_cleared()
-        self._drag_corner = None
+        if self._overlays is not None:
+            self._overlays.clear()
 
     # -- helpers ------------------------------------------------------------
 
@@ -701,7 +701,7 @@ class SelectTool(_Tool):
         self._refresh_highlight()
 
     @property
-    def _multi_highlights(self) -> list[QGraphicsItem]:
+    def _multi_highlights(self) -> list[object]:
         """Legacy: selection-highlight overlay items.
 
         v2 renders the highlight through the ``HighlightStack`` (BoardView
@@ -1322,55 +1322,23 @@ class SelectTool(_Tool):
     def _show_conflict_corner(self, decision: DragCommitDecision | None) -> None:
         """Show/clear the corner conflict label for a live preview decision.
 
-        Shared by drag and armed-rotate previews: SOFT amber / HARD red while
-        conflicting, hidden the instant the state is CLEAR (or ``None``) so the
-        frame never lingers.
+        Shared by drag and armed-rotate previews (SOFT amber / HARD red while
+        conflicting, hidden the instant the state is CLEAR or ``None`` so the
+        frame never lingers) — delegates to the Qt-side
+        :class:`~protoboard.gui.tools.transform_overlays.TransformOverlays`
+        the GUI-composed subclass injects on ``activate()``; a no-op headless.
         """
-        from protoboard.controller.tools.drag_commit_decision import DragSeverity
-
-        if decision is None or decision.severity is DragSeverity.CLEAR:
-            self._clear_drag_corner()
-            return
-        amber = QColor(180, 130, 0, 220)
-        red = QColor(180, 40, 25, 230)
-        color = red if decision.severity is DragSeverity.HARD else amber
-        text = decision.description or (
-            "Cannot drop here — overlap  ·  [Esc] cancel"
-            if decision.severity is DragSeverity.HARD
-            else "Drops/edits some wires on release"
-        )
-        self._show_drag_corner(text, color)
-        # Flip the selection-outline colour to match the conflict severity —
-        # red HARD / amber SOFT — so the dragged bodies' own highlight signals
-        # the drop's consequence (replaces the legacy dashed conflict overlay).
-        self._set_drag_outline(color.name(QColor.NameFormat.HexArgb))
-
-    def _set_drag_outline(self, color: str | None) -> None:
-        """Drive BoardView's selection-outline override (None → back to cyan).
-
-        *color* is hex ``#AARRGGBB`` — the seam's colour format (qt-ports §2.7).
-        """
-        view = self._view
-        setter = getattr(view, "set_selection_outline_override", None)
-        if setter is not None:
-            setter(color)
-
-    def _show_drag_corner(self, text: str, color: QColor) -> None:
-        from protoboard.gui.tools.drag_corner_text import DragCornerText
-
-        if self._view is None:
-            return
-        if self._drag_corner is None:
-            self._drag_corner = DragCornerText()
-        self._drag_corner.show(self._view.scene(), self._view, text, color)
+        if self._overlays is not None:
+            self._overlays.show_conflict(decision)
 
     def _clear_drag_corner(self) -> None:
-        if self._drag_corner is not None and self._view is not None:
-            self._drag_corner.hide(self._view.scene())
-        # The conflict outline colour travels with the corner label — clear it
-        # together so the selection returns to cyan when the conflict resolves
-        # or the drag ends (every drag-end path routes through here).
-        self._set_drag_outline(None)
+        """Hide the corner label, reset the selection outline, un-ghost wires.
+
+        Every drag-end path routes through here so the frame/outline can't
+        stick after the cursor leaves the conflict zone or the drag ends.
+        """
+        if self._overlays is not None:
+            self._overlays.clear()
         # Restore any ghost-dimmed wires to full opacity (the CLEAR-decision tick
         # and every drag-end path route through here).
         if self._ghosted_wire_ids:
@@ -1577,22 +1545,10 @@ class SelectTool(_Tool):
         self._notify_selection()
 
     # -- intent dispatch (CONFIRM / CANCEL / UNDO) -------------------------
-
-    @staticmethod
-    def _key_to_intent(key: int) -> Intent | None:
-        """Map a Qt key to a semantic interaction intent.
-
-        The one place keys become intents, so controllers never see raw
-        keycodes.  A future revision can resolve this through the app's
-        keybinding registry; the defaults match the conventional bindings.
-        """
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            return Intent.CONFIRM
-        if key == Qt.Key.Key_Escape:
-            return Intent.CANCEL
-        if key == Qt.Key.Key_Backspace:
-            return Intent.UNDO
-        return None
+    #
+    # ``_key_to_intent`` (Qt key → semantic Intent) lives on the GUI-composed
+    # subclass's ``on_key`` in :mod:`protoboard.gui.tools.gui_tools` — this is
+    # the command method it dispatches into.
 
     @traced()
     def _dispatch_intent(self, intent: Intent) -> bool:
@@ -2213,21 +2169,19 @@ class SelectTool(_Tool):
     def _wire_edit_on_key(self, inp: KeyInput) -> bool:
         """Op-table for the selected fragment — one entry per operation.
 
-        Dispatches by *action id* resolved through the KeyMap (not by hard-coded
-        keys), so rebinding reroute/autoroute/delete is honoured.  Cancel stays
-        on raw Esc / Backspace too, since those are not global shortcuts.
-        Returns True when the key was consumed.
+        Dispatches by *action id* resolved through the KeyMap — never by
+        hard-coded raw key literals — so rebinding reroute / autoroute /
+        delete / cancel is honoured.  Returns True when the key was consumed.
         """
-        key = inp.key
         if self._key_matches(inp, _ACT_REROUTE):
             self._begin_reroute()
         elif self._key_matches(inp, _ACT_AUTOROUTE):
             self._autoroute_fragment()
         elif self._key_matches(inp, _ACT_FLIP_FRAGMENT):
             self._flip_wire_fragment()
-        elif self._key_matches(inp, _ACT_DELETE) or key == Qt.Key.Key_Backspace:
+        elif self._key_matches(inp, _ACT_DELETE):
             self._delete_fragment()
-        elif self._key_matches(inp, _ACT_CANCEL) or key == Qt.Key.Key_Escape:
+        elif self._key_matches(inp, _ACT_CANCEL):
             self._wire_edit_clear()
         else:
             return False
@@ -2482,94 +2436,18 @@ class SelectTool(_Tool):
     def _clear_reroute_live(self) -> None:
         self.preview.clear_reroute_live()
 
-    # -- keys ---------------------------------------------------------------
-
-    @traced()
-    def on_key(self, inp: KeyInput) -> bool:
-        key = inp.key
-        ctrl = inp.mods.ctrl
-        shift = inp.mods.shift
-        alt = inp.mods.alt
-
-        # Pivot mode: Esc clears it first.
-        if (self._pivot_capture_pending or self._rotate_pivot is not None):
-            if key == Qt.Key.Key_Escape:
-                self._clear_pivot()
-                self._status("Pivot cleared")
-                return True
-
-        # Translate the key into a semantic intent and offer it to the active
-        # mouse interaction (a floating drag, or a pick via PointPickController:
-        # CONFIRM ends it, CANCEL aborts, UNDO drops the last pick).  One path —
-        # no controller-type branching; the controller decides.  A wire-vertex
-        # or reroute-waypoint pick is live here, so its Enter/Esc/Backspace
-        # route to the pick before the op-keys get a turn.
-        intent = self._key_to_intent(key)
-        if intent is not None and self._dispatch_intent(intent):
-            return True
-
-        # Fragment selected and no pick in flight → the op-keys act on it
-        # ([W] reroute · [A] autoroute · [Del] delete · [Esc] cancel).  This is
-        # the "operations are actions on the selected fragment" branch.
-        if self._wire_edit is not None and self._mouse is None:
-            if self._wire_edit_on_key(inp):
-                return True
-
-        # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
-        # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it
-        # works headless where the KeyMap may be absent.
-        if self._key_matches(inp, _ACT_RELATION_CYCLE_BACK) or (
-            key == Qt.Key.Key_QuoteLeft and shift
-        ):
-            self._cycle_relation(forward=False)
-            return True
-        if self._key_matches(inp, _ACT_RELATION_CYCLE) or (
-            key == Qt.Key.Key_QuoteLeft and not shift
-        ):
-            self._cycle_relation(forward=True)
-            return True
-
-        if (
-            self._key_matches(inp, _ACT_DELETE)
-            or (key == Qt.Key.Key_Backspace and not ctrl)
-        ):
-            return self._delete_selection(force=shift)
-
-        if self._key_matches(inp, _ACT_EDIT):
-            self._begin_edit_selected()  # edit the selected object
-            return True
-
-        if key == Qt.Key.Key_R and ctrl:
-            self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
-            return True
-
-        if self._key_matches(inp, _ACT_MOVE) and not self._selection.is_empty():
-            self.arm_move()  # [G] — keyboard float-move (arrows / WSAD)
-            return True
-
-        # Alt+R flips (immediate 2-pin flip, kept as a one-shot until flip joins
-        # the armed transform mode); the bare rotate action arms float-rotate.
-        if self._key_matches(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
-            self._flip_selected()
-            return True
-
-        if self._key_matches(inp, _ACT_ROTATE) and not ctrl:
-            self.arm_rotate()
-            return True
-
-        if key == Qt.Key.Key_Escape:
-            if len(self._group_stack) > 1:
-                self.exit_group()
-            else:
-                self._selection.clear()
-                self._context_net_id = None  # deselect drops the net context
-                self._clear_free_pad_ring()
-                self._refresh_highlight()
-            return True
-        return False
-
-    def on_key_release(self, inp: KeyInput) -> None:
-        pass
+    # -- keys -----------------------------------------------------------------
+    #
+    # ``on_key`` (raw-key → command dispatch) lives on the GUI-composed
+    # subclass in :mod:`protoboard.gui.tools.gui_tools` — it resolves keys
+    # (KeyMap action ids, with headless-safe raw-key fallbacks) and calls the
+    # command methods kept here: :meth:`_clear_pivot`, :meth:`_dispatch_intent`
+    # (via ``_key_to_intent``), :meth:`_wire_edit_on_key`, :meth:`_cycle_relation`,
+    # :meth:`_delete_selection`, :meth:`_begin_edit_selected`, :meth:`begin_redrag`,
+    # :meth:`arm_move`, :meth:`_flip_selected`, :meth:`arm_rotate`,
+    # :meth:`exit_group`.  ``ControllerTool.on_key`` (do-nothing default from
+    # :class:`~protoboard.controller.tools.base.ControllerTool`) covers the
+    # headless/no-view case.
 
     def key_actions(self) -> dict[str, str | None]:
         """The keyboard actions this tool owns (namespaced; see module consts).

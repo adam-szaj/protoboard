@@ -49,8 +49,7 @@ from protoboard.controller.tools.drag_commit_decision import (
 # these tests drive on_press/on_move, which need the tool's real Qt preview
 # (HeadlessBoardView has a real QGraphicsScene — no QWidget/event loop, but
 # not Qt-free) — the same object MainWindow activates in production.
-from protoboard.gui.tools.gui_tools import ArmedTransformTool, PlaceTool
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import ArmedTransformTool, PlaceTool, SelectTool
 from tests.fakes.board_view import HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
 

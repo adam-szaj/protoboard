@@ -572,7 +572,7 @@ class BoardView(QGraphicsView):
     @traced()
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""
-        from protoboard.gui.tools.select_tool import SelectTool
+        from protoboard.gui.tools.gui_tools import SelectTool
 
         if not isinstance(self._active_tool, SelectTool):
             self.set_tool(SelectTool())
@@ -602,7 +602,7 @@ class BoardView(QGraphicsView):
         back OFF (the documented FSM trap).
         """
         from protoboard.gui.selection.queries import SessionNetSource
-        from protoboard.gui.tools.select_tool import SelectTool
+        from protoboard.gui.tools.gui_tools import SelectTool
 
         if not isinstance(self._active_tool, SelectTool):
             self.set_tool(SelectTool())

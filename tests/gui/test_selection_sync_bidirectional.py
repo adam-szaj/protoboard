@@ -32,7 +32,7 @@ from protoboard.gui import keybindings as KB
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"

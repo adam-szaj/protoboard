@@ -24,9 +24,8 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import ArmedTransformTool, PlaceTool
+from protoboard.gui.tools.gui_tools import ArmedTransformTool, PlaceTool, SelectTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
-from protoboard.gui.tools.select_tool import SelectTool
 from tests.gui.input_helpers import key_inp, pointer, wheel
 
 

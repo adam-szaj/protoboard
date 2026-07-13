@@ -15,7 +15,7 @@ from PySide6.QtCore import Qt
 
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool
 from tests.fakes.board_view import FakeExecutor, HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
 

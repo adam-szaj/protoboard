@@ -15,6 +15,10 @@ Workflow:
 This SHADOWS the parent's Shift+LPM relation-select semantics ONLY when
 the hit target is a wire — clicks on components, groups or empty space
 fall through to the parent.
+
+Qt-free (controller/tools/): the ``[Esc]`` raw-key clear-draft check lives on
+the GUI-composed subclass in :mod:`protoboard.gui.tools.gui_tools`; this
+module keeps the draft/apply command methods.
 """
 
 from __future__ import annotations
@@ -22,15 +26,12 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
-
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
-from protoboard.controller.ports import LEFT_BUTTON, KeyInput, PointerInput
-from protoboard.gui.tools.select_tool import SelectTool
-from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
+from protoboard.controller.ports import LEFT_BUTTON, PointerInput
+from protoboard.controller.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
     generic_simplify_wire,
@@ -132,13 +133,11 @@ class SimplifyTool(SelectTool):
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
-
-    def activate(self, session: object, view: object) -> None:
-        super().activate(session, view)  # type: ignore[arg-type]
-        if not self._draft_preview_injected:
-            self._draft_preview = QtSimplifyPreview(
-                self._view.scene, self._theme
-            )
+    #
+    # The default Qt draft-overlay preview is injected by the GUI-composed
+    # subclass's ``activate()`` in :mod:`protoboard.gui.tools.gui_tools`
+    # (needs the real view's scene + theme); this base ``activate()`` is
+    # inherited unchanged from :class:`SelectTool`.
 
     def deactivate(self) -> None:
         self._clear_draft()
@@ -169,10 +168,9 @@ class SimplifyTool(SelectTool):
         self._clear_draft()
         return super().on_press(inp)
 
-    def on_key(self, inp: KeyInput) -> bool:
-        if inp.key == Qt.Key.Key_Escape:
-            self._clear_draft()
-        return super().on_key(inp)
+    # ``on_key`` (the ``[Esc]`` raw-key clear-draft check, then delegates to
+    # SelectTool's ``on_key``) lives on the GUI-composed subclass — see
+    # :mod:`protoboard.gui.tools.gui_tools`.
 
     # ------------------------------------------------------------------
     # Preview + apply

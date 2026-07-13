@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """``ArmedTransformTool`` — the armed rotate/move/flip mode as its own tool.
 
-Entered from :class:`~protoboard.gui.tools.select_tool.SelectTool` on ``[R]`` /
+Entered from :class:`~protoboard.gui.tools.gui_tools.SelectTool` on ``[R]`` /
 ``[G]`` (which resolves the selection to a target snapshot and swaps to this
 tool), it is a thin **input adapter** over the controller's stateful armed API
 (:meth:`~protoboard.controller.editing.controller.EditController.begin_transform`

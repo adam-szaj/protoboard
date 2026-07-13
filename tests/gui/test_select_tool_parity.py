@@ -37,9 +37,23 @@ from protoboard.gui.selection_axes import (
     SelectionFilter,
 )
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import PlaceTool
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from tests.gui.input_helpers import key_inp, pointer
+
+
+def test_select_tool_imports_from_controller() -> None:
+    from protoboard.controller.tools.select_tool import SelectTool  # noqa: F401
+
+
+def test_select_tool_module_is_qt_free() -> None:
+    import inspect
+
+    import protoboard.controller.tools.select_tool as st
+
+    src = inspect.getsource(st)
+    assert "QColor" not in src
+    assert "from PySide6" not in src
+    assert "Qt.Key" not in src
 
 # ---------------------------------------------------------------------------
 # Helpers (mirrors of the deleted files', kept local to this parity suite)

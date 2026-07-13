@@ -50,9 +50,13 @@ from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
 from protoboard.gui.panels.performance_panel import PerformancePanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import CutTool, PlaceTool, RouteTool
-from protoboard.gui.tools.select_tool import SelectTool
-from protoboard.gui.tools.simplify_tool import SimplifyTool
+from protoboard.gui.tools.gui_tools import (
+    CutTool,
+    PlaceTool,
+    RouteTool,
+    SelectTool,
+    SimplifyTool,
+)
 from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.pdf import export_pdf
 from protoboard.services.export.png import export_png
@@ -707,7 +711,6 @@ class MainWindow(QMainWindow):
         bar (other tools keep their own label).
         """
         del comp_ids  # the label reads live tool state, not the broadcast ids
-        from protoboard.gui.tools.select_tool import SelectTool
         active = getattr(self._board_view, "_active_tool", None)
         if isinstance(active, SelectTool):
             self._mode_label.setText(f"Select | {active.selection_summary()}")
@@ -1789,7 +1792,6 @@ class MainWindow(QMainWindow):
         """Return the active group ID, or show a status message and
         return None when the user is at root."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.gui.tools.select_tool import SelectTool
 
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
@@ -2176,7 +2178,6 @@ class MainWindow(QMainWindow):
 
     def _group_selection(self) -> None:
         """Group the current selection via Ctrl+G — delegates to SelectTool dialog."""
-        from protoboard.gui.tools.select_tool import SelectTool
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
             return
@@ -2189,7 +2190,6 @@ class MainWindow(QMainWindow):
 
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
-        from protoboard.gui.tools.select_tool import SelectTool
 
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
@@ -2241,7 +2241,6 @@ class MainWindow(QMainWindow):
             return
 
         # Collect nets to route: board selection → net inspector → all.
-        from protoboard.gui.tools.select_tool import SelectTool
         from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.pad_conflict import (
             resolved_footprint_or_default,

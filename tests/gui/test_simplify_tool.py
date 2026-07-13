@@ -14,8 +14,8 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
+from protoboard.gui.tools.gui_tools import SimplifyTool
 from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
-from protoboard.gui.tools.simplify_tool import SimplifyTool
 from tests.gui.input_helpers import key_inp, pointer
 
 
@@ -128,7 +128,7 @@ class TestSimplifyToolDraft:
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         assert _draft_items(tool)
-        from protoboard.gui.tools.select_tool import SelectTool
+        from protoboard.gui.tools.gui_tools import SelectTool
         board_view.set_tool(SelectTool())
         assert tool._draft_path is None
         assert _draft_items(tool) == []
