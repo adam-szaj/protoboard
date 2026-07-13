@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Default namespaced keybindings — shipped with the application.
 #
 # Read by KeyMap.load_defaults() (called from ToolHost.__init__, so every
