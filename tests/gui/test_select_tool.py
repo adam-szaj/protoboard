@@ -17,7 +17,7 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.place_tool import PlaceTool
+from protoboard.gui.tools.gui_tools import PlaceTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
 from protoboard.gui.tools.select_tool import SelectTool
 from tests.gui.input_helpers import key_inp, pointer, wheel
@@ -1447,7 +1447,7 @@ class TestDragConflictOutline:
     def test_severity_drives_outline_override(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.tools.drag_commit_decision import (
+        from protoboard.controller.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )
@@ -1480,7 +1480,7 @@ class TestDragConflictOutline:
         """A drop decision ghost-dims its drop/disconnect wires; CLEAR restores."""
         from PySide6.QtWidgets import QGraphicsItemGroup
 
-        from protoboard.gui.tools.drag_commit_decision import (
+        from protoboard.controller.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )
@@ -1513,7 +1513,7 @@ class TestDragConflictOutline:
     def test_clear_drag_corner_restores_ghosted_wires(self, qtbot) -> None:
         from PySide6.QtWidgets import QGraphicsItemGroup
 
-        from protoboard.gui.tools.drag_commit_decision import (
+        from protoboard.controller.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )
@@ -1589,7 +1589,7 @@ class TestDragConflictOutline:
     def test_clear_drag_corner_resets_outline(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.tools.drag_commit_decision import (
+        from protoboard.controller.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )

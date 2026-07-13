@@ -325,8 +325,7 @@ def layer_state_for_tool(
     theme: object = None,
 ) -> LayerState:
     """Derive LayerState from the active tool, camera side and view transform."""
-    from protoboard.gui.tools.route_tool import RouteTool
-    from protoboard.gui.tools.place_tool import PlaceTool
+    from protoboard.gui.tools.gui_tools import RouteTool, PlaceTool
 
     ghost = isinstance(tool, (RouteTool, PlaceTool))
     state = LayerState(

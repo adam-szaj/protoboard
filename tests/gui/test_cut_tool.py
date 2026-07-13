@@ -16,7 +16,7 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.cut_tool import CutTool
+from protoboard.gui.tools.gui_tools import CutTool
 from protoboard.services.library.loader import load_library
 from tests.gui.input_helpers import pointer
 

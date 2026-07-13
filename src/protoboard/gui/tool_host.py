@@ -68,6 +68,12 @@ class ToolHost:
         # actions on the base map, so a tool layer can shadow them while
         # active (e.g. an armed rotate claiming the wheel).
         self._base_keymap.declare(VIEW_ACTIONS)
+        # Seed the shipped tool-shortcut defaults (armed-transform / place-tool
+        # / route-tool action ids the tools themselves no longer declare — see
+        # BUILTIN_DEFAULT_KEYBINDINGS_FILE) so every KeyMap resolves them from
+        # construction, headless or not.  MainWindow re-runs this after with
+        # the user's on-disk `defaults:` layered on top (idempotent).
+        self._base_keymap.load_defaults()
         self._tool_keymap: KeyMap | None = None
         # Live KeyBindings provider — injected by MainWindow so the [?]
         # overlay's global section reflects real, currently-bound shortcuts

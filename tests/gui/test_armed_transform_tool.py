@@ -24,8 +24,7 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
-from protoboard.gui.tools.place_tool import PlaceTool
+from protoboard.gui.tools.gui_tools import ArmedTransformTool, PlaceTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
 from protoboard.gui.tools.select_tool import SelectTool
 from tests.gui.input_helpers import key_inp, pointer, wheel
@@ -283,7 +282,7 @@ class TestArmedRotate:
     def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
         # Conditional-disarm contract: an accept that cannot commit (HARD
         # conflict) leaves the tool active, waiting — it does NOT return.
-        from protoboard.gui.tools.drag_commit_decision import (
+        from protoboard.controller.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )
@@ -400,7 +399,7 @@ class TestArmedAtomic:
         assert session.edit_controller.armed_transform is None  # never armed
 
     def test_atomic_parks_armed_on_conflict(self, board_view, session) -> None:
-        from protoboard.gui.tools.drag_commit_decision import (
+        from protoboard.controller.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )

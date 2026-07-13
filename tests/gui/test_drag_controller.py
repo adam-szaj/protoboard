@@ -33,11 +33,11 @@ from protoboard.gui.selection.drag_controller import (
 )
 from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.drag_commit_decision import (
+from protoboard.controller.tools.drag_commit_decision import (
     DragCommitDecision,
     DragSeverity,
 )
-from protoboard.gui.tools.place_tool import PlaceTool
+from protoboard.gui.tools.gui_tools import PlaceTool
 from tests.gui.input_helpers import pointer
 
 _NO_MODS = Mods()

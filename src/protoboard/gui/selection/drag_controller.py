@@ -41,7 +41,7 @@ import structlog
 from protoboard.geometry import Point, Vector
 from protoboard.gui.drag_set import DragSet
 from protoboard.gui.selection.mouse_input import Intent, Mods
-from protoboard.gui.tools.drag_commit_decision import DragSeverity
+from protoboard.controller.tools.drag_commit_decision import DragSeverity
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
     from protoboard.gui.drag_preferences import DragPreferences
-    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
 __all__ = ["DragContext", "DragController", "DragOutcome", "FloatingPhase"]
 

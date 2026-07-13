@@ -1,0 +1,34 @@
+# Default namespaced keybindings — shipped with the application.
+#
+# Read by KeyMap.load_defaults() (called from ToolHost.__init__, so every
+# KeyMap — headless, test double, or the real MainWindow — carries this
+# baseline from construction, with no on-disk user config required).
+#
+# The user's ~/.config/protoboard/keybindings_v2.yaml `defaults:` section (if
+# any) is declared on top of this file; a user rebind always lives in that
+# same file's `overrides:` section instead (see KeyMap.save_overrides()).
+#
+# Shape: <category>: action.<name>: "<shortcut>" | null
+#   null = inherit the generic global.action.<name> default.
+# Only entries a tool needs to differ from (or that have no generic global
+# counterpart) are listed here — everything else stays tool-declared None /
+# implicit inherit.
+
+# Terminal ops (confirm/cancel/commit) are NOT listed here: armed-transform /
+# place-tool / route-tool all resolve them through the generic
+# global.action.confirm / global.action.cancel ids directly (KeyMap `final`
+# actions reserve Return/Esc — no other action id may rebind them), so there
+# is nothing tool-specific to seed for those.
+defaults:
+  armed-transform:
+    action.rotate: "R"
+    action.move: "G"
+    action.step_left: "Left|A"
+    action.step_right: "Right|D"
+    action.step_up: "Up|W"
+    action.step_down: "Down|S"
+
+  route-tool:
+    action.insulate: "I"
+    action.side_top: "T"
+    action.side_bottom: "B"

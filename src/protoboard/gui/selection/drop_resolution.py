@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from protoboard.gui.drag_preferences import DragPreferences
-    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
     ResolveFn = Callable[
         [str, frozenset[uuid.UUID]],

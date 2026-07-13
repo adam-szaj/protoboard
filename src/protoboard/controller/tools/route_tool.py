@@ -7,26 +7,41 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from PySide6.QtCore import Qt
 
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.geometry import Point
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
-from protoboard.gui.tools.route_preview import QtRoutePreview
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from protoboard.controller.editing import EditState
     from protoboard.controller.ports import KeyInput, PointerInput
     from protoboard.gui.tools.route_preview import RoutePreview
     from protoboard.gui.wire_net_resolver import NetMergePrompt
 
 _log = structlog.get_logger(__name__)
 
+# Namespaced key actions RouteTool owns (Step 2b — seeded into the shipped
+# `defaults:` resource; the tool itself declares no shortcut literals).
+# Commit / cancel resolve through the generic globals instead of their own
+# route-tool.action.* id: KeyMap `final` actions reserve ``Return``/``Esc`` —
+# no other action id may (re)bind them (see GLOBAL_ACTIONS in gui/keymap.py).
+# The old raw-key dispatch handled numpad Enter identically to Return and
+# never handled Space; ``global.action.confirm`` additionally accepts Space
+# (a harmless widening — Space previously did nothing while routing).
+ACT_COMMIT = "global.action.confirm"
+ACT_CANCEL = "global.action.cancel"
+ACT_INSULATE = "route-tool.action.insulate"
+ACT_SIDE_TOP = "route-tool.action.side_top"
+ACT_SIDE_BOTTOM = "route-tool.action.side_bottom"
 
-class RouteTool(_Tool):
+
+class RouteTool(ControllerTool):
     """Multi-segment wire routing: click to add points, Enter/Esc to commit.
 
     Net-aware throughout: every commit goes through
@@ -65,16 +80,8 @@ class RouteTool(_Tool):
         # currently pushed so commit/cancel can pop exactly once.
         self._route_highlight_active: bool = False
 
-    def activate(self, session: object, view: object) -> None:
+    def activate(self, session: EditState, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
-        if not self._preview_injected:
-            self._preview = QtRoutePreview(self._view.scene, self._theme)
-        if not self._merge_prompt_injected:
-            from protoboard.gui.wire_net_resolver import qt_net_merge_prompt
-
-            self._merge_prompt = qt_net_merge_prompt(
-                lambda: self._view.window()
-            )
         # No transient highlight on bare activation — RouteTool only
         # dims when the user is actively pulling a wire (i.e. after the
         # first click).  Standby mode keeps the normal view so the user
@@ -123,22 +130,6 @@ class RouteTool(_Tool):
         snapped = self._view.snap(inp.scene_pos)
         self.preview.show_live(self._points[-1], snapped)
 
-    def on_key(self, inp: KeyInput) -> bool:
-        key = inp.key
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._commit()
-        elif key == Qt.Key.Key_Escape:
-            self._cancel()
-        elif key == Qt.Key.Key_I:
-            self._set_insulated(not self._insulated)
-        elif key == Qt.Key.Key_T:
-            self._set_side("top")
-        elif key == Qt.Key.Key_B:
-            self._set_side("bottom")
-        else:
-            return False
-        return True
-
     def _set_insulated(self, insulated: bool) -> None:
         """Flip insulation via the window so the choice is remembered and
         persisted (toolbar action + app-settings default), falling back to a
@@ -166,6 +157,37 @@ class RouteTool(_Tool):
         updater = getattr(win, "_update_route_status", None)
         if updater is not None:
             updater(self._insulated, self._side)
+
+    def key_dispatch(self) -> tuple[tuple[str, "Callable[[KeyInput], bool]"], ...]:
+        """Ordered ``(action_id, handler)`` table — the GUI subclass's
+        ``on_key`` calls :meth:`ControllerTool._dispatch_key` with this."""
+        return (
+            (ACT_COMMIT, self._key_commit),
+            (ACT_CANCEL, self._key_cancel),
+            (ACT_INSULATE, self._key_toggle_insulated),
+            (ACT_SIDE_TOP, self._key_side_top),
+            (ACT_SIDE_BOTTOM, self._key_side_bottom),
+        )
+
+    def _key_commit(self, _inp: KeyInput) -> bool:
+        self._commit()
+        return True
+
+    def _key_cancel(self, _inp: KeyInput) -> bool:
+        self._cancel()
+        return True
+
+    def _key_toggle_insulated(self, _inp: KeyInput) -> bool:
+        self._set_insulated(not self._insulated)
+        return True
+
+    def _key_side_top(self, _inp: KeyInput) -> bool:
+        self._set_side("top")
+        return True
+
+    def _key_side_bottom(self, _inp: KeyInput) -> bool:
+        self._set_side("bottom")
+        return True
 
     # ------------------------------------------------------------------
 

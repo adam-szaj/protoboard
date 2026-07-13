@@ -32,7 +32,7 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.tools.drag_commit_decision import DragSeverity
+from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.services.drag_detector import DragDetector, DragSnapshot
 from protoboard.services.pad_strategy import DRCEnforcingStrategy
 

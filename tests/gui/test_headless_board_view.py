@@ -51,7 +51,7 @@ class TestToolLifecycle:
         self, session: EditorSession
     ) -> None:
         # A full user flow — place + click-select — with no widget at all.
-        from protoboard.gui.tools.place_tool import PlaceTool
+        from protoboard.gui.tools.gui_tools import PlaceTool
 
         view = _headless(session)
         view.tools.set_tool(PlaceTool("R"))
@@ -210,7 +210,7 @@ class TestGroupPromptHeadless:
     """Ctrl+G group flow end-to-end with an injected prompt (qt-ports D4)."""
 
     def _place_two(self, view: HeadlessBoardView) -> None:
-        from protoboard.gui.tools.place_tool import PlaceTool
+        from protoboard.gui.tools.gui_tools import PlaceTool
 
         for x in (0.5, 4.5):
             view.tools.set_tool(PlaceTool("R"))
@@ -233,7 +233,7 @@ class TestGroupPromptHeadless:
     def test_group_for_selection_via_injected_prompt(
         self, session: EditorSession
     ) -> None:
-        from protoboard.gui.tools.select_prompts import (
+        from protoboard.controller.tools.select_prompts import (
             GroupTargetChoice,
             GroupTargetRequest,
         )

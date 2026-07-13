@@ -156,7 +156,7 @@ class TestDragDetectorLockPromotion:
             DragDetector, DragSnapshot,
         )
         from protoboard.services.pad_strategy import DRCEnforcingStrategy
-        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+        from protoboard.controller.tools.drag_commit_decision import DragSeverity
 
         defn = ComponentDefinition.from_footprint(
             name="R", footprint=SIL(2),

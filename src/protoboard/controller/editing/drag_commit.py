@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.editing.controller import EditState
 
 

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.commands.board_cmds import SplitStripCommand
 from protoboard.geometry import Point
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.controller.ports import LEFT_BUTTON
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 _MAX_DIST = 0.65
 
 
-class CutTool(_Tool):
+class CutTool(ControllerTool):
     """Click on or between strip pads to split a StripAtom segment.
 
     - Click within 0.3 ru of a pad centre → cut ON that pad (isolated pad).

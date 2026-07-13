@@ -155,7 +155,7 @@ class ViewCamera:
 
     @traced()
     def _sync_tool_side(self, side: str) -> None:
-        from protoboard.gui.tools.route_tool import RouteTool
+        from protoboard.gui.tools.gui_tools import RouteTool
         tool = self._view.active_tool
         if isinstance(tool, RouteTool):
             tool._side = side  # type: ignore[assignment]

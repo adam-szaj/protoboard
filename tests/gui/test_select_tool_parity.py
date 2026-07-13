@@ -37,7 +37,7 @@ from protoboard.gui.selection_axes import (
     SelectionFilter,
 )
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.place_tool import PlaceTool
+from protoboard.gui.tools.gui_tools import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
 from tests.gui.input_helpers import key_inp, pointer
 

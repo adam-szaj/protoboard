@@ -3,7 +3,7 @@
 
 Both the live drag (in :class:`~protoboard.gui.tools.select_tool.SelectTool`)
 and the armed transform (in
-:class:`~protoboard.gui.tools.armed_transform_tool.ArmedTransformTool`) show the
+:class:`~protoboard.gui.tools.gui_tools.ArmedTransformTool`) show the
 same SOFT-amber / HARD-red corner label and recolour the selection outline to
 match while a preview decision conflicts.  The logic is identical, so it lives
 here once — a small view-bound helper — instead of being duplicated (and drifting)
@@ -21,7 +21,7 @@ from PySide6.QtGui import QColor
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
 
 class TransformOverlays:
@@ -37,7 +37,7 @@ class TransformOverlays:
         SOFT amber / HARD red while conflicting; hidden the instant the state is
         CLEAR (or ``None``) so the frame never lingers.
         """
-        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+        from protoboard.controller.tools.drag_commit_decision import DragSeverity
 
         if decision is None or decision.severity is DragSeverity.CLEAR:
             self.clear()

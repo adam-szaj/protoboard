@@ -29,7 +29,6 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import structlog
-from PySide6.QtCore import Qt
 
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.footprints import Footprint
@@ -39,14 +38,14 @@ from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
 from protoboard.geometry import Point, Vector
-from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.tools.place_preview import QtPlacePreview
+from protoboard.controller.tools.base import ControllerTool
 
 from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.gui.placement_conflict import PlacementPrompts
+    from protoboard.controller.editing import EditState
     from protoboard.controller.ports import KeyInput, PointerInput
     from protoboard.gui.tools.place_preview import PlacePreview
     from protoboard.controller.editing.controller import ResolvedPlacement
@@ -65,8 +64,14 @@ _ACT_ROTATE_CW = "place-tool.action.rotate_cw"
 _ACT_ROTATE_CCW = "place-tool.action.rotate_ccw"
 _ACT_FLIP = "place-tool.action.flip"
 _ACT_REDRAG = "place-tool.action.redrag"
-_ACT_CANCEL = "place-tool.action.cancel"
-_ACT_CONFIRM = "place-tool.action.confirm"
+# Terminal ops resolve through the generic globals (KeyMap `final` actions
+# reserve ``Return``/``Esc`` — no tool-specific action id may rebind them; see
+# GLOBAL_ACTIONS in gui/keymap.py).  The old raw-key dispatch handled numpad
+# Enter identically to Return and never handled Space; ``global.action.confirm``
+# additionally accepts Space (a harmless widening — no key previously did
+# anything else on Space in the floating phase).
+_ACT_CANCEL = "global.action.cancel"
+_ACT_CONFIRM = "global.action.confirm"
 
 
 class PhaseEnum(StrEnum):
@@ -74,7 +79,7 @@ class PhaseEnum(StrEnum):
     DRAG_PIN = "drag_pin"
     FLOATING = "floating"
 
-class PlaceTool(_Tool):
+class PlaceTool(ControllerTool):
     """Places a component at the snapped cursor position on left-click.
 
     Two construction modes:
@@ -138,14 +143,20 @@ class PlaceTool(_Tool):
         return old_phase
 
     @traced()
-    def activate(self, session: object, view: object) -> None:
+    def activate(self, session: EditState, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
-        if not self._preview_injected:
-            self._preview = QtPlacePreview(self._view.scene, self._theme)
-        if not self._prompts_injected:
-            from protoboard.gui.placement_conflict import qt_placement_prompts
+        self.finish_activate()
 
-            self._prompts = qt_placement_prompts(lambda: self._view.window())
+    @traced()
+    def finish_activate(self) -> None:
+        """Reset the phase machine and bake the initial ghost.
+
+        Split out of :meth:`activate` so a GUI subclass can call
+        ``ControllerTool.activate`` (session/view bind only — via
+        ``super().activate``), inject its default Qt preview / prompts, and
+        only then call this — the ghost the phase-reset triggers needs
+        ``self.preview`` to already exist.
+        """
         self._reset_phase()
         self._rebuild_ghost()
 
@@ -265,12 +276,15 @@ class PlaceTool(_Tool):
 
     @traced()
     def key_actions(self) -> dict[str, str | None]:
-        """Transform keys PlaceTool drives during placement (all inherit global).
-
-        While the tool is active the global rotate / flip / re-drag actions run
-        through the read-only SelectTool and no-op, so PlaceTool claims them to
-        transform its ghost.  ``None`` inherits the generic global default, so
-        rebinding any of them is honoured by both the veto and the handler.
+        """Declares these action ids exist — every value is ``None`` (inherit
+        the generic global default), so no shortcut LITERAL is declared here
+        (Step 2b).  Still required: an unregistered action id's rebind
+        lookup restarts at the KeyMap's *parent* (see KeyMap.resolve), which
+        can miss a user override recorded on this map when it isn't sharing
+        the parent's ``_overrides`` dict by reference; a ``None``-registered
+        action instead restarts the inherit lookup at *self*, honouring a
+        rebind recorded here.  See ``displayable_action_ids`` for the
+        equivalent [?]-overlay listing.
         """
         return {
             _ACT_ROTATE_CW: None,
@@ -309,14 +323,14 @@ class PlaceTool(_Tool):
 
     @traced()
     def on_key(self, inp: KeyInput) -> bool:
-        key = inp.key
-
-        # Floating phase: Enter commits, Esc cancels (raw keys, not actions).
+        # Floating phase: confirm commits, cancel cancels (action ids, KeyMap-
+        # resolved — ``place-tool.action.confirm`` deliberately does not
+        # inherit the generic global's ``Space`` alternative).
         if self._is_phase(PhaseEnum.FLOATING):
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self._key_matches(inp, _ACT_CONFIRM):
                 self._commit_floating_place()
                 return True
-            if key == Qt.Key.Key_Escape:
+            if self._key_matches(inp, _ACT_CANCEL):
                 self._cancel_floating_place()
                 self._rebuild_ghost()
                 return True
@@ -325,7 +339,7 @@ class PlaceTool(_Tool):
         if self._dispatch_key(inp):
             return True
 
-        if key == Qt.Key.Key_Escape and self._is_phase(PhaseEnum.DRAG_PIN):
+        if self._key_matches(inp, _ACT_CANCEL) and self._is_phase(PhaseEnum.DRAG_PIN):
             self.preview.clear_reach()
             self._reset_phase()
             self._rebuild_ghost()

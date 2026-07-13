@@ -667,24 +667,36 @@ class KeyMap(AbstractKeyMap):
 
     @traced()
     def load_defaults(self) -> None:
-        """Read the ``defaults:`` section (declared bindings) if present.
+        """Register the shipped ``defaults:`` tree, then the user file's.
 
-        Shape mirrors :meth:`load_overrides`'s tree, nested one level under
-        ``defaults:``.  Declares each entry via :meth:`register_tool_actions`,
-        so it behaves exactly like a tool's own ``key_actions()`` — a later
-        user override (loaded after this, see :meth:`load_overrides`) still
-        wins.  Missing file / missing section / corrupt file are no-ops.
+        The shipped ``BUILTIN_DEFAULT_KEYBINDINGS_FILE`` (packaged with the
+        application — same pattern as ``BUILTIN_DEFAULT_TOOLBARS_FILE``) is
+        the baseline every :class:`KeyMap` carries from construction
+        (:class:`~protoboard.gui.tool_host.ToolHost` calls this on init), so
+        a tool's shortcuts resolve headless / in tests with no on-disk config.
+        The user's ``KEYBINDINGS_V2_FILE`` ``defaults:`` section (if present)
+        is declared on top — a later user override
+        (:meth:`load_overrides`, loaded after this) still wins either way.
+        Missing file / missing section / corrupt file are no-ops.
         """
-        from protoboard.paths import KEYBINDINGS_V2_FILE
+        from protoboard.paths import BUILTIN_DEFAULT_KEYBINDINGS_FILE, KEYBINDINGS_V2_FILE
 
-        if not KEYBINDINGS_V2_FILE.exists():
+        self._load_defaults_tree(BUILTIN_DEFAULT_KEYBINDINGS_FILE)
+        self._load_defaults_tree(KEYBINDINGS_V2_FILE)
+
+    def _load_defaults_tree(self, path: object) -> None:
+        """Register the ``defaults:`` section of the YAML file at *path*."""
+        from pathlib import Path
+
+        assert isinstance(path, Path)
+        if not path.exists():
             return
         try:
             from ruamel.yaml import \
                 YAML  # type: ignore[import-untyped,unused-ignore]
 
             yaml = YAML()
-            raw = yaml.load(KEYBINDINGS_V2_FILE)
+            raw = yaml.load(path)
             if not isinstance(raw, dict):
                 return
             defaults = raw.get("defaults")

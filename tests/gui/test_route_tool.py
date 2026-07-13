@@ -12,7 +12,7 @@ from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.route_preview import QtRoutePreview
-from protoboard.gui.tools.route_tool import RouteTool
+from protoboard.gui.tools.gui_tools import RouteTool
 from tests.gui.input_helpers import key_inp, pointer
 
 

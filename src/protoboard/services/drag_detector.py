@@ -46,7 +46,7 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.wire_utils import find_skewed_wires
 from protoboard.geometry import Point
-from protoboard.gui.tools.drag_commit_decision import (
+from protoboard.controller.tools.drag_commit_decision import (
     DragCommitDecision,
     DragSeverity,
 )

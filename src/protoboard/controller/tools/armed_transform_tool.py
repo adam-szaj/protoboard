@@ -25,16 +25,14 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Callable
 
-from PySide6.QtCore import Qt
-
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.controller.ports import KeyInput, PointerInput, WheelInput
-    from protoboard.gui.session import EditorSession
+    from protoboard.controller.editing import EditState
     from protoboard.gui.tools.select_preview import SelectPreview
     from protoboard.gui.tools.transform_overlays import TransformOverlays
     from protoboard.controller.editing.armed_transform import ArmedTransform
@@ -51,6 +49,14 @@ _ACT_STEP_RIGHT = "armed-transform.action.step_right"
 _ACT_STEP_UP = "armed-transform.action.step_up"
 _ACT_STEP_DOWN = "armed-transform.action.step_down"
 _ACT_WHEEL_ROTATE = "armed-transform.action.wheel_rotate"
+# Terminal ops resolve through the generic globals (KeyMap `final` actions
+# reserve ``Return``/``Esc`` — no tool-specific action id may rebind them; see
+# GLOBAL_ACTIONS in gui/keymap.py).  The old raw-key dispatch handled numpad
+# Enter identically to Return and never handled Space; ``global.action.confirm``
+# additionally accepts Space (a harmless widening — no user-visible key
+# previously did anything else on Space while armed).
+_ACT_CONFIRM = "global.action.confirm"
+_ACT_CANCEL = "global.action.cancel"
 
 _STEP_VECTORS: dict[str, tuple[float, float]] = {
     _ACT_STEP_LEFT: (-1.0, 0.0),
@@ -64,10 +70,11 @@ _STEP_VECTORS: dict[str, tuple[float, float]] = {
 _ARMED_ACTION_IDS: tuple[str, ...] = (
     _ACT_ROTATE, _ACT_MOVE, _ACT_FLIP,
     _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN,
+    _ACT_CONFIRM, _ACT_CANCEL,
 )
 
 
-class ArmedTransformTool(_Tool):
+class ArmedTransformTool(ControllerTool):
     """The armed rotate/move/flip transform, driven as a registered tool."""
 
     def __init__(
@@ -93,14 +100,9 @@ class ArmedTransformTool(_Tool):
 
     # -- lifecycle ----------------------------------------------------------
 
-    def activate(self, session: EditorSession, view: AbstractBoardView) -> None:
-        from protoboard.gui.tools.select_preview import QtSelectPreview
-        from protoboard.gui.tools.transform_overlays import TransformOverlays
-
+    def activate(self, session: EditState, view: AbstractBoardView) -> None:
         self._session = session
         self._view = view
-        self._preview = QtSelectPreview(view.scene)
-        self._overlays = TransformOverlays(view)
         self._armed = session.edit_controller.begin_transform(
             self._comp_ids,
             self._group_id,
@@ -148,13 +150,12 @@ class ArmedTransformTool(_Tool):
         controller = self._controller
         if controller is None or self._armed is None:
             return False
-        # Enter / Esc arrive as intents (the tool never sees a keycode for the
-        # terminal ops); step / mode / flip keys resolve through the KeyMap.
-        intent = _key_to_intent(inp.key)
-        if intent == "confirm":
+        # Confirm / cancel resolve through this tool's own action ids (KeyMap
+        # — no raw keycodes); step / mode / flip keys likewise.
+        if self._key_matches(inp, _ACT_CONFIRM):
             controller.accept_transform()
             return self._after_verb()
-        if intent == "cancel":
+        if self._key_matches(inp, _ACT_CANCEL):
             controller.cancel_transform()
             return self._after_verb()
         if self._key_matches(inp, _ACT_FLIP):
@@ -230,16 +231,15 @@ class ArmedTransformTool(_Tool):
     def _is_armed(self) -> bool:
         return self._armed is not None and not self._armed.finished
 
-    def key_actions(self) -> dict[str, str | None]:
-        return {
-            _ACT_ROTATE: "R",
-            _ACT_MOVE: "G",
-            _ACT_FLIP: None,  # global.action.flip default "Alt+R"
-            _ACT_STEP_LEFT: "Left|A",
-            _ACT_STEP_RIGHT: "Right|D",
-            _ACT_STEP_UP: "Up|W",
-            _ACT_STEP_DOWN: "Down|S",
-        }
+    def displayable_action_ids(self) -> list[str]:
+        """Ordered action ids for the ``[?]`` overlay / RMB menu.
+
+        The tool declares no shortcut literals (Step 2b — the ``defaults:``
+        resource owns them); this lists the same ops the old ``key_actions()``
+        enumerated.
+        """
+        return [_ACT_ROTATE, _ACT_MOVE, _ACT_FLIP,
+                _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN]
 
     # -- mouse --------------------------------------------------------------
 
@@ -289,7 +289,7 @@ class ArmedTransformTool(_Tool):
         show — so the step needs a real ``refresh()`` (which clears the scene, so
         the pivot markers are re-drawn after).
         """
-        from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+        from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
         view = self._view
         if view is not None:
@@ -341,12 +341,3 @@ class ArmedTransformTool(_Tool):
         view = self._view
         if view is not None:
             view.notify_status(StatusEvent("armed-transform.status", {"text": msg}))
-
-
-def _key_to_intent(key: int) -> str | None:
-    """Map a Qt key to the terminal intent (confirm / cancel)."""
-    if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-        return "confirm"
-    if key == Qt.Key.Key_Escape:
-        return "cancel"
-    return None

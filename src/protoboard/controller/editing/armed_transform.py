@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from protoboard.gui.drag_preferences import DragPreferences
     from protoboard.controller.ports import KeyInput
     from protoboard.gui.selection.drop_resolution import ResolveFn
-    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.editing.controller import EditState
 
     SnapFn = Callable[[Point], "Point | None"]

@@ -264,7 +264,7 @@ class TestShortcutsHelp:
     def test_trigger_tool_action_rotates(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.tools.place_tool import PlaceTool
+        from protoboard.gui.tools.gui_tools import PlaceTool
 
         board_view.set_tool(PlaceTool("R"))
         tool = board_view._active_tool

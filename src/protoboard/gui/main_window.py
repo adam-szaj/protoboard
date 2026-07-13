@@ -50,9 +50,7 @@ from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
 from protoboard.gui.panels.performance_panel import PerformancePanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.cut_tool import CutTool
-from protoboard.gui.tools.place_tool import PlaceTool
-from protoboard.gui.tools.route_tool import RouteTool
+from protoboard.gui.tools.gui_tools import CutTool, PlaceTool, RouteTool
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.gui.tools.simplify_tool import SimplifyTool
 from protoboard.services.export.bom import export_bom_csv

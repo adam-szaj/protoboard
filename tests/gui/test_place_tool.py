@@ -13,7 +13,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_preview import QtPlacePreview
-from protoboard.gui.tools.place_tool import PlaceTool
+from protoboard.gui.tools.gui_tools import PlaceTool
 from tests.gui.input_helpers import key_inp, pointer
 
 

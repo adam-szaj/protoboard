@@ -87,3 +87,12 @@ BUILTIN_ASSETS_DIR: Path   = _PKG_ROOT / "assets"
 BUILTIN_DEFAULT_TOOLBARS_FILE: Path = (
     Path(__file__).resolve().parent / "default_toolbars.yaml"
 )
+
+# Default namespaced keybindings (the ``defaults:`` tree) shipped with the
+# package — read by ``KeyMap.load_defaults()`` so tool shortcuts resolve with
+# no on-disk user config (headless / tests / first start).  The user's
+# ``KEYBINDINGS_V2_FILE`` ``defaults:`` section (if any) layers on top; a user
+# rebind always lives in its ``overrides:`` section instead.
+BUILTIN_DEFAULT_KEYBINDINGS_FILE: Path = (
+    Path(__file__).resolve().parent / "default_keybindings.yaml"
+)

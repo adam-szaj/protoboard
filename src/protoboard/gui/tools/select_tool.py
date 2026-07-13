@@ -75,15 +75,15 @@ if TYPE_CHECKING:
     from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.gui.drag_set import DragSet
     from protoboard.gui.selection.adapters import WireVertexSelectable
-    from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
+    from protoboard.gui.tools.gui_tools import ArmedTransformTool
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.selection.wire_edit import WireEditState
     from protoboard.gui.session import EditorSession
-    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.select_prompts import GroupTargetPrompt
     from protoboard.gui.tools.drag_corner_text import DragCornerText
     from protoboard.gui.tools.select_preview import SelectPreview
-    from protoboard.gui.tools.select_prompts import GroupTargetPrompt
 
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
@@ -239,9 +239,7 @@ class SelectTool(_Tool):
 
             self._preview = QtSelectPreview(view.scene)
         if not self._group_prompt_injected:
-            from protoboard.gui.tools.select_prompts import (
-                qt_group_target_prompt,
-            )
+            from protoboard.gui.tools.gui_tools import qt_group_target_prompt
 
             self._group_prompt = qt_group_target_prompt(
                 lambda: self._view.window()
@@ -1328,7 +1326,7 @@ class SelectTool(_Tool):
         conflicting, hidden the instant the state is CLEAR (or ``None``) so the
         frame never lingers.
         """
-        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+        from protoboard.controller.tools.drag_commit_decision import DragSeverity
 
         if decision is None or decision.severity is DragSeverity.CLEAR:
             self._clear_drag_corner()
@@ -2684,7 +2682,7 @@ class SelectTool(_Tool):
         No-op (returns ``False``) if *arm* failed to arm anything — e.g. an empty
         selection — so callers needn't pre-check.
         """
-        from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
+        from protoboard.gui.tools.gui_tools import ArmedTransformTool
 
         arm()
         armed = self._view.tools.active_tool
@@ -2701,7 +2699,7 @@ class SelectTool(_Tool):
         """Arm float-rotate on the selection — the ``[R]`` entry point.
 
         Resolves the selection to the rotate target, then hands off to the
-        :class:`~protoboard.gui.tools.armed_transform_tool.ArmedTransformTool`
+        :class:`~protoboard.gui.tools.gui_tools.ArmedTransformTool`
         (which becomes the active tool and drives the controller's armed API):
         wheel / ``[↑]`` / ``[↓]`` / ``[R]`` step ±90°, a pad click sets a shared
         pivot, ``[Enter]`` accepts (parks in a conflict), ``[Esc]`` cancels. A
@@ -2727,7 +2725,7 @@ class SelectTool(_Tool):
         active group are handed to the new tool, which arms the controller and
         returns control here on accept / cancel.
         """
-        from protoboard.gui.tools.armed_transform_tool import ArmedTransformTool
+        from protoboard.gui.tools.gui_tools import ArmedTransformTool
 
         if self._selection.is_empty():
             self._status(empty_msg)
@@ -2951,7 +2949,7 @@ class SelectTool(_Tool):
         """Current interaction state (docs MVC step 1) — a Controller fact.
 
         Always ``select.idle``: the armed float-transform now lives on the
-        :class:`~protoboard.gui.tools.armed_transform_tool.ArmedTransformTool`,
+        :class:`~protoboard.gui.tools.gui_tools.ArmedTransformTool`,
         which is the active tool (and reports ``move.float.*``) while a transform
         is live — SelectTool is not active then.
         """
@@ -3818,7 +3816,7 @@ class SelectTool(_Tool):
         if not ids:
             return None
 
-        from protoboard.gui.tools.select_prompts import GroupTargetRequest
+        from protoboard.controller.tools.select_prompts import GroupTargetRequest
 
         groups = self._session.layout.groups
         active_gid = self._current_group_id
