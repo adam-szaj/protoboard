@@ -566,6 +566,15 @@ In each moved file: `from protoboard.gui.board_view_tool import _Tool` → `from
 
 For `route_tool.py` (100% raw keys today): its `on_key` (L126-140) maps Return/Esc/I/T/B to `_commit`/`_cancel`/`_set_insulated`/`_set_side`. In the controller copy, keep those methods; the GUI subclass's `on_key` calls them. Define action-ids for route (it has none today) so the KeyMap can dispatch — add `route-tool.action.{commit,cancel,insulate,side_top,side_bottom}` and their defaults to the YAML `defaults:` (Task 4 seeding, do it here for route since route had no key_actions).
 
+- [ ] **Step 2b: Wire the tool shortcuts into YAML `defaults:` — REMOVE `key_actions()` literals from the tools (activates Task 4)**
+
+Task 4 built the `defaults:`/`overrides:` infrastructure but left it INERT: each tool still hardcodes its shortcuts in `key_actions()`, and the per-tool `layer_over` shadows the base-map `defaults:`. The tool is becoming a command machine that knows nothing of keys — so `key_actions()` must LEAVE the tool. For each tool moved in Step 1:
+  1. Collect its current `key_actions()` shortcuts (the non-None literals): select-tool `action.reroute:"W"`, `action.autoroute:"A"`, `action.rotate:"R"`, `action.move:"G"`, `action.flip_fragment:"F"`; armed-transform `action.rotate:"R"`, `action.move:"G"`, steps `"Left|A"/"Right|D"/"Up|W"/"Down|S"`; place-tool (its non-None entries); route-tool the new `route-tool.action.*` from Step 2. **Seed these into a shipped `defaults:` resource** (the `defaults:` section of the shipped `KEYBINDINGS_V2_FILE`, or an in-repo default resource `load_defaults()` reads at boot).
+  2. **Remove `key_actions()` from the controller tool** (it must not declare shortcuts — it only names action-ids as commands, exposed via `command_table()` in Task 7). The KeyMap's base map now owns the defaults; nothing on the tool shadows them.
+  3. Verify a shortcut still resolves end-to-end: after removing the literal and seeding `defaults:`, `km.resolve("select-tool.action.reroute")` must still return `"W"` (from `defaults:`, not the tool). A user override in `overrides:` still wins.
+
+This is the wiring Task 4's concern flagged (user decision 2026-07-13: infra in Task 4, wiring here). If removing `key_actions()` breaks a tool that still needs its action-ids enumerated for the `[?]` overlay / RMB menu, expose the action-ids via `displayable_action_ids()` (which stays — it names ids, not shortcuts) — NOT by re-adding shortcut literals.
+
 - [ ] **Step 3: Create `gui/tools/gui_tools.py` (View bindings + on_key)**
 
 ```python
