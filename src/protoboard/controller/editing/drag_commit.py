@@ -4,9 +4,8 @@
 :func:`classify_drag_commit` inspects the current (post-drag) layout state and
 returns a :class:`DragCommitDecision` describing how the floating-overlay UX in
 SelectTool should commit it. It is pure application logic — it never constructs
-a Qt dialog — so it lives here in ``services/editing`` rather than under
-``gui/``. The GUI re-exports it from :mod:`protoboard.gui.placement_conflict`
-for existing callers.
+a Qt dialog — so it lives here in ``controller/editing`` rather than under
+``gui/``.
 """
 
 from __future__ import annotations

@@ -188,7 +188,9 @@ no keys involved, proving the "CLI test".
 
 1. `controller/{ports,editing,tools}` exist; tools are Qt-free command machines.
 2. `grep -rn "import.*gui" src/protoboard/controller/` → nothing.
-3. No `on_key`/`Qt.Key`/`QColor`/`Intent` in `controller/tools/`.
+3. No `on_key`/`Qt.Key`/`QColor` in `controller/tools/`. (`Intent` was
+   reclassified as a Qt-free port in `controller/ports/inputs.py` — it is not a
+   forbidden symbol; the rule is that a tool does not *decode keys* into intents.)
 4. `controller.tool_commands()` + `dispatch_tool_command(action_id)` drive every
    tool action; `trigger_tool_action` deleted.
 5. Default bindings in YAML; rebinding + persistence unchanged.
