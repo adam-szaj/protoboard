@@ -51,6 +51,7 @@ from protoboard.gui.layer_state import (
 )
 from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.renderer import HighlightRenderer
+from protoboard.gui.hover_reveal import HoverReveal
 from protoboard.gui.paint_pipeline import PaintPipeline
 from protoboard.gui.renderers.board_renderer import BOARD_BG
 from protoboard.gui.scene_composer import SceneComposer
@@ -153,6 +154,10 @@ class BoardView(QGraphicsView):
         self.executor = QtExecutor(self)
         self.camera = ViewCamera(self)
         self._layer_overrides: LayerOverrides = LayerOverrides()
+        # Hover-reveal (2B): component whose pin names stay drawn while the
+        # pin_names layer is HIDDEN.  Persistent — layer_state() is rebuilt
+        # fresh on every refresh() and threads this value onto it.
+        self._pin_names_reveal_cid: uuid.UUID | None = None
         self._pad_positions: list[Point] = []
         # Active group for rendering context (set by SelectTool on navigation).
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
@@ -185,6 +190,11 @@ class BoardView(QGraphicsView):
         # Scene construction (groups, fingerprints, overlays, drag anchors,
         # refresh debounce) — extracted service (see gui/scene_composer.py).
         self.composer = SceneComposer(self)
+        # Hover-reveal (2A tooltip / 2B pin-name reveal) — owns the dwell
+        # timer; needs the viewport, layer overrides and refresh (see
+        # gui/hover_reveal.py).
+        self._hover_reveal = HoverReveal(self)
+        self.hover_published.connect(self._on_hover_published)
         # Layered background composition + bg/back pixmap caches + the
         # stale-blit anchor — extracted service (see gui/paint_pipeline.py).
         # ``paintEvent`` / ``drawBackground`` stay as Qt overrides below and
@@ -317,6 +327,11 @@ class BoardView(QGraphicsView):
     def notify_hover(self, event: HoverEvent) -> None:
         """Re-emit a throttled hover reply as ``hover_published``."""
         self.hover_published.emit(event)
+
+    def _on_hover_published(self, event: HoverEvent) -> None:
+        """Feed the hover stream to :class:`HoverReveal` (dwell tooltip/2B)."""
+        vp = self.viewport_port.map_scene_to_view(event.point)
+        self._hover_reveal.on_hover(event, (int(vp.x), int(vp.y)))
 
     @traced()
     def notify_controller_state(self, state: str) -> None:
@@ -510,13 +525,17 @@ class BoardView(QGraphicsView):
 
     def layer_state(self) -> LayerState:
         """The resolved per-layer visibility/alpha state for this paint."""
-        return layer_state_for_tool(
+        state = layer_state_for_tool(
             self._active_tool,
             self.camera.camera_side,  # type: ignore[arg-type]
             self.camera.view_transform,  # type: ignore[arg-type]
             overrides=self._layer_overrides,
             theme=self.theme,
         )
+        # layer_state_for_tool() builds a fresh LayerState every call — thread
+        # the persistent hover-reveal cid (gui/hover_reveal.py) onto it.
+        state.pin_names_reveal_cid = self._pin_names_reveal_cid
+        return state
 
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
@@ -877,6 +896,7 @@ class BoardView(QGraphicsView):
     def leaveEvent(self, event: object) -> None:
         """Reset cursor when mouse leaves the viewport."""
         self.setCursor(Qt.CursorShape.ArrowCursor)
+        self._hover_reveal.clear()
         super().leaveEvent(event)  # type: ignore[arg-type]
 
 
