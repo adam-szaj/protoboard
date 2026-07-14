@@ -32,6 +32,7 @@ Z-value stack (back → front):
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
@@ -156,6 +157,9 @@ class LayerState:
     view_transform: ViewTransform = "normal"
     ghost_components: bool = False
     overrides: LayerOverrides = field(default_factory=LayerOverrides)
+    #: When the pin_names layer is HIDDEN, the one component id whose pin
+    #: names are still drawn (hover+Alt reveal).  None = strict hidden.
+    pin_names_reveal_cid: uuid.UUID | None = None
     back_alpha: float = BACK_ALPHA
     board_ghost_alpha: float = BOARD_GHOST_ALPHA
     ghost_comp_alpha: float = GHOST_COMP_ALPHA
@@ -266,9 +270,19 @@ class LayerState:
             return 0.0
         return self.back_filter_alpha
 
-    def alpha_for_pin_names(self, side: Side) -> float:
+    def alpha_for_pin_names(
+        self, side: Side, cid: uuid.UUID | None = None,
+    ) -> float:
         # Pin names are independent of labels and components — toggling
-        # either of those does not hide pin names.
+        # either of those does not hide pin names.  A per-component reveal
+        # (hover+Alt) forces this one component's names on while the layer
+        # is globally HIDDEN.
+        if (
+            self.overrides.pin_names == LayerVisibility.HIDDEN
+            and cid is not None
+            and cid == self.pin_names_reveal_cid
+        ):
+            return self._side_tool_alpha(side)
         return self._vis_alpha(self.overrides.pin_names, self._side_tool_alpha(side))
 
     def alpha_for_axis_labels(self) -> float:

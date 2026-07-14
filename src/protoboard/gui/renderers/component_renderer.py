@@ -616,7 +616,7 @@ def _render_one(
 
     # Pin-name labels (controlled by the pin_names layer) — independent of the
     # labels layer, so they render even when the refdes/value labels are hidden.
-    alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
+    alpha_pin_names = layers.alpha_for_pin_names(side, cid=comp_id) * group_alpha
     if alpha_pin_names > 0.0 and defn.pin_names:
         # Text colour stays at full theme alpha; only the background pill
         # fades.  Keeps pin names readable even on ghosted/back layers.
