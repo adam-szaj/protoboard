@@ -453,39 +453,244 @@ git commit -m "feat(renderers): pin body value to body frame; fixed font for gen
 
 ---
 
-## Task 4: Visual verification + font-size calibration + docs
+## Task 4 REVISED (2026-07-15, after production visual verification)
 
-Confirm the change looks right on a real TO92, tune the font size, update docs.
+**Production verification result (controller, real `ComponentPlacement` render):**
+pinning WORKS — with a real placement the generic body value reads correctly:
+runs along the pin row, upright, un-mirrored, centred on the body, rotates +
+flips with the body (verified TO92 rot0/rot90/bottom-flip + DIP). **The only
+real defect is font SIZE (text ~9× too large).** Two design changes decided
+with the user:
+
+1. **Fixed point-size → scale-to-fit-with-cap.** A fixed `point_size` is the
+   wrong tool: it can't fit variable-length strings (6-char `2N2222` vs 3-char)
+   and the size that fits (~0.4pt) lands in an offscreen-font hang zone. Replace
+   with scale-to-fit (like SMD) bounded by a MAX size — long part numbers on a
+   small body shrink to fit; short values on a big DIP don't balloon. This
+   removes the `point_size` mode entirely (added in Tasks 1-2) and reverts to a
+   single scale-to-fit path + an optional cap.
+2. **Fix the `_body_placement` no-placement fallback branch.** It uses
+   `angle_deg = -degrees(atan2(dx, dy))` + no flip — a DIFFERENT convention from
+   the production `placement_transform` and from the radial-silhouette path's
+   `(p2-p1).angle_deg()`. It does NOT ship (production always has a placement),
+   but it makes tests/previews disagree with production (it misled a subagent).
+   Reconcile it to `(p2 - p1).angle_deg()`.
+
+Superseded: the fixed-font default value calibration; `body_print_font_size`
+becomes a MAX cap, not a fixed size.
+
+---
+
+## Task 5: Replace `point_size` mode with scale-to-fit + max cap
+
+Revert `make_body_label` to a single scale-to-fit sizing, bounded by an optional
+maximum height (in scene units). Remove the `point_size`/`QFont` path.
 
 **Files:**
-- Possibly modify: `src/protoboard/controller/theme.py` (font-size value, if calibration needs it)
-- Modify: `docs/rendering.md` (update the body-printed-value section to the body-frame + fixed-font description)
+- Modify: `src/protoboard/gui/renderers/packages/body_label.py`
+- Modify: `src/protoboard/gui/renderers/packages/base.py` (`_maybe_value_label` — pass the cap)
+- Modify: `src/protoboard/controller/theme.py` (rename field → cap semantics)
+- Modify: `tests/gui/test_body_label.py`, `tests/unit/test_theme_body_font.py`
 
-- [ ] **Step 1: Build a visual driver check**
+**Interfaces:**
+- `make_body_label(text, ink, body_transform, local_center, local_angle_deg, *, avail_len, avail_w, max_height=None, alpha, z) -> QGraphicsSimpleTextItem | None`
+  - Always scale-to-fit: `scale = min(avail_len/br.width(), avail_w/br.height())`.
+  - If `max_height` is not None, cap the *rendered text height*: the text height in scene units is `scale * br.height()`; if that exceeds `max_height`, clamp `scale = max_height / br.height()`. Equivalent: `scale = min(scale, max_height / br.height())`.
+  - Keep the mirror-compensation + upright-flip from Task 2 unchanged.
+  - Remove `point_size`, the `QFont` import, and the `if point_size is None` branch.
+- `Theme.body_print_max_height: float` — replaces `body_print_font_size`. The MAX rendered height (scene/raster units) of generic body value text. Start at `1.0` (≈ one hole tall) and calibrate in Task 7.
 
-The smoke driver fixture (`tests/fixtures/tangled`) has no solid-body part with a value. Add a tiny throwaway check: run the driver, OR write a short script that places a TO92 (2N2222) + a DIP + an SMD resistor, renders, and screenshots. Simplest: extend the driver with one step that loads a fixture containing a TO92 with `value="2N2222"` and a DIP, screenshot it. If no such fixture exists, create a minimal one under `tests/fixtures/` OR add components to a scratch project the driver can load. Read the screenshot: the value must sit ON the body, rotate/flip WITH the body, read upright, run along the pin row, and be legible.
+- [ ] **Step 1: Update the tests to the new signature**
 
-> Implementer: keep this verification lightweight and DELETE any scratch fixture/driver-step you added once calibration is done (it's a check, not a shipped artifact) — unless it's genuinely reusable, in which case note it. Report the screenshot path so the controller can look.
+Rewrite `tests/gui/test_body_label.py`: drop the fixed-`point_size` test; keep scale-to-fit, position-follows-body, flipped-not-mirrored, upright, empty→None (from Task 2). ADD a cap test:
 
-- [ ] **Step 2: Calibrate `body_print_font_size`**
+```python
+def test_max_height_caps_scale(qtbot) -> None:
+    # A huge avail box would scale the text large; max_height clamps it.
+    big = make_body_label(
+        "X", QColor("#000000"), QTransform(), Point(0.0, 0.0), 0.0,
+        avail_len=100.0, avail_w=100.0, max_height=1.0, alpha=1.0, z=0.0,
+    )
+    assert big is not None
+    br = big.mapRectToScene(big.boundingRect())
+    assert br.height() <= 1.0 + 1e-6
 
-From the screenshot, judge the TO92 `2N2222`/`2N3904` legibility. If too small/large, adjust `body_print_font_size` in `theme.py` and re-render. Target: legible and tidy on a TO92, not overflowing the body. Update the Task 1 test's expected value if you change the default.
+
+def test_no_cap_fills_box(qtbot) -> None:
+    item = make_body_label(
+        "X", QColor("#000000"), QTransform(), Point(0.0, 0.0), 0.0,
+        avail_len=4.0, avail_w=2.0, max_height=None, alpha=1.0, z=0.0,
+    )
+    assert item is not None
+    br = item.mapRectToScene(item.boundingRect())
+    assert br.height() <= 2.0 + 1e-6
+```
+
+Update `tests/unit/test_theme_body_font.py` to assert `Theme().body_print_max_height == 1.0`.
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `uv run pytest tests/gui/test_body_label.py tests/unit/test_theme_body_font.py -v`
+Expected: FAIL (signature/field mismatch).
+
+- [ ] **Step 3: Implement**
+
+In `body_label.py`, new sizing block (replaces the `point_size` logic):
+
+```python
+def make_body_label(
+    text: str,
+    ink: QColor,
+    body_transform: QTransform,
+    local_center: Point,
+    local_angle_deg: float,
+    *,
+    avail_len: float,
+    avail_w: float,
+    max_height: float | None = None,
+    alpha: float,
+    z: float,
+) -> QGraphicsSimpleTextItem | None:
+    if not text or avail_len <= 0.0 or avail_w <= 0.0:
+        return None
+    label = QGraphicsSimpleTextItem(text)
+    pen_ink = QColor(ink)
+    pen_ink.setAlphaF(pen_ink.alphaF() * alpha)
+    label.setBrush(QBrush(pen_ink))
+    br = label.boundingRect()
+    if br.width() < 1e-9 or br.height() < 1e-9:
+        return None
+    scale = min(avail_len / br.width(), avail_w / br.height())
+    if max_height is not None:
+        scale = min(scale, max_height / br.height())
+    # ... mirror + upright + centre exactly as Task 2, always applying scale ...
+```
+
+Remove the `QFont` import and `point_size` param. Keep the `mirrored`/`world_angle` logic; the final `t.scale(scale, scale)` now always runs.
+
+In `theme.py`: rename `body_print_font_size` → `body_print_max_height` (default `1.0`), update the docstring (it's a max rendered height in scene units, not a point size).
+
+In `base.py` `_maybe_value_label`: replace `point_size=self.paint.theme.body_print_font_size` with `avail_len=box.width * 0.9, avail_w=box.height * 0.75, max_height=self.paint.theme.body_print_max_height` (bring back the avail box that Task 3 removed for the generic path).
+
+- [ ] **Step 4: SMD call site — keep scale-to-fit, no cap**
+
+In `prism_kinds.py` `_code_label`: it already passes `avail_len`/`avail_w`; add `max_height=None` (SMD keeps pure scale-to-fit — its between-caps box is already the right size). Verify the signature matches (no `point_size` kwarg anymore).
+
+- [ ] **Step 5: Run tests**
+
+Run: `uv run pytest tests/gui/test_body_label.py tests/gui/test_generic_body_value.py tests/gui/test_value_code_renderers.py tests/unit/test_theme_body_font.py tests/unit/test_smd_mount_mechanic.py -v`
+Expected: PASS — SMD "223" parity holds; generic uses capped scale-to-fit. (The generic-body test that asserted a fixed font point size must be updated to assert the label EXISTS + is scaled, since there's no fixed point size anymore.)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/protoboard/gui/renderers/packages/body_label.py src/protoboard/gui/renderers/packages/base.py src/protoboard/gui/renderers/packages/prism_kinds.py src/protoboard/controller/theme.py tests/gui/test_body_label.py tests/gui/test_generic_body_value.py tests/unit/test_theme_body_font.py
+git commit -m "feat(renderers): body value scale-to-fit with max-height cap (replaces fixed font)"
+```
+
+---
+
+## Task 6: Fix `_body_placement` no-placement fallback convention
+
+Reconcile the fallback branch with the production/radial convention so tests and previews match production.
+
+**Files:**
+- Modify: `src/protoboard/gui/renderers/packages/base.py` (`_body_placement` fallback branch)
+- Test: `tests/gui/test_body_transform_parity.py` (or a targeted test) — assert the fallback matches the radial angle convention
+
+**Interfaces:**
+- `_body_placement` fallback (no `self._placement`): change `angle_deg = -degrees(atan2(dx, dy))` to `angle_deg = (positions[1] - positions[0]).angle_deg()` (the same `(p2-p1).angle_deg()` the radial silhouette uses), so a horizontal pin row → 0° (not −90°).
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `tests/gui/test_body_transform_parity.py` (or a new focused test): build a renderer WITHOUT a placement, positions along +x (e.g. `[Point(0,0), Point(1,0), Point(2,0)]`), and assert `_body_placement(positions)` has world rotation ≈ 0° (`atan2(m12, m11) ≈ 0`), matching the radial-silhouette convention. Then a +y row (`[Point(0,0), Point(0,1)]`) → 90°.
+
+```python
+def test_body_placement_fallback_matches_radial_angle(qtbot, <build a placement-less renderer>) -> None:
+    import math
+    r = <renderer with self._placement = None>
+    t = r._body_placement([Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)])
+    assert math.degrees(math.atan2(t.m12(), t.m11())) == pytest.approx(0.0, abs=1.0)
+```
+
+> Implementer: grep how the existing parity test builds a renderer without a placement (it likely passes `placement=None` to `body_shape_for`). Reuse that idiom. If the fallback also needs flip handling for the no-placement case, note that it CAN'T know the side without a placement, so top-side (no flip) is the correct fallback — only the angle convention is being fixed here.
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `uv run pytest tests/gui/test_body_transform_parity.py -k fallback -v`
+Expected: FAIL — current fallback returns −90° for a +x row.
+
+- [ ] **Step 3: Fix the fallback branch**
+
+In `base.py` `_body_placement`, the `else` (no-placement) branch:
+
+```python
+        p1 = positions[0]
+        if len(positions) > 1:
+            angle_deg = (positions[1] - p1).angle_deg()
+        else:
+            angle_deg = 0.0
+        place = QTransform()
+        place.translate(p1.x, p1.y)
+        place.rotate(angle_deg)
+        return place
+```
+
+Remove the now-unused `dx`/`dy`/`atan2` locals. Confirm `math` is still used elsewhere in base.py before touching its import.
+
+- [ ] **Step 4: Run — fallback parity + full renderer sweep**
+
+Run: `uv run pytest tests/gui/test_body_transform_parity.py tests/gui/test_generic_body_value.py -v`
+Expected: PASS — fallback now matches production convention; generic body tests (which use the fallback path) still pass and now render along the pin row.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/protoboard/gui/renderers/packages/base.py tests/gui/test_body_transform_parity.py
+git commit -m "fix(renderers): body-placement fallback uses (p2-p1) angle, matching production"
+```
+
+---
+
+## Task 7: Calibrate the max-height cap, verify in production, docs
+
+**Files:**
+- Modify: `src/protoboard/controller/theme.py` (cap value if needed)
+- Modify: `docs/rendering.md`
+
+- [ ] **Step 1: Render with a REAL placement (production path)**
+
+Write a throwaway script (scratch, in `$CLAUDE_JOB_DIR/tmp/`) that renders a TO92 (BC547 `value="2N2222"`) and a DIP (NE555) using a REAL `ComponentPlacement` so `_body_placement` takes the production `placement_transform` branch (NOT the fallback):
+- `pl = ComponentPlacement(component_id=inst.id, position=Point(4,4), rotation=0, side="top")`
+- `pads = [pin_world_position(fp, pl, i) for i in range(len(fp.pin_positions()))]` where `fp = resolved_footprint(defn, inst, fams)`
+- `shape = body_shape_for(defn, placement=pl, instance=inst, package_families=fams)` — **pass `placement=pl`** (this is what sets `self._placement`)
+- `shape.draw(pads, QColor("#cc4444"), QColor("#222222"), 1.0, 5.0, DEFAULT_THEME)`
+- Render items into a QGraphicsScene → QImage; save PNG. Set `QT_QPA_PLATFORM=offscreen` and `os.environ.pop("PROTOBOARD_TRACE", None)` before importing protoboard. Also render rotation=90 and side="bottom" to confirm the text still reads upright/un-mirrored.
+
+Report the screenshot paths. The text must now FIT the body (capped) while still reading correctly.
+
+> Note: the offscreen backend hangs on `QFont.setPointSizeF` below ~0.38 and quantizes small point sizes — but scale-to-fit does NOT set a small point size (it scales a default-size text item geometrically), so it does not hit the hang. If any render hangs, that's a signal something still sets a tiny font.
+
+- [ ] **Step 2: Calibrate `body_print_max_height`**
+
+From the screenshots, pick the cap so `2N2222` on a TO92 is legible and sits within the body (roughly ≤ the body height). Since scale-to-fit already shrinks long text to the avail box, the cap mainly stops SHORT values on BIG bodies from ballooning. Tune `body_print_max_height` in `theme.py` (start 1.0; the TO92 body is ~1.4 tall, a DIP taller). Update the Task 5 theme test if you change the default.
 
 - [ ] **Step 3: Update docs**
 
-In `docs/rendering.md`, update the body-printed-value section: the text is now pinned to the body's local frame via `_body_placement` (inherits rotation + flip, fixed relative to body geometry not the pin row — bendable-pin safe), reads upright and un-mirrored (mirror compensation on flipped bodies), runs pin-1→increasing along the body axis, and uses a fixed `theme.body_print_font_size` for generic bodies while the SMD chip keeps scale-to-fit.
+`docs/rendering.md` body-printed-value section: text pinned to the body local frame via `_body_placement` (inherits rotation + flip; fixed vs body geometry not the pin row → bendable-pin safe), reads upright + un-mirrored, runs pin-1→increasing along the body axis (`_pin_row_angle_deg`), scale-to-fit bounded by `theme.body_print_max_height`; SMD chip keeps uncapped scale-to-fit. Note the `_body_placement` fallback now matches production convention.
 
-- [ ] **Step 4: Full suite + mypy**
+- [ ] **Step 4: Full suite + mypy + smoke**
 
-Run: `uv run pytest -n auto -q` (expect baseline 4 failed + 12 errors, no new).
+Run: `uv run pytest -n auto -q` (baseline 4 failed + 12 errors; may show 5 = library_loader flake).
 Run: `uv run mypy --strict src/protoboard/gui/renderers/packages/body_label.py src/protoboard/gui/renderers/packages/base.py src/protoboard/gui/renderers/packages/prism_kinds.py src/protoboard/controller/theme.py`
-Expected: clean (no new errors).
+Run the smoke driver: `uv run python .claude/skills/run-protoboard-designer/driver.py` — RESULT: OK.
+Delete the scratch render script (keep screenshots for the controller).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add docs/rendering.md src/protoboard/controller/theme.py
-git commit -m "docs(rendering): body value pinned to body frame; calibrate font size"
+git commit -m "docs(rendering): body value scale-to-fit-with-cap; calibrate max height"
 ```
 
 ---
