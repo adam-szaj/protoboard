@@ -12,6 +12,7 @@ guess) — rendering never blocks on an unknown kind.
 
 from __future__ import annotations
 
+from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.package.shapes import (
@@ -115,14 +116,17 @@ class SmdChipRenderer(PrismRenderer):
         text = body_print_text(self._component_class, self._instance.value)
         if text is None:
             return None
-        center = Point((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
+        axis = QTransform()
+        axis.translate((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
+        axis.rotate((p2 - p1).angle_deg())
         return make_body_label(
             text,
             best_ink(self.paint.fill),
-            center,
-            (p2 - p1).angle_deg(),
-            body_len * 0.9 - 2.0 * cap,
-            body_w * 0.75,
+            axis,
+            Point(0.0, 0.0),
+            0.0,
+            avail_len=body_len * 0.9 - 2.0 * cap,
+            avail_w=body_w * 0.75,
             alpha=self.paint.alpha,
             z=self.paint.z + 2 * BodyCanvas.Z_STEP,
         )

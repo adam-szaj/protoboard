@@ -33,7 +33,7 @@ from dataclasses import replace
 from typing import ClassVar, TypeVar
 
 import structlog
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -544,9 +544,11 @@ class PackageRenderer(BodyShape):
     ) -> QGraphicsItem | None:
         """The component value printed on the body, or ``None``.
 
-        Text from :func:`body_print_text`, ink from :func:`best_ink` on the
-        resolved body fill, scaled into the package bbox.  Any missing dims →
-        ``None`` (never blocks the body drawing).
+        Pinned to the body's local frame via ``_body_placement`` so it
+        inherits the body's rotation and flip and stays fixed relative to the
+        body geometry (not the pin row — matters for bendable pins).  A fixed
+        font size (``theme.body_print_font_size``); the SMD chip keeps its own
+        scale-to-fit code label.
         """
         if self._instance is None:
             return None
@@ -556,21 +558,34 @@ class PackageRenderer(BodyShape):
         box = bbox_or_none(self._pkg)
         if box is None:
             return None
-        body_len = box.width
-        body_w = box.height
-        if body_len <= 0.0 or body_w <= 0.0:
+        if box.width <= 0.0 or box.height <= 0.0:
             return None
-        local_center = box.center
-        placement = self._body_placement(positions)
-        world_pt = placement.map(QPointF(local_center.x, local_center.y))
-        center = Point(world_pt.x(), world_pt.y())
-        angle = math.degrees(math.atan2(placement.m12(), placement.m11()))
         return make_body_label(
-            text, best_ink(self.paint.fill), center, angle,
-            body_len * 0.9, body_w * 0.75,
+            text,
+            best_ink(self.paint.fill),
+            self._body_placement(positions),
+            box.center,
+            self._pin_row_angle_deg(),
+            point_size=self.paint.theme.body_print_font_size,
             alpha=self.paint.alpha,
             z=self.paint.z + 3 * BodyCanvas.Z_STEP,
         )
+
+    def _pin_row_angle_deg(self) -> float:
+        """Direction (local frame, degrees) of pin 1 → pin 2 — the axis the
+        printed value runs along.
+
+        Packages are NOT consistent about which local axis carries the pin
+        row: a TO-92/TO-220/SMD chip's single row runs along local +x, but a
+        DIP's two-column row runs along local +y (see ``Prism.bbox``'s "along
+        the pin axis is the dominant axis of the pin cloud" note). Deriving
+        the angle from the actual pin positions — rather than assuming +x —
+        keeps the label aligned with the row for every package.
+        """
+        pins = self._pkg.pin_positions()
+        if len(pins) < 2:
+            return 0.0
+        return (pins[1] - pins[0]).angle_deg()
 
     def _maybe_radial(
         self,
