@@ -16,10 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every other class's raw `value` (e.g. a part number). `best_ink`
   (`gui/renderers/text_contrast.py`) picks a WCAG-contrasting ink from the
   body's luminance; `make_body_label` (`gui/renderers/packages/body_label.py`)
-  scales and centres the text, generalised from the SMD chip's between-caps
-  label. Wired through `PackageRenderer._maybe_value_label`, called from
-  `draw()` for every body renderer; `SmdChipRenderer` and
-  `DinColorBandRenderer` opt out (they already show the value their own way).
+  is pinned to the body's local frame (inherits rotation + flip, so it stays
+  fixed relative to the body geometry rather than the pin row — bendable-pin
+  safe), reads upright and un-mirrored, and scales to fit the body, capped by
+  `theme.body_print_max_height` for generic bodies (the SMD chip's
+  between-caps label stays uncapped). Wired through
+  `PackageRenderer._maybe_value_label`, called from `draw()` for every body
+  renderer; `SmdChipRenderer` and `DinColorBandRenderer` opt out (they
+  already show the value their own way).
 * **Hover-reveal.** With the `labels` layer hidden, hovering a component for
   ~1 s shows a cursor-anchored tooltip (`gui/hover_tooltip.py`) with
   `refdes value`. With `pin_names` hidden, hovering + holding **Alt** for

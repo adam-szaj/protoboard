@@ -425,21 +425,51 @@ draw():
   ratio picks the **ink** within that palette. The two-stage rule is
   correctness-by-construction: a dark body can never receive a dark ink
   regardless of the contrast arithmetic.
-- **How it's laid out** — `make_body_label(text, ink, center, angle_deg,
-  avail_len, avail_w, alpha=, z=)` (`gui/renderers/packages/body_label.py`)
-  generalises the SMD chip's between-caps label: a `QGraphicsSimpleTextItem`
-  scaled to fit the available box, centred on the body, rotated to the pad
-  axis and flipped upright so it never reads upside-down. `None` if the text
-  is empty or the box has no area. `_maybe_value_label` feeds it the body
-  bbox centre/angle from the same `_body_placement` transform every other
-  body element uses, at 90% of body length × 75% of body width, one `BodyCanvas.Z_STEP`
-  triple above the base `z`.
+- **How it's laid out** — `make_body_label(text, ink, body_transform,
+  local_center, local_angle_deg, avail_len, avail_w, max_height=, alpha=, z=)`
+  (`gui/renderers/packages/body_label.py`) builds a `QGraphicsSimpleTextItem`
+  in the body's **local** frame — centred on the local bbox, rotated to the
+  pin-row direction — then maps it through `body_transform`, the *same*
+  `_body_placement` transform every other body element uses. Because the
+  label is pinned to that transform rather than rebuilt around a world point,
+  it inherits the body's rotation **and** flip and stays fixed relative to
+  the body geometry, not the live pin positions — safe under bendable-pin
+  re-drag. Two readability compensations ride on top of the transform: a
+  mirrored (flipped) body gets a counter-scale on the glyphs so text never
+  reads backwards, and a world orientation that would land upside-down gets a
+  180° turn so it always reads upright. `_maybe_value_label`
+  (`packages/base.py`) feeds it the body bbox centre at 90% of body length ×
+  75% of body width, and the direction from `_pin_row_angle_deg()` — the
+  pin-1→pin-2 heading in the local frame, since packages don't agree on which
+  local axis the pin row runs along (a TO-92's row is local +x, a DIP's is
+  +y). The label sits one `BodyCanvas.Z_STEP` triple above the base `z`.
+  Returns `None` if the text is empty or the box has no area.
+- **Size cap** — scale-to-fit is geometric (the text item keeps its default
+  point size and is scaled to the available box, so it never hits the tiny
+  point-size range that hangs the offscreen Qt backend). For generic bodies
+  `_maybe_value_label` bounds that scale by `theme.body_print_max_height`
+  (default 1.0 raster unit): scale-to-fit alone would balloon a short code
+  like a resistor's `"223"` to fill a big body; the cap stops that while
+  leaving long text free to shrink to the box as before. The SMD chip's
+  between-caps label (below) passes `max_height=None` — uncapped — since its
+  available box is already tightly bounded by the cap markers.
 - **Opt-outs** — a renderer that already shows the value some other way
-  overrides `_maybe_value_label` to return `None`: `SmdChipRenderer` (the
-  between-caps code label) and `DinColorBandRenderer`
-  (`library/renderers/resistor_bands.py`, colour bands). This is a
-  by-convention override, not a structural guard — see `docs/todo.md` for the
-  follow-up if a future value-drawing renderer forgets it.
+  overrides `_maybe_value_label` to return `None`: `SmdChipRenderer`
+  (`prism_kinds.py`, the between-caps code label, drawn via its own
+  `_code_label` → `make_body_label` call with `max_height=None`) and
+  `DinColorBandRenderer` (`library/renderers/resistor_bands.py`, colour
+  bands). This is a by-convention override, not a structural guard — see
+  `docs/todo.md` for the follow-up if a future value-drawing renderer forgets
+  it.
+- **Fallback frame (no placement)** — a bare `draw()` call with no
+  `ComponentPlacement` (unit tests, bbox previews) has no `placement_transform`
+  to project through, so `_body_placement` falls back to a translate-only
+  transform onto pin 1. This matches the *linear* part of the production
+  transform at rotation 0 (identity) — it must not also rotate by the
+  pin1→pin2 heading, because every local-frame geometry builder (`Prism.bbox()`,
+  `Cylinder.bbox()`, the radial silhouette anchor) already self-orients from
+  the local pin cloud; adding a heading-based rotation on top would
+  double-rotate packages whose local pin row runs along +y (a DIP).
 
 ---
 
