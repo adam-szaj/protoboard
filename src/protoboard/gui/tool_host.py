@@ -11,6 +11,7 @@ and delegate here; the host talks to the canvas only through
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
@@ -465,7 +466,8 @@ class ToolHost:
         if tool is None:
             return
         point, mods = parked
-        self._view.notify_hover(tool.empty_action(point, mods))
+        ev = replace(tool.empty_action(point, mods), mods=mods)
+        self._view.notify_hover(ev)
 
     def handle_mouse_release(self, event: QMouseEvent) -> bool:
         view = self._view

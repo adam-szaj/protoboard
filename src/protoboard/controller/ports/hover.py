@@ -15,8 +15,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from protoboard.controller.ports.inputs import Mods
+
 if TYPE_CHECKING:
     from protoboard.geometry import Point
+
+_EMPTY_MODS = Mods()
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,8 +29,10 @@ class HoverEvent:
 
     ``objects`` is empty over bare canvas.  Scene coordinates are board/raster
     coordinates (``geometry.py``), so ``point`` is already in model units — no
-    conversion crosses the seam.
+    conversion crosses the seam.  ``mods`` is the keyboard modifier state at
+    the time of the hover (e.g. so hover-reveal can branch on Alt).
     """
 
     point: Point
     objects: tuple[uuid.UUID, ...] = field(default_factory=tuple)
+    mods: Mods = _EMPTY_MODS
