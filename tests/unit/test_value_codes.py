@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import pytest
 
+from protoboard.domain.components.definition import ComponentClass
 from protoboard.gui.renderers.value_codes import (
     code_digits,
+    parse_capacitance,
     parse_inductance,
     parse_resistance,
     parse_tolerance,
+    parse_value,
     smd_code,
 )
 
@@ -114,3 +117,39 @@ class TestSmdCode:
 
     def test_unrepresentable_value_is_none(self) -> None:
         assert smd_code(3.14159) is None
+
+
+class TestParseCapacitance:
+
+    @pytest.mark.parametrize(("text", "pf"), [
+        ("100nF", 100_000.0),
+        ("100n", 100_000.0),
+        ("1uF", 1_000_000.0),
+        ("1u", 1_000_000.0),
+        ("22pF", 22.0),
+        ("22p", 22.0),
+        ("4p7", 4.7),
+        ("4.7pF", 4.7),
+        ("10µF", 10_000_000.0),
+        ("1nF", 1_000.0),
+    ])
+    def test_parses_to_pf(self, text: str, pf: float) -> None:
+        assert parse_capacitance(text) == pytest.approx(pf)
+
+    @pytest.mark.parametrize("text", ["?", "", "abc", "10n5n"])
+    def test_rejects(self, text: str) -> None:
+        assert parse_capacitance(text) is None
+
+
+class TestParseValueCapacitor:
+
+    @pytest.mark.parametrize("cls", [
+        ComponentClass.CAPACITOR_POLAR,
+        ComponentClass.CAPACITOR_NONPOLAR,
+    ])
+    def test_capacitor_decodes(self, cls: ComponentClass) -> None:
+        # 100 nF = 100000 pF -> smd_code -> "104"
+        assert parse_value(cls, "100nF") == pytest.approx(100_000.0)
+
+    def test_other_class_none(self) -> None:
+        assert parse_value(ComponentClass.RESISTOR, "100nF") != 100_000.0

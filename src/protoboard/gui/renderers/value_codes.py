@@ -23,6 +23,7 @@ from protoboard.domain.components.definition import ComponentClass
 
 __all__ = [
     "code_digits",
+    "parse_capacitance",
     "parse_inductance",
     "parse_resistance",
     "parse_tolerance",
@@ -79,6 +80,23 @@ def parse_inductance(text: str) -> float | None:
     return _scaled_number(s, scales)
 
 
+def parse_capacitance(text: str) -> float | None:
+    """A capacitor ``value`` string → picofarads (``None`` when unparseable).
+
+    Capacitor markings are conventionally expressed in pF (the EIA 3-digit
+    code), so pF is the unit that feeds ``code_digits`` / ``smd_code``.  A bare
+    number means pF; ``p``/``n``/``u``/``µ``/``m`` scale up from there.
+    """
+    s = text.strip()
+    s = s.removesuffix("F").removesuffix("f").strip()
+    return _scaled_number(s, {
+        "": 1.0, "p": 1.0, "P": 1.0,
+        "n": 1e3, "N": 1e3,
+        "u": 1e6, "µ": 1e6, "U": 1e6,
+        "m": 1e9, "M": 1e9,
+    })
+
+
 def parse_tolerance(text: str) -> float | None:
     """A tolerance string → percent (``"5%"`` / ``"±5%"`` / ``"0.5"`` → 5.0 /
     5.0 / 0.5); ``None`` when it doesn't parse."""
@@ -92,13 +110,19 @@ def parse_value(component_class: str, text: str) -> float | None:
     """A part's ``value`` string → the number its marking encodes, or ``None``.
 
     The single policy for which component classes carry a decodable value
-    code, and in which unit: a resistor decodes as ohms, an inductor as µH;
-    any other class (or a value that does not parse) has no code.
+    code, and in which unit: a resistor decodes as ohms, an inductor as µH,
+    a capacitor as pF; any other class (or a value that does not parse) has
+    no code.
     """
     if component_class == ComponentClass.RESISTOR:
         return parse_resistance(text)
     if component_class == ComponentClass.INDUCTOR:
         return parse_inductance(text)
+    if component_class in (
+        ComponentClass.CAPACITOR_POLAR,
+        ComponentClass.CAPACITOR_NONPOLAR,
+    ):
+        return parse_capacitance(text)
     return None
 
 
