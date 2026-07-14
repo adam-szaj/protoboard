@@ -124,6 +124,23 @@ def test_clear_hides_and_resets(qtbot) -> None:
     assert view._pin_names_reveal_cid is None
 
 
+def test_alt_release_clears_active_reveal(qtbot) -> None:
+    view = _make_view(qtbot)
+    view.layer_overrides.pin_names = LayerVisibility.HIDDEN
+    cid = uuid.uuid4()
+    view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
+
+    reveal = HoverReveal(view)
+    reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
+    reveal._on_dwell()
+    assert view._pin_names_reveal_cid == cid
+
+    # Same component, Alt released: the reveal must clear immediately.
+    reveal.on_hover(_hover_event(cid, alt=False), (30, 40))
+
+    assert view._pin_names_reveal_cid is None
+
+
 def _perfboard() -> Board:
     grid = BoardGrid(
         width_policy=SizePolicy.HUG,

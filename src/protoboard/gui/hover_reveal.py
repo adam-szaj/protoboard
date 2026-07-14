@@ -38,12 +38,14 @@ class HoverReveal:
     def on_hover(self, event: "HoverEvent", view_pos: tuple[int, int]) -> None:
         """Re-arm the dwell for the hovered component (or clear on bare canvas)."""
         cid = event.objects[0] if event.objects else None
-        # A move that changes the hovered component clears the current reveal.
-        if cid != self._pending_cid:
+        alt = bool(event.mods.alt)
+        # A move that changes the hovered component, or an Alt press/release,
+        # clears the current reveal (branch 2A vs 2B depends on Alt).
+        if cid != self._pending_cid or alt != self._pending_alt:
             self.clear()
         self._pending_cid = cid
         self._pending_view_pos = view_pos
-        self._pending_alt = bool(event.mods.alt)
+        self._pending_alt = alt
         if cid is None:
             self._timer.stop()
             return
