@@ -1161,6 +1161,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.gui.hover_tooltip import HoverTooltip
 from protoboard.gui.layer_state import LayerVisibility
 from protoboard.gui.throttle import TimerWrap
 
@@ -1169,9 +1170,11 @@ if TYPE_CHECKING:
 
 
 class HoverReveal:
-    def __init__(self, view) -> None:  # view: the board view surface
+    """Dwell-driven reveal of a hidden label (tooltip) or pin names (2B)."""
+
+    def __init__(self, view) -> None:  # view: BoardView
         self._view = view
-        self._tooltip = <HoverTooltip over view.viewport()>
+        self._tooltip = HoverTooltip(view.viewport())
         self._timer = TimerWrap(1000, self._on_dwell, restart_on_arm=True)
         self._pending_cid: uuid.UUID | None = None
         self._pending_view_pos: tuple[int, int] = (0, 0)
@@ -1194,39 +1197,54 @@ class HoverReveal:
         cid = self._pending_cid
         if cid is None:
             return
-        layers = self._view.layer_state
-        if (layers.overrides.labels == LayerVisibility.HIDDEN
+        overrides = self._view.layer_overrides
+        if (overrides.labels == LayerVisibility.HIDDEN
                 and not self._pending_alt):
             text = self._label_for(cid)
             if text:
                 self._tooltip.show_at(text, self._pending_view_pos)
             return
-        if (layers.overrides.pin_names == LayerVisibility.HIDDEN
+        if (overrides.pin_names == LayerVisibility.HIDDEN
                 and self._pending_alt):
-            layers.pin_names_reveal_cid = cid
+            self._view._pin_names_reveal_cid = cid
             self._view.refresh()
 
     def clear(self) -> None:
         self._tooltip.hide()
-        layers = self._view.layer_state
-        if layers.pin_names_reveal_cid is not None:
-            layers.pin_names_reveal_cid = None
+        if self._view._pin_names_reveal_cid is not None:
+            self._view._pin_names_reveal_cid = None
             self._view.refresh()
 
     def _label_for(self, cid: uuid.UUID) -> str | None:
-        inst = <lookup instance by cid from view.session>
+        inst = self._view.session.instances.get(cid)
         if inst is None:
             return None
         return f"{inst.refdes} {inst.value}".strip()
 ```
 
+> Note: reaching `view._pin_names_reveal_cid` directly (a private field) is acceptable here because `HoverReveal` is a collaborator constructed and owned by `BoardView` itself (like the other view services). If you prefer, add a tiny `BoardView.set_pin_names_reveal(cid)` setter that assigns the field + calls `refresh()`, and have `HoverReveal` call that — either is fine; the setter is marginally cleaner. Do NOT route this through the transient `LayerState` (it is rebuilt each refresh).
+
 > Implementer: replace the `<...>` placeholders with the real view API — `HoverTooltip(view.viewport())`, the view's `layer_state` accessor, its `refresh()` (grep how the scene composer / board_view triggers a re-render; e.g. `view.request_refresh()` or `scene_composer.refresh()`), and the instance-by-id lookup (grep `component_renderer` / `session` for how instances are indexed). Also confirm `Mods.alt` is the real attribute name (Task 7 established it).
 
-- [ ] **Step 4: Wire it into the view**
+- [ ] **Step 4: Wire it into the view (concrete seams — scouted 2026-07-14)**
 
-In `board_view.py` (or wherever `hover_published` is emitted): construct a `HoverReveal(self)` in `__init__`, connect `self.hover_published.connect(lambda ev: self._hover_reveal.on_hover(ev, self._cursor_view_pos()))`, and call `self._hover_reveal.clear()` on leave / cursor-moved-to-empty.
+All of these are verified `board_view.py` facts; use them directly.
 
-> Implementer: `_cursor_view_pos()` is the current cursor in viewport pixels — grep for an existing cursor-position accessor; `notify_cursor_moved` already flows scene coords, and the raw event pos is available at the `handle_mouse_move` site. Route the viewport pixel pos alongside the hover if needed.
+**(a) Persist the reveal cid on the view + thread it into `layer_state()` — THE CRITICAL STEP.**
+`LayerState` is rebuilt fresh every refresh by `BoardView.layer_state()` (board_view.py:511) via `layer_state_for_tool(tool, camera_side, view_transform, overrides=self._layer_overrides, theme=...)` (layer_state.py:334). That factory does NOT carry `pin_names_reveal_cid`, so Task 8's field is always reset to None in production. Fix:
+  - Add `self._pin_names_reveal_cid: uuid.UUID | None = None` on `BoardView`, next to `self._layer_overrides = LayerOverrides()` (board_view.py:155). This is the persistent home that survives a refresh (mirrors the `_layer_overrides` pattern).
+  - In `BoardView.layer_state()` (board_view.py:511), after building the `LayerState`, set `state.pin_names_reveal_cid = self._pin_names_reveal_cid` before returning (simplest — no factory signature change). `HoverReveal` reads/sets `view._pin_names_reveal_cid`, NOT the transient `LayerState`.
+  - So `HoverReveal`'s 2B branch does `self._view._pin_names_reveal_cid = cid; self._view.refresh()`; its `clear()` does `self._view._pin_names_reveal_cid = None; self._view.refresh()` (only refreshing if it was set). Update the `HoverReveal` code from Step 3 to read/write `view._pin_names_reveal_cid` instead of `layers.pin_names_reveal_cid`, and read visibility via `view.layer_overrides.labels` / `.pin_names` (the `LayerOverrides` at board_view.py:533 property).
+
+**(b) Construct + subscribe in `BoardView.__init__`.** After `self.composer = SceneComposer(self)` (board_view.py:187): `self._hover_reveal = HoverReveal(self)`. Then connect: `self.hover_published.connect(self._on_hover_published)` where `_on_hover_published(ev)` computes the viewport-pixel cursor and calls `self._hover_reveal.on_hover(ev, view_pos)`.
+
+**(c) Cursor viewport pixels.** `HoverEvent.point` is SCENE coords. Map it: `vp = self.viewport_port.map_scene_to_view(ev.point)` (viewport.py:48; returns a `Point`), then `view_pos = (int(vp.x), int(vp.y))`.
+
+**(d) Clear on leave.** `BoardView.leaveEvent` exists at board_view.py:877 (currently only resets the cursor). Add `self._hover_reveal.clear()` before/after the existing body.
+
+**(e) Refresh + instance lookup + visibility** (used inside `HoverReveal`): `self._view.refresh()` (board_view.py:568); `self._view.session.instances.get(cid)` → `.refdes`/`.value`; `self._view.layer_overrides.labels` / `.pin_names` are `LayerVisibility` enum values (compare `== LayerVisibility.HIDDEN`).
+
+> Implementer: the tooltip widget from Task 9 is `HoverTooltip(parent)` — construct it as `HoverTooltip(self._view.viewport())` inside `HoverReveal.__init__`.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
