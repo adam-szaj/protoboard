@@ -471,7 +471,9 @@ def test_alpha_multiplies_ink(qtbot) -> None:
         angle_deg=0.0, avail_len=4.0, avail_w=2.0, alpha=0.5, z=5.0,
     )
     assert item is not None
-    assert item.brush().color().alphaF() == 0.5
+    # QColor stores alpha as a 16-bit integer channel, so setAlphaF(0.5) does
+    # NOT round-trip to exactly 0.5 (~0.50000763). Assert with a tight approx.
+    assert item.brush().color().alphaF() == pytest.approx(0.5, abs=1e-4)
 
 
 def test_empty_text_is_none(qtbot) -> None:
