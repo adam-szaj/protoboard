@@ -216,3 +216,43 @@ class TestBodyFollowsPinsOnFlip:
             _library, name, variant, 0, "bottom")
         assert body_c.x == pytest.approx(pin_c.x, abs=0.6)
         assert body_c.y == pytest.approx(pin_c.y, abs=0.6)
+
+
+class TestBodyPlacementFallbackIsIdentityRotation:
+    """Without a real ``ComponentPlacement`` (a bare ``draw`` in tests /
+    previews), ``_body_placement`` translates to pin 1 but applies NO
+    rotation — ``positions`` in that path IS the package-local pin cloud
+    (there is no placement to project it through), and every local-frame
+    geometry builder (``Prism.bbox()``, ``Cylinder.bbox()``, the radial
+    silhouette anchor) already self-orients from that same local pin cloud
+    (see their docstrings: "along the pin axis is the DOMINANT axis of the
+    pin cloud in the local frame" — a DIP's row runs local +y, a TO-92's
+    local +x, and both bboxes come out axis-aligned without any extra
+    rotation).  Rotating the fallback by the pin1->pin2 heading would
+    therefore double-apply orientation for a +y row (e.g. a DIP) even though
+    it happens to look right for a +x row (e.g. an axial cylinder) — this
+    guards BOTH headings stay at 0°, matching translate-only production
+    behaviour at rotation=0/top (``placement_transform`` there has an
+    identity linear part)."""
+
+    def test_fallback_angle_is_zero_for_x_and_y_pin_rows(
+        self, qtbot: QtBot, _library: object,
+    ) -> None:
+        import math
+
+        lib, fams = _library  # type: ignore[misc]
+        defn = lib.get("1N4001")
+        shape = body_shape_for(defn, package_families=fams)
+        assert shape._placement is None  # type: ignore[attr-defined]
+
+        t_x = shape._body_placement(  # type: ignore[attr-defined]
+            [Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)]
+        )
+        angle_x = math.degrees(math.atan2(t_x.m12(), t_x.m11()))
+        assert angle_x == pytest.approx(0.0, abs=1.0)
+
+        t_y = shape._body_placement(  # type: ignore[attr-defined]
+            [Point(0.0, 0.0), Point(0.0, 1.0)]
+        )
+        angle_y = math.degrees(math.atan2(t_y.m12(), t_y.m11()))
+        assert angle_y == pytest.approx(0.0, abs=1.0)

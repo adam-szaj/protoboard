@@ -656,8 +656,14 @@ class PackageRenderer(BodyShape):
         With a placement, this is the canonical ``placement_transform`` — the
         exact pipeline the pins go through, so the body follows the pins on both
         sides (the bottom-side reflection included).  Without one (a bare
-        ``draw`` in tests / previews), reconstruct the top-side placement from
-        the pin heading: translate to pin 1, rotate by the pin1→pin2 heading.
+        ``draw`` in tests / previews), ``positions`` IS the package-local pin
+        cloud (there is no placement to project it through), and every
+        local-frame geometry builder (``Prism.bbox()``, ``Cylinder.bbox()``,
+        the radial silhouette anchor) already self-orients from that same
+        local pin cloud — so the fallback only translates to pin 1; it must
+        NOT also rotate by the pin1→pin2 heading, or packages whose local pin
+        row runs along +y (a DIP) get double-rotated relative to their
+        already-oriented bbox.
         """
         if self._placement is not None:
             from protoboard.domain.components.package.adapter import (
@@ -668,12 +674,8 @@ class PackageRenderer(BodyShape):
                 placement_transform(PackageFootprint(self._pkg), self._placement)
             )
         p1 = positions[0]
-        dx = positions[1].x - p1.x if len(positions) > 1 else 0.0
-        dy = positions[1].y - p1.y if len(positions) > 1 else 0.0
-        angle_deg = -math.degrees(math.atan2(dx, dy)) if (dx or dy) else 0.0
         place = QTransform()
         place.translate(p1.x, p1.y)
-        place.rotate(angle_deg)
         return place
 
     # ------------------------------------------------------------------
