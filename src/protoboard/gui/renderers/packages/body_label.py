@@ -6,15 +6,15 @@ through the body's local→world transform, so it inherits the body's rotation
 and flip and stays fixed relative to the body geometry — not the pin row
 (this matters for bendable pins).  The glyphs are kept readable: a mirrored
 (flipped) body is compensated so text never reads backwards, and an
-upside-down world orientation is flipped upright.  Size is either a fixed
-point size (generic bodies) or geometric scale-to-fit (the SMD chip).
+upside-down world orientation is flipped upright.  Size is geometric
+scale-to-fit, optionally bounded by a maximum rendered height.
 """
 
 from __future__ import annotations
 
 import math
 
-from PySide6.QtGui import QBrush, QColor, QFont, QTransform
+from PySide6.QtGui import QBrush, QColor, QTransform
 from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
 from protoboard.geometry import Point
@@ -27,32 +27,25 @@ def make_body_label(
     local_center: Point,
     local_angle_deg: float,
     *,
-    point_size: float | None = None,
-    avail_len: float | None = None,
-    avail_w: float | None = None,
+    avail_len: float,
+    avail_w: float,
+    max_height: float | None = None,
     alpha: float,
     z: float,
 ) -> QGraphicsSimpleTextItem | None:
     """A body-frame-pinned, readable value label, or ``None``."""
-    if not text:
+    if not text or avail_len <= 0.0 or avail_w <= 0.0:
         return None
     label = QGraphicsSimpleTextItem(text)
     pen_ink = QColor(ink)
     pen_ink.setAlphaF(pen_ink.alphaF() * alpha)
     label.setBrush(QBrush(pen_ink))
-    if point_size is not None:
-        font = QFont()
-        font.setPointSizeF(point_size)
-        label.setFont(font)
     br = label.boundingRect()
     if br.width() < 1e-9 or br.height() < 1e-9:
         return None
-    if point_size is None:
-        if avail_len is None or avail_w is None or avail_len <= 0.0 or avail_w <= 0.0:
-            return None
-        scale = min(avail_len / br.width(), avail_w / br.height())
-    else:
-        scale = 1.0
+    scale = min(avail_len / br.width(), avail_w / br.height())
+    if max_height is not None:
+        scale = min(scale, max_height / br.height())
 
     mirrored = body_transform.determinant() < 0.0
 

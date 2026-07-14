@@ -68,13 +68,18 @@ def test_empty_value_prints_nothing(qtbot, library, families) -> None:
     assert _texts(items) == []
 
 
-def test_generic_label_uses_fixed_font(qtbot, library, families) -> None:
+def test_generic_label_scaled_to_fit(qtbot, library, families) -> None:
     items = _draw(library, families, "2N2222")
     labels = [it for it in items if isinstance(it, QGraphicsSimpleTextItem)]
     assert labels
-    assert labels[0].font().pointSizeF() == pytest.approx(
-        DEFAULT_THEME.body_print_font_size
-    )
+    label = labels[0]
+    # The label's transform may include a pin-row rotation, so scene-space
+    # width/height mix local axes; recover the uniform scale factor instead
+    # (the transform is rotation + mirror + uniform scale, so det = ±scale^2)
+    # and check it against the local (pre-scale) glyph height.
+    scale = math.sqrt(abs(label.transform().determinant()))
+    rendered_height = label.boundingRect().height() * scale
+    assert rendered_height <= DEFAULT_THEME.body_print_max_height + 1e-6
 
 
 def _draw_rotated(library, families, rotation: int):

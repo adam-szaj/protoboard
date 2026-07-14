@@ -93,11 +93,12 @@ class Theme:
     refdes_color: str = "#FF1C71D8"
     refdes_font_size: float = 0.55
     overlay_font_size: float = 15.0
-    #: Fixed size (raster units, in-scene) for the value/part-number text
-    #: printed on a generic component body (TO92/TO220/DIP/…). The SMD chip
-    #: keeps its own scale-to-fit code label. Calibrated on a TO92 part
-    #: number (2N2222 / 2N3904) — legible and tidy.
-    body_print_font_size: float = 4.0
+    #: Maximum rendered height (raster units, in-scene) for the
+    #: value/part-number text printed on a generic component body
+    #: (TO92/TO220/DIP/…). The text scales to fit the body, clamped to this
+    #: cap so short strings on big bodies don't balloon. The SMD chip keeps
+    #: its own uncapped scale-to-fit code label.
+    body_print_max_height: float = 1.0
     label_bg_color: str = "#B0FFFFFF"
 
     # Alpha of the second (mid) blit of the board pixmap in the layered

@@ -546,9 +546,10 @@ class PackageRenderer(BodyShape):
 
         Pinned to the body's local frame via ``_body_placement`` so it
         inherits the body's rotation and flip and stays fixed relative to the
-        body geometry (not the pin row — matters for bendable pins).  A fixed
-        font size (``theme.body_print_font_size``); the SMD chip keeps its own
-        scale-to-fit code label.
+        body geometry (not the pin row — matters for bendable pins).
+        Scale-to-fit within the body's bbox, capped at
+        ``theme.body_print_max_height``; the SMD chip keeps its own
+        uncapped scale-to-fit code label.
         """
         if self._instance is None:
             return None
@@ -566,7 +567,9 @@ class PackageRenderer(BodyShape):
             self._body_placement(positions),
             box.center,
             self._pin_row_angle_deg(),
-            point_size=self.paint.theme.body_print_font_size,
+            avail_len=box.width * 0.9,
+            avail_w=box.height * 0.75,
+            max_height=self.paint.theme.body_print_max_height,
             alpha=self.paint.alpha,
             z=self.paint.z + 3 * BodyCanvas.Z_STEP,
         )

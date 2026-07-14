@@ -127,6 +127,7 @@ class SmdChipRenderer(PrismRenderer):
             0.0,
             avail_len=body_len * 0.9 - 2.0 * cap,
             avail_w=body_w * 0.75,
+            max_height=None,
             alpha=self.paint.alpha,
             z=self.paint.z + 2 * BodyCanvas.Z_STEP,
         )
