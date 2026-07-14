@@ -12,8 +12,7 @@ guess) — rendering never blocks on an unknown kind.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QBrush, QTransform
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
+from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
@@ -21,19 +20,18 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.package.shapes import (
     lead_axis_extents_or_none,
 )
+from protoboard.domain.components.value_text import body_print_text
 from protoboard.geometry import Point
 from protoboard.gui.renderers.packages.base import register_renderer
-from protoboard.gui.renderers.packages.canvas import (
-    BodyCanvas,
-    qcolor_from_css,
-)
+from protoboard.gui.renderers.packages.body_label import make_body_label
+from protoboard.gui.renderers.packages.canvas import BodyCanvas
 from protoboard.gui.renderers.packages.prism import PrismRenderer
 from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
     SilSilhouette,
     dip_silhouette,
 )
-from protoboard.gui.renderers.value_codes import parse_value, smd_code
+from protoboard.gui.renderers.text_contrast import best_ink
 
 
 @register_renderer(kind=("dip_ic", "wdip_ic"))
@@ -70,9 +68,6 @@ class SmdChipRenderer(PrismRenderer):
     #: Light metallic band colour (high contrast on the dark chip body).
     CAP_COLOR = "#c8ccd2"
 
-    #: Printed-code ink — the light silkscreen marking of a real chip.
-    CODE_COLOR = "#e8e8e8"
-
     def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
         items = super().render_body(positions)
         pkg = self._pkg
@@ -103,21 +98,6 @@ class SmdChipRenderer(PrismRenderer):
             items.append(label)
         return items
 
-    def _smd_code_text(self) -> str | None:
-        """The digit code printed on this chip, or ``None`` (no marking).
-
-        Decoded from the placed part's ``instance.value``: the resistance
-        code for a resistor (``22k`` → ``223``), the µH inductance code for
-        an inductor.  No instance, another class, or a value that does not
-        parse → no marking.
-        """
-        if self._instance is None:
-            return None
-        value = parse_value(self._component_class, self._instance.value)
-        if value is None:
-            return None
-        return smd_code(value)
-
     def _code_label(
         self,
         p1: Point,
@@ -127,31 +107,22 @@ class SmdChipRenderer(PrismRenderer):
         cap: float,
     ) -> QGraphicsItem | None:
         """The printed value code, scaled into the body between the caps."""
-        code = self._smd_code_text()
-        avail_len = body_len * 0.9 - 2.0 * cap
-        if not code or avail_len <= 0:
+        if self._instance is None:
             return None
-        label = QGraphicsSimpleTextItem(code)
-        ink = qcolor_from_css(self.CODE_COLOR)
-        ink.setAlphaF(ink.alphaF() * self.paint.alpha)
-        label.setBrush(QBrush(ink))
-        br = label.boundingRect()
-        if br.width() < 1e-9 or br.height() < 1e-9:
+        text = body_print_text(self._component_class, self._instance.value)
+        if text is None:
             return None
-        scale = min(avail_len / br.width(), body_w * 0.75 / br.height())
-        # Along the pad axis, flipped upright when the axis points leftwards —
-        # a chip code prints along the body and should never read upside-down.
-        angle = (p2 - p1).angle_deg()
-        if not -90.0 < angle <= 90.0:
-            angle += 180.0 if angle <= 0 else -180.0
-        t = QTransform()
-        t.translate((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
-        t.rotate(angle)
-        t.scale(scale, scale)
-        t.translate(-br.width() / 2.0, -br.height() / 2.0)
-        label.setTransform(t)
-        label.setZValue(self.paint.z + 2 * BodyCanvas.Z_STEP)
-        return label
+        center = Point((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
+        return make_body_label(
+            text,
+            best_ink(self.paint.fill),
+            center,
+            (p2 - p1).angle_deg(),
+            body_len * 0.9 - 2.0 * cap,
+            body_w * 0.75,
+            alpha=self.paint.alpha,
+            z=self.paint.z + 2 * BodyCanvas.Z_STEP,
+        )
 
 
 @register_renderer(kind=("dip_switch", "pin_header", "jst"))
