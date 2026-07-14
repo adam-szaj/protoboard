@@ -315,3 +315,17 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
     interactive routing / rotate. `gui/tools/` is legacy; the endpoint is
     relocating the tools behind the controller with only a thin Qt input adapter
     in `gui/`. See memory `project_tools_belong_to_controller`.
+
+## Body-printed value / hover-reveal follow-ups (2026-07-14)
+
+- Capacitor colour-code: dropped as YAGNI; revisit only on real need.
+- Future `short-spec` / `short-description` instance field: the hover-label
+  tooltip (2A) should show that instead of bare `refdes value` once it exists.
+- Yellow ink (`#ffd400`) in `LIGHT_INKS`: drop if it fires too eagerly on
+  mid-dark bodies (one-line change in `text_contrast.py`).
+- `value_codes.py` is pure but lives under `gui/renderers/`; `value_text.py`
+  (domain) imports it. Consider relocating `value_codes` to `domain/`.
+- The value-label opt-out (`_maybe_value_label` → `None` in `SmdChipRenderer`
+  / `DinColorBandRenderer`) is by-convention, not a structural guard — a
+  future value-drawing renderer could double-label with no error. Consider a
+  `ClassVar` flag (e.g. `draws_own_value = True`) if this recurs.

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### feat: body-printed value + hover-reveal (2026-07-14)
+
+* **Body-printed value.** Every component body now prints its value:
+  `domain/components/value_text.py::body_print_text` codes
+  resistor/inductor/capacitor values (`22k` → `"223"`; capacitance via a new
+  `parse_capacitance` pF parser feeding the same EIA 3-digit code) and prints
+  every other class's raw `value` (e.g. a part number). `best_ink`
+  (`gui/renderers/text_contrast.py`) picks a WCAG-contrasting ink from the
+  body's luminance; `make_body_label` (`gui/renderers/packages/body_label.py`)
+  scales and centres the text, generalised from the SMD chip's between-caps
+  label. Wired through `PackageRenderer._maybe_value_label`, called from
+  `draw()` for every body renderer; `SmdChipRenderer` and
+  `DinColorBandRenderer` opt out (they already show the value their own way).
+* **Hover-reveal.** With the `labels` layer hidden, hovering a component for
+  ~1 s shows a cursor-anchored tooltip (`gui/hover_tooltip.py`) with
+  `refdes value`. With `pin_names` hidden, hovering + holding **Alt** for
+  ~1 s instead reveals that one component's pin names, via
+  `LayerState.pin_names_reveal_cid` and `alpha_for_pin_names(side, cid=)`.
+  Both driven by `gui/hover_reveal.py::HoverReveal`, a dwell timer on
+  `BoardView.hover_published`; clears on hover change, Alt press/release, or
+  leaving the component/view.
+
 ### MVC phase 2 — headless edit-CLI acceptance, step 7 (2026-07-11)
 
 * **`tools/edit_cli.py` + `services/editing/cli.py` (`CliDriver`)** — a headless

@@ -246,6 +246,30 @@ Ten layers are toggled by the View → Layers panel with keys `1`–`0` (`9` =
 pin-pads, `0` = pin-modifiers). Full Z anchors and toggle map: see
 [rendering.md](rendering.md) §1.
 
+## Hover-reveal
+
+When a label-carrying layer is hidden, hovering a component briefly reveals
+it without permanently toggling the layer back on. Driven by `HoverReveal`
+(`gui/hover_reveal.py`), which subscribes to `BoardView.hover_published` and
+arms a ~1 s dwell timer (`TimerWrap(1000, restart_on_arm=True)`) on the
+hovered component:
+
+- **`labels` hidden → dwell tooltip.** After the dwell, a small
+  cursor-anchored tooltip (`HoverTooltip`, `gui/hover_tooltip.py`) shows
+  `refdes value` (just `refdes` if the value is unset) at the pointer.
+- **`pin_names` hidden + Alt held → per-component pin-name reveal.** After
+  the dwell, that one component's pin names render as if the layer were on
+  for it alone — `LayerState.pin_names_reveal_cid` is set to the hovered
+  component id (persisted on `BoardView._pin_names_reveal_cid`, threaded onto
+  the fresh `LayerState` each `layer_state()` call) and
+  `alpha_for_pin_names(side, cid=)` special-cases that one id back to full
+  alpha.
+
+Either reveal clears on a hovered-component change, an Alt press/release, a
+move to bare canvas, or the mouse leaving the view — so nothing lingers past
+the gesture that triggered it. See [rendering.md](rendering.md) §1.2 for the
+Layers panel and the `pin_names` / `labels` toggle keys.
+
 ## Zoom and pan
 
 - Zoom-to-cursor: `ScrollBarAlwaysOn` + 50 % `sceneRect` margin + scrollbar

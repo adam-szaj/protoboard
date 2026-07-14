@@ -395,6 +395,52 @@ instance winning over definition: `Appearance.resolve(instance.appearance,
 defn.appearance)` (`body_shapes.py:1153`). Geometry / mask / DRC / routing are
 unaffected.
 
+### 4.5 Body-printed value
+
+Every `PackageRenderer.draw()` prints the instance's value on the body after
+`render_body()`, through `_maybe_value_label(positions)`
+(`packages/base.py`) — one shared code path so a new renderer gets the label
+for free:
+
+```
+draw():
+  items = render_body(positions)
+  label = _maybe_value_label(positions)   # None → nothing appended
+  if label is not None: items.append(label)
+```
+
+- **What text** — `body_print_text(component_class, value)`
+  (`domain/components/value_text.py`, pure, Qt-free). Resistors, inductors and
+  capacitors print a **coded** marking (`parse_value` + `smd_code`, e.g.
+  `22k` → `"223"`); capacitance goes through a new pF parser
+  (`parse_capacitance`) into the same EIA 3-digit code. Every other class
+  prints the **raw** `value` string — the part number for a concrete part
+  like `BC547`. A coded class whose value doesn't parse still falls back to
+  the raw string rather than printing nothing. An unset value (`""` or `"?"`)
+  prints nothing.
+- **What ink** — `best_ink(body_color)` (`gui/renderers/text_contrast.py`).
+  WCAG relative luminance of the resolved body fill picks a **palette**
+  first (luminance > 0.5 → `DARK_INKS` {black, graphite, navy}, else
+  `LIGHT_INKS` {white, light-grey, yellow}), then the highest WCAG contrast
+  ratio picks the **ink** within that palette. The two-stage rule is
+  correctness-by-construction: a dark body can never receive a dark ink
+  regardless of the contrast arithmetic.
+- **How it's laid out** — `make_body_label(text, ink, center, angle_deg,
+  avail_len, avail_w, alpha=, z=)` (`gui/renderers/packages/body_label.py`)
+  generalises the SMD chip's between-caps label: a `QGraphicsSimpleTextItem`
+  scaled to fit the available box, centred on the body, rotated to the pad
+  axis and flipped upright so it never reads upside-down. `None` if the text
+  is empty or the box has no area. `_maybe_value_label` feeds it the body
+  bbox centre/angle from the same `_body_placement` transform every other
+  body element uses, at 90% of body length × 75% of body width, one `BodyCanvas.Z_STEP`
+  triple above the base `z`.
+- **Opt-outs** — a renderer that already shows the value some other way
+  overrides `_maybe_value_label` to return `None`: `SmdChipRenderer` (the
+  between-caps code label) and `DinColorBandRenderer`
+  (`library/renderers/resistor_bands.py`, colour bands). This is a
+  by-convention override, not a structural guard — see `docs/todo.md` for the
+  follow-up if a future value-drawing renderer forgets it.
+
 ---
 
 ## 5. Pin-pads, wires, and highlights
