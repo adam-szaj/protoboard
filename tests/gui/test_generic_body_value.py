@@ -102,6 +102,47 @@ def _draw_rotated(library, families, rotation: int):
     return shape.draw(positions, _RED, _DARK, 1.0, _Z, DEFAULT_THEME)
 
 
+def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> None:
+    """A DIP's pin row runs along local +y (the long axis), so the
+    along-text fit budget passed to ``make_body_label`` must track the long
+    (along) extent from ``lead_axis_extents`` — NOT the axis-aligned
+    ``box.width`` (the short extent for a DIP). Regression test for the
+    transposed avail_len/avail_w bug."""
+    from protoboard.domain.components.package.shapes import lead_axis_extents
+    import protoboard.gui.renderers.packages.base as base_mod
+
+    defn = library.get("NE555")
+    assert defn is not None
+    inst = ComponentInstance(
+        id=uuid.uuid4(), definition_ref="NE555", refdes="U1", value="NE555",
+    ).bind(defn, families)
+    fp = resolved_footprint(defn, inst, families)
+    along, across = lead_axis_extents(fp.package)
+    assert along > across  # sanity: DIP-8 is long along the pin-row axis
+
+    captured: dict[str, float] = {}
+    original = base_mod.make_body_label
+
+    def spy(*args, **kwargs):
+        captured["avail_len"] = kwargs["avail_len"]
+        captured["avail_w"] = kwargs["avail_w"]
+        return original(*args, **kwargs)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(base_mod, "make_body_label", spy)
+    try:
+        shape = body_shape_for(defn, instance=inst, package_families=families)
+        pin_count = fp.pin_count()
+        positions = [Point(float(n), 0.0) for n in range(pin_count)]
+        shape.draw(positions, _RED, _DARK, 1.0, _Z, DEFAULT_THEME)
+    finally:
+        monkeypatch.undo()
+
+    assert captured, "make_body_label was not called"
+    assert captured["avail_len"] == pytest.approx(along * 0.9)
+    assert captured["avail_w"] == pytest.approx(across * 0.75)
+
+
 def test_generic_label_rotates_with_body(qtbot, library, families) -> None:
     items0 = _draw_rotated(library, families, 0)
     items90 = _draw_rotated(library, families, 90)

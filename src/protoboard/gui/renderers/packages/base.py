@@ -561,14 +561,20 @@ class PackageRenderer(BodyShape):
             return None
         if box.width <= 0.0 or box.height <= 0.0:
             return None
+        from protoboard.domain.components.package.shapes import (
+            lead_axis_extents,
+        )
+        along, across = lead_axis_extents(self._pkg)
+        if along <= 0.0 or across <= 0.0:
+            return None
         return make_body_label(
             text,
             best_ink(self.paint.fill),
             self._body_placement(positions),
             box.center,
             self._pin_row_angle_deg(),
-            avail_len=box.width * 0.9,
-            avail_w=box.height * 0.75,
+            avail_len=along * 0.9,
+            avail_w=across * 0.75,
             max_height=self.paint.theme.body_print_max_height,
             alpha=self.paint.alpha,
             z=self.paint.z + 3 * BodyCanvas.Z_STEP,
