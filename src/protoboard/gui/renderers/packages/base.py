@@ -33,7 +33,7 @@ from dataclasses import replace
 from typing import ClassVar, TypeVar
 
 import structlog
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -63,8 +63,10 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
+from protoboard.domain.components.value_text import body_print_text
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point, Transform2D
+from protoboard.gui.renderers.packages.body_label import make_body_label
 from protoboard.gui.renderers.packages.canvas import (
     BodyCanvas,
     PaintState,
@@ -75,6 +77,7 @@ from protoboard.gui.renderers.packages.canvas import (
 from protoboard.gui.qt_geometry import to_qtransform
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.gui.renderers.text_contrast import best_ink
 from protoboard.services.debug_trace import traced
 
 __all__ = [
@@ -508,7 +511,11 @@ class PackageRenderer(BodyShape):
         self._paint = PaintState(
             fill=fill, border=border, alpha=alpha, z=z, theme=theme,
         )
-        return self.render_body(positions)
+        items = self.render_body(positions)
+        label = self._maybe_value_label(positions)
+        if label is not None:
+            items.append(label)
+        return items
 
     @traced()
     def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
@@ -531,6 +538,39 @@ class PackageRenderer(BodyShape):
         if radial is not None:
             return radial
         return self._draw_bbox(positions)
+
+    def _maybe_value_label(
+        self, positions: list[Point],
+    ) -> QGraphicsItem | None:
+        """The component value printed on the body, or ``None``.
+
+        Text from :func:`body_print_text`, ink from :func:`best_ink` on the
+        resolved body fill, scaled into the package bbox.  Any missing dims →
+        ``None`` (never blocks the body drawing).
+        """
+        if self._instance is None:
+            return None
+        text = body_print_text(self._component_class, self._instance.value)
+        if text is None:
+            return None
+        box = bbox_or_none(self._pkg)
+        if box is None:
+            return None
+        body_len = box.width
+        body_w = box.height
+        if body_len <= 0.0 or body_w <= 0.0:
+            return None
+        local_center = box.center
+        placement = self._body_placement(positions)
+        world_pt = placement.map(QPointF(local_center.x, local_center.y))
+        center = Point(world_pt.x(), world_pt.y())
+        angle = math.degrees(math.atan2(placement.m12(), placement.m11()))
+        return make_body_label(
+            text, best_ink(self.paint.fill), center, angle,
+            body_len * 0.9, body_w * 0.75,
+            alpha=self.paint.alpha,
+            z=self.paint.z + 3 * BodyCanvas.Z_STEP,
+        )
 
     def _maybe_radial(
         self,

@@ -98,6 +98,9 @@ class SmdChipRenderer(PrismRenderer):
             items.append(label)
         return items
 
+    def _maybe_value_label(self, positions: list[Point]) -> QGraphicsItem | None:
+        return None  # the between-caps _code_label handles this body
+
     def _code_label(
         self,
         p1: Point,

@@ -190,3 +190,6 @@ class DinColorBandRenderer(CylinderRenderer):
                            fill=tolerance, pen_width=0.0, z_offset=0.01)
         items.extend(canvas.items)
         return items
+
+    def _maybe_value_label(self, positions: list[Point]) -> QGraphicsItem | None:
+        return None  # the value is already shown as colour bands
