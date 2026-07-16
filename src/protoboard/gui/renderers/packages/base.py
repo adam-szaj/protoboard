@@ -573,7 +573,7 @@ class PackageRenderer(BodyShape):
             self._body_placement(positions),
             box.center,
             self._pin_row_angle_deg(),
-            avail_len=along * 0.9,
+            avail_len=along * 0.8,
             avail_w=across * 0.75,
             max_height=self.paint.theme.body_print_max_height,
             alpha=self.paint.alpha,

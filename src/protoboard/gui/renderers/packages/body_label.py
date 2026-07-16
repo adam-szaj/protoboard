@@ -54,11 +54,6 @@ def make_body_label(
     t.rotate(local_angle_deg)
     if mirrored:
         t.scale(-1.0, 1.0)  # counter the reflection so glyphs read forwards
-    # Upright: if the accumulated world rotation would read upside-down,
-    # add a half turn (position unaffected; glyphs turn right-way-up).
-    world_angle = math.degrees(math.atan2(t.m12(), t.m11()))
-    if not -90.0 < world_angle <= 90.0:
-        t.rotate(180.0)
     if scale != 1.0:
         t.scale(scale, scale)
     t.translate(-br.width() / 2.0, -br.height() / 2.0)

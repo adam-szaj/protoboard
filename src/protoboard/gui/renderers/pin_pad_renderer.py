@@ -212,9 +212,9 @@ def render_pin_pads(
                 # colour keeps the modifier visually consistent with the
                 # plain pad hole around it.
                 carve_color = QColor(bg)
-                carve_color.setAlphaF(_alpha)
+                carve_color.setAlphaF(_alpha*0.3)
                 outline_color = QColor(theme.pad_outline_color)
-                outline_color.setAlphaF(_alpha)
+                outline_color.setAlphaF(_alpha*0.3)
                 carved = QGraphicsPathItem(carve)
                 carved.setBrush(QBrush(carve_color))
                 carved.setPen(QPen(outline_color, theme.pad_outline_width))

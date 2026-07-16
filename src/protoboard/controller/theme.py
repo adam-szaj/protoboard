@@ -98,7 +98,7 @@ class Theme:
     #: (TO92/TO220/DIP/…). The text scales to fit the body, clamped to this
     #: cap so short strings on big bodies don't balloon. The SMD chip keeps
     #: its own uncapped scale-to-fit code label.
-    body_print_max_height: float = 1.0
+    body_print_max_height: float = 0.5
     label_bg_color: str = "#B0FFFFFF"
 
     # Alpha of the second (mid) blit of the board pixmap in the layered
