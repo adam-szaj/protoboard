@@ -46,6 +46,7 @@ from protoboard.gui.layer_state import (
     Z_PIN_PADS,
 )
 from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.services.debug_trace import traced
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +240,7 @@ def render_pin_pads(
     return out
 
 
+@traced()
 def render_pin_modifiers(
     scene: QGraphicsScene,
     classifications: list[PinPadInfo],

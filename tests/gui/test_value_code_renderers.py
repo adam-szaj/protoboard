@@ -65,8 +65,12 @@ def _draw(library, families, defname: str, value: str, *,
         package_variant=variant, tolerance=tolerance,
     ).bind(defn, families)
     shape = body_shape_for(defn, instance=inst, package_families=families)
-    return shape.draw([Point(*p) for p in pads], _RED, _DARK, 1.0, _Z,
-                      DEFAULT_THEME)
+    # draw() now returns (body_items, label_items); these tests inspect all
+    # drawn items together, so flatten the two Z bands back into one list.
+    body_items, label_items = shape.draw(
+        [Point(*p) for p in pads], _RED, _DARK, 1.0, _Z, DEFAULT_THEME,
+    )
+    return body_items + label_items
 
 
 def _fills(items) -> list[str]:

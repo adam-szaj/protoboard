@@ -320,9 +320,9 @@ class TestTO220Plugin:
         fill = QColor("#888888")
         border = QColor("#222222")
 
-        base_items = PrismRenderer(to220_package).draw(
+        base_items, _ = PrismRenderer(to220_package).draw(
             pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
-        plugin_items = PackageBody(to220_package).draw(
+        plugin_items, _ = PackageBody(to220_package).draw(
             pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
         # Lineage dispatch picks the plugin, which adds exactly one item —
         # the light metal tab strip on top of the plastic body.
@@ -346,14 +346,14 @@ class TestTO220Plugin:
         fill = QColor("#888888")
         border = QColor("#222222")
 
-        base_items = PrismRenderer(to220_package).draw(
+        base_items, _ = PrismRenderer(to220_package).draw(
             pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
         body = max(
             base_items,
             key=lambda it: (it.sceneBoundingRect().width()
                             * it.sceneBoundingRect().height()),
         ).sceneBoundingRect()
-        plugin_items = PackageBody(to220_package).draw(
+        plugin_items, _ = PackageBody(to220_package).draw(
             pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
         tab = plugin_items[-1].sceneBoundingRect()
 

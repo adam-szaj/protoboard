@@ -191,5 +191,5 @@ class DinColorBandRenderer(CylinderRenderer):
         items.extend(canvas.items)
         return items
 
-    def _maybe_value_label(self, positions: list[Point]) -> QGraphicsItem | None:
-        return None  # the value is already shown as colour bands
+    def _maybe_value_label(self, positions: list[Point]) -> list[QGraphicsItem]:
+        return []  # the value is already shown as colour bands

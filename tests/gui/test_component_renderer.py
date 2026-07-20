@@ -548,8 +548,10 @@ class TestGhostHonoursPackageVariant:
             shape = body_shape_for(defn, pl, inst,
                                    package_families=theme.package_families)
             g = QGraphicsItemGroup()
-            for it in shape.draw(positions, QColor("red"), QColor("black"),
-                                 1.0, 0.0, theme):
+            body_items, label_items = shape.draw(
+                positions, QColor("red"), QColor("black"), 1.0, 0.0, theme,
+            )
+            for it in body_items + label_items:
                 g.addToGroup(it)
             return g.boundingRect()
 

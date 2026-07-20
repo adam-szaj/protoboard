@@ -50,8 +50,11 @@ def _draw(library, families, value: str):
         id=uuid.uuid4(), definition_ref="BC547", refdes="Q1", value=value,
     ).bind(defn, families)
     shape = body_shape_for(defn, instance=inst, package_families=families)
-    return shape.draw([Point(*p) for p in _TO92_PADS], _RED, _DARK, 1.0, _Z,
-                      DEFAULT_THEME)
+    # draw() returns (body_items, label_items); flatten for item inspection.
+    body_items, label_items = shape.draw(
+        [Point(*p) for p in _TO92_PADS], _RED, _DARK, 1.0, _Z, DEFAULT_THEME,
+    )
+    return body_items + label_items
 
 
 def _texts(items) -> list[str]:
@@ -99,7 +102,10 @@ def _draw_rotated(library, families, rotation: int):
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
     ]
     shape = body_shape_for(defn, placement, inst, package_families=families)
-    return shape.draw(positions, _RED, _DARK, 1.0, _Z, DEFAULT_THEME)
+    body_items, label_items = shape.draw(
+        positions, _RED, _DARK, 1.0, _Z, DEFAULT_THEME,
+    )
+    return body_items + label_items
 
 
 def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> None:
@@ -158,3 +164,4 @@ def test_generic_label_rotates_with_body(qtbot, library, families) -> None:
     # may add a half turn to keep glyphs readable).
     delta = (angle90 - angle0) % 180.0
     assert delta == pytest.approx(90.0, abs=1.0)
+

@@ -12,14 +12,15 @@ scale-to-fit, optionally bounded by a maximum rendered height.
 
 from __future__ import annotations
 
-import math
-
 from PySide6.QtGui import QBrush, QColor, QTransform
-from PySide6.QtWidgets import QGraphicsSimpleTextItem
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
 from protoboard.geometry import Point
+from protoboard.gui.layer_state import Z_PIN_MODIFIERS
+from protoboard.services.debug_trace import traced
 
 
+@traced()
 def make_body_label(
     text: str,
     ink: QColor,
@@ -32,17 +33,27 @@ def make_body_label(
     max_height: float | None = None,
     alpha: float,
     z: float,
-) -> QGraphicsSimpleTextItem | None:
-    """A body-frame-pinned, readable value label, or ``None``."""
+) -> list[QGraphicsItem]:
+    """A body-frame-pinned, readable value label as ``[full_alpha, half_alpha]``.
+
+    Returns two copies of the text (full-alpha, then 50%-alpha) so the caller
+    can route them to different Z bands, or an empty list when there is nothing
+    to draw.
+    """
     if not text or avail_len <= 0.0 or avail_w <= 0.0:
-        return None
-    label = QGraphicsSimpleTextItem(text)
-    pen_ink = QColor(ink)
-    pen_ink.setAlphaF(pen_ink.alphaF() * alpha)
-    label.setBrush(QBrush(pen_ink))
-    br = label.boundingRect()
+        return []
+
+    label = [QGraphicsSimpleTextItem(text), QGraphicsSimpleTextItem(text)]
+
+    for _label, coeff in zip(label, [1.0, 0.5]):
+        pen_ink = QColor(ink)
+        pen_ink.setAlphaF(pen_ink.alphaF() * alpha*coeff)
+        _label.setBrush(QBrush(pen_ink))
+
+    br = label[0].boundingRect()
+
     if br.width() < 1e-9 or br.height() < 1e-9:
-        return None
+        return []
     scale = min(avail_len / br.width(), avail_w / br.height())
     if max_height is not None:
         scale = min(scale, max_height / br.height())
@@ -57,6 +68,12 @@ def make_body_label(
     if scale != 1.0:
         t.scale(scale, scale)
     t.translate(-br.width() / 2.0, -br.height() / 2.0)
-    label.setTransform(t)
-    label.setZValue(z)
-    return label
+
+    for _label in label:
+        _label.setTransform(t)
+
+    label[0].setZValue(z)
+    label[1].setZValue(Z_PIN_MODIFIERS+0.9)
+
+    out: list[QGraphicsItem] = list(label)
+    return out

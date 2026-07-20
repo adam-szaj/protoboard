@@ -101,7 +101,10 @@ def _body_and_pins(
     ]
     shape = body_shape_for(defn, pl, inst, package_families=fams)
     group = QGraphicsItemGroup()
-    for item in shape.draw(positions, _RED, _DARK, 1.0, 0.0, DEFAULT_THEME):
+    body_items, label_items = shape.draw(
+        positions, _RED, _DARK, 1.0, 0.0, DEFAULT_THEME,
+    )
+    for item in body_items + label_items:
         group.addToGroup(item)
     r = group.boundingRect()
     body_centre = Point(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0)

@@ -94,13 +94,11 @@ class SmdChipRenderer(PrismRenderer):
                        (body_len / 2.0, body_w / 2.0), z=cap_z)
         items.extend(canvas.items)
 
-        label = self._code_label(p1, p2, body_len, body_w, cap)
-        if label is not None:
-            items.append(label)
+        items.extend(self._code_label(p1, p2, body_len, body_w, cap))
         return items
 
-    def _maybe_value_label(self, positions: list[Point]) -> QGraphicsItem | None:
-        return None  # the between-caps _code_label handles this body
+    def _maybe_value_label(self, positions: list[Point]) -> list[QGraphicsItem]:
+        return []  # the between-caps _code_label handles this body
 
     def _code_label(
         self,
@@ -109,16 +107,18 @@ class SmdChipRenderer(PrismRenderer):
         body_len: float,
         body_w: float,
         cap: float,
-    ) -> QGraphicsItem | None:
+    ) -> list[QGraphicsItem]:
         """The printed value code, scaled into the body between the caps."""
         if self._instance is None:
-            return None
+            return []
         text = body_print_text(self._component_class, self._instance.value)
         if text is None:
-            return None
+            return []
         axis = QTransform()
         axis.translate((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
         axis.rotate((p2 - p1).angle_deg())
+        # The chip code label stays a single body-band item (no faded copy
+        # over the modifiers): take only the full-alpha copy from the pair.
         return make_body_label(
             text,
             best_ink(self.paint.fill),
@@ -130,7 +130,7 @@ class SmdChipRenderer(PrismRenderer):
             max_height=None,
             alpha=self.paint.alpha,
             z=self.paint.z + 2 * BodyCanvas.Z_STEP,
-        )
+        )[:1]
 
 
 @register_renderer(kind=("dip_switch", "pin_header", "jst"))

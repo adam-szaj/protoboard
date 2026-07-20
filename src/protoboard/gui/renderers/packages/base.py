@@ -142,8 +142,13 @@ class BodyShape(ABC):
         alpha: float,
         z: float,
         theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        """Return scene items (not yet added to scene)."""
+    ) -> tuple[list[QGraphicsItem], list[QGraphicsItem]]:
+        """Return ``(body_items, label_items)`` (not yet added to scene).
+
+        Body items go in the component group (under the pin-modifier glyphs);
+        label items go in the label group (above them).  A shape with no value
+        label returns an empty label list.
+        """
 
     def drawn_pin_numbers(
         self,
@@ -184,9 +189,9 @@ class GenericBody(BodyShape):
         alpha: float,
         z: float,
         theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
+    ) -> tuple[list[QGraphicsItem], list[QGraphicsItem]]:
         if not positions:
-            return []
+            return [], []
         override = self._appearance.color
         if override is not None:
             override_fill = qcolor_from_css(override)
@@ -210,12 +215,12 @@ class GenericBody(BodyShape):
             path_item.setBrush(QBrush(fill))
             path_item.setPen(_body_pen(border, alpha))
             path_item.setZValue(z)
-            return [path_item]
+            return [path_item], []
         rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
         rect.setBrush(QBrush(fill))
         rect.setPen(_body_pen(border, alpha))
         rect.setZValue(z)
-        return [rect]
+        return [rect], []
 
 
 # ---------------------------------------------------------------------------
@@ -504,18 +509,28 @@ class PackageRenderer(BodyShape):
         alpha: float,
         z: float,
         theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
+    ) -> tuple[list[QGraphicsItem], list[QGraphicsItem]]:
+        """Body silhouette items and label items, split into two Z bands.
+
+        Returns ``(body_items, label_items)``.  The body items go into the
+        component group (``z_comp`` band, below the pin-modifier glyphs); the
+        label items go into the separate label group (``Z_LABELS_TOP``, above
+        the modifiers) so the value text stays legible where a modifier covers
+        the body.  The full-alpha value copy is a body item; the 50%-alpha
+        copy is a label item (see ``_maybe_value_label`` / ``make_body_label``).
+        """
         if not positions:
-            return []
+            return [], []
         fill, border = self._resolve_colors(fill, border)
         self._paint = PaintState(
             fill=fill, border=border, alpha=alpha, z=z, theme=theme,
         )
-        items = self.render_body(positions)
-        label = self._maybe_value_label(positions)
-        if label is not None:
-            items.append(label)
-        return items
+        body = self.render_body(positions)
+        labels = self._maybe_value_label(positions)
+        if labels:
+            body.append(labels[0])   # full-alpha copy — body band, under modifiers
+            return body, labels[1:]  # 50% copy — label band, over modifiers
+        return body, []
 
     @traced()
     def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
@@ -541,8 +556,13 @@ class PackageRenderer(BodyShape):
 
     def _maybe_value_label(
         self, positions: list[Point],
-    ) -> QGraphicsItem | None:
-        """The component value printed on the body, or ``None``.
+    ) -> list[QGraphicsItem]:
+        """The component value printed on the body (empty when none).
+
+        Returns a list of two copies — full-alpha and 50%-alpha — so ``draw``
+        can route the full copy to the body Z band and the faded copy to the
+        label band above the pin modifiers.  Empty list when there is no value
+        to print.
 
         Pinned to the body's local frame via ``_body_placement`` so it
         inherits the body's rotation and flip and stays fixed relative to the
@@ -552,21 +572,21 @@ class PackageRenderer(BodyShape):
         uncapped scale-to-fit code label.
         """
         if self._instance is None:
-            return None
+            return []
         text = body_print_text(self._component_class, self._instance.value)
         if text is None:
-            return None
+            return []
         box = bbox_or_none(self._pkg)
         if box is None:
-            return None
+            return []
         if box.width <= 0.0 or box.height <= 0.0:
-            return None
+            return []
         from protoboard.domain.components.package.shapes import (
             lead_axis_extents,
         )
         along, across = lead_axis_extents(self._pkg)
         if along <= 0.0 or across <= 0.0:
-            return None
+            return []
         return make_body_label(
             text,
             best_ink(self.paint.fill),
@@ -803,7 +823,8 @@ class PackageRenderer(BodyShape):
             # the radius override still applies (fill/border are already
             # resolved by draw()).
             paint = self.paint
-            generic: list[QGraphicsItem] = GenericBody(self._appearance).draw(
+            # GenericBody carries no value label — take the body channel only.
+            generic, _labels = GenericBody(self._appearance).draw(
                 positions, paint.fill, paint.border, paint.alpha, paint.z,
                 paint.theme,
             )

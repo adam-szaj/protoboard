@@ -75,6 +75,12 @@ _DARK = QColor(30, 30, 30)
 _Z = 5.0
 
 
+def _flat(result: tuple[list, list]) -> list:
+    """Combine a ``draw() → (body_items, label_items)`` result into one flat
+    list, so tests that inspect drawn geometry see every item as before."""
+    return result[0] + result[1]
+
+
 def _pts(*coords: tuple[float, float]) -> list[Point]:
     return [Point(x, y) for x, y in coords]
 
@@ -311,16 +317,17 @@ def _bbox_prism_package(color: str = "#d6c08c",
 class TestGenericBody:
 
     def test_empty_positions_returns_no_items(self, qtbot: QtBot) -> None:
-        items = GenericBody().draw([], _RED, _DARK, 1.0, _Z)
+        items = _flat(GenericBody().draw([], _RED, _DARK, 1.0, _Z))
         assert items == []
 
     def test_single_position_returns_rect(self, qtbot: QtBot) -> None:
-        items = GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z))
         assert len(items) == 1
         assert isinstance(items[0], QGraphicsRectItem)
 
     def test_two_pins_horizontal(self, qtbot: QtBot) -> None:
-        items = GenericBody().draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(
+            GenericBody().draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
         assert len(items) == 1
         rect = items[0]
         assert isinstance(rect, QGraphicsRectItem)
@@ -328,31 +335,31 @@ class TestGenericBody:
         assert bbox.width() >= 2.0
 
     def test_z_value_is_set(self, qtbot: QtBot) -> None:
-        items = GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z))
         assert items[0].zValue() == pytest.approx(_Z)
 
     def test_appearance_color_override(self, qtbot: QtBot) -> None:
         # The bare-bbox fallback honours the style override like PackageBody:
         # the declared colour replaces the caller-supplied fill.
         from protoboard.domain.components.appearance import Appearance
-        items = GenericBody(Appearance(color="#123456")).draw(
-            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        items = _flat(GenericBody(Appearance(color="#123456")).draw(
+            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z))
         body = items[0]
         assert isinstance(body, QGraphicsRectItem)
         assert body.brush().color().name() == "#123456"
 
     def test_appearance_corner_radius_rounds_bbox(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
-        items = GenericBody(Appearance(corner_radius_mm=(1.0,))).draw(
-            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        items = _flat(GenericBody(Appearance(corner_radius_mm=(1.0,))).draw(
+            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z))
         body = items[0]
         assert isinstance(body, QGraphicsPathItem)
         assert _path_is_rounded(body)
 
     def test_no_override_keeps_plain_rect(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
-        items = GenericBody(Appearance()).draw(
-            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        items = _flat(GenericBody(Appearance()).draw(
+            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z))
         assert isinstance(items[0], QGraphicsRectItem)
 
 
@@ -395,8 +402,8 @@ def _radial_cylinder_package(
 def _radial_body(pkg: object) -> QGraphicsItem:
     """The single body item (ellipse or D-shape path) for a non-polar radial
     cylinder — leads aside, the first non-line item is the body."""
-    items = PackageBody(pkg).draw(  # type: ignore[arg-type]
-        _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z)
+    items = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
+        _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z))
     bodies = [it for it in items if not isinstance(it, QGraphicsLineItem)]
     assert len(bodies) == 1
     return bodies[0]
@@ -436,10 +443,10 @@ class TestFlatSidedCylinderRender:
         # a different world direction (the D-shape follows the part's rotation).
         pkg = _radial_cylinder_package(flat_radius=1.175,
                                        flat_normal=[-1.0, 0.0])
-        items_v = PackageBody(pkg).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z)
-        items_h = PackageBody(pkg).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items_v = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z))
+        items_h = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         body_v = next(it for it in items_v
                       if isinstance(it, QGraphicsPathItem))
         body_h = next(it for it in items_h
@@ -527,8 +534,8 @@ class TestParametricDIPBody:
                           DipSilhouette)  # type: ignore[arg-type]
 
     def test_produces_items_for_dip8(self, qtbot: QtBot) -> None:
-        items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z)
+        items = _flat(PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z))
         assert len(items) >= 1
         # The body is a path (the notched silhouette), not a plain rect.
         assert any(isinstance(it, QGraphicsPathItem) for it in items)
@@ -540,8 +547,8 @@ class TestParametricDIPBody:
         # row midpoint x=1.5.  A point in that carved zone is OUTSIDE the body;
         # the interior and the un-notched part of the top edge stay filled.
         from PySide6.QtCore import QPointF
-        items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z)
+        items = _flat(PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z))
         body = max(
             (it for it in items if isinstance(it, QGraphicsPathItem)),
             key=lambda it: it.sceneBoundingRect().width(),
@@ -555,8 +562,8 @@ class TestParametricDIPBody:
     def test_too_few_pins_falls_back(self, qtbot: QtBot) -> None:
         # A single position can't form a body → the bbox fallback (a rect or
         # generic rectangle), never a crash.
-        items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
-            _pts((0, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+            _pts((0, 0)), _RED, _DARK, 1.0, _Z))
         assert items
         assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
 
@@ -616,10 +623,10 @@ class TestDeclaredKindSilhouette:
         # the dip_ic silhouette carries extra elements for the pin-1 notch.
         sw = _kind_pkg("dip_switch", 8)
         ic = _kind_pkg("dip_ic", 8)
-        sw_body = _largest_path(PackageBody(sw).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z))
-        ic_body = _largest_path(PackageBody(ic).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z))
+        sw_body = _largest_path(_flat(PackageBody(sw).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z)))
+        ic_body = _largest_path(_flat(PackageBody(ic).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z)))
         # The plain bbox rectangle is a simple 5-element closed rect; the notched
         # DIP silhouette has strictly more path elements (the notch geometry).
         assert sw_body.path().elementCount() <= 6
@@ -899,14 +906,14 @@ class TestAppearanceOverride:
             pkg,
             appearance=Appearance(color="#d9c7a3"))  # type: ignore[arg-type]
         pts = _pts((0, 0), (1, 0))
-        assert self._body_brush(black.draw(pts, _RED, _DARK, 1.0,
-                                           _Z)).name() == "#1a1a1a"
-        assert self._body_brush(beige.draw(pts, _RED, _DARK, 1.0,
-                                           _Z)).name() == "#d9c7a3"
+        assert self._body_brush(_flat(black.draw(pts, _RED, _DARK, 1.0,
+                                                 _Z))).name() == "#1a1a1a"
+        assert self._body_brush(_flat(beige.draw(pts, _RED, _DARK, 1.0,
+                                                 _Z))).name() == "#d9c7a3"
         # No override → the package color shows through.
         plain = PackageBody(pkg)  # type: ignore[arg-type]
-        assert self._body_brush(plain.draw(pts, _RED, _DARK, 1.0,
-                                           _Z)).name() == "#cdd2d6"
+        assert self._body_brush(_flat(plain.draw(pts, _RED, _DARK, 1.0,
+                                                 _Z))).name() == "#cdd2d6"
 
     def test_color_alpha_channel_flows_to_brush(self, qtbot: QtBot) -> None:
         # CSS #rrggbbaa (alpha last): the declared alpha lands on the body
@@ -918,18 +925,18 @@ class TestAppearanceOverride:
             pkg,
             appearance=Appearance(color="#1a1a1a80"))  # type: ignore[arg-type]
         pts = _pts((0, 0), (1, 0))
-        brush = self._body_brush(body.draw(pts, _RED, _DARK, 1.0, _Z))
+        brush = self._body_brush(_flat(body.draw(pts, _RED, _DARK, 1.0, _Z)))
         assert brush.name() == "#1a1a1a"
         assert brush.alphaF() == pytest.approx(0x80 / 255, abs=0.01)
-        dimmed = self._body_brush(body.draw(pts, _RED, _DARK, 0.5, _Z))
+        dimmed = self._body_brush(_flat(body.draw(pts, _RED, _DARK, 0.5, _Z)))
         assert dimmed.alphaF() == pytest.approx(0.5 * 0x80 / 255, abs=0.01)
 
     def test_package_color_alpha_channel(self, qtbot: QtBot) -> None:
         # The package-level ``color:`` uses the same CSS convention.
         pkg = _colored_prism("#cdd2d680")
         brush = self._body_brush(
-            PackageBody(pkg).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+            _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)))
         assert brush.name() == "#cdd2d6"
         assert brush.alphaF() == pytest.approx(0x80 / 255, abs=0.01)
 
@@ -940,7 +947,7 @@ class TestAppearanceOverride:
             component_class=ComponentClass.IC,
             appearance=Appearance(color="#3050a0"),
         )
-        items = body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)
+        items = _flat(body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))
         assert self._body_brush(items).name() == "#3050a0"
 
     def test_corner_radius_zero_is_square_gt0_is_rounded(self,
@@ -958,8 +965,8 @@ class TestAppearanceOverride:
             prism,
             appearance=Appearance(corner_radius_mm=(0.5, )))
         pts = _bbox_prism_positions()
-        s_body = _largest_path(sharp.draw(pts, _RED, _DARK, 1.0, _Z))
-        r_body = _largest_path(rounded.draw(pts, _RED, _DARK, 1.0, _Z))
+        s_body = _largest_path(_flat(sharp.draw(pts, _RED, _DARK, 1.0, _Z)))
+        r_body = _largest_path(_flat(rounded.draw(pts, _RED, _DARK, 1.0, _Z)))
         assert not _path_is_rounded(s_body)
         assert _path_is_rounded(r_body)
 
@@ -979,7 +986,8 @@ class TestAppearanceOverride:
             prism,
             appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)))
         path = _largest_path(
-            body.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)).path()
+            _flat(body.draw(_bbox_prism_positions(), _RED, _DARK, 1.0,
+                            _Z))).path()
         box = prism.bbox()
         x0, y0 = box.x, box.y
         x1, y1 = box.x + box.width, box.y + box.height
@@ -1000,7 +1008,7 @@ class TestAppearanceOverride:
             component_class=ComponentClass.IC,
             appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)))
         path = _largest_path(
-            body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)).path()
+            _flat(body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))).path()
         box = prism.bbox()
         x0, y0 = box.x, box.y
         x1, y1 = box.x + box.width, box.y + box.height
@@ -1020,7 +1028,7 @@ class TestDevboardBody:
         body_dev = PackageBody(  # type: ignore[arg-type]
             _dip8_prism(),
             component_class=ComponentClass.DEVBOARD)
-        items = body_dev.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)
+        items = _flat(body_dev.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))
         body = max(
             (it for it in items
              if isinstance(it, (QGraphicsRectItem, QGraphicsPathItem))),
@@ -1037,10 +1045,10 @@ class TestDevboardBody:
         # Control: the very same prism rendered as an IC keeps the DIP notch, so
         # the gate is class-driven (devboard), not a change to the silhouette.
         from PySide6.QtCore import QPointF
-        items = PackageBody(  # type: ignore[arg-type]
+        items = _flat(PackageBody(  # type: ignore[arg-type]
             _dip8_prism(),
             component_class=ComponentClass.IC).draw(_dip8_positions(), _RED,
-                                                    _DARK, 1.0, _Z)
+                                                    _DARK, 1.0, _Z))
         body = max(
             (it for it in items if isinstance(it, QGraphicsPathItem)),
             key=lambda it: it.sceneBoundingRect().width(),
@@ -1063,10 +1071,10 @@ class TestDevboardBody:
         # of the body; the body itself is one item, so rings == pin count.
         from PySide6.QtWidgets import QGraphicsEllipseItem
         positions = _dip8_positions()
-        items = PackageBody(  # type: ignore[arg-type]
+        items = _flat(PackageBody(  # type: ignore[arg-type]
             _dip8_prism(),
             component_class=ComponentClass.DEVBOARD).draw(
-                positions, _RED, _DARK, 1.0, _Z)
+                positions, _RED, _DARK, 1.0, _Z))
         rings = [it for it in items if isinstance(it, QGraphicsEllipseItem)]
         assert len(rings) == len(positions)
 
@@ -1395,7 +1403,7 @@ class TestPackageBodyDraw:
     def test_cylinder_draws_body_and_leads(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
         # Pads spaced wider than the body → leads appear.
-        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         assert any(isinstance(it, QGraphicsPathItem) for it in items)
         assert any(isinstance(it, QGraphicsLineItem) for it in items)
 
@@ -1407,7 +1415,7 @@ class TestPackageBodyDraw:
         # path (sharp corner), not carved away.
         shape = PackageBody(
             _cylinder_package(edge_radius=0.0))  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
         # Local body rect is (-len/2,-w/2, len, w) = (-1.26,-0.5, 2.52, 1.0).
         # Its corner (-1.26, -0.5) belongs to a sharp rectangle.
@@ -1420,7 +1428,7 @@ class TestPackageBodyDraw:
         # away (outside the rounded path).
         shape = PackageBody(
             _cylinder_package(edge_radius=1.25))  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
         from PySide6.QtCore import QPointF
         assert not body.path().contains(QPointF(-1.26 + 0.02, -0.5 + 0.02))
@@ -1431,7 +1439,7 @@ class TestPackageBodyDraw:
         # as the radial top-view (a near-circular disc body + a lead stub to the
         # second pad), NOT a side-view capsule spanning the gap. (Previously this
         # drew a full-length horizontal capsule even on adjacent pads.)
-        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         # A round body (ellipse, or a path for a D-shaped/polar body).
         assert any(isinstance(it, (QGraphicsEllipseItem, QGraphicsPathItem))
                    for it in items)
@@ -1449,7 +1457,7 @@ class TestPackageBodyDraw:
 
     def test_cylinder_coincident_pins_falls_back(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (0, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (0, 0)), _RED, _DARK, 1.0, _Z))
         assert items  # degenerate spacing → bbox rectangle, not a crash
 
     def test_prism_draws_dip_silhouette(self, qtbot: QtBot) -> None:
@@ -1457,19 +1465,19 @@ class TestPackageBodyDraw:
         shape = PackageBody(_prism_package())  # type: ignore[arg-type]
         pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i)
                                                    for i in range(4)]))
-        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(pts, _RED, _DARK, 1.0, _Z))
         assert all(isinstance(it, QGraphicsPathItem) for it in items)
         assert len(items) == 2  # body + pin-1 marker
 
     def test_empty_positions_returns_no_items(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
-        assert shape.draw([], _RED, _DARK, 1.0, _Z) == []
+        assert _flat(shape.draw([], _RED, _DARK, 1.0, _Z)) == []
 
     def test_z_value_is_set(self, qtbot: QtBot) -> None:
         shape = PackageBody(_prism_package())  # type: ignore[arg-type]
         pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i)
                                                    for i in range(4)]))
-        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(pts, _RED, _DARK, 1.0, _Z))
         assert items[0].zValue() == _Z
 
 
@@ -1482,9 +1490,9 @@ class TestSmdChipBody:
             _smd_chip_package()) is None  # type: ignore[arg-type]
 
     def test_single_body_no_marker_no_leads(self, qtbot: QtBot) -> None:
-        items = PackageBody(
+        items = _flat(PackageBody(
             _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         # One body path; no pin-1 marker and no lead lines (a chip has neither).
         assert len(items) == 1
         assert isinstance(items[0], QGraphicsPathItem)
@@ -1493,9 +1501,9 @@ class TestSmdChipBody:
     def test_body_centred_on_pad_midpoint(self, qtbot: QtBot) -> None:
         # Pads at (0,0)-(2,0): the chip body is centred at the midpoint (1,0),
         # not anchored at pin 1.
-        items = PackageBody(
+        items = _flat(PackageBody(
             _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+                _pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
         c = items[0].sceneBoundingRect().center()
         assert (round(c.x(), 2), round(c.y(), 2)) == (1.0, 0.0)
 
@@ -1524,9 +1532,9 @@ class TestSmdChipBody:
     def test_plain_two_pin_prism_keeps_single_body(self, qtbot: QtBot) -> None:
         # Without the ``prism_smd`` lineage the base renderer draws exactly
         # the historical single chip rectangle — no caps (parity guard).
-        items = PackageBody(
+        items = _flat(PackageBody(
             _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         assert len(items) == 1
 
     def test_dimless_two_pin_prism_degrades_to_generic(
@@ -1549,8 +1557,8 @@ class TestSmdChipBody:
             },
             "DIMLESS_CHIP",
         )
-        items = PackageBody(pkg).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         assert items  # generic bbox body, not a ValueError
         # The prism_smd caps overlay must survive the same degenerate package.
         import dataclasses
@@ -1567,9 +1575,9 @@ class TestSmdChipBody:
         # The body covers the midpoint but leaves the terminals (pad centres)
         # outside, so the metallised pads stay visible at each end.
         from PySide6.QtCore import QPointF
-        items = PackageBody(
+        items = _flat(PackageBody(
             _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         body = items[0]
         assert isinstance(body, QGraphicsPathItem)
         place = body.sceneTransform()
@@ -1583,9 +1591,9 @@ class TestSmdChipBody:
     def test_diagonal_placement_aligns_to_pad_axis(self, qtbot: QtBot) -> None:
         # Diagonally-adjacent pads → the body rotates to the 45° pad axis and
         # still centres on the midpoint.
-        items = PackageBody(
+        items = _flat(PackageBody(
             _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 1)), _RED, _DARK, 1.0, _Z)
+                _pts((0, 0), (1, 1)), _RED, _DARK, 1.0, _Z))
         c = items[0].sceneBoundingRect().center()
         assert (round(c.x(), 2), round(c.y(), 2)) == (0.5, 0.5)
 
@@ -1609,7 +1617,7 @@ class TestPackageBodyColor:
     def test_cylinder_uses_package_color(self, qtbot: QtBot) -> None:
         shape = PackageBody(
             _colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
         assert body.brush().color().name(
         ) == "#d6c08c"  # type: ignore[attr-defined]
@@ -1619,15 +1627,15 @@ class TestPackageBodyColor:
             _colored_prism_package("#abcdef"))  # type: ignore[arg-type]
         pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i)
                                                    for i in range(4)]))
-        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(pts, _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
         assert body.brush().color().name(
         ) == "#abcdef"  # type: ignore[attr-defined]
 
     def test_no_color_falls_back_to_caller_fill(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (4, 0)), QColor("#404858"), _DARK, 1.0,
-                           _Z)
+        items = _flat(shape.draw(_pts((0, 0), (4, 0)), QColor("#404858"), _DARK,
+                                 1.0, _Z))
         body = self._body_item(items)
         assert body.brush().color().name(
         ) == "#404858"  # type: ignore[attr-defined]
@@ -1635,7 +1643,7 @@ class TestPackageBodyColor:
     def test_border_is_darker_than_fill(self, qtbot: QtBot) -> None:
         shape = PackageBody(
             _colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
         fill = body.brush().color()  # type: ignore[attr-defined]
         pen = body.pen().color()  # type: ignore[attr-defined]
@@ -1648,7 +1656,8 @@ class TestPackageBodyColor:
         # vs rounded is a path-geometry distinction, not a Rect-vs-Path type one.)
         shape = PackageBody(
             _bbox_prism_package(edge="sharp"))  # type: ignore[arg-type]
-        items = shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)
+        items = _flat(
+            shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
         assert isinstance(body, QGraphicsPathItem)
         assert not _path_is_rounded(body)
@@ -1656,7 +1665,8 @@ class TestPackageBodyColor:
     def test_rounded_edge_rounds_prism_corners(self, qtbot: QtBot) -> None:
         shape = PackageBody(
             _bbox_prism_package(edge="rounded"))  # type: ignore[arg-type]
-        items = shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)
+        items = _flat(
+            shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
         assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
@@ -1746,16 +1756,18 @@ class TestPackageBodyParity:
         plain = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]
         d_paths = sum(
             isinstance(it, QGraphicsPathItem)
-            for it in diode.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
+            for it in _flat(diode.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0,
+                                       _Z)))
         p_paths = sum(
             isinstance(it, QGraphicsPathItem)
-            for it in plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
+            for it in _flat(plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0,
+                                       _Z)))
         assert d_paths == p_paths + 1
 
     @staticmethod
     def _upright_body(shape: PackageBody, p1: tuple[float, float],
                       p2: tuple[float, float]) -> QGraphicsItem:
-        items = shape.draw(_pts(p1, p2), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts(p1, p2), _RED, _DARK, 1.0, _Z))
         return max(
             (it for it in items if isinstance(
                 it, (QGraphicsPathItem, QGraphicsEllipseItem))),
@@ -1818,7 +1830,7 @@ class TestPackageBodyParity:
         pkg = _axial_cyl_package(edge_radius=1.25)  # D=2.5 → r = D/2
         assert isinstance(pkg, Cylinder)
         shape = PackageBody(pkg, component_class=ComponentClass.DIODE)
-        items = shape.draw(_pts((0, 0), (8, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (8, 0)), _RED, _DARK, 1.0, _Z))
         body, stripe = [
             it for it in items if isinstance(it, QGraphicsPathItem)
         ][0], [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
@@ -1836,7 +1848,7 @@ class TestPackageBodyParity:
 
     def test_radial_emits_disc_and_lead(self, qtbot: QtBot) -> None:
         shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
         assert any(isinstance(it, QGraphicsLineItem) for it in items)
 
@@ -1844,7 +1856,7 @@ class TestPackageBodyParity:
         # The radial disc sits at the geometric midpoint of the pads, not on
         # the anchor pad.
         shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         disc = next(it for it in items if isinstance(it, QGraphicsEllipseItem))
         c = disc.rect().center()
         assert (round(c.x(), 3), round(c.y(), 3)) == (0.5, 0.0)
@@ -1857,7 +1869,7 @@ class TestPackageBodyParity:
             _radial_cyl_package(),  # type: ignore[arg-type]
             component_class=ComponentClass.CAPACITOR_POLAR,
         )
-        items = shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
         seg = next(it for it in items if isinstance(it, QGraphicsPathItem))
         assert seg.sceneBoundingRect().center().x() > 1.0
 
@@ -1872,7 +1884,7 @@ class TestPackageBodyParity:
             component_class=ComponentClass.CAPACITOR_POLAR,
             vertical_flipped=True,
         )
-        items = shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
         seg = next(it for it in items if isinstance(it, QGraphicsPathItem))
         assert seg.sceneBoundingRect().center().x() > 1.0
 
@@ -1881,7 +1893,7 @@ class TestPackageBodyParity:
             _radial_cyl_package(),  # type: ignore[arg-type]
             component_class=ComponentClass.OTHER,
         )
-        items = shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
         assert not any(isinstance(it, QGraphicsPathItem) for it in items)
         assert sum(isinstance(it, QGraphicsEllipseItem) for it in items) == 1
 
@@ -1914,7 +1926,7 @@ class TestPackageBodyParity:
         # A disc mounts on its edge → a thin side lens (path), not the round
         # face (ellipse); thickness across, diameter along the lead axis.
         shape = PackageBody(self._disc("candy"))  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         lens = next(it for it in items if isinstance(it, QGraphicsPathItem))
         assert not any(isinstance(it, QGraphicsEllipseItem) for it in items)
         br = lens.path().boundingRect()
@@ -1925,11 +1937,11 @@ class TestPackageBodyParity:
     def test_disc_candy_has_sharp_tips_flat_is_rounded(self,
                                                        qtbot: QtBot) -> None:
         from PySide6.QtCore import QPointF
-        candy = PackageBody(
+        candy = _flat(PackageBody(
             self._disc("candy")).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        flat = PackageBody(self._disc("flat")).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+        flat = _flat(PackageBody(self._disc("flat")).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         candy_path = next(it for it in candy
                           if isinstance(it, QGraphicsPathItem)).path()
         flat_path = next(it for it in flat
@@ -1943,7 +1955,7 @@ class TestPackageBodyParity:
 
     def test_radial_prism_centred_between_pads(self, qtbot: QtBot) -> None:
         shape = PackageBody(_radial_prism_package())  # type: ignore[arg-type]
-        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        items = _flat(shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         body = next(it for it in items if isinstance(it, QGraphicsPathItem))
         c = body.sceneBoundingRect().center()
         assert (round(c.x(), 3), round(c.y(), 3)) == (0.5, 0.0)
@@ -1972,7 +1984,7 @@ class TestPackageBodyParity:
 
 
 class TestBodyShapeContract:
-    """Every concrete shape must honour BodyShape.draw → list[QGraphicsItem]."""
+    """Every shape must honour BodyShape.draw → (body_items, label_items)."""
 
     @pytest.mark.parametrize("shape_factory,positions", [
         (lambda: GenericBody(), _pts((0, 0), (2, 0))),
@@ -1989,9 +2001,11 @@ class TestBodyShapeContract:
         shape_factory,
         positions: list[Point],
     ) -> None:
-        items = shape_factory().draw(positions, _RED, _DARK, 1.0, _Z)
-        assert isinstance(items, list)
-        for item in items:
+        body_items, label_items = shape_factory().draw(
+            positions, _RED, _DARK, 1.0, _Z)
+        assert isinstance(body_items, list)
+        assert isinstance(label_items, list)
+        for item in body_items + label_items:
             assert isinstance(item, QGraphicsItem)
 
     @pytest.mark.parametrize("shape_factory,positions", [
@@ -2004,8 +2018,10 @@ class TestBodyShapeContract:
         shape_factory,
         positions: list[Point],
     ) -> None:
-        items = shape_factory().draw(positions, _RED, _DARK, 0.0, _Z)
-        assert isinstance(items, list)
+        body_items, label_items = shape_factory().draw(
+            positions, _RED, _DARK, 0.0, _Z)
+        assert isinstance(body_items, list)
+        assert isinstance(label_items, list)
 
     @pytest.mark.parametrize("shape_factory,positions", [
         (lambda: GenericBody(), _pts((0, 0), (2, 0))),

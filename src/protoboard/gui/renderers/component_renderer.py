@@ -522,8 +522,16 @@ def _render_one(
         defn, placement, inst,
         package_families=theme.package_families,
     )
-    for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
+    body_items, label_items = shape.draw(
+        positions, comp_fill, comp_border, alpha, z_comp, theme
+    )
+    for item in body_items:
         grp.addToGroup(item)
+    # Value-label 50% copy rides the label group (Z_LABELS_TOP), above the
+    # pin-modifier glyphs, so the text stays legible where a modifier covers it.
+    for item in label_items:
+        label_grp.addToGroup(item)
+        _label_count += 1
     skip_pins = shape.drawn_pin_numbers(positions, theme)
 
     # Per-pin colouring: the board layer renders each pad in its net
@@ -724,7 +732,12 @@ def make_ghost_item(
         defn, placement, ghost_inst,
         package_families=theme.package_families,
     )
-    for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
+    # Ghost preview shows only the body silhouette — the value label(s) are
+    # dropped (the label channel is irrelevant for a drag ghost).
+    body_items, _labels = shape.draw(
+        positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme
+    )
+    for item in body_items:
         # Ghost body: dashed border
         if isinstance(item, QAbstractGraphicsShapeItem):
             pen = item.pen()
