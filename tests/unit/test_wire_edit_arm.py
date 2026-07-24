@@ -239,5 +239,28 @@ def test_autoroute_returns_command_or_none() -> None:
     assert cmd is None or isinstance(cmd, (ReplaceWireFragmentsCommand, MacroCommand))
 
 
+# -- set_insulated / delete_range (WireRangeEdit) -----------------------------
+
+
+def test_arm_set_insulated_sub_range_reports_survivors():
+    wire = Wire(id=uuid.uuid4(),
+                path=[Point(0, 0), Point(1, 0), Point(2, 0), Point(3, 0), Point(4, 0)],
+                insulated=False, side="top", color=None)
+    nm = {wire.id: uuid.uuid4()}
+    state = WireRange(wire.id, 1, wire.id, 3)
+    result = WireEditArm().set_insulated([wire], nm, state, insulated=True)
+    assert result is not None and result.was_cut is True
+    assert len(result.survivor_wire_ids) == 2
+
+
+def test_arm_delete_range_full_span_no_survivors():
+    wire = Wire(id=uuid.uuid4(),
+                path=[Point(0, 0), Point(1, 0), Point(2, 0)],
+                insulated=False, side="top", color=None)
+    nm = {wire.id: uuid.uuid4()}
+    result = WireEditArm().delete_range([wire], nm, WireRange.full_span(wire))
+    assert result is not None and result.survivor_wire_ids == ()
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

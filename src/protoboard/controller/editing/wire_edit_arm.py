@@ -29,10 +29,13 @@ from typing import TYPE_CHECKING
 from protoboard.controller.selection.wire_edit import (
     AddWireFactory,
     WireEditState,
+    WireRangeEdit,
     autoroute_fragment_path,
     build_delete_command,
+    build_delete_range_edit,
     build_flip_fragment_command,
     build_reroute_command,
+    build_set_insulated_range_command,
     build_simplify_range_command,
     _default_add_factory,
 )
@@ -127,5 +130,28 @@ class WireEditArm:
     ) -> Command[ComponentState] | None:
         """Build the delete command; surviving halves go through the factory."""
         return build_delete_command(
+            wires, wire_net_map, state, self._add_factory
+        )
+
+    def set_insulated(
+        self,
+        wires: Sequence[Wire],
+        wire_net_map: dict[uuid.UUID, uuid.UUID],
+        state: WireEditState,
+        insulated: bool,
+    ) -> "WireRangeEdit | None":
+        """Build the set-insulated range edit; split pieces go through the factory."""
+        return build_set_insulated_range_command(
+            wires, wire_net_map, state, insulated, self._add_factory
+        )
+
+    def delete_range(
+        self,
+        wires: Sequence[Wire],
+        wire_net_map: dict[uuid.UUID, uuid.UUID],
+        state: WireEditState,
+    ) -> "WireRangeEdit | None":
+        """Delete as a ``WireRangeEdit`` (survivors surfaced for re-arm)."""
+        return build_delete_range_edit(
             wires, wire_net_map, state, self._add_factory
         )
