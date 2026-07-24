@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from protoboard.controller.editing import EditState
     from protoboard.controller.ports import PointerInput
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.route_preview import RoutePreview
     from protoboard.controller.editing.wire_nets import NetMergePrompt
 
@@ -185,9 +186,15 @@ class RouteTool(ControllerTool):
         return not self.has_pending_op()
 
     def commit_op(self) -> bool:
-        committable = self.can_commit()
+        decision = self._route_conflict()
+        if decision is not None and decision.is_hard:
+            self._view.notify_status(StatusEvent(
+                "route.conflict",
+                {"text": decision.description, "timeout_ms": 3000},
+            ))
+            return False  # park — stay armed, points intact, wire not added
         self._commit()  # already stays in routing
-        return committable
+        return True
 
     def cancel_op(self) -> bool:
         had = self.has_pending_op()
@@ -195,8 +202,50 @@ class RouteTool(ControllerTool):
         return had
 
     def can_commit(self) -> bool:
-        # Conflict gate added in Task 6; no geometric conflict concept yet.
-        return True
+        return self._route_conflict() is None
+
+    def _route_conflict(self) -> DragCommitDecision | None:
+        """Classify the candidate route (``self._points``) for a HARD conflict.
+
+        Scoped to endpoint/segment-on-alien-pad this round (wire-vs-wire
+        same-side crossing is deferred — see docs/todo.md). Wraps the
+        candidate points as a temp ``Wire`` (this tool's side + insulation)
+        and reuses ``find_wires_crossing_pads``'s pad/net geometry; a
+        different-net pad hit maps to a HARD ``DragCommitDecision`` driving
+        the commit park.
+        """
+        from typing import cast
+
+        from protoboard.controller.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+        from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
+        from protoboard.domain.layout.wire import Wire
+        from protoboard.types import Side
+
+        if len(self._points) < 2:
+            return None
+        candidate = Wire(
+            id=uuid.uuid4(),
+            path=list(self._points),
+            insulated=self._insulated,
+            side=cast("Side", self._side),
+        )
+        hits = find_wires_crossing_pads(
+            wires=[candidate],
+            moved_comp_ids=set(),
+            layout_placements=self._session.layout.placements,
+            instances=self._session.instances,
+            components=self._session.components,
+            schematic=self._session.schematic,
+        )
+        if not hits:
+            return None
+        return DragCommitDecision(
+            severity=DragSeverity.HARD,
+            description="Cannot route: endpoint lands on a pad of another net",
+        )
 
     def _key_toggle_insulated(self) -> bool:
         self._set_insulated(not self._insulated)

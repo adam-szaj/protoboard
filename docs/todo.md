@@ -329,3 +329,12 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
   / `DinColorBandRenderer`) is by-convention, not a structural guard — a
   future value-drawing renderer could double-label with no error. Consider a
   `ClassVar` flag (e.g. `draws_own_value = True`) if this recurs.
+
+## ArmedSubTool two-level-lifecycle follow-ups (2026-07-24)
+
+- **Wire-vs-wire same-side crossing conflict (RouteTool `can_commit`)** —
+  deferred 2026-07-24. RouteTool's commit gate currently detects only
+  endpoint/segment-on-alien-pad (via `find_wires_crossing_pads`). A general
+  wire-vs-wire same-side crossing/overlap detector does not exist and is out of
+  scope for the ArmedSubTool lifecycle round. See
+  `docs/superpowers/specs/2026-07-24-armed-subtool-two-level-lifecycle-design.md` §4.3.

@@ -358,3 +358,55 @@ class TestRouteToolExitParity:
         view.tools.handle_key_press(_escape_event())
 
         assert view.notifications.escapes == 1
+
+
+class TestRouteConflictGate:
+    """Task 6: a route whose endpoint lands on an alien-net pad refuses to
+    commit and stays armed (points intact) instead of silently wiring two
+    different nets together."""
+
+    def _routing(self, session: EditorSession) -> tuple[HeadlessBoardView, RouteTool]:
+        view = _headless(session)
+        view.tools.set_tool(RouteTool())
+        tool = view.active_tool
+        assert isinstance(tool, RouteTool)
+        return view, tool
+
+    def test_route_ending_on_alien_net_pad_refuses(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        # comp1: net-A pad pair, wired together (netted).
+        _place(view, 0.5, 0.5)
+        # comp2: pad pair left UNCONNECTED (no wire) — its pins carry no net.
+        _place(view, 2.5, 0.5)
+
+        view.tools.set_tool(RouteTool())
+        tool = view.active_tool
+        assert isinstance(tool, RouteTool)
+        tool.on_press(pointer(0.5, 0.5))
+        tool.on_press(pointer(0.5, 1.5))
+        tool._commit()  # net A now lives on comp1's two pins
+
+        # Route from comp2's (unconnected) pad to comp1's (netted) pad.
+        tool.on_press(pointer(2.5, 0.5))
+        tool.on_press(pointer(0.5, 0.5))
+
+        assert tool.can_commit() is False
+
+        added_before = len(session.layout.wires)
+        assert tool.commit_op() is False
+        assert len(session.layout.wires) == added_before  # not committed
+        assert tool.has_pending_op()  # stays armed, points intact
+        assert view.active_tool is tool
+
+    def test_clean_route_commits(self, session: EditorSession) -> None:
+        view, tool = self._routing(session)
+        tool.on_press(pointer(0.5, 0.5))
+        tool.on_press(pointer(0.5, 1.5))
+
+        assert tool.can_commit() is True
+
+        added_before = len(session.layout.wires)
+        assert tool.commit_op() is True
+        assert len(session.layout.wires) == added_before + 1
