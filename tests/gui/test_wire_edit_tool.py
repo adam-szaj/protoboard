@@ -52,6 +52,27 @@ def _detour_wire(session: EditorSession) -> Wire:
     return wire
 
 
+def _knotless_wire(session: EditorSession) -> Wire:
+    """An L-shaped wire inserted DIRECTLY into ``layout.wires`` -- so it carries
+    NO endpoint knots (``a``/``b`` are ``None``), exactly like a wire loaded
+    from a saved project / fixture that never went through ``add_wire``.  A
+    fragment op (flip / simplify) via ``replace_wire_fragments`` requires both
+    knots, so the tool must backfill them on arm."""
+    import uuid
+
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
+              Point(3.5, 2.5), Point(3.5, 3.5)],
+        insulated=True, side="top",
+    )
+    session.layout.wires[wire.id] = wire
+    session.invalidate_graph()
+    session.layout_changed.emit()
+    assert wire.a is None and wire.b is None  # the knot-less precondition
+    return wire
+
+
 def _arm(
     view: HeadlessBoardView, wire: Wire
 ) -> WireEditTool:
@@ -103,6 +124,42 @@ class TestWireEditToolStaysArmed:
 
         assert tool._wire_edit is not None
         assert view.active_tool is tool
+
+
+class TestWireEditToolKnotlessWire:
+    """Regression: a wire loaded without endpoint knots (``a``/``b`` None) must
+    still support fragment flip / simplify.  Before the fix the ops raised
+    ``ValueError: replace_wire_fragments requires a Wire with both knots`` (only
+    reroute worked, because its builder backfills knots)."""
+
+    def test_flip_on_knotless_wire_does_not_raise(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        wire = _knotless_wire(session)
+        tool = _arm(view, wire)
+
+        tool._flip_wire_fragment()  # must not raise
+
+        after = session.layout.wires.get(wire.id)
+        assert after is not None
+        assert after.side == "bottom"  # top -> bottom (opposite layer)
+        assert tool._wire_edit is not None  # stays armed
+
+    def test_simplify_on_knotless_wire_does_not_raise(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        wire = _knotless_wire(session)
+        n_before = len(session.layout.wires.get(wire.id).path)
+        tool = _arm(view, wire)
+
+        tool._simplify_wire_fragment()  # must not raise
+
+        after = session.layout.wires.get(wire.id)
+        assert after is not None
+        assert len(after.path) < n_before  # corner-cut shortened it
+        assert tool._wire_edit is not None
 
 
 # --------------------------------------------------------------------------- #

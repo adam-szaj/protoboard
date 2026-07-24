@@ -113,6 +113,19 @@ class WireEditTool(ControllerTool):
                 self._net_aware_add_factory(),
             )
         )
+        # Fragment ops (flip / simplify / sub-range delete) issue a
+        # ``replace_wire_fragments`` edit, which requires both endpoint knots.
+        # A wire loaded from a saved project / built directly into
+        # ``layout.wires`` (never through ``add_wire``) has none, so backfill
+        # them once on arm -- matching the established pattern in
+        # ``simplify_tool`` and ``replace_wire_path_cmd`` (reroute).  Idempotent:
+        # a no-op when both knots are already set.
+        state = self._wire_edit
+        if state is not None:
+            for wid in {state.start_wire_id, state.end_wire_id}:
+                wire = self._wire_by_id(wid)
+                if wire is not None:
+                    session.layout.ensure_wire_knots(wire)
         self._draw_wire_edit_overlay()
         self._status(
             "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
