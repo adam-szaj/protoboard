@@ -210,6 +210,7 @@ class WireEditTool(_WireEditTool, ViewToolMixin):
             "select-tool.action.autoroute": "A",
             "select-tool.action.flip_fragment": "F",
             "select-tool.action.simplify_fragment": "S",
+            "select-tool.action.set_insulated_fragment": "I",
             "select-tool.action.delete": None,   # global.action.delete (Del)
             "select-tool.action.cancel": None,   # global.action.cancel (Esc)
         }
@@ -220,12 +221,15 @@ class WireEditTool(_WireEditTool, ViewToolMixin):
         shortcut instead of reroute (the same veto SelectTool used to own for
         wire-edit).  Delete is claimed too so the global delete doesn't shadow
         the fragment delete."""
-        armed = lambda: self._wire_edit is not None  # noqa: E731
+        armed = lambda: (  # noqa: E731
+            self._wire_edit is not None or self._awaiting_repick
+        )
         return (
             ("select-tool.action.reroute", armed),
             ("select-tool.action.autoroute", armed),
             ("select-tool.action.flip_fragment", armed),
             ("select-tool.action.simplify_fragment", armed),
+            ("select-tool.action.set_insulated_fragment", armed),
             ("select-tool.action.delete", armed),
         )
 

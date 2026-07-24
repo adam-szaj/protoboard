@@ -156,3 +156,28 @@ def test_failed_repick_rearms_pick(
     tool._range_repicked([])
     assert tool._awaiting_repick is True
     assert tool.has_pending_op() is True  # re-armed, not stuck
+
+
+# --------------------------------------------------------------------------- #
+# Task 6: GUI keybinding [I] + claim predicate covers the re-pick wait
+# --------------------------------------------------------------------------- #
+
+
+def test_insulate_key_registered_and_claimed_during_wait(
+    wire_edit_tool_on_5pt_wire: WireEditTool,
+) -> None:
+    tool = wire_edit_tool_on_5pt_wire  # gui.tools.gui_tools.WireEditTool, armed
+    assert tool.key_actions()["select-tool.action.set_insulated_fragment"] == "I"
+    claims = dict((aid, pred) for aid, pred in tool.key_claims())
+    assert "select-tool.action.set_insulated_fragment" in claims
+    # Claimed while armed:
+    tool._wire_edit = object()
+    tool._awaiting_repick = False
+    assert claims["select-tool.action.set_insulated_fragment"]() is True
+    # Claimed while awaiting re-pick (globals must stay blocked):
+    tool._wire_edit = None
+    tool._awaiting_repick = True
+    assert claims["select-tool.action.set_insulated_fragment"]() is True
+    # Not claimed when fully idle:
+    tool._awaiting_repick = False
+    assert claims["select-tool.action.set_insulated_fragment"]() is False
