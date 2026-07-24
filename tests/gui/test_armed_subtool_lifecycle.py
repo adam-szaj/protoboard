@@ -303,13 +303,11 @@ class TestRouteToolExitParity:
         assert view.active_tool is tool  # RouteTool never exited
         assert tool._points == []
 
-    def test_esc_midroute_currently_exits(self, session: EditorSession) -> None:
-        # PARITY-FLIP(Task 3): after the host fix, first Esc clears points and
-        # STAYS routing; only a second (empty) Esc exits. TODAY the host's
-        # handle_key_press ALWAYS calls view.escape_to_select() after Esc,
-        # regardless of whether the tool consumed it -- so the first Esc
-        # mid-route already signals an exit-to-Select at the host level, even
-        # though RouteTool itself just clears its own _points.
+    def test_esc_is_two_stage(self, session: EditorSession) -> None:
+        # The host fix: first Esc mid-route cancels the pending op (points
+        # cleared) and STAYS in RouteTool -- can_exit() is False while points
+        # are pending, so the host must skip escape_to_select(). Only a
+        # second (empty) Esc, with can_exit() now True, exits to Select.
         view, tool = self._routing(session)
         tool.on_press(pointer(0.5, 0.5))
         tool.on_press(pointer(0.5, 1.5))
@@ -319,6 +317,12 @@ class TestRouteToolExitParity:
 
         # RouteTool's own on_key consumed Esc and cleared its points...
         assert tool._points == []
-        # ...but the host ALSO fired the escape-to-Select notification on
-        # this very first Esc (no two-stage today).
+        # ...and stayed active: the host must NOT have fired escape_to_select
+        # on this first Esc (can_exit() was False while a point was pending).
+        assert view.notifications.escapes == 0
+        assert view.tools.active_tool is tool
+
+        # Second Esc: nothing pending -> can_exit() is True -> host exits.
+        view.tools.handle_key_press(_escape_event())
+
         assert view.notifications.escapes == 1

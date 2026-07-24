@@ -537,9 +537,20 @@ class ToolHost:
                 event.accept()
                 return
             consumed = False
-            if self._active_tool is not None:
-                consumed = self._active_tool.on_key(inp)
-            view.escape_to_select()
+            tool = self._active_tool
+            # Two-stage Esc: evaluate can_exit() BEFORE dispatching the key —
+            # the tool's on_key cancels a pending operation (clearing the very
+            # state can_exit() reads), so checking afterwards would always see
+            # "nothing pending" and exit on every Esc. A tool with a pending op
+            # reports can_exit()=False here, so the cancel lands and the tool
+            # stays active; only once nothing is pending does the (idle)
+            # default can_exit()=True let this Esc exit — unchanged
+            # single-press exit for idle tools.
+            can_exit = tool is None or tool.can_exit()
+            if tool is not None:
+                consumed = tool.on_key(inp)
+            if can_exit:
+                view.escape_to_select()
             if consumed:
                 event.accept()
             return

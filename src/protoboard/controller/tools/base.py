@@ -90,6 +90,12 @@ class ControllerTool:
         """
         return None
 
+    def can_exit(self) -> bool:
+        """May ``[Esc]`` exit this tool now? Tools with a pending operation
+        override to return False so the first Esc cancels the op (stay active)
+        and only a later Esc exits. Default: always exitable."""
+        return True
+
     @traced()
     def on_move(self, inp: PointerInput) -> None:
         pass

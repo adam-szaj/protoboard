@@ -178,6 +178,12 @@ class RouteTool(ControllerTool):
         self._cancel()
         return True
 
+    def has_pending_op(self) -> bool:
+        return len(self._points) > 0
+
+    def can_exit(self) -> bool:
+        return not self.has_pending_op()
+
     def _key_toggle_insulated(self) -> bool:
         self._set_insulated(not self._insulated)
         return True
