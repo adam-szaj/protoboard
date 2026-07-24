@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.service import SelectionService
     from protoboard.controller.selection.hit_test import WireEditCycle
-    from protoboard.controller.selection.wire_edit import WireRange
+    from protoboard.controller.selection.wire_edit import WireRange, WireRangeEdit
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.layout.wire import Wire
@@ -91,6 +91,9 @@ class WireEditTool(ControllerTool):
         self._wire_edit_wire_id: uuid.UUID | None = wire_id
         self._wire_edit_cycle: WireEditCycle = WireEditCycle()
         self._wire_edit_start: WireVertexSelectable | None = None
+        # True while, after a sub-range cut, the tool is disarmed and waiting
+        # for the user to pick a fresh 2-vertex range (or [Esc] to leave).
+        self._awaiting_repick: bool = False
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -370,21 +373,102 @@ class WireEditTool(ControllerTool):
         self._commit_and_rearm(cmd)
 
     def _delete_fragment(self) -> None:
-        """Delete the selected fragment — ``[Del]`` (the ONE op that exits)."""
+        """Delete the selected fragment — ``[Del]``.
+
+        Full-span → whole wire gone → exit.  Sub-range → the two halves
+        survive → wait for a fresh range pick (unified with set-insulated)."""
         state = self._wire_edit
         arm = self._arm
         if state is None or arm is None:
             return
-        cmd = arm.delete(
+        edit = arm.delete_range(
             list(self._session.layout.wires), self._wire_net_map(), state
         )
-        if cmd is not None:
-            self._execute_command(cmd)
-        self._refresh_after_wire_op()
-        # The wire is gone — nothing to re-arm, so drop to plain select.
-        self._exit()
+        self._apply_range_edit(edit, "Delete: nothing to remove.")
 
     # -- commit / re-arm / exit --------------------------------------------
+
+    def _apply_range_edit(
+        self, edit: WireRangeEdit | None, empty_msg: str
+    ) -> None:
+        """Execute a range edit and choose the post-op behavior.
+
+        No edit (refused / no-op) → status hint, stay as-is.  Not a cut
+        (full-span, id-preserving) → re-arm on the same wire.  A cut with
+        survivors → wait for a re-pick.  A cut that removed the whole wire
+        (no survivors) → exit.
+        """
+        if edit is None:
+            self._status(empty_msg)
+            self._refresh_after_wire_op()
+            return
+        self._execute_command(edit.command)
+        self._refresh_after_wire_op()
+        if not edit.was_cut:
+            self._rearm_full_span()
+        elif edit.survivor_wire_ids:
+            self._arm_repick(edit.survivor_wire_ids)
+        else:
+            self._exit()
+
+    def _arm_repick(self, survivor_wire_ids: tuple[uuid.UUID, ...]) -> None:
+        """Disarm the fragment and wait for a fresh 2-vertex range pick."""
+        from protoboard.controller.selection.hit_test import WireEditCycle
+        from protoboard.controller.selection.selectable import Stop
+
+        # Reassign the anchor to a surviving wire that still exists (the one
+        # field whose set-once-in-__init__ assumption we deliberately relax).
+        anchor = next(
+            (wid for wid in survivor_wire_ids if self._wire_by_id(wid) is not None),
+            None,
+        )
+        if anchor is None:
+            self._exit()
+            return
+        self._clear_wire_edit_overlay()
+        self._wire_edit = None
+        self._wire_edit_wire_id = anchor
+        self._wire_edit_cycle = WireEditCycle()
+        self._wire_edit_start = None
+        self._awaiting_repick = True
+        self._status(
+            "Wire cut  ·  pick two vertices to select a new range  ·  [Esc] Done",
+            0,
+        )
+        self._arm_pick(
+            "wire-vertex",
+            Stop.count(2),
+            on_done=self._range_repicked,
+        )
+
+    def _range_repicked(self, picked: list[Selectable]) -> None:
+        """Resolve two picked vertices into a new armed range (port of
+        SelectTool._range_picked): same-wire swap to start<=end, zero-length
+        abort; cross-wire kept as-is."""
+        from protoboard.controller.selection.adapters import WireVertexSelectable
+        from protoboard.controller.selection.wire_edit import WireRange
+
+        verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
+        if len(verts) < 2:
+            return  # keep waiting; caller re-arms the pick if needed
+        v0, v1 = verts[0], verts[1]
+        start_wire, start_idx = v0.wire_id, v0.index
+        end_wire, end_idx = v1.wire_id, v1.index
+        if start_wire == end_wire:
+            if start_idx == end_idx:
+                return  # zero-length, ignore
+            if end_idx < start_idx:
+                start_idx, end_idx = end_idx, start_idx
+        self._awaiting_repick = False
+        self._wire_edit = WireRange(start_wire, start_idx, end_wire, end_idx)
+        self._wire_edit_wire_id = start_wire
+        self._draw_wire_edit_overlay()
+        self._status(
+            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
+            "[Del] Delete  ·  [Esc] Cancel",
+            0,
+        )
 
     def _commit_and_rearm(self, cmd: Command[ComponentState] | None) -> None:
         """Execute *cmd* (if any), refresh, then RE-ARM on the mutated wire's
@@ -434,6 +518,7 @@ class WireEditTool(ControllerTool):
         self._wire_edit_wire_id = None
         self._wire_edit_start = None
         self._wire_edit_cycle = WireEditCycle()
+        self._awaiting_repick = False
 
     # -- pick machinery (replicated from SelectTool — reroute needs it) -----
 
