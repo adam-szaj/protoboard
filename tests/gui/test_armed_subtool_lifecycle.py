@@ -153,23 +153,45 @@ class TestArmedTransformExitParity:
         armed.on_key(key_inp(Qt.Key.Key_R))  # step +90
         return view, armed
 
-    def test_commit_currently_returns_to_select(
+    def test_commit_stays_armed(
         self, session: EditorSession
     ) -> None:
-        # PARITY-FLIP(Task 4): after Task 4 this becomes "stays armed".
+        # Task 4: confirm commits and RE-ARMS on the (possibly moved)
+        # selection instead of returning to SelectTool.
         view, armed = self._armed_after_rotate_step(session)
         armed.on_key(key_inp(Qt.Key.Key_Return))  # confirm
-        assert session.edit_controller.armed_transform is None
-        assert isinstance(view.active_tool, SelectTool)
+        assert view.active_tool is armed
+        assert armed._armed is not None and not armed._armed.finished
 
-    def test_cancel_currently_returns_to_select(
+    def test_cancel_stays_armed(
         self, session: EditorSession
     ) -> None:
-        # PARITY-FLIP(Task 4): becomes "stays armed" (still selected, re-armed).
+        # Task 4: cancel reverts the pending op and RE-ARMS — it does not
+        # exit to SelectTool (only host [Esc]-when-clean does that).
         view, armed = self._armed_after_rotate_step(session)
         armed.on_key(key_inp(Qt.Key.Key_Escape))  # cancel
-        assert session.edit_controller.armed_transform is None
-        assert isinstance(view.active_tool, SelectTool)
+        assert view.active_tool is armed
+        assert armed._armed is not None and not armed._armed.finished
+
+    def test_esc_trace_second_press_reaches_clean_exit(
+        self, session: EditorSession
+    ) -> None:
+        # Two-stage [Esc] trace (host's ToolHost.handle_key_press evaluates
+        # can_exit() BEFORE dispatching the key): the first Esc, with a real
+        # pending delta (the +90 step), reports can_exit()=False — the cancel
+        # lands and the tool stays armed (re-armed). The re-arm is untouched
+        # (no delta yet), so has_pending_op() is False and can_exit() is now
+        # True — a second Esc (host path) would exit. This proves Esc never
+        # traps the user: it always reaches a clean, exitable state.
+        view, armed = self._armed_after_rotate_step(session)
+        assert armed.has_pending_op() is True  # the +90 step is a real delta
+        assert armed.can_exit() is False  # first Esc must cancel, not exit
+
+        armed.on_key(key_inp(Qt.Key.Key_Escape))  # first Esc: cancel + re-arm
+
+        assert view.active_tool is armed  # stayed armed (re-armed)
+        assert armed.has_pending_op() is False  # fresh re-arm, no delta
+        assert armed.can_exit() is True  # second Esc (host) would now exit
 
     def test_hard_conflict_parks_armed(self, session: EditorSession) -> None:
         # MUST stay true across the whole refactor: a HARD-conflict confirm

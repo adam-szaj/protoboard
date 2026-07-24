@@ -213,24 +213,28 @@ class TestArmedRotate:
         assert parked is not None and parked[0] == 120
 
     def test_esc_cancels_whole_session(self, board_view, session) -> None:
+        # Task 4: cancel reverts the pending op and RE-ARMS on the same
+        # selection — it does not return to SelectTool.
         inst, armed = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation
         _key(armed, Qt.Key.Key_R)  # +90
         _key(armed, Qt.Key.Key_R)  # +90  (now base+180)
         assert _pose(session, inst.id).rotation == (base + 180) % 360
-        _key(armed, Qt.Key.Key_Escape)  # cancel the whole session
-        assert session.edit_controller.armed_transform is None
-        assert isinstance(board_view._active_tool, SelectTool)
+        _key(armed, Qt.Key.Key_Escape)  # cancel — reverts, re-arms
+        assert session.edit_controller.armed_transform is not None
+        assert board_view._active_tool is armed
         # Live layout never mutated: cancel leaves the original pose intact.
         assert session.layout.placements[inst.id].rotation == base
 
     def test_enter_accepts_keeps_rotation(self, board_view, session) -> None:
+        # Task 4: confirm commits and RE-ARMS on the moved selection — it
+        # does not return to SelectTool.
         inst, armed = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation
         _key(armed, Qt.Key.Key_R)  # +90
         _key(armed, Qt.Key.Key_Return)  # accept
-        assert session.edit_controller.armed_transform is None
-        assert isinstance(board_view._active_tool, SelectTool)
+        assert session.edit_controller.armed_transform is not None
+        assert board_view._active_tool is armed
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
     def test_live_layout_pristine_until_accept(self, board_view, session) -> None:
@@ -265,7 +269,10 @@ class TestArmedRotate:
     def test_pivot_markers_shown_while_armed_cleared_on_disarm(
         self, board_view, session
     ) -> None:
-        # Visual feedback: arming draws pivot marker(s); disarm clears them.
+        # Visual feedback: arming draws pivot marker(s); Task 4: cancel now
+        # re-arms (not disarms), so markers are redrawn (per-object, since
+        # re-arm resets the pivot); full deactivate (tool exit) still clears
+        # them — see test_armed_move_claims_wasd_and_arrows.
         inst, armed = self._armed(board_view, session)
         preview = armed._preview
         assert isinstance(preview, QtSelectPreview)
@@ -274,9 +281,9 @@ class TestArmedRotate:
         assert session.edit_controller.armed_transform is not None
         assert session.edit_controller.armed_transform.pivot is not None
         assert preview.pivots.items  # re-drawn on the shared pad
-        _key(armed, Qt.Key.Key_Escape)  # cancel → disarm
-        assert session.edit_controller.armed_transform is None
-        assert preview.pivots.items == []  # markers cleared
+        _key(armed, Qt.Key.Key_Escape)  # cancel → reverts, re-arms
+        assert session.edit_controller.armed_transform is not None
+        assert preview.pivots.items  # re-drawn (per-object) on the re-arm
 
     def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
         # Conditional-disarm contract: an accept that cannot commit (HARD
@@ -317,10 +324,13 @@ class TestArmedKeyClaims:
             Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
         ):
             assert armed.wants_key(key_inp(k)) is True
-        _key(armed, Qt.Key.Key_Escape)  # disarm → back to SelectTool
-        select2 = board_view._active_tool
-        assert isinstance(select2, SelectTool)
-        assert select2.wants_key(key_inp(Qt.Key.Key_S)) is False  # released
+        # Task 4: commit/cancel now re-arm instead of calling _return_to (the
+        # actual tool-swap-back), so this fixture (no MainWindow, hence
+        # escape_to_select() is a no-op) can no longer drive a real disarm.
+        # What we CAN assert here: a fresh (untouched) arm has no pending op,
+        # so the host's two-stage [Esc] (ToolHost.handle_key_press) would let
+        # this Esc exit — can_exit() gates exactly that decision.
+        assert armed.can_exit() is True
 
 
 class TestArmedMove:
@@ -337,12 +347,13 @@ class TestArmedMove:
         return inst, armed
 
     def test_arrows_then_enter_commits_move(self, board_view, session) -> None:
+        # Task 4: confirm commits and re-arms — it does not disarm.
         inst, armed = self._armed(board_view, session)
         before = session.layout.placements[inst.id].position
         _key(armed, Qt.Key.Key_Right)
         _key(armed, Qt.Key.Key_Down)
         _key(armed, Qt.Key.Key_Return)  # drop
-        assert session.edit_controller.armed_transform is None
+        assert session.edit_controller.armed_transform is not None
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
 
@@ -356,11 +367,12 @@ class TestArmedMove:
         assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
 
     def test_esc_cancels_move(self, board_view, session) -> None:
+        # Task 4: cancel reverts and re-arms — it does not disarm.
         inst, armed = self._armed(board_view, session)
         before = session.layout.placements[inst.id].position
         _key(armed, Qt.Key.Key_Right)
         _key(armed, Qt.Key.Key_Escape)  # cancel — no commit
-        assert session.edit_controller.armed_transform is None
+        assert session.edit_controller.armed_transform is not None
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) == (before.x, before.y)
 
@@ -466,7 +478,9 @@ class TestFloatTransformSwitch:
         _key(armed, Qt.Key.Key_Right)    # nudge +1x
         _key(armed, Qt.Key.Key_Return)   # accept the whole transform
 
-        assert session.edit_controller.armed_transform is None
+        # Task 4: accept commits (one undo entry) and re-arms — it does not
+        # disarm.
+        assert session.edit_controller.armed_transform is not None
         assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
         after = session.layout.placements[inst.id]
         assert after.rotation == (base_rot + 90) % 360
@@ -479,9 +493,11 @@ class TestFloatTransformSwitch:
             base_pos.x, base_pos.y,
         )
 
-    def test_cancel_from_mixed_state_returns_to_original(
+    def test_cancel_from_mixed_state_restores_original(
         self, board_view, session
     ) -> None:
+        # Task 4: cancel reverts to the pristine pose and re-arms — it does
+        # not disarm.
         inst, armed = self._armed_rotate(board_view, session)
         base = session.layout.placements[inst.id]
         base_pos, base_rot = base.position, base.rotation
@@ -491,7 +507,7 @@ class TestFloatTransformSwitch:
         _key(armed, Qt.Key.Key_Right)    # nudge
         _key(armed, Qt.Key.Key_Escape)   # cancel — back to the pristine pose
 
-        assert session.edit_controller.armed_transform is None
+        assert session.edit_controller.armed_transform is not None
         now = session.layout.placements[inst.id]
         assert now.rotation == base_rot
         assert (now.position.x, now.position.y) == (base_pos.x, base_pos.y)

@@ -96,13 +96,14 @@ class ArmedTransformTool(ControllerTool):
         self._preview: SelectPreview | None = None
         self._overlays: TransformOverlaysPort | None = None
         self._wheel = WheelNotchAccumulator()
+        self._begin_transform_args: Callable[[], ArmedTransform] | None = None
 
     # -- lifecycle ----------------------------------------------------------
 
     def activate(self, session: EditState, view: object) -> None:
         self._session = session
         self._view = view
-        self._armed = session.edit_controller.begin_transform(
+        self._begin_transform_args = lambda: session.edit_controller.begin_transform(
             self._comp_ids,
             self._group_id,
             active_group_id=self._active_group_id,
@@ -111,6 +112,7 @@ class ArmedTransformTool(ControllerTool):
             preview=self._on_preview,
             status=lambda msg: self._status(msg),
         )
+        self._armed = self._begin_transform_args()
         self._draw_pivot_markers()
         self._status(self._armed.status_hint())
         view.notify_controller_state(self.state)
@@ -161,18 +163,10 @@ class ArmedTransformTool(ControllerTool):
         return table
 
     def _cmd_confirm(self) -> bool:
-        controller = self._controller
-        if controller is None or self._armed is None:
-            return False
-        controller.accept_transform()
-        return self._after_verb()
+        return self.commit_op()
 
     def _cmd_cancel(self) -> bool:
-        controller = self._controller
-        if controller is None or self._armed is None:
-            return False
-        controller.cancel_transform()
-        return self._after_verb()
+        return self.cancel_op()
 
     def _cmd_flip(self) -> bool:
         controller = self._controller
@@ -230,6 +224,63 @@ class ArmedTransformTool(ControllerTool):
         if controller is not None and self._armed is not None:
             controller.cancel_transform()
             self._after_verb()
+
+    def has_pending_op(self) -> bool:
+        # Armed with an actual delta since arm/re-arm — a fresh (untouched)
+        # re-arm is NOT pending, so a clean second [Esc] can exit.
+        armed = self._armed
+        return self._is_armed() and armed is not None and armed._is_transformed()
+
+    def can_commit(self) -> bool:
+        armed = self._armed
+        return armed is None or armed.can_commit()
+
+    def can_exit(self) -> bool:
+        # Exit only when nothing is pending; a live-but-untouched re-arm
+        # (no steps taken) does not block the host [Esc]-when-clean exit.
+        return not self.has_pending_op()
+
+    def commit_op(self) -> bool:
+        """Confirm ([Enter]): commit the armed transform, then RE-ARM on the
+        (possibly moved) selection so the tool stays active for the next
+        operation. A HARD-conflict commit parks instead (stays live, waiting).
+        """
+        controller = self._controller
+        if controller is None or self._armed is None:
+            return False
+        committable = self._armed.can_commit()
+        controller.accept_transform()
+        self._rearm_or_park()
+        return committable
+
+    def cancel_op(self) -> bool:
+        controller = self._controller
+        if controller is None or self._armed is None:
+            return False
+        controller.cancel_transform()
+        self._rearm_or_park()
+        return True
+
+    def _rearm_or_park(self) -> None:
+        """After a commit/cancel verb: if the transform terminated (committed
+        or cancelled cleanly), RE-ARM on the current selection so the tool
+        stays active for the next operation; if it parked (HARD conflict),
+        leave it live."""
+        controller = self._controller
+        if controller is None:
+            return
+        if controller.armed_transform is None:
+            begin = self._begin_transform_args
+            if begin is None:
+                return
+            self._armed = begin()
+            self._draw_pivot_markers()
+            if self._armed is not None:
+                self._status(self._armed.status_hint())
+                view = self._view
+                if view is not None:
+                    view.notify_controller_state(self.state)
+        # else: parked in conflict — stay live, surface already shown.
 
     def _after_verb(self) -> bool:
         """Common tail after a consumed verb: publish state, return on terminal.
