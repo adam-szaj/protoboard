@@ -202,14 +202,19 @@ fragment op.
 
 ## 6. Inconsistencies and design smells
 
-### 6.1 Cross-wire flip silently degrades to whole-wire
+### 6.1 Cross-wire fragment flip is unsupported (not a silent-degrade)
 
 `build_flip_fragment_command` returns `None` for a cross-wire selection
-(`wire_edit.py:441`), and `_flip_wire_fragment` then falls back to
-`_move_selected_wires_to_side` (**W5**, whole wire). So a user who selected a
-*cross-wire fragment* and pressed `[F]` gets a **whole-wire** side move — the
-selection granularity is silently ignored. Either support cross-wire fragment
-flip, or refuse with a message; don't silently widen the scope.
+(`wire_edit.py:441`). `_flip_wire_fragment` (`select_tool.py:3692`) only falls
+back to `_move_selected_wires_to_side` (**W5**, whole wire) when **no fragment is
+armed** (`state is None`); when a *cross-wire fragment* is armed it hits the
+`cmd is None` branch and shows a status message ("Flip: pick a fragment on a
+single wire") — it does **not** silently widen to a whole-wire move. So the
+observed behaviour is correct; the only gap is that cross-wire *fragment* flip is
+**unsupported**. (An earlier draft of this section claimed a silent degrade;
+verified against the code and the `TestBuildFlipFragmentCommand` golden in
+`tests/unit/test_wire_edit_helpers.py`, that is not the case.) The open choice is
+merely: implement cross-wire fragment flip, or leave it refused-with-a-message.
 
 ### 6.2 "Fragment" mixes two granularities
 

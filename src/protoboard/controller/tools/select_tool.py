@@ -2313,6 +2313,45 @@ class SelectTool(ControllerTool):
         pts = [p.point for p in session.collected if isinstance(p, PointSelectable)]
         return pts[-1] if pts else None
 
+    def _net_aware_add_factory(self) -> object:
+        """A wire-range ``add_factory`` that reclassifies nets (plan Stage 2).
+
+        The Qt-free range builders (excise / reroute / delete) mint fresh wires
+        when a cut re-adds a surviving or replacement piece. The default factory
+        emits a plain ``AddWireCommand`` (net stays as derived). This factory
+        wraps each fresh wire in an ``AddWireWithNetsCommand`` and runs
+        ``resolve_wire_nets`` against the live session, so a piece whose new
+        endpoint lands on a pin re-extends / re-merges the schematic instead of
+        silently keeping the stale net (``docs/core-wire-semantics.md`` §5).
+
+        Called during macro *build*; ``resolve_wire_nets`` mutates
+        ``schematic.nets`` immediately and records the change into the command
+        for undo, matching ``EditController.add_wire``'s resolve-before-execute
+        ordering. Multiple fresh wires in one macro resolve in sequence, so each
+        sees the previous one's net mutations.
+        """
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, ComponentState
+        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
+        from protoboard.controller.editing.wire_nets import resolve_wire_nets
+        from protoboard.domain.layout.wire import Wire as _Wire
+
+        def _factory(wire: _Wire) -> "Command[ComponentState]":
+            cmd = AddWireWithNetsCommand(wire=wire)
+            # A fragment edit stays within one net (net-restricted hit-test), so
+            # a two-distinct-net fuse should not arise; keep the first net's name
+            # if it ever does rather than raise, and log it.
+            resolve_wire_nets(
+                cast("EditState", self._session),
+                wire,
+                cmd,
+                merge_prompt=lambda net_a, _net_b: net_a.name,
+            )
+            return cast("Command[ComponentState]", cmd)
+
+        return _factory
+
     def _commit_reroute(self, picked: list[Selectable]) -> None:
         """Commit the reroute: build the path command and execute it."""
         from protoboard.controller.selection.adapters import PointSelectable
@@ -2328,6 +2367,7 @@ class SelectTool(ControllerTool):
             list(self._session.layout.wires),
             self._wire_net_map(),
             state.with_waypoints(pts),
+            self._net_aware_add_factory(),  # type: ignore[arg-type]
         )
         self._wire_edit_clear()
         if cmd is not None:
@@ -2372,6 +2412,7 @@ class SelectTool(ControllerTool):
             list(self._session.layout.wires),
             self._wire_net_map(),
             state.with_waypoints(waypoints),
+            self._net_aware_add_factory(),  # type: ignore[arg-type]
         )
         self._wire_edit_clear()
         if cmd is not None:
@@ -2386,7 +2427,10 @@ class SelectTool(ControllerTool):
         if state is None:
             return
         cmd = build_delete_command(
-            list(self._session.layout.wires), self._wire_net_map(), state
+            list(self._session.layout.wires),
+            self._wire_net_map(),
+            state,
+            self._net_aware_add_factory(),  # type: ignore[arg-type]
         )
         self._wire_edit_clear()
         if cmd is not None:

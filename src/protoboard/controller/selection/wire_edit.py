@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from protoboard.domain.commands.base import MacroCommand
 from protoboard.domain.commands.component_cmds import (
@@ -47,7 +48,24 @@ if TYPE_CHECKING:
 
     from protoboard.domain.commands.base import Command, ComponentState
 
+#: Builds the "add this freshly-minted wire" command for the range ops that cut
+#: a wire and re-add a surviving/replacement piece (cross-wire excise, reroute,
+#: same-wire cut). The default mints a plain, net-unaware ``AddWireCommand`` —
+#: correct for same-wire reshapes whose endpoints (and thus derived net) are
+#: unchanged, and it keeps this module Qt-free / session-free (its explicit
+#: contract). The tool injects a net-aware factory (running ``resolve_wire_nets``
+#: over the live session) when a replacement's endpoint may land on a pin and so
+#: needs schematic reclassification. See ``docs/core-wire-semantics.md`` §5.
+AddWireFactory = Callable[[Wire], "Command[ComponentState]"]
+
+
+def _default_add_factory(wire: Wire) -> "Command[ComponentState]":
+    """The purity-preserving default: a plain, net-unaware ``AddWireCommand``."""
+    return cast("Command[ComponentState]", AddWireCommand(wire=wire))
+
+
 __all__ = [
+    "AddWireFactory",
     "WireEditState",
     "autoroute_fragment_path",
     "build_delete_command",
@@ -232,6 +250,7 @@ def excise_cross_wire_range(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     state: WireEditState,
+    add_factory: AddWireFactory = _default_add_factory,
 ) -> tuple[Command[ComponentState], Point, Point] | None:
     """Build a MacroCommand excising the cross-wire fragment.
 
@@ -240,9 +259,12 @@ def excise_cross_wire_range(
     boundaries (used to re-route afterwards), or ``None`` when the wires are not
     connected within the net.  Each wire keeps its outer-to-edit sub-path;
     strictly-intermediate wires are removed entirely.
-    """
-    from typing import cast
 
+    *add_factory* builds the "add a surviving sub-path" command; the default
+    mints a net-unaware ``AddWireCommand`` (kept path/net stable), while the tool
+    injects a net-aware factory so a surviving piece whose new endpoint lands on
+    a pin re-runs schematic classification (``docs/core-wire-semantics.md`` §5).
+    """
     net_id = wire_net_map.get(state.start_wire_id)
     if net_id is None:
         return None
@@ -264,13 +286,13 @@ def excise_cross_wire_range(
         cmds.append(cast("Command[ComponentState]", RemoveWireCommand(wire_id=wire.id)))
 
     def _add(wire: Wire, new_path: list[Point]) -> None:
-        cmds.append(cast("Command[ComponentState]", AddWireCommand(wire=Wire(
+        cmds.append(add_factory(Wire(
             id=uuid.uuid4(),
             path=new_path,
             insulated=wire.insulated,
             side=wire.side,
             color=wire.color,
-        ))))
+        )))
 
     def _keep_fragment(wire: Wire, edit_idx: int, outer_idx: int) -> None:
         """Keep the path slice from outer_idx to edit_idx via Remove + AddWire.
@@ -322,18 +344,20 @@ def build_reroute_command(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     state: WireEditState,
+    add_factory: AddWireFactory = _default_add_factory,
 ) -> Command[ComponentState] | None:
     """Build the command committing the reroute of *state* with its waypoints.
 
     Same-wire: ``ReplaceWireFragmentsCommand`` over
     ``prefix[:start+1] + waypoints + suffix[end:]`` (port of ``_commit_wire_edit``
-    same-wire branch).  Cross-wire: ``MacroCommand[excise, AddWire(new_path)]``
-    where ``new_path = [start_pt] + waypoints + [end_pt]`` (cross branch).
+    same-wire branch) — id-preserving, so the derived net is unchanged and no
+    ``add_factory`` applies.  Cross-wire: ``MacroCommand[excise, add(new_path)]``
+    where ``new_path = [start_pt] + waypoints + [end_pt]`` (cross branch); both
+    the excise's surviving pieces and the replacement wire go through
+    *add_factory* so a net-aware caller reclassifies them.
     Returns ``None`` when the resulting path is degenerate or the cross-wire
     range cannot be excised.
     """
-    from typing import cast
-
     waypoints = list(state.waypoints)
 
     if state.is_cross:
@@ -342,7 +366,7 @@ def build_reroute_command(
         # Inherit insulation from the rerouted wire — a bare reroute must
         # stay bare (forcing insulated=True silently changed bare wires).
         insulated = start_wire.insulated if start_wire is not None else False
-        excise = excise_cross_wire_range(wires, wire_net_map, state)
+        excise = excise_cross_wire_range(wires, wire_net_map, state, add_factory)
         if excise is None:
             return None
         excise_macro, start_pt, end_pt = excise
@@ -352,9 +376,9 @@ def build_reroute_command(
         new_wire = Wire(
             id=uuid.uuid4(), path=new_path, insulated=insulated, side=side
         )
-        add_cmd = AddWireCommand(wire=new_wire)
+        add_cmd = add_factory(new_wire)
         macro = MacroCommand(
-            [excise_macro, cast("Command[ComponentState]", add_cmd)],
+            [excise_macro, add_cmd],
             description="Reroute wire fragment",
         )
         return cast("Command[ComponentState]", macro)
@@ -378,18 +402,18 @@ def build_delete_command(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     state: WireEditState,
+    add_factory: AddWireFactory = _default_add_factory,
 ) -> Command[ComponentState] | None:
     """Build the command deleting the fragment (port of ``_delete_wire_fragment``).
 
     Cross-wire: the excise macro.  Same-wire: whole wire → ``RemoveWireCommand``;
     otherwise cut into the two surviving halves (``path[:start+1]`` and
-    ``path[end:]``) via ``Remove + AddWire``.  Returns ``None`` on an invalid
-    cross-wire range.
+    ``path[end:]``) via ``Remove + add(half)``.  Returns ``None`` on an invalid
+    cross-wire range.  Every fresh surviving piece goes through *add_factory* so
+    a net-aware caller reclassifies a half whose new endpoint lands on a pin.
     """
-    from typing import cast
-
     if state.is_cross:
-        excise = excise_cross_wire_range(wires, wire_net_map, state)
+        excise = excise_cross_wire_range(wires, wire_net_map, state, add_factory)
         if excise is None:
             return None
         return excise[0]
@@ -409,13 +433,13 @@ def build_delete_command(
     ]
     for half in (left_path, right_path):
         if len(half) >= 2:
-            cmds.append(cast("Command[ComponentState]", AddWireCommand(wire=Wire(
+            cmds.append(add_factory(Wire(
                 id=uuid.uuid4(),
                 path=half,
                 insulated=wire.insulated,
                 side=wire.side,
                 color=wire.color,
-            ))))
+            )))
     if len(cmds) == 1:
         return cmds[0]
     return cast(

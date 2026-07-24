@@ -23,6 +23,7 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.base import MacroCommand
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
+    FlipWireFragmentCommand,
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
 )
@@ -31,6 +32,7 @@ from protoboard.geometry import Point
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
     build_delete_command,
+    build_flip_fragment_command,
     build_reroute_command,
     dedupe_adjacent,
     excise_cross_wire_range,
@@ -291,6 +293,66 @@ class TestBuildDelete:
         assert isinstance(cmd, MacroCommand)
 
 
+# -- add_factory injection (Stage 2: net-aware fresh-wire adds) ----------------
+#
+# The default keeps the purity contract (plain AddWireCommand); a caller can
+# inject any factory to reclassify the freshly-minted surviving/replacement
+# wires (the tool injects one running resolve_wire_nets — proven here with a
+# marker command so the seam is covered without a live session).
+
+
+class _MarkerAdd:
+    """Stand-in for a net-aware add command — proves add_factory is honoured."""
+
+    def __init__(self, wire: Wire) -> None:
+        self.wire = wire
+
+
+class TestAddFactoryInjection:
+    def test_default_mints_plain_add_wire(self) -> None:
+        wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
+        nm = _net_map(wire)
+        state = WireEditState(
+            start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=3
+        )
+        cmd = build_delete_command([wire], nm, state)  # no add_factory
+        assert isinstance(cmd, MacroCommand)
+        assert all(
+            isinstance(c, (AddWireCommand, RemoveWireCommand))
+            for c in cmd._commands
+        )
+
+    def test_injected_factory_replaces_the_adds(self) -> None:
+        wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
+        nm = _net_map(wire)
+        state = WireEditState(
+            start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=3
+        )
+        cmd = build_delete_command(
+            [wire], nm, state, cast("object", _MarkerAdd),  # type: ignore[arg-type]
+        )
+        assert isinstance(cmd, MacroCommand)
+        adds = [c for c in cmd._commands if isinstance(c, _MarkerAdd)]
+        assert len(adds) == 2  # both surviving halves went through the factory
+        assert not any(isinstance(c, AddWireCommand) for c in cmd._commands)
+
+    def test_cross_wire_excise_honours_factory(self) -> None:
+        wire_a = _wire((2.5, 9.5), (3.5, 10.5), (4.5, 11.5), (5.5, 12.5))
+        wire_b = _wire((1.5, 10.5), (2.5, 9.5))
+        nm = _net_map(wire_a, wire_b)
+        state = WireEditState(
+            start_wire_id=wire_a.id, start_idx=2, end_wire_id=wire_b.id, end_idx=0,
+        )
+        result = excise_cross_wire_range(
+            [wire_a, wire_b], nm, state, cast("object", _MarkerAdd),  # type: ignore[arg-type]
+        )
+        assert result is not None
+        macro, _s, _e = result
+        assert isinstance(macro, MacroCommand)
+        assert any(isinstance(c, _MarkerAdd) for c in macro._commands)
+        assert not any(isinstance(c, AddWireCommand) for c in macro._commands)
+
+
 # -- WireEditState ------------------------------------------------------------
 
 
@@ -332,6 +394,64 @@ def _perfboard(rows: int = 32, cols: int = 32) -> Board:
         col_gap=0.0,
     )
     return Board(root=grid)
+
+
+# -- build_flip_fragment_command (Stage 0 golden: whole-wire vs fragment) ------
+#
+# Characterises the CURRENT behaviour of the fragment-flip builder so the
+# WireRange unification (plan Stage 4) can prove it unchanged. Also pins the
+# fact that a *cross-wire* selection returns None (the tool then shows a status
+# message — it does NOT silently widen to a whole-wire move), correcting the
+# earlier docs/core-wire-semantics.md §6.1 claim.
+
+
+class TestBuildFlipFragmentCommand:
+    def test_cross_wire_returns_none(self) -> None:
+        a = _wire((1.5, 1.5), (2.5, 1.5))
+        b = _wire((2.5, 1.5), (3.5, 1.5))
+        state = WireEditState(
+            start_wire_id=a.id, start_idx=0, end_wire_id=b.id, end_idx=1
+        )
+        assert state.is_cross
+        assert build_flip_fragment_command([a, b], state) is None
+
+    def test_degenerate_range_returns_none(self) -> None:
+        w = _wire((1.5, 1.5), (2.5, 1.5), (3.5, 1.5))
+        state = WireEditState(
+            start_wire_id=w.id, start_idx=1, end_wire_id=w.id, end_idx=1
+        )
+        assert build_flip_fragment_command([w], state) is None
+
+    def test_missing_wire_returns_none(self) -> None:
+        w = _wire((1.5, 1.5), (2.5, 1.5))
+        state = WireEditState(
+            start_wire_id=uuid.uuid4(), start_idx=0,
+            end_wire_id=uuid.uuid4(), end_idx=1,
+        )
+        assert build_flip_fragment_command([w], state) is None
+
+    def test_full_span_flips_whole_wire(self) -> None:
+        # range == [0 : len(path)-1] is the whole-wire special case: the builder
+        # emits a FlipWireFragmentCommand spanning the entire path.
+        w = _wire((1.5, 1.5), (2.5, 1.5), (3.5, 1.5))  # side="bottom"
+        state = WireEditState(
+            start_wire_id=w.id, start_idx=0,
+            end_wire_id=w.id, end_idx=len(w.path) - 1,
+        )
+        cmd = build_flip_fragment_command([w], state)
+        assert isinstance(cmd, FlipWireFragmentCommand)
+        assert cmd.wire_id == w.id
+        assert (cmd.start_idx, cmd.end_idx) == (0, len(w.path) - 1)
+        assert cmd.target_side == "top"  # opposite of bottom
+
+    def test_target_side_override(self) -> None:
+        w = _wire((1.5, 1.5), (2.5, 1.5))
+        state = WireEditState(
+            start_wire_id=w.id, start_idx=0, end_wire_id=w.id, end_idx=1
+        )
+        cmd = build_flip_fragment_command([w], state, target_side="bottom")
+        assert isinstance(cmd, FlipWireFragmentCommand)
+        assert cmd.target_side == "bottom"
 
 
 if __name__ == "__main__":  # pragma: no cover
