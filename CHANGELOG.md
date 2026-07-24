@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Wire fragment set-insulated: `[I]` toggles a sub-range of a wire between bare
+  and insulated by splitting it into bare/insulated/bare segments. After a
+  cut, wire-edit waits for a fresh range pick (delete unified onto the same
+  flow).
+
 ### feat: body-printed value + hover-reveal (2026-07-14)
 
 * **Body-printed value.** Every component body now prints its value:
