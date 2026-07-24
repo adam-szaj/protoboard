@@ -26,14 +26,17 @@ from protoboard.domain.commands.component_cmds import (
     FlipWireFragmentCommand,
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
+    SetWireInsulatedCommand,
 )
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
+    WireRange,
     build_delete_command,
     build_flip_fragment_command,
     build_reroute_command,
+    build_set_insulated_range_command,
     dedupe_adjacent,
     excise_cross_wire_range,
     net_wires_ordered,
@@ -376,6 +379,100 @@ class TestBuildDelete:
         )
         cmd = build_delete_command([wire_a, wire_b], nm, state)
         assert isinstance(cmd, MacroCommand)
+
+
+# -- build_set_insulated_range_command ----------------------------------------
+
+
+class TestBuildSetInsulatedRangeCommand:
+    def _wire(self) -> Wire:
+        # 5 collinear points, one fragment (same side), bare.
+        return Wire(
+            id=uuid.uuid4(),
+            path=[Point(0, 0), Point(1, 0), Point(2, 0), Point(3, 0), Point(4, 0)],
+            insulated=False,
+            side="top",
+            color=None,
+        )
+
+    def test_full_span_returns_set_insulated_command_id_preserving(self) -> None:
+        wire = self._wire()
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange.full_span(wire)
+        result = build_set_insulated_range_command([wire], nm, state, insulated=True)
+        assert result is not None
+        assert result.was_cut is False
+        assert result.survivor_wire_ids == ()
+        assert isinstance(result.command, SetWireInsulatedCommand)
+        assert result.command.wire_id == wire.id
+        assert result.command.insulated is True
+
+    def test_sub_range_splits_into_three_middle_insulated(self) -> None:
+        wire = self._wire()
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange(wire.id, 1, wire.id, 3)  # middle slice idx 1..3
+        result = build_set_insulated_range_command([wire], nm, state, insulated=True)
+        assert result is not None
+        assert result.was_cut is True
+        # Two fresh survivors (left + right); target is also fresh but the
+        # survivors are what the tool re-arms against.
+        assert len(result.survivor_wire_ids) == 2
+        assert isinstance(result.command, MacroCommand)
+        assert any(
+            isinstance(c, RemoveWireCommand) for c in result.command._commands
+        )
+        adds = [
+            c for c in result.command._commands if isinstance(c, AddWireCommand)
+        ]
+        assert len(adds) == 3
+        by_len = sorted(adds, key=lambda c: len(c.wire.path))
+        # left = path[:2] (2 pts), right = path[3:] (2 pts), target = path[1:4] (3 pts)
+        target = by_len[-1]
+        others = by_len[:-1]
+        assert len(target.wire.path) == 3
+        assert target.wire.insulated is True
+        assert all(len(c.wire.path) == 2 for c in others)
+        assert all(c.wire.insulated is False for c in others)
+        assert all(c.wire.side == "top" for c in adds)
+        assert {c.wire.id for c in adds} == set(result.survivor_wire_ids) | {
+            target.wire.id
+        }
+
+    def test_sub_range_touching_end_yields_two_pieces(self) -> None:
+        wire = self._wire()
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange(wire.id, 0, wire.id, 2)  # slice at the left end
+        result = build_set_insulated_range_command([wire], nm, state, insulated=True)
+        assert result is not None
+        assert result.was_cut is True
+        assert isinstance(result.command, MacroCommand)
+        adds = [
+            c for c in result.command._commands if isinstance(c, AddWireCommand)
+        ]
+        # insulated target (idx 0..2) + bare right (idx 2..4) — no left piece.
+        assert len(adds) == 2
+        assert len(result.survivor_wire_ids) == 1
+
+    def test_noop_when_slice_already_at_target_returns_none(self) -> None:
+        wire = self._wire()  # bare
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange(wire.id, 1, wire.id, 3)
+        result = build_set_insulated_range_command(
+            [wire], nm, state, insulated=False
+        )
+        assert result is None  # already bare, no change
+
+    def test_cross_wire_is_refused(self) -> None:
+        w1 = self._wire()
+        w2 = Wire(
+            id=uuid.uuid4(), path=[Point(4, 0), Point(5, 0)],
+            insulated=False, side="top", color=None,
+        )
+        nm = {w1.id: uuid.uuid4(), w2.id: uuid.uuid4()}
+        state = WireRange(w1.id, 2, w2.id, 1)  # cross-wire
+        assert state.is_cross
+        result = build_set_insulated_range_command([w1, w2], nm, state, insulated=True)
+        assert result is None
 
 
 # -- add_factory injection (Stage 2: net-aware fresh-wire adds) ----------------

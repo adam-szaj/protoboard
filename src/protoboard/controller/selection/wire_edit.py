@@ -38,6 +38,7 @@ from protoboard.domain.commands.component_cmds import (
     FlipWireFragmentCommand,
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
+    SetWireInsulatedCommand,
 )
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
@@ -78,9 +79,11 @@ __all__ = [
     "AddWireFactory",
     "WireEditState",
     "WireRange",
+    "WireRangeEdit",
     "autoroute_fragment_path",
     "build_delete_command",
     "build_reroute_command",
+    "build_set_insulated_range_command",
     "build_simplify_range_command",
     "dedupe_adjacent",
     "excise_cross_wire_range",
@@ -490,6 +493,91 @@ def build_delete_command(
     return cast(
         "Command[ComponentState]",
         MacroCommand(cmds, description="Cut wire fragment"),
+    )
+
+
+@dataclass(frozen=True)
+class WireRangeEdit:
+    """Outcome of a range edit that may have cut a wire.
+
+    ``was_cut`` is True when the op split the wire (increased the wire count),
+    in which case ``survivor_wire_ids`` are the freshly-minted surviving pieces
+    the tool should re-arm against. For an id-preserving full-span op both are
+    empty / False.
+    """
+
+    command: "Command[ComponentState]"
+    survivor_wire_ids: tuple[uuid.UUID, ...]
+    was_cut: bool
+
+
+def build_set_insulated_range_command(
+    wires: Sequence[Wire],
+    wire_net_map: dict[uuid.UUID, uuid.UUID],
+    state: WireEditState,
+    insulated: bool,
+    add_factory: AddWireFactory = _default_add_factory,
+) -> WireRangeEdit | None:
+    """Set the selected sub-range's insulation, splitting the wire if needed.
+
+    Same-wire full span → an id-preserving ``SetWireInsulatedCommand``.
+    Same-wire sub-range → split into up to three pieces (left survivor /
+    insulated target / right survivor), each a fresh ``Wire`` minted through
+    *add_factory*; the target carries the new *insulated*, the survivors keep
+    the original.  Cross-wire is refused (``None``).  A no-op (slice already at
+    *insulated*) also returns ``None``.
+    """
+    if state.is_cross:
+        return None  # Cross-wire set-insulated deferred (see docs/todo.md).
+
+    wire = _find_wire(wires, state.start_wire_id)
+    if wire is None:
+        return None
+    if wire.insulated == insulated:
+        return None  # no-op
+
+    start, end = state.start_idx, state.end_idx
+    n = len(wire.path)
+    if start == 0 and end == n - 1:
+        return WireRangeEdit(
+            command=cast(
+                "Command[ComponentState]",
+                SetWireInsulatedCommand(wire_id=wire.id, insulated=insulated),
+            ),
+            survivor_wire_ids=(),
+            was_cut=False,
+        )
+
+    left_path = list(wire.path[:start + 1])
+    target_path = list(wire.path[start:end + 1])
+    right_path = list(wire.path[end:])
+    cmds: list[Command[ComponentState]] = [
+        cast("Command[ComponentState]", RemoveWireCommand(wire_id=wire.id))
+    ]
+    survivors: list[uuid.UUID] = []
+    for path, keep_insulated, is_survivor in (
+        (left_path, wire.insulated, True),
+        (target_path, insulated, False),
+        (right_path, wire.insulated, True),
+    ):
+        if len(path) >= 2:
+            new_id = uuid.uuid4()
+            cmds.append(add_factory(Wire(
+                id=new_id,
+                path=path,
+                insulated=keep_insulated,
+                side=wire.side,
+                color=wire.color,
+            )))
+            if is_survivor:
+                survivors.append(new_id)
+    macro_desc = "Insulate wire fragment" if insulated else "Bare wire fragment"
+    return WireRangeEdit(
+        command=cast(
+            "Command[ComponentState]", MacroCommand(cmds, description=macro_desc)
+        ),
+        survivor_wire_ids=tuple(survivors),
+        was_cut=True,
     )
 
 
