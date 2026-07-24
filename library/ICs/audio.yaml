@@ -18,3 +18,17 @@ components:
           7: BYPASS
           8: GAIN_B
 
+    # Audio amp TDA2822
+    - name: TDA2822
+      component_class: ic
+      pins: { count: 8 }
+      package: { kind: dip_ic }
+      pin_names:
+          1: OUT1
+          2: VCC
+          3: OUT2
+          4: GND
+          5: IN2-
+          6: IN2+
+          7: IN1+
+          8: IN1-
