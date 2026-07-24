@@ -28,6 +28,7 @@ from protoboard.gui.tools.gui_tools import (
     PlaceTool,
     RouteTool,
     SelectTool,
+    WireEditTool,
 )
 from tests.fakes.board_view import HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
@@ -94,49 +95,96 @@ def _escape_event() -> QKeyEvent:
 
 
 class TestWholeWireVsFragmentSimplifyParity:
-    """The directive's acceptance test: whole-wire simplify (select mode) and
-    full-span fragment simplify (edit mode) must emit byte-identical commands.
-    Guards the extraction in Task 8 (must still hold afterwards)."""
+    """The directive's acceptance test: a whole-wire (full-span) simplify and a
+    full-span *fragment* simplify must emit the same command.
 
-    def test_whole_wire_equals_full_span_fragment_simplify(
+    Strengthened for the Task-8 swap: instead of calling
+    ``build_simplify_range_command`` twice with identical args (which only
+    proved the builder is deterministic), this now drives the REAL EDIT-MODE
+    dispatch path — ``[E]`` on a selected wire hands off to
+    :class:`WireEditTool`, then ``[S]`` (``_simplify_wire_fragment``) executes
+    the full-span fragment simplify.  It asserts the command that actually
+    landed on the stack equals the reference ``build_simplify_range_command(
+    WireRange.full_span(...))`` — i.e. the edit-mode entry emits exactly the
+    whole-wire full-span builder's command, not merely a re-run of the builder.
+
+    Scope note: the select-mode context-menu "Simplify wire" entry
+    (``SelectTool._simplify_wires``) is a SEPARATE, worker-backed path that
+    uses ``generic_simplify_wire`` + ``replace_wire_path_cmd`` — a different
+    builder (cross-wire aware, multi-wire) that does NOT emit a
+    ``ReplaceWireFragmentsCommand``.  A byte-identical comparison against it is
+    therefore not meaningful; the genuine "whole-wire == full-span fragment"
+    equivalence lives in the ``build_simplify_range_command`` family, which is
+    what the edit-mode entry drives and what this test pins."""
+
+    def test_edit_mode_full_span_equals_builder_command(
         self, session: EditorSession
     ) -> None:
+        from protoboard.controller.selection.adapters import (
+            WireSelectable,
+            WireVertexSelectable,
+        )
         from protoboard.controller.selection.wire_edit import (
             WireRange,
             build_simplify_range_command,
         )
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.gui.tools.gui_tools import WireEditTool
         from protoboard.services.routing.postprocess import SimplifyMode
 
         # An L-shaped (corner-cut) wire — simplify actually shortens this,
-        # unlike a straight wire over pads (memory Stage-5 TRAP).
-        wire = _add_wire(
-            session,
-            (1.5, 1.5), (2.5, 1.5), (3.5, 1.5), (3.5, 2.5), (3.5, 3.5),
+        # unlike a straight wire over pads (memory Stage-5 TRAP).  Routed
+        # through the controller so it carries real endpoint knots.
+        view = _headless(session)
+        wire_id = session.edit_controller.add_wire(
+            [Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
+             Point(3.5, 2.5), Point(3.5, 3.5)],
+            insulated=True, side="top",
         )
-        inputs = build_simplify_inputs(session)
-        mode = SimplifyMode.CHEBYSHEV
+        assert wire_id is not None
+        wire = session.layout.wires.get(wire_id)
+        assert wire is not None
 
-        whole = build_simplify_range_command(
-            session.layout, list(session.layout.wires),
-            WireRange.full_span(wire), inputs, mode,
+        # Reference command: whole-wire = full-span range through the builder.
+        mode = getattr(
+            session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
         )
-        frag = build_simplify_range_command(
+        reference = build_simplify_range_command(
             session.layout, list(session.layout.wires),
-            WireRange.full_span(wire), inputs, mode,
+            WireRange.full_span(wire),
+            build_simplify_inputs(session), mode,
         )
+        assert isinstance(reference, ReplaceWireFragmentsCommand)
 
-        assert isinstance(whole, ReplaceWireFragmentsCommand)
-        assert isinstance(frag, ReplaceWireFragmentsCommand)
-        # Same builder + same range + same inputs -> structurally identical
-        # commands (dataclass equality, mirroring test_wire_edit_helpers.py's
-        # field-level comparisons).
-        assert whole.wire_id == frag.wire_id
-        assert whole.new_fragments == frag.new_fragments
-        assert whole.old_fragments == frag.old_fragments
+        # Edit-mode path: [E] → hand off to WireEditTool → [S].
+        select = _select_tool(view)
+        select._selection.set(WireSelectable(wire=wire))
+        select.arm_wire_edit()
+        enriched = session.layout.wires.get(wire_id)
+        assert enriched is not None
+        last = len(enriched.path) - 1
+        select._range_picked(
+            [WireVertexSelectable(wire_id, 0),
+             WireVertexSelectable(wire_id, last)]
+        )
+        tool = view.active_tool
+        assert isinstance(tool, WireEditTool)
+        n_points_before = len(enriched.path)  # pre-op vertex count
+
+        depth_before = len(session.stack._undo)  # type: ignore[attr-defined]
+        tool._simplify_wire_fragment()
+        assert len(session.stack._undo) == depth_before + 1  # type: ignore[attr-defined]
+        emitted = session.stack._undo[-1]  # type: ignore[attr-defined]
+
+        # The command the edit-mode entry actually emitted matches the whole-
+        # wire full-span builder command field-for-field.
+        assert isinstance(emitted, ReplaceWireFragmentsCommand)
+        assert emitted.wire_id == reference.wire_id
+        assert emitted.new_fragments == reference.new_fragments
+        assert emitted.old_fragments == reference.old_fragments
         # And it actually shortened the wire (not a no-op).
-        flat = [p for f in whole.new_fragments for p in f.path]
-        assert len(flat) < len(wire.path)
+        flat = [p for f in emitted.new_fragments for p in f.path]
+        assert len(flat) < n_points_before
         assert flat[0] == Point(1.5, 1.5) and flat[-1] == Point(3.5, 3.5)
 
 
@@ -212,6 +260,13 @@ class TestArmedTransformExitParity:
 
 
 class TestWireEditExitParity:
+    """Task 8 SWAP: ``[E]`` now hands off to :class:`WireEditTool`; each
+    id-preserving op (autoroute / flip / simplify) STAYS armed in wire-edit
+    (re-armed on the mutated wire's full span), mirroring
+    ``TestArmedTransformExitParity.test_commit_stays_armed``.  Delete is the
+    one op that EXITS (the wire is gone — nothing to re-arm), dropping back to
+    plain select."""
+
     @staticmethod
     def _detour_wire(session: EditorSession) -> Wire:
         # Orthogonal L on the top layer: simplify corner-cuts it. Routed
@@ -227,80 +282,174 @@ class TestWireEditExitParity:
         assert wire is not None
         return wire
 
-    def _arm_full_span_edit(
+    def _arm_via_entry(
         self, view: HeadlessBoardView, wire: Wire
-    ) -> SelectTool:
-        from protoboard.controller.selection.wire_edit import WireRange
+    ) -> WireEditTool:
+        """Drive the REAL ``[E]`` entry: select the wire, arm wire-edit, then
+        resolve the full-span fragment through ``_range_picked`` — which hands
+        off to the WireEditTool (the swap under test).  Returns the now-active
+        WireEditTool."""
+        from protoboard.controller.selection.adapters import WireVertexSelectable
 
         tool = _select_tool(view)
         tool._selection.set(WireSelectable(wire=wire))
-        tool._wire_edit = WireRange.full_span(wire)
-        return tool
+        tool.arm_wire_edit()  # runs _ensure_wire_ready_for_edit + arms the pick
+        # Re-read the wire: _ensure_wire_ready_for_edit may have enriched its
+        # path (and thus replaced the object) before the fragment resolves.
+        wire = view.session.layout.wires.get(wire.id)
+        assert wire is not None
+        last = len(wire.path) - 1
+        tool._range_picked(
+            [WireVertexSelectable(wire.id, 0), WireVertexSelectable(wire.id, last)]
+        )
+        active = view.active_tool
+        assert isinstance(active, WireEditTool)  # handed off to wire-edit
+        return active
 
-    def test_autoroute_op_currently_drops_to_plain_select(
+    def test_autoroute_op_stays_in_wire_edit(
         self, session: EditorSession
     ) -> None:
-        # PARITY-FLIP(Task 8): after extraction, autoroute stays in wire-edit.
         view = _headless(session)
         wire = self._detour_wire(session)
-        tool = self._arm_full_span_edit(view, wire)
+        tool = self._arm_via_entry(view, wire)
 
         tool._autoroute_fragment()
 
-        assert tool._wire_edit is None  # dropped to plain select today
+        assert tool._wire_edit is not None  # re-armed on the mutated wire
+        assert view.active_tool is tool  # stayed in wire-edit
 
-    def test_flip_op_currently_drops_to_plain_select(
+    def test_flip_op_stays_in_wire_edit(
         self, session: EditorSession
     ) -> None:
-        # PARITY-FLIP(Task 8): after extraction, flip stays in wire-edit.
         view = _headless(session)
         wire = self._detour_wire(session)
-        tool = self._arm_full_span_edit(view, wire)
+        tool = self._arm_via_entry(view, wire)
 
         tool._flip_wire_fragment()
 
-        assert tool._wire_edit is None  # dropped to plain select today
+        assert tool._wire_edit is not None
+        assert view.active_tool is tool
 
-    def test_simplify_op_currently_drops_to_plain_select(
+    def test_simplify_op_stays_in_wire_edit(
         self, session: EditorSession
     ) -> None:
-        # PARITY-FLIP(Task 8): after extraction, simplify stays in wire-edit.
         view = _headless(session)
         wire = self._detour_wire(session)
-        tool = self._arm_full_span_edit(view, wire)
+        tool = self._arm_via_entry(view, wire)
 
         tool._simplify_wire_fragment()
 
-        assert tool._wire_edit is None  # dropped to plain select today
+        assert tool._wire_edit is not None
+        assert view.active_tool is tool
 
-    def test_delete_op_currently_drops_to_plain_select(
+    def test_delete_op_exits_to_plain_select(
         self, session: EditorSession
     ) -> None:
-        # PARITY-FLIP(Task 8): after extraction, delete stays in wire-edit
-        # (deleting the whole wire, though, leaves nothing left to stay on —
-        # this captures today's post-op state regardless).
+        # The ONE op that exits: deleting the whole wire leaves nothing to
+        # re-arm, so control returns to the plain SelectTool via return_to.
         view = _headless(session)
         wire = self._detour_wire(session)
-        tool = self._arm_full_span_edit(view, wire)
+        tool = self._arm_via_entry(view, wire)
+        n_before = len(session.layout.wires)
 
         tool._delete_fragment()
 
-        assert tool._wire_edit is None  # dropped to plain select today
+        assert view.active_tool is not tool
+        assert isinstance(view.active_tool, SelectTool)
+        assert len(session.layout.wires) == n_before - 1
+
+    def test_two_consecutive_ops_without_rearm(
+        self, session: EditorSession
+    ) -> None:
+        # Proof of the stays-armed model: [S] then [F] both land commands on
+        # the stack without a re-entry round-trip through SelectTool.
+        view = _headless(session)
+        wire = self._detour_wire(session)
+        tool = self._arm_via_entry(view, wire)
+        n_before = len(session.stack._undo)  # type: ignore[attr-defined]
+
+        tool._simplify_wire_fragment()
+        assert view.active_tool is tool  # no round-trip
+        tool._flip_wire_fragment()
+        assert view.active_tool is tool
+
+        assert len(session.stack._undo) == n_before + 2  # type: ignore[attr-defined]
 
     def test_reroute_esc_keeps_fragment(self, session: EditorSession) -> None:
         # MUST stay true: Esc mid-reroute keeps the fragment selected (the
         # two-stage model the rest of the refactor generalises).
         view = _headless(session)
         wire = self._detour_wire(session)
-        tool = self._arm_full_span_edit(view, wire)
+        tool = self._arm_via_entry(view, wire)
 
         tool._begin_reroute()  # arms the waypoint pick
         assert tool._mouse is not None
 
-        tool._reroute_cancel()  # Esc mid-reroute (called by the pick's on_cancel)
-        # The pick machinery itself clears self._mouse on cancel; what matters
-        # here is that the fragment selection (_wire_edit) was NOT dropped.
+        tool.cancel_op()  # Esc mid-reroute
+        # The fragment (_wire_edit) is NOT dropped; only the waypoint pick was.
         assert tool._wire_edit is not None
+        assert view.active_tool is tool
+
+    def test_handback_resyncs_selection_to_mutated_wire(
+        self, session: EditorSession
+    ) -> None:
+        # The dropped _refresh_highlight fix (8a reviewer Important finding): a
+        # simplify replaces the Wire OBJECT (fresh geometry, same id).  When
+        # control returns to SelectTool, its selection must re-sync to the
+        # CURRENT wire — not keep the stale pre-op snapshot — so the highlight
+        # renders post-op geometry (memory feedback_refresh_highlights_after_
+        # mutation).
+        from protoboard.controller.selection.adapters import WireSelectable
+
+        view = _headless(session)
+        wire = self._detour_wire(session)
+        select = _select_tool(view)
+        select._selection.set(WireSelectable(wire=wire))
+        select.arm_wire_edit()
+        fresh = session.layout.wires.get(wire.id)
+        assert fresh is not None
+        last = len(fresh.path) - 1
+        from protoboard.controller.selection.adapters import WireVertexSelectable
+        select._range_picked(
+            [WireVertexSelectable(wire.id, 0),
+             WireVertexSelectable(wire.id, last)]
+        )
+        wire_edit = view.active_tool
+        assert isinstance(wire_edit, WireEditTool)
+
+        wire_edit._simplify_wire_fragment()  # mutates geometry (id preserved)
+        wire_edit._exit()  # empty [Esc] → hand back to SelectTool
+
+        assert view.active_tool is select
+        # The re-synced selection points at the CURRENT wire object, and the
+        # highlight tracks its (live) id — not a stale snapshot / dead id.
+        selected = list(select._selection.selected())
+        assert [s.to_hit().id for s in selected] == [wire.id]
+        current = session.layout.wires.get(wire.id)
+        assert current is not None
+        assert any(s.wire is current for s in selected
+                   if isinstance(s, WireSelectable))
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        assert wire.id in entry.wire_ids
+
+    def test_handback_after_delete_drops_dead_wire_highlight(
+        self, session: EditorSession
+    ) -> None:
+        # Delete removes the wire entirely: on hand-back the selection is
+        # cleared and the highlight must NOT retain the now-dead wire id.
+        view = _headless(session)
+        wire = self._detour_wire(session)
+        tool = self._arm_via_entry(view, wire)
+
+        tool._delete_fragment()  # wire gone -> return_to fires
+
+        select = view.active_tool
+        assert isinstance(select, SelectTool)
+        assert select._selection.is_empty()
+        entry = session.highlight_stack.active()
+        # Either no active entry, or one that no longer references the dead id.
+        assert entry is None or wire.id not in entry.wire_ids
 
 
 class TestRouteToolExitParity:
@@ -410,3 +559,4 @@ class TestRouteConflictGate:
         added_before = len(session.layout.wires)
         assert tool.commit_op() is True
         assert len(session.layout.wires) == added_before + 1
+

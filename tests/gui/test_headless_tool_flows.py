@@ -49,7 +49,12 @@ from protoboard.controller.tools.drag_commit_decision import (
 # these tests drive on_press/on_move, which need the tool's real Qt preview
 # (HeadlessBoardView has a real QGraphicsScene — no QWidget/event loop, but
 # not Qt-free) — the same object MainWindow activates in production.
-from protoboard.gui.tools.gui_tools import ArmedTransformTool, PlaceTool, SelectTool
+from protoboard.gui.tools.gui_tools import (
+    ArmedTransformTool,
+    PlaceTool,
+    SelectTool,
+    WireEditTool,
+)
 from tests.fakes.board_view import HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
 
@@ -779,7 +784,9 @@ class TestWireFragmentSimplify:
     """[S] in wire-edit mode simplifies the selected fragment (plan Stage 5).
 
     Whole-wire Simplify and fragment Simplify share build_simplify_range_command
-    — this drives the tool path (arm fragment → simplify → command executes).
+    — this drives the WireEditTool op path (arm fragment → simplify → command
+    executes).  Repointed for the Task-8 swap: the fragment-simplify op moved
+    from SelectTool to :class:`WireEditTool`.
     """
 
     @staticmethod
@@ -800,6 +807,21 @@ class TestWireFragmentSimplify:
         session.layout_changed.emit()
         return w
 
+    @staticmethod
+    def _arm_wire_edit(
+        view: HeadlessBoardView, wire_range: object, wire_id: object
+    ) -> WireEditTool:
+        """Arm a WireEditTool on *wire_range* through the ToolHost so activate()
+        runs (mirrors test_wire_edit_tool.py::_arm)."""
+        select = SelectTool()
+        view.tools.set_tool(select)
+        tool = WireEditTool(
+            wire_range, wire_id,  # type: ignore[arg-type]
+            return_to=lambda: view.tools.set_tool(select),
+        )
+        view.tools.set_tool(tool)
+        return tool
+
     def test_fragment_simplify_shortens_wire(
         self, session: EditorSession
     ) -> None:
@@ -807,11 +829,8 @@ class TestWireFragmentSimplify:
 
         view = _headless(session)
         wire = self._add_detour_wire(session)
-        tool = _select_tool(view)
-        tool._selection.set(WireSelectable(wire=wire))
-        # Arm a full-span fragment directly (the two-vertex pick is covered by
-        # the builder unit tests); [S] then simplifies it.
-        tool._wire_edit = WireRange.full_span(wire)
+        # Full-span fragment armed in the WireEditTool; [S] then simplifies it.
+        tool = self._arm_wire_edit(view, WireRange.full_span(wire), wire.id)
         n_before = len(session.layout.wires.get(wire.id).path)
 
         tool._simplify_wire_fragment()
@@ -835,9 +854,7 @@ class TestWireFragmentSimplify:
             insulated=True, side="top",
         )
         session.layout.wires.append(b)
-        tool = _select_tool(view)
-        tool._selection.set(WireSelectable(wire=a))
-        tool._wire_edit = WireRange(a.id, 0, b.id, 1)  # cross-wire
+        tool = self._arm_wire_edit(view, WireRange(a.id, 0, b.id, 1), a.id)
         before = list(session.layout.wires.get(a.id).path)
 
         tool._simplify_wire_fragment()

@@ -1954,20 +1954,17 @@ class MainWindow(QMainWindow):
         self._session.layout_changed.emit()
 
     def _move_selected_wires_to_side(self, side: str | None) -> None:
-        """Move wires to a layer; ``side=None`` toggles (flip).
+        """Move all selected whole wires to a layer; ``side=None`` toggles (flip).
 
-        If a fragment is being edited, operates on the fragment (via
-        FlipWireFragmentCommand). Otherwise operates on all selected wires
-        (toggle requires same current side).  Delegates to SelectTool which
-        owns validation and status messages.
+        Operates on all selected wires (toggle requires same current side).
+        Delegates to SelectTool which owns validation and status messages.  The
+        per-fragment flip is the WireEditTool's ``[F]`` op (entered via ``[E]``),
+        not this menu slot.
         """
         tool = self._get_select_tool()
         if tool is None:
             return
-        if tool._is_editing_wire():
-            tool._flip_wire_fragment(target_side=side)
-        else:
-            tool._move_selected_wires_to_side(side)
+        tool._move_selected_wires_to_side(side)
 
     def _disconnect_pin(self) -> None:
         """Disconnect pin — shows submenu if SelectTool has a component selected."""

@@ -11,7 +11,31 @@ from pytestqt.qtbot import QtBot
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView, _Tool
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
+
+
+def _arm_wire_edit(board_view: BoardView) -> WireEditTool:
+    """Arm a WireEditTool on a wire so its ops (reroute / …) surface in the
+    [?] overlay + context — reroute moved to WireEditTool in the Task-8 swap."""
+    import uuid
+
+    from protoboard.controller.selection.wire_edit import WireRange
+    from protoboard.domain.layout.wire import Wire
+
+    session = board_view.session
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5)],
+        insulated=True, side="top",
+    )
+    session.layout.wires.append(wire)
+    session.invalidate_graph()
+    board_view.set_tool(SelectTool())
+    tool = WireEditTool(
+        WireRange.full_span(wire), wire.id, return_to=lambda: None,
+    )
+    board_view.set_tool(tool)
+    return tool
 
 
 class TestSnap:
@@ -219,14 +243,14 @@ class TestShortcutsHelp:
 
     def test_overlay_lists_tool_actions(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
-        board_view.set_tool(SelectTool())
+        # reroute is a WireEditTool op after the Task-8 swap.
+        _arm_wire_edit(board_view)
         board_view.tools._show_shortcuts_overlay()
         ov = board_view.help_overlay._label
         assert isinstance(ov, QLabel)
         text = ov.text()
-        # A SelectTool action and its shortcut appear.
+        # A wire-edit tool action and its shortcut appear.
         assert "Reroute" in text
-        assert "Edit" in text
 
     def test_overlay_lists_real_app_shortcuts(self, board_view: BoardView) -> None:
         # Regression: the global section is built from the real action registry
@@ -245,7 +269,7 @@ class TestShortcutsHelp:
     def test_overlay_reflects_rebind(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
         board_view.keymap.set_override("select-tool.action.reroute", "Q")
-        board_view.set_tool(SelectTool())
+        _arm_wire_edit(board_view)  # reroute is a WireEditTool op now
         board_view.tools._show_shortcuts_overlay()
         ov = board_view.help_overlay._label
         assert isinstance(ov, QLabel)
@@ -254,12 +278,15 @@ class TestShortcutsHelp:
 
     def test_tool_action_context_items(self, board_view: BoardView) -> None:
         # The tool-action section now travels as InteractionContext options
-        # (qt-ports §2.4) — same content the old QMenu section carried.
-        board_view.set_tool(SelectTool())
+        # (qt-ports §2.4) — same content the old QMenu section carried.  reroute
+        # is a WireEditTool op after the Task-8 swap; edit stays on SelectTool.
+        _arm_wire_edit(board_view)
         ctx = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
         ids = {o.action_id for o in ctx.actions}
         assert "select-tool.action.reroute" in ids
-        assert "select-tool.action.edit" in ids
+        board_view.set_tool(SelectTool())
+        ctx2 = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
+        assert "select-tool.action.edit" in {o.action_id for o in ctx2.actions}
 
     def test_dispatch_tool_command_rotates(
         self, board_view: BoardView, session: EditorSession

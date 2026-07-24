@@ -9,10 +9,12 @@ assert *structural* payload fields, not formatted strings.
 
 from __future__ import annotations
 
+import uuid
+
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.controller.ports import StatusEvent
-from protoboard.gui.tools.gui_tools import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
 
 
 class TestStatusEvent:
@@ -94,11 +96,35 @@ class TestWheelNotchAccumulator:
 
 
 class TestInteractionContext:
+    @staticmethod
+    def _arm_wire_edit(board_view: BoardView) -> WireEditTool:
+        """Arm a WireEditTool on a wire so its actions (reroute / …) surface in
+        the context query — reroute moved to WireEditTool in the Task-8 swap."""
+        from protoboard.controller.selection.wire_edit import WireRange
+        from protoboard.domain.layout.wire import Wire
+
+        session = board_view.session
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5)],
+            insulated=True, side="top",
+        )
+        session.layout.wires.append(wire)
+        session.invalidate_graph()
+        board_view.set_tool(SelectTool())
+        tool = WireEditTool(
+            WireRange.full_span(wire), wire.id,
+            return_to=lambda: None,
+        )
+        board_view.set_tool(tool)
+        return tool
+
     def test_get_context_at_lists_tool_actions(
         self, board_view: BoardView
     ) -> None:
-        # A pure query — no menu, no fake, no exec (qt-ports §2.4).
-        board_view.set_tool(SelectTool())
+        # A pure query — no menu, no fake, no exec (qt-ports §2.4).  reroute is
+        # a WireEditTool action after the Task-8 swap.
+        self._arm_wire_edit(board_view)
         ctx = board_view.tools.get_context_at(Point(2.5, 1.5), Point(10.0, 20.0))
         assert ctx.kind == "canvas"
         assert ctx.scene_pos == Point(2.5, 1.5)
@@ -123,7 +149,7 @@ class TestInteractionContext:
 
     def test_context_reflects_rebind(self, board_view: BoardView) -> None:
         board_view.keymap.set_override("select-tool.action.reroute", "Q")
-        board_view.set_tool(SelectTool())
+        self._arm_wire_edit(board_view)
         ctx = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
         reroute = next(
             o for o in ctx.actions

@@ -195,6 +195,40 @@ class WireEditTool(_WireEditTool, ViewToolMixin):
     make_key_map = ViewToolMixin.make_key_map
     _theme = ViewToolMixin._theme
 
+    def key_actions(self) -> dict[str, str | None]:
+        """The wire-edit op keys, registered on this tool's own KeyMap layer.
+
+        When ``[E]`` hands off to WireEditTool, SelectTool's layer is gone, so
+        the op ids must be (re)declared here for the KeyMap to resolve them —
+        otherwise the raw keys would fall through to the global map and the ops
+        would be unreachable by keyboard.  ``None`` inherits the generic global
+        default (delete / cancel); the reroute / autoroute / flip / simplify
+        shortcuts match SelectTool's historical wire-edit bindings.
+        """
+        return {
+            "select-tool.action.reroute": "W",
+            "select-tool.action.autoroute": "A",
+            "select-tool.action.flip_fragment": "F",
+            "select-tool.action.simplify_fragment": "S",
+            "select-tool.action.delete": None,   # global.action.delete (Del)
+            "select-tool.action.cancel": None,   # global.action.cancel (Esc)
+        }
+
+    def key_claims(self):  # type: ignore[no-untyped-def]
+        """Veto the global shortcuts whose keys the wire-edit ops need while a
+        fragment is armed — otherwise ``[W]`` would fire the global Route
+        shortcut instead of reroute (the same veto SelectTool used to own for
+        wire-edit).  Delete is claimed too so the global delete doesn't shadow
+        the fragment delete."""
+        armed = lambda: self._wire_edit is not None  # noqa: E731
+        return (
+            ("select-tool.action.reroute", armed),
+            ("select-tool.action.autoroute", armed),
+            ("select-tool.action.flip_fragment", armed),
+            ("select-tool.action.simplify_fragment", armed),
+            ("select-tool.action.delete", armed),
+        )
+
     def activate(self, session: object, view: object) -> None:
         from protoboard.gui.tools.select_preview import QtSelectPreview
 
@@ -204,6 +238,22 @@ class WireEditTool(_WireEditTool, ViewToolMixin):
         super().activate(session, view)  # type: ignore[arg-type]
 
     def on_key(self, inp: KeyInput) -> bool:
+        from PySide6.QtCore import Qt
+
+        from protoboard.controller.selection.mouse_input import Intent
+
+        # A live reroute waypoint pick consumes Enter (commit) / Backspace
+        # (drop last waypoint) before the op-keys — the same intent routing
+        # gui SelectTool did for wire-edit.  Esc is handled by the host's
+        # two-stage exit (cancel_op then can_exit), so it is not translated
+        # here (it would double-cancel).
+        key = inp.key
+        if key in (Qt.Key.Key_Return.value, Qt.Key.Key_Enter.value):
+            if self.commit_op():
+                return True
+        elif key == Qt.Key.Key_Backspace.value:
+            if self._dispatch_intent(Intent.UNDO):  # type: ignore[attr-defined]
+                return True
         return _dispatch_key_by_action_id(self, inp)
 
 
@@ -231,6 +281,8 @@ class SelectTool(_SelectTool, ViewToolMixin):
             )
         if not self._armed_transform_factory_injected:  # type: ignore[attr-defined]
             self._armed_transform_factory = ArmedTransformTool  # type: ignore[attr-defined]
+        if not self._wire_edit_factory_injected:  # type: ignore[attr-defined]
+            self._wire_edit_factory = WireEditTool  # type: ignore[attr-defined]
         super().activate(session, view)  # type: ignore[arg-type]
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
@@ -280,13 +332,6 @@ class SelectTool(_SelectTool, ViewToolMixin):
         intent = self._key_to_intent(key)
         if intent is not None and self._dispatch_intent(intent):
             return True
-
-        # Fragment selected and no pick in flight → the op-keys act on it
-        # ([W] reroute · [A] autoroute · [Del] delete · [Esc] cancel).  This is
-        # the "operations are actions on the selected fragment" branch.
-        if self._wire_edit is not None and self._mouse is None:
-            if self._wire_edit_on_key(inp):
-                return True
 
         # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
         # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it

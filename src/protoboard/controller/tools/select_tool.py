@@ -44,7 +44,6 @@ from protoboard.controller.ports import (
     ActionOption,
     HoverEvent,
     InteractionContext,
-    KeyInput,
     PointerInput,
     StatusEvent,
     WheelInput,
@@ -75,6 +74,7 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.drag_set import DragSet
     from protoboard.controller.selection.adapters import WireVertexSelectable
     from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
+    from protoboard.controller.tools.wire_edit_tool import WireEditTool
     from protoboard.controller.selection.mouse_input import MouseInputController
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.wire_edit import WireEditState
@@ -95,15 +95,8 @@ _CLICK_THRESHOLD = 0.3
 # and key dispatch resolve keys against these *by id*, never by hard-coded raw
 # key literals — so a user rebinding any of them is honoured automatically.
 _ACT_EDIT = "select-tool.action.edit"
-_ACT_REROUTE = "select-tool.action.reroute"
-_ACT_AUTOROUTE = "select-tool.action.autoroute"
 _ACT_DELETE = "select-tool.action.delete"
 _ACT_CANCEL = "select-tool.action.cancel"
-# Wire-edit op-table extra: [F] flips the selected fragment to the other layer.
-_ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
-# Wire-edit op-table extra: [S] simplifies the selected fragment (range op —
-# whole-wire simplify is the full-span case of the same builder).
-_ACT_SIMPLIFY_FRAGMENT = "select-tool.action.simplify_fragment"
 # Transform entry keys: [R] arms float-rotate, [G] arms keyboard float-move
 # (both hand off to the ArmedTransformTool, which owns the step/wheel keys on
 # its own layer); [Alt+R] is an immediate flip. Dispatched by id, never raw key.
@@ -199,6 +192,7 @@ class SelectTool(ControllerTool):
         preview: SelectPreview | None = None,
         group_prompt: GroupTargetPrompt | None = None,
         armed_transform_factory: Callable[..., ArmedTransformTool] | None = None,
+        wire_edit_factory: Callable[..., WireEditTool] | None = None,
     ) -> None:
         super().__init__()  # sets _session / _view to None up-front
         self._selection: SelectionService = None  # type: ignore[assignment]
@@ -229,6 +223,15 @@ class SelectTool(ControllerTool):
             armed_transform_factory
         )
         self._armed_transform_factory_injected = armed_transform_factory is not None
+        # WireEditTool constructor — injected callable; the GUI-composed
+        # subclass's activate() defaults it to the Qt-composed
+        # ``gui.tools.gui_tools.WireEditTool`` (preview + on_key).  ``[E]`` on a
+        # selected wire resolves the fragment range then hands off to this tool
+        # (mirrors ``_armed_transform_factory``).
+        self._wire_edit_factory: Callable[..., WireEditTool] | None = (
+            wire_edit_factory
+        )
+        self._wire_edit_factory_injected = wire_edit_factory is not None
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
         # (no drag), the release collapses the selection onto this entity — or
@@ -258,10 +261,12 @@ class SelectTool(ControllerTool):
         # overlay lives in the preview, the pick state lives in the service.
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin: int | None = None
-        # Wire-edit: the selected fragment (tool-local, like _rotate_pivot) plus
-        # the cluster-cycle state threaded through the wire-vertex pick.  The
-        # operations on the fragment (reroute / autoroute / delete) are actions
-        # dispatched by `_wire_edit_on_key` once the fragment is selected.
+        # Wire-edit ENTRY state (tool-local, like _rotate_pivot): the in-flight
+        # two-vertex range pick that resolves a wire fragment.  Once both
+        # vertices are picked, `_range_picked` hands off to the WireEditTool
+        # (which owns the fragment ops); SelectTool never itself runs an op.
+        # `_wire_edit` therefore stays None in practice — it is the transient
+        # in-progress range only the draw-overlay reads.
         from protoboard.controller.selection.hit_test import WireEditCycle
 
         self._wire_edit: WireEditState | None = None
@@ -2186,7 +2191,16 @@ class SelectTool(ControllerTool):
         self._draw_wire_edit_overlay()
 
     def _range_picked(self, picked: list[Selectable]) -> None:
-        """Build the :class:`WireEditState` from the two picked vertices."""
+        """Resolve the fragment range from the two picked vertices, then hand
+        off to the :class:`WireEditTool` (mirrors :meth:`_arm_transform`).
+
+        SelectTool owns the two-vertex ``wire-vertex`` pick (and the pad-vertex
+        materialisation done at :meth:`arm_wire_edit` entry); once the range
+        resolves, the fragment edit itself lives in its own tool.  The ops (
+        reroute / autoroute / flip / simplify / delete) stay armed after each
+        commit; ``return_to`` drops back to this SelectTool (delete / [Esc]),
+        re-syncing the selection highlight to whatever wire survived.
+        """
         from protoboard.controller.selection.adapters import WireVertexSelectable
         from protoboard.controller.selection.wire_edit import WireEditState
 
@@ -2205,264 +2219,54 @@ class SelectTool(ControllerTool):
                 return
             if end_idx < start_idx:
                 start_idx, end_idx = end_idx, start_idx
-        self._wire_edit = WireEditState(
+        wire_range = WireEditState(
             start_wire_id=start_wire,
             start_idx=start_idx,
             end_wire_id=end_wire,
             end_idx=end_idx,
         )
-        self._draw_wire_edit_overlay()
-        self._status(
-            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
-            0,
-        )
-
-    def _wire_edit_on_key(self, inp: KeyInput) -> bool:
-        """Op-table for the selected fragment — one entry per operation.
-
-        Dispatches by *action id* resolved through the KeyMap — never by
-        hard-coded raw key literals — so rebinding reroute / autoroute /
-        delete / cancel is honoured.  Returns True when the key was consumed.
-        """
-        if self._key_matches(inp, _ACT_REROUTE):
-            self._begin_reroute()
-        elif self._key_matches(inp, _ACT_AUTOROUTE):
-            self._autoroute_fragment()
-        elif self._key_matches(inp, _ACT_FLIP_FRAGMENT):
-            self._flip_wire_fragment()
-        elif self._key_matches(inp, _ACT_SIMPLIFY_FRAGMENT):
-            self._simplify_wire_fragment()
-        elif self._key_matches(inp, _ACT_DELETE):
-            self._delete_fragment()
-        elif self._key_matches(inp, _ACT_CANCEL):
-            self._wire_edit_clear()
-        else:
-            return False
-        return True
-
-    def _begin_reroute(self) -> None:
-        """Arm the waypoint pick — ``[W]`` reroute (a second chained pick).
-
-        Collects snapped board waypoints (``point`` / ``Stop.confirm()``);
-        ``on_progress`` previews the dashed orange polyline, ``on_preview``
-        draws the live cursor segment, Enter (CONFIRM) commits.
-        """
-        from protoboard.controller.selection.selectable import Stop
-
-        if self._wire_edit is None:
-            return
-        self._status(
-            "Reroute: click waypoints  ·  [Enter] Commit  ·  "
-            "[Backspace] Undo  ·  [Esc] Cancel",
-            0,
-        )
-        self._arm_pick(
-            "point",
-            Stop.confirm(),
-            on_done=self._commit_reroute,
-            on_cancel=self._reroute_cancel,
-            on_progress=self._reroute_progress,
-            on_preview=self._reroute_preview,
-        )
-
-    def _reroute_progress(self, picked: list[Selectable]) -> None:
-        from protoboard.controller.selection.adapters import PointSelectable
-
-        pts = [p.point for p in picked if isinstance(p, PointSelectable)]
-        self._draw_reroute_preview(pts)
-
-    def _reroute_preview(self, scene_pt: Point, _mods: Mods) -> None:
-        """Live rubber-band from the last anchor to the cursor (snapped)."""
-        self._clear_reroute_live()
-        anchor = self._reroute_anchor()
-        if anchor is None:
-            return
-        snapped = self._snap(scene_pt, frozenset())
-        self.preview.show_reroute_live(anchor, snapped)
-
-    def _reroute_anchor(self) -> Point | None:
-        """The point a new reroute segment starts from (last waypoint or start).
-
-        Single source of truth — the live :class:`PickSession`'s collected
-        waypoints, the same list ``_reroute_progress`` draws the committed
-        polyline from.  ``state.waypoints`` is only populated at commit time
-        (``with_waypoints``), so reading it here would make every live segment
-        start from the fragment start instead of the last picked pad — the same
-        anchoring RouteTool gets for free from its single ``_points`` list.
-        """
-        state = self._wire_edit
-        if state is None:
-            return None
-        last = self._reroute_last_picked_point()
-        if last is not None:
-            return last
-        wire = self._wire_by_id(state.start_wire_id)
-        if wire is None:
-            return None
-        return wire.path[state.start_idx]
-
-    def _reroute_last_picked_point(self) -> Point | None:
-        """The last confirmed waypoint from the active pick, or None.
-
-        Reaches into ``self._mouse`` (the parked ``PointPickController``) for
-        its ``PickSession.collected`` list — the authoritative, live record of
-        what the user has clicked so far this reroute.
-        """
-        from protoboard.controller.selection.adapters import PointSelectable
-
-        mouse = self._mouse
-        session = getattr(mouse, "session", None)
-        if session is None:
-            return None
-        pts = [p.point for p in session.collected if isinstance(p, PointSelectable)]
-        return pts[-1] if pts else None
-
-    def _net_aware_add_factory(self) -> object:
-        """A wire-range ``add_factory`` that reclassifies nets (plan Stage 2).
-
-        The Qt-free range builders (excise / reroute / delete) mint fresh wires
-        when a cut re-adds a surviving or replacement piece. The default factory
-        emits a plain ``AddWireCommand`` (net stays as derived). This factory
-        wraps each fresh wire in an ``AddWireWithNetsCommand`` and runs
-        ``resolve_wire_nets`` against the live session, so a piece whose new
-        endpoint lands on a pin re-extends / re-merges the schematic instead of
-        silently keeping the stale net (``docs/core-wire-semantics.md`` §5).
-
-        Called during macro *build*; ``resolve_wire_nets`` mutates
-        ``schematic.nets`` immediately and records the change into the command
-        for undo, matching ``EditController.add_wire``'s resolve-before-execute
-        ordering. Multiple fresh wires in one macro resolve in sequence, so each
-        sees the previous one's net mutations.
-        """
-        from typing import cast
-
-        from protoboard.domain.commands.base import Command, ComponentState
-        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
-        from protoboard.controller.editing.wire_nets import resolve_wire_nets
-        from protoboard.domain.layout.wire import Wire as _Wire
-
-        def _factory(wire: _Wire) -> "Command[ComponentState]":
-            cmd = AddWireWithNetsCommand(wire=wire)
-            # A fragment edit stays within one net (net-restricted hit-test), so
-            # a two-distinct-net fuse should not arise; keep the first net's name
-            # if it ever does rather than raise, and log it.
-            resolve_wire_nets(
-                cast("EditState", self._session),
-                wire,
-                cmd,
-                merge_prompt=lambda net_a, _net_b: net_a.name,
+        wire_id = self._wire_edit_wire_id
+        assert wire_id is not None  # set by arm_wire_edit before the pick
+        # Drop SelectTool's own wire-edit overlay/pick state before handing off —
+        # the WireEditTool draws its own overlay.
+        self._wire_edit_clear()
+        assert self._wire_edit_factory is not None  # set by activate() / injection
+        self._view.tools.set_tool(
+            self._wire_edit_factory(
+                wire_range,
+                wire_id,
+                return_to=lambda: self._return_from_wire_edit(wire_id),
             )
-            return cast("Command[ComponentState]", cmd)
-
-        return _factory
-
-    def _commit_reroute(self, picked: list[Selectable]) -> None:
-        """Commit the reroute: build the path command and execute it."""
-        from protoboard.controller.selection.adapters import PointSelectable
-        from protoboard.controller.selection.wire_edit import build_reroute_command
-
-        state = self._wire_edit
-        if state is None:
-            self._wire_edit_clear()
-            return
-        pts = [p.point for p in picked if isinstance(p, PointSelectable)]
-        cmd = build_reroute_command(
-            self._session.layout,
-            list(self._session.layout.wires),
-            self._wire_net_map(),
-            state.with_waypoints(pts),
-            self._net_aware_add_factory(),  # type: ignore[arg-type]
-        )
-        self._wire_edit_clear()
-        if cmd is not None:
-            self._execute_command(cmd)
-        self._refresh_after_wire_op()
-
-    def _reroute_cancel(self) -> None:
-        """Esc during reroute → drop the waypoints, keep the fragment selected."""
-        self._clear_reroute_overlay()
-        if self._wire_edit is not None:
-            self._status(
-                "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-                "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
-                0,
-            )
-
-    def _autoroute_fragment(self) -> None:
-        """A* re-route the fragment — ``[A]``."""
-        from protoboard.controller.selection.wire_edit import (
-            autoroute_fragment_path,
-            build_reroute_command,
         )
 
-        state = self._wire_edit
-        if state is None:
-            return
-        source, target, side = self._fragment_endpoints(state)
-        if source is None or target is None:
-            self._wire_edit_clear()
-            return
-        graph = self._session.connectivity_graph()
-        routed = autoroute_fragment_path(graph, source, target, side)
-        if routed is None:
-            self._wire_edit_clear()
-            self._status("Autoroute: no path found")
-            self._refresh_after_wire_op()
-            return
-        # Interior waypoints only — endpoints come from the fragment range.
-        waypoints = routed[1:-1]
-        cmd = build_reroute_command(
-            self._session.layout,
-            list(self._session.layout.wires),
-            self._wire_net_map(),
-            state.with_waypoints(waypoints),
-            self._net_aware_add_factory(),  # type: ignore[arg-type]
-        )
-        self._wire_edit_clear()
-        if cmd is not None:
-            self._execute_command(cmd)
-        self._refresh_after_wire_op()
+    def _return_from_wire_edit(self, wire_id: uuid.UUID) -> None:
+        """Hand control back from :class:`WireEditTool` to this SelectTool.
 
-    def _delete_fragment(self) -> None:
-        """Delete the selected fragment — ``[Del]`` / ``[Backspace]``."""
-        from protoboard.controller.selection.wire_edit import build_delete_command
+        Re-arms this tool and re-syncs the selection highlight to the wire that
+        survived the edit: reroute/simplify/flip preserve *wire_id* but replace
+        the ``Wire`` object (new geometry), and a cross-wire op or delete may
+        remove it entirely.  Without this re-sync the selection would keep a
+        stale ``Wire`` snapshot / a dead wire id and the highlight would render
+        pre-op geometry (memory ``feedback_refresh_highlights_after_mutation``).
+        """
+        from protoboard.controller.selection.adapters import WireSelectable
 
-        state = self._wire_edit
-        if state is None:
-            return
-        cmd = build_delete_command(
-            list(self._session.layout.wires),
-            self._wire_net_map(),
-            state,
-            self._net_aware_add_factory(),  # type: ignore[arg-type]
-        )
-        self._wire_edit_clear()
-        if cmd is not None:
-            self._execute_command(cmd)
-        self._refresh_after_wire_op()
-
-    def _fragment_endpoints(
-        self, state: WireEditState
-    ) -> tuple[Point | None, Point | None, str]:
-        """Resolve the fragment's two boundary points + side for autoroute."""
-        start_wire = self._wire_by_id(state.start_wire_id)
-        end_wire = self._wire_by_id(state.end_wire_id)
-        if start_wire is None or end_wire is None:
-            return None, None, "top"
-        return (
-            start_wire.path[state.start_idx],
-            end_wire.path[state.end_idx],
-            start_wire.side,
-        )
+        self._view.tools.set_tool(self)
+        # Clear first: the per-session SelectionService still holds the wire
+        # selection from before [E], but with a STALE ``Wire`` snapshot (the op
+        # replaced the object).  A bare ``set`` of the same hit would toggle it
+        # OFF; clear-then-set re-seats the current object deterministically.
+        self._selection.clear()
+        self._context_net_id = None
+        wire = self._wire_by_id(wire_id)
+        if wire is not None:
+            self._selection.set(WireSelectable(wire=wire))
+        self._refresh_highlight()
 
     def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
         return next(
             (w for w in self._session.layout.wires if w.id == wire_id), None
         )
-
-    def _wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
-        return self._session.cached_wire_net_map()
 
     def _refresh_after_wire_op(self) -> None:
         self._refresh_highlight()
@@ -2470,11 +2274,15 @@ class SelectTool(ControllerTool):
             self._view.refresh()
 
     def _wire_edit_clear(self) -> None:
-        """Leave wire-edit: drop the fragment, cycle, overlays, status."""
+        """Reset the wire-edit *entry* state: the in-progress two-vertex pick,
+        the cyan overlay, and the cluster-cycle.
+
+        The fragment edit itself now lives in :class:`WireEditTool`; SelectTool
+        only owns the ``[E]`` entry (the whole-wire selection + the two-vertex
+        range pick), so this clears the transient pick state — not any op."""
         from protoboard.controller.selection.hit_test import WireEditCycle
 
         self._clear_wire_edit_overlay()
-        self._clear_reroute_overlay()
         self._wire_edit = None
         self._wire_edit_wire_id = None
         self._wire_edit_start = None
@@ -2512,27 +2320,8 @@ class SelectTool(ControllerTool):
                 list(wire.path), marked.get(wid, set())
             )
 
-    def _draw_reroute_preview(self, waypoints: list[Point]) -> None:
-        """Dashed orange polyline from the fragment start through the waypoints."""
-        self._clear_reroute_overlay()
-        anchor = None
-        state = self._wire_edit
-        if state is not None:
-            wire = self._wire_by_id(state.start_wire_id)
-            if wire is not None:
-                anchor = wire.path[state.start_idx]
-        if anchor is None:
-            return
-        self.preview.show_reroute_path([anchor, *waypoints])
-
     def _clear_wire_edit_overlay(self) -> None:
         self.preview.clear_wire_edit()
-
-    def _clear_reroute_overlay(self) -> None:
-        self.preview.clear_reroute()
-
-    def _clear_reroute_live(self) -> None:
-        self.preview.clear_reroute_live()
 
     # -- keys -----------------------------------------------------------------
     #
@@ -2540,7 +2329,7 @@ class SelectTool(ControllerTool):
     # subclass in :mod:`protoboard.gui.tools.gui_tools` — it resolves keys
     # (KeyMap action ids, with headless-safe raw-key fallbacks) and calls the
     # command methods kept here: :meth:`_clear_pivot`, :meth:`_dispatch_intent`
-    # (via ``_key_to_intent``), :meth:`_wire_edit_on_key`, :meth:`_cycle_relation`,
+    # (via ``_key_to_intent``), :meth:`_cycle_relation`,
     # :meth:`_delete_selection`, :meth:`_begin_edit_selected`, :meth:`begin_redrag`,
     # :meth:`arm_move`, :meth:`_flip_selected`, :meth:`arm_rotate`,
     # :meth:`exit_group`.  ``ControllerTool.on_key`` (do-nothing default from
@@ -2550,41 +2339,29 @@ class SelectTool(ControllerTool):
     def key_actions(self) -> dict[str, str | None]:
         """The keyboard actions this tool owns (namespaced; see module consts).
 
-        ``None`` inherits the generic global default; ``reroute`` / ``autoroute``
-        carry tool-specific shortcuts.  Registered into the view's KeyMap on
-        activate; the veto + on_key dispatch resolve against these by id.
+        ``None`` inherits the generic global default; a literal overrides for
+        this tool.  Registered into the view's KeyMap on activate; the veto +
+        on_key dispatch resolve against these by id.  The wire-edit op keys
+        (reroute / autoroute / flip / simplify) live on
+        :class:`~protoboard.controller.tools.wire_edit_tool.WireEditTool`'s own
+        layer now, not here — SelectTool only owns the ``[E]`` entry.
         """
         return {
             _ACT_EDIT: None,        # global.action.edit  (default "E")
-            _ACT_REROUTE: "W",
-            _ACT_AUTOROUTE: "A",
             _ACT_DELETE: None,      # global.action.delete (default "Del")
             _ACT_CANCEL: None,      # global.action.cancel (default "Esc")
             _ACT_ROTATE: "R",       # arm float-rotate (hands off to ArmedTransformTool)
             _ACT_MOVE: "G",         # arm keyboard float-move ("grab")
             _ACT_FLIP: None,        # global.action.flip (default "Alt+R") — immediate flip
-            _ACT_FLIP_FRAGMENT: "F",  # wire-edit op: flip fragment to other layer
-            _ACT_SIMPLIFY_FRAGMENT: "S",  # wire-edit op: simplify the fragment
         }
 
     def command_table(self) -> dict[str, Callable[[], object]]:
         """``action_id -> command`` — the data ``EditController.dispatch_tool_
         command`` runs (the View resolves a key to one of these ids via the
-        KeyMap; a headless driver calls the id directly).
-
-        ``delete`` / ``cancel`` are context-sensitive in ``on_key`` (a
-        selected wire-edit fragment claims them first via
-        :meth:`_wire_edit_on_key`) — the entries here reproduce that same
-        precedence, so dispatching by id behaves identically to the raw-key
-        path.
-        """
+        KeyMap; a headless driver calls the id directly)."""
         return {
             _ACT_EDIT: self._begin_edit_selected,
-            _ACT_REROUTE: self._begin_reroute,
-            _ACT_AUTOROUTE: self._autoroute_fragment,
-            _ACT_FLIP_FRAGMENT: self._flip_wire_fragment,
-            _ACT_SIMPLIFY_FRAGMENT: self._simplify_wire_fragment,
-            _ACT_DELETE: self._delete_selection_or_fragment,
+            _ACT_DELETE: self._delete_selection,
             _ACT_CANCEL: self._wire_edit_clear,
             _ACT_ROTATE: self.arm_rotate,
             _ACT_MOVE: self.arm_move,
@@ -2593,41 +2370,21 @@ class SelectTool(ControllerTool):
             _ACT_RELATION_CYCLE_BACK: self._cycle_relation_back,
         }
 
-    def _delete_selection_or_fragment(self) -> bool:
-        """``[Del]``: delete the selected wire-edit fragment if one is armed,
-        else the plain selection — mirrors ``on_key``'s precedence."""
-        if self._wire_edit is not None:
-            self._delete_fragment()
-            return True
-        return self._delete_selection()
-
     def _cycle_relation_back(self) -> None:
         self._cycle_relation(forward=False)
 
     def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
         """Contextual key claims (see :meth:`_Tool.wants_key` for the veto).
 
-        - A selected wire-edit fragment claims its operation keys.
-        - Delete acts on the current selection — claimed so the global delete
-          action doesn't shadow the tool's handler.
-
-        Pick-confirm / cancel / undo (Enter / Esc / Backspace) are raw,
-        non-action keys that aren't global shortcuts, so they reach the tool
-        anyway and need no claim here. (The armed transform's step-key claims
-        live on the ArmedTransformTool's own layer.)
+        Delete acts on the current selection — claimed so the global delete
+        action doesn't shadow the tool's handler.  Pick-confirm / cancel / undo
+        (Enter / Esc / Backspace) are raw, non-action keys that aren't global
+        shortcuts, so they reach the tool anyway and need no claim here.  The
+        wire-edit op-key claims live on the WireEditTool's own layer.
         """
-        wire_edit = self._has_wire_edit
         return (
-            (_ACT_REROUTE, wire_edit),
-            (_ACT_AUTOROUTE, wire_edit),
-            (_ACT_FLIP_FRAGMENT, wire_edit),
-            (_ACT_SIMPLIFY_FRAGMENT, wire_edit),
-            (_ACT_DELETE, wire_edit),
             (_ACT_DELETE, self._has_selection),
         )
-
-    def _has_wire_edit(self) -> bool:
-        return self._wire_edit is not None
 
     def _has_selection(self) -> bool:
         return not self._selection.is_empty()
@@ -3394,16 +3151,6 @@ class SelectTool(ControllerTool):
             data={"wire_ids": wires, "side": other_side},
         ))
 
-        if (
-            wire.id in target_ids and len(target_ids) == 1
-            and self._is_editing_wire()
-        ):
-            out.append(ActionOption(
-                action_id="select-tool.ctx.flip_fragment",
-                label=f"Flip fragment to {other_side} layer  [F]", group=group,
-                data={"side": other_side},
-            ))
-
         out.append(ActionOption(
             action_id="select-tool.ctx.simplify_wire",
             label=f"Simplify wire{' paths' if n > 1 else ' path'}", group=group,
@@ -3530,8 +3277,6 @@ class SelectTool(ControllerTool):
             self._menu_flip_component_side(
                 cast("uuid.UUID", data["component_id"])
             )
-        elif action == "flip_fragment":
-            self._flip_wire_fragment(cast(str, data["side"]))
         elif action == "simplify_wire":
             self._simplify_wires(
                 set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
@@ -3749,10 +3494,6 @@ class SelectTool(ControllerTool):
             )
         )
 
-    def _is_editing_wire(self) -> bool:
-        """True when a wire fragment is selected (the wire-edit ``WireEditState``)."""
-        return self._wire_edit is not None
-
     def _endpoint_eligible_for_wire_pin(self, position: Point) -> bool:
         """True iff *position* sits on a plated-through pad (wire-pin invariant)."""
         for p in self._session.cached_plated_through_pads():
@@ -3902,75 +3643,11 @@ class SelectTool(ControllerTool):
                 return True
         return False
 
-    def _flip_wire_fragment(self, target_side: str | None = None) -> None:
-        """Flip the selected wire *fragment* to the opposite layer — ``[F]``.
-
-        A wire-edit op (alongside reroute / autoroute / delete): re-sides the
-        selected contiguous fragment of one wire (boundary vertices become
-        vias) via :class:`FlipWireFragmentCommand`.  Same-wire only — a
-        cross-wire selection has no single wire to flip.  ``target_side``
-        defaults to the opposite of the wire's current side.  Falls back to the
-        whole-wire layer move when no fragment is armed.
-        """
-        from protoboard.controller.selection.wire_edit import build_flip_fragment_command
-
-        state = self._wire_edit
-        if state is None:
-            self._move_selected_wires_to_side(target_side)
-            return
-        cmd = build_flip_fragment_command(
-            list(self._session.layout.wires), state, target_side
-        )
-        if cmd is None:
-            self._status_msg(
-                "Flip: pick a fragment on a single wire (two vertices apart)."
-            )
-            return
-        self._wire_edit_clear()
-        self._execute_command(cmd)
-        self._refresh_after_wire_op()
-
-    def _simplify_wire_fragment(self) -> None:
-        """Simplify the selected wire *fragment* — ``[S]`` (a range op).
-
-        The fragment-scoped counterpart of whole-wire *Simplify* (W6): both go
-        through :func:`build_simplify_range_command`, differing only by range —
-        whole-wire simplify is ``WireRange.full_span``. Same-wire only (a slice
-        of one conductor); a cross-wire selection has no single slice. Runs
-        synchronously (one short fragment, no worker needed).
-        """
-        from protoboard.controller.selection.wire_edit import (
-            build_simplify_range_command,
-        )
-        from protoboard.controller.selection.wire_ops import build_simplify_inputs
-        from protoboard.services.routing.postprocess import SimplifyMode
-
-        state = self._wire_edit
-        if state is None or state.is_cross:
-            self._status_msg(
-                "Simplify: pick a fragment on a single wire (two vertices apart)."
-            )
-            return
-        mode = getattr(
-            self._session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
-        )
-        cmd = build_simplify_range_command(
-            self._session.layout,
-            list(self._session.layout.wires),
-            state,
-            build_simplify_inputs(self._session),
-            mode,
-        )
-        self._wire_edit_clear()
-        if cmd is None:
-            self._status_msg("Simplify: nothing to shorten on this fragment.")
-            self._refresh_after_wire_op()
-            return
-        self._execute_command(cmd)
-        self._refresh_after_wire_op()
-
     def _move_selected_wires_to_side(self, target_side: str | None) -> None:
-        """Move all selected wires to a layer (``None`` toggles a shared side)."""
+        """Move all selected *whole* wires to a layer (``None`` toggles a shared
+        side).  The menu-bar surface (Edit ► Design ► Wire ► Move to Top/Bottom
+        Layer, and Wire: Flip) drives this via MainWindow; the per-fragment flip
+        is the WireEditTool's ``[F]`` op."""
         from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import SetWireSideCommand
 

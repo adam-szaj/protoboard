@@ -15,13 +15,36 @@ from PySide6.QtCore import Qt
 
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import SelectTool
+from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
 from tests.fakes.board_view import FakeExecutor, HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
 
 
 def _headless(session: EditorSession) -> HeadlessBoardView:
     return HeadlessBoardView(session)
+
+
+def _arm_wire_edit(view: HeadlessBoardView) -> WireEditTool:
+    """Arm a WireEditTool on a wire so its actions (reroute / autoroute / …)
+    surface in the [?] overlay + context query — those ops moved to WireEditTool
+    in the Task-8 swap."""
+    from protoboard.controller.selection.wire_edit import WireRange
+    from protoboard.domain.layout.wire import Wire
+
+    session = view.session
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5)],
+        insulated=True, side="top",
+    )
+    session.layout.wires.append(wire)
+    session.invalidate_graph()
+    view.tools.set_tool(SelectTool())
+    tool = WireEditTool(
+        WireRange.full_span(wire), wire.id, return_to=lambda: None,
+    )
+    view.tools.set_tool(tool)
+    return tool
 
 
 class TestToolLifecycle:
@@ -33,8 +56,9 @@ class TestToolLifecycle:
         view.tools.set_tool(tool)
         assert view.active_tool is tool
         assert view.refresh_count == 1
-        # The tool's KeyMap layer resolves its own actions.
-        assert view.keymap.resolve("select-tool.action.reroute") == "W"
+        # The tool's KeyMap layer resolves its own actions.  (reroute moved to
+        # WireEditTool in the Task-8 swap; rotate is SelectTool's own action.)
+        assert view.keymap.resolve("select-tool.action.rotate") == "R"
 
     def test_status_publication_records_structurally(
         self, session: EditorSession
@@ -86,7 +110,9 @@ class TestKeyDispatchHeadless:
 
     def test_help_overlay_toggle_via_port(self, session: EditorSession) -> None:
         view = _headless(session)
-        view.tools.set_tool(SelectTool())
+        # Reroute is a WireEditTool op after the Task-8 swap — arm it so the
+        # [?] overlay surfaces its shortcuts.
+        _arm_wire_edit(view)
         view.tools._toggle_shortcuts_overlay()
         assert view.help_overlay.help_visible
         assert view.help_overlay.html is not None
@@ -284,7 +310,8 @@ class TestContextHeadless:
         self, session: EditorSession
     ) -> None:
         view = _headless(session)
-        view.tools.set_tool(SelectTool())
+        # autoroute is a WireEditTool op after the Task-8 swap.
+        _arm_wire_edit(view)
         ctx = view.tools.get_context_at(Point(1.5, 1.5), Point(30.0, 40.0))
         assert any(
             o.action_id == "select-tool.action.autoroute" for o in ctx.actions

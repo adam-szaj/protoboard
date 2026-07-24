@@ -79,6 +79,16 @@ def _v2(board_view: BoardView) -> SelectTool:
     return tool
 
 
+def _wire_edit_after_handoff(board_view: BoardView) -> "WireEditTool":
+    """The WireEditTool now active after [E] + the two-vertex pick handed off
+    (Task-8 swap: the fragment edit moved out of SelectTool)."""
+    from protoboard.gui.tools.gui_tools import WireEditTool
+
+    tool = board_view._active_tool
+    assert isinstance(tool, WireEditTool)
+    return tool
+
+
 def _comp_ids(tool: SelectTool) -> set:
     return {h.id for h in (s.to_hit() for s in tool._selection.selected())
             if h.kind == "component"}
@@ -1031,11 +1041,13 @@ class TestWireEdit:
         assert tool._selection.active_pick is not None  # vertex pick armed
         _click(tool, 2.5, 1.5)  # first vertex (index 1)
         assert tool._wire_edit is None  # not complete yet
-        _click(tool, 3.5, 1.5)  # second vertex (index 2)
+        _click(tool, 3.5, 1.5)  # second vertex (index 2) -> hands off
 
-        assert tool._wire_edit is not None
-        assert (tool._wire_edit.start_idx, tool._wire_edit.end_idx) == (1, 2)
-        assert tool._mouse is None  # range pick finished
+        # Task-8 swap: the resolved fragment now lives in the WireEditTool.
+        we = _wire_edit_after_handoff(view)
+        assert we._wire_edit is not None
+        assert (we._wire_edit.start_idx, we._wire_edit.end_idx) == (1, 2)
+        assert we._mouse is None  # range pick finished
         assert _depth(session) == depth  # no command yet
 
     def test_f_flips_fragment_to_other_layer(self, qtbot) -> None:
@@ -1056,15 +1068,18 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)  # idx 1
-        _click(tool, 3.5, 1.5)  # idx 2
-        assert tool._wire_edit is not None
-        _key(tool, Qt.Key.Key_F)  # flip the fragment
+        _click(tool, 3.5, 1.5)  # idx 2 -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        assert we._wire_edit is not None
+        _key(we, Qt.Key.Key_F)  # flip the fragment
 
         assert _depth(session) == depth + 1
         cmd = session.stack._undo[-1]  # type: ignore[attr-defined]
         assert isinstance(cmd, FlipWireFragmentCommand)
         assert cmd.target_side == "top"
-        assert tool._wire_edit is None  # op leaves wire-edit
+        # Task-8 swap: flip STAYS armed (re-armed on the mutated wire's span).
+        assert we._wire_edit is not None
+        assert view._active_tool is we
         # The conductor stays one wire, now multi-fragment (a via boundary).
         flipped = next(iter(session.layout.wires))
         assert flipped.id == wire.id
@@ -1082,17 +1097,20 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
         # [W] arms the waypoint pick; click a detour waypoint, Enter commits.
-        _key(tool, Qt.Key.Key_W)
-        assert tool._selection.active_pick is not None
-        _click(tool, 3.0, 2.5)  # waypoint off the straight line
-        _key(tool, Qt.Key.Key_Return)  # commit
+        _key(we, Qt.Key.Key_W)
+        assert we._selection.active_pick is not None
+        _click(we, 3.0, 2.5)  # waypoint off the straight line
+        _key(we, Qt.Key.Key_Return)  # commit
 
         assert _depth(session) == depth + 1
         cmd = session.stack._undo[-1]  # type: ignore[attr-defined]
         assert isinstance(cmd, ReplaceWireFragmentsCommand)
-        assert tool._wire_edit is None
+        # Task-8 swap: reroute STAYS armed (re-armed on the mutated wire).
+        assert we._wire_edit is not None
+        assert view._active_tool is we
 
     def test_w_reroute_undo_restores(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -1104,10 +1122,11 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
-        _key(tool, Qt.Key.Key_W)
-        _click(tool, 3.0, 2.5)
-        _key(tool, Qt.Key.Key_Return)
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        _key(we, Qt.Key.Key_W)
+        _click(we, 3.0, 2.5)
+        _key(we, Qt.Key.Key_Return)
         session.stack.undo(session)  # type: ignore[arg-type]
 
         after = [list(w.path) for w in session.layout.wires]
@@ -1122,15 +1141,17 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 1.5, 1.5)  # first vertex (index 0)
-        _click(tool, 4.5, 1.5)  # last vertex (index 3) → whole wire
+        _click(tool, 4.5, 1.5)  # last vertex (index 3) → whole wire; hands off
+        we = _wire_edit_after_handoff(view)
         depth = _depth(session)
-        _key(tool, Qt.Key.Key_Delete)
+        _key(we, Qt.Key.Key_Delete)
 
         assert _depth(session) == depth + 1
         assert isinstance(
             session.stack._undo[-1], RemoveWireCommand  # type: ignore[attr-defined]
         )
-        assert tool._wire_edit is None
+        # Delete is the one op that EXITS: control returns to the SelectTool.
+        assert isinstance(view._active_tool, SelectTool)
 
     def test_del_partial_cuts_into_halves(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -1139,25 +1160,32 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)  # index 1
-        _click(tool, 3.5, 1.5)  # index 2 — interior fragment
+        _click(tool, 3.5, 1.5)  # index 2 — interior fragment; hands off
+        we = _wire_edit_after_handoff(view)
         n_before = len(list(session.layout.wires))
-        _key(tool, Qt.Key.Key_Delete)
+        _key(we, Qt.Key.Key_Delete)
         # The single wire is cut into two surviving halves.
         assert len(list(session.layout.wires)) == n_before + 1
 
-    def test_esc_cancels_fragment_no_command(self, qtbot) -> None:
+    def test_esc_on_clean_fragment_exits_no_command(self, qtbot) -> None:
+        # Task-8 swap two-stage model: a bare armed fragment (no pending pick)
+        # is exitable — can_exit() is True, so the host [Esc] drops back to
+        # SelectTool.  No command is emitted by the exit.
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
         depth = _depth(session)
-        assert tool._wire_edit is not None
-        _key(tool, Qt.Key.Key_Escape)
+        assert we._wire_edit is not None
+        assert we.has_pending_op() is False
+        assert we.can_exit() is True  # clean fragment -> host Esc exits
+        we._exit()  # the host's escape_to_select path
 
-        assert tool._wire_edit is None
+        assert isinstance(view._active_tool, SelectTool)
         assert _depth(session) == depth
 
     def test_esc_during_reroute_returns_to_fragment(self, qtbot) -> None:
@@ -1167,14 +1195,15 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
-        _key(tool, Qt.Key.Key_W)  # arm reroute
-        _click(tool, 3.0, 2.5)  # one waypoint
-        _key(tool, Qt.Key.Key_Escape)  # cancel the reroute pick
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        _key(we, Qt.Key.Key_W)  # arm reroute
+        _click(we, 3.0, 2.5)  # one waypoint
+        _key(we, Qt.Key.Key_Escape)  # cancel the reroute pick
 
         # Reroute aborted, but the fragment selection survives.
-        assert tool._selection.active_pick is None
-        assert tool._wire_edit is not None
+        assert we._selection.active_pick is None
+        assert we._wire_edit is not None
 
     def test_backspace_during_reroute_drops_last_waypoint(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -1183,12 +1212,13 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
-        _key(tool, Qt.Key.Key_W)
-        _click(tool, 3.0, 2.5)
-        pick = tool._selection.active_pick
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        _key(we, Qt.Key.Key_W)
+        _click(we, 3.0, 2.5)
+        pick = we._selection.active_pick
         assert pick is not None and len(pick.collected) == 1
-        _key(tool, Qt.Key.Key_Backspace)  # UNDO drops the waypoint
+        _key(we, Qt.Key.Key_Backspace)  # UNDO drops the waypoint
         assert len(pick.collected) == 0
 
     def test_reroute_live_anchor_follows_last_waypoint(self, qtbot) -> None:
@@ -1206,41 +1236,45 @@ class TestWireEdit:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
-        state = tool._wire_edit
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        state = we._wire_edit
         assert state is not None
-        wire = tool._wire_by_id(state.start_wire_id)
+        wire = we._wire_by_id(state.start_wire_id)
         assert wire is not None
         frag_start = wire.path[state.start_idx]
 
-        _key(tool, Qt.Key.Key_W)  # arm reroute
+        _key(we, Qt.Key.Key_W)  # arm reroute
         # Before any waypoint: anchor is the fragment start.
-        assert tool._reroute_anchor() == frag_start
+        assert we._reroute_anchor() == frag_start
 
-        _click(tool, 3.0, 2.5)  # one waypoint (snaps to nearest pad)
+        _click(we, 3.0, 2.5)  # one waypoint (snaps to nearest pad)
         # After picking: anchor follows the last picked pad, not the start.
-        pick = tool._selection.active_pick
+        pick = we._selection.active_pick
         assert pick is not None and len(pick.collected) == 1
         last = pick.collected[-1]
         assert isinstance(last, PointSelectable)
         picked_pt = last.point
-        anchor = tool._reroute_anchor()
+        anchor = we._reroute_anchor()
         assert anchor == picked_pt
         assert anchor != frag_start
 
-    def test_press_elsewhere_cancels_fragment(self, qtbot) -> None:
+    def test_press_elsewhere_keeps_fragment(self, qtbot) -> None:
+        # Task-8 swap: with the fragment edit now its own tool, a bare press on
+        # empty board space no longer drops the fragment (WireEditTool.on_press
+        # only feeds a live reroute pick).  Exit is via [Esc] (two-stage model),
+        # asserted by test_esc_on_clean_fragment_exits_no_command.
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
-        assert tool._wire_edit is not None
-        # A plain press on empty board space leaves wire-edit (and falls
-        # through to normal selection — here an empty area arms a band).
-        _press(tool, 10.0, 10.0)
-        assert tool._wire_edit is None
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        assert we._wire_edit is not None
+        _press(we, 10.0, 10.0)  # a bare press with no live pick
+        assert we._wire_edit is not None  # fragment stays armed
 
     def test_e_without_selected_wire_is_noop(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -2029,17 +2063,19 @@ class TestWantsKeyShortcutVeto:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        # No fragment yet → [W] belongs to the global Route-tool shortcut.
+        # No fragment yet → SelectTool never claims [W]/[A] (they moved to the
+        # WireEditTool's own veto layer after the Task-8 swap).
         assert tool.wants_key(_key_event(Qt.Key.Key_W)) is False
         assert tool.wants_key(_key_event(Qt.Key.Key_A)) is False
-        # Enter wire-edit and pick a fragment.
+        # Enter wire-edit and pick a fragment -> hands off to WireEditTool.
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
         _click(tool, 3.5, 1.5)
-        assert tool._wire_edit is not None
-        # Now the fragment claims [W] (reroute) and [A] (autoroute).
-        assert tool.wants_key(_key_event(Qt.Key.Key_W)) is True
-        assert tool.wants_key(_key_event(Qt.Key.Key_A)) is True
+        we = _wire_edit_after_handoff(view)
+        assert we._wire_edit is not None
+        # Now the armed WireEditTool claims [W] (reroute) and [A] (autoroute).
+        assert we.wants_key(_key_event(Qt.Key.Key_W)) is True
+        assert we.wants_key(_key_event(Qt.Key.Key_A)) is True
 
 class TestDynamicRebind:
     """Veto + dispatch follow the *current* binding, never a hard-coded key."""
@@ -2052,14 +2088,15 @@ class TestDynamicRebind:
         _select_wire(tool, session)
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
-        _click(tool, 3.5, 1.5)
-        assert tool._wire_edit is not None
-        # Old key no longer claimed; the new key is.
-        assert tool.wants_key(_key_event(Qt.Key.Key_W)) is False
-        assert tool.wants_key(_key_event(Qt.Key.Key_Q)) is True
+        _click(tool, 3.5, 1.5)  # -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        assert we._wire_edit is not None
+        # Old key no longer claimed; the new key is (the veto is rebind-safe).
+        assert we.wants_key(_key_event(Qt.Key.Key_W)) is False
+        assert we.wants_key(_key_event(Qt.Key.Key_Q)) is True
         # And [Q] now drives reroute (arms the waypoint pick).
-        _key(tool, Qt.Key.Key_Q)
-        assert tool._selection.active_pick is not None
+        _key(we, Qt.Key.Key_Q)
+        assert we._selection.active_pick is not None
 
     def test_delete_follows_rebound_global(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -2156,13 +2193,16 @@ class TestNetRelation:
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)  # index 1
-        _click(tool, 3.5, 1.5)  # index 2
-        assert tool._wire_edit is not None
+        _click(tool, 3.5, 1.5)  # index 2 -> hands off to WireEditTool
+        we = _wire_edit_after_handoff(view)
+        assert we._wire_edit is not None
         # [A] runs A* between the two boundary pads; whether it commits a new
-        # path or finds none, it must leave wire-edit cleanly and not crash.
-        _key(tool, Qt.Key.Key_A)
-        assert tool._wire_edit is None
-        assert tool._selection.active_pick is None
+        # path or finds none, it STAYS armed (re-armed on the wire) and never
+        # crashes (Task-8 swap: autoroute is a stays-armed op).
+        _key(we, Qt.Key.Key_A)
+        assert we._wire_edit is not None
+        assert we._selection.active_pick is None
+        assert view._active_tool is we
 
 
 class TestSelectionBroadcastOnClick:
