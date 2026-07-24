@@ -148,7 +148,7 @@ entering edit mode."* Measured against the two inventories:
 | **Set bare / insulated** | W3 ✅ | ❌ | **GAP** (per-wire attribute — see §6.2 for whether a fragment version is even coherent) |
 | **Unweave** | W8 ✅ | ❌ | inherently multi-wire; no fragment analog (acceptable) |
 | **Merge / fuse fragments** | W9 ✅ | ❌ | inherently whole-wire topology; no fragment analog (acceptable) |
-| **Convert endpoint ↔ wire-pin** | W10/W11 ✅ | ❌ | **GAP of a different kind** — an *endpoint* op with no wire-edit entry, and it lives in MainWindow not the tool (§6.3) |
+| **Convert endpoint ↔ wire-pin** | W10/W11 ✅ | n/a (endpoint op) | **layering FIXED** — dispatch moved to `SelectTool.convert_*` + wire context menu; MainWindow slots now delegate (§6.3). Stays endpoint-scoped, not a range op. |
 | Select by net / highlight | W12/W13 ✅ | ❌ | n/a — selection ops, not mutations |
 
 **Direction of the asymmetry.** The fragment op-table (reroute / autoroute /
@@ -229,19 +229,17 @@ per-wire attribute toggles (insulate, wire-pin) explicitly whole-wire. The
 "same ops everywhere" goal should mean *the per-slice ops*, not literally every
 whole-wire op.
 
-### 6.3 Wire-pin conversion lives in the wrong layer
+### 6.3 Wire-pin conversion layer — FIXED
 
-`ConvertEndpointToWirePinCommand` / `ConvertWirePinToEndpointCommand` are
-domain commands, but they are dispatched **only from `gui/main_window.py`
-(`:1186`, `:1240`)** — a menu-bar slot — not from `SelectTool`'s context menu
-or op-table. This violates the "tools belong to the controller; the GUI is only
-an interface" rule (`memory/project_tools_belong_to_controller.md`): the
-operation is reachable only through a MainWindow action, not through the wire's
-own context surface. The `_endpoint_eligible_for_wire_pin` helper *does* live on
-SelectTool (`:3685`) but nothing in the tool's `build_context` calls it. **Docs
-mismatch:** `gui.md:161, 182-183` and `actions.py:330-333` describe wire-pin
-conversion as the wire's right-click flow, but the code wires it only to the
-menu bar.
+`ConvertEndpointToWirePinCommand` / `ConvertWirePinToEndpointCommand` used to be
+dispatched **only from `gui/main_window.py`** — a menu-bar slot — violating the
+"tools belong to the controller; the GUI is only an interface" rule
+(`memory/project_tools_belong_to_controller.md`). The dispatch now lives on
+`SelectTool.convert_endpoint_to_wire_pin` / `convert_wire_pin_to_endpoint`, is
+offered on the wire's context menu (`select-tool.ctx.endpoint_to_wire_pin` /
+`wire_pin_to_endpoint`), and the MainWindow slots are thin delegators. It stays
+**endpoint-scoped** — an endpoint op, not a `WireRange` op (the explicit
+exception to the reduce-to-range direction).
 
 ### 6.4 One wire menu, conditionally fragment-aware (not two menus)
 

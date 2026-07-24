@@ -3458,6 +3458,21 @@ class SelectTool(ControllerTool):
                 label=label, group=group,
                 data={"wire_ids": wires},
             ))
+
+        # Wire-pin conversion — the endpoint op now lives on the tool (not
+        # MainWindow). Offer the relevant direction when it applies.
+        if len(target_ids) == 1 and self._wire_has_wire_pin_endpoint(wire):
+            out.append(ActionOption(
+                action_id="select-tool.ctx.wire_pin_to_endpoint",
+                label="Convert wire-pin to endpoint", group=group,
+                data={},
+            ))
+        elif len(target_ids) == 1 and self._wire_endpoint_wire_pin_eligible(wire):
+            out.append(ActionOption(
+                action_id="select-tool.ctx.endpoint_to_wire_pin",
+                label="Convert endpoint to wire-pin", group=group,
+                data={},
+            ))
         return out
 
     def perform_context_action(
@@ -3535,6 +3550,10 @@ class SelectTool(ControllerTool):
             self._merge_wires_and_fragments(
                 frozenset(cast("frozenset[uuid.UUID]", data["wire_ids"]))
             )
+        elif action == "endpoint_to_wire_pin":
+            self.convert_endpoint_to_wire_pin()
+        elif action == "wire_pin_to_endpoint":
+            self.convert_wire_pin_to_endpoint()
 
     def _menu_set_wire_insulated(
         self, wire_ids: set[uuid.UUID], insulated: bool
@@ -3738,6 +3757,148 @@ class SelectTool(ControllerTool):
         """True iff *position* sits on a plated-through pad (wire-pin invariant)."""
         for p in self._session.cached_plated_through_pads():
             if abs(p.x - position.x) < 1e-6 and abs(p.y - position.y) < 1e-6:
+                return True
+        return False
+
+    def convert_endpoint_to_wire_pin(self) -> None:
+        """Promote the half-orphan endpoint of the singly-selected wire to a wire-pin.
+
+        The tool owns this wire operation (moved off ``MainWindow`` — the GUI is
+        only an interface to the Controller). Endpoint side preference: ``b``
+        (last placed) when both endpoints are eligible, ``a`` otherwise.
+        """
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, ComponentState
+        from protoboard.domain.commands.component_cmds import (
+            ConvertEndpointToWirePinCommand,
+        )
+        from protoboard.domain.layout.knot import JointKnot
+
+        wire_id = self._single_selected_wire_id()
+        if wire_id is None:
+            self._status_msg(
+                "Convert endpoint to wire-pin: select one wire "
+                "(right-click its endpoint for context menu)."
+            )
+            return
+        wire = self._session.layout.wires.get(wire_id)
+        if wire is None:
+            return
+        eligible: str | None = None
+        for side in ("b", "a"):
+            ref = wire.b if side == "b" else wire.a
+            if ref is None:
+                continue
+            knot = self._session.layout.knots.get(ref.id)
+            if isinstance(knot, JointKnot) and knot.wire_ids == frozenset({wire.id}):
+                if self._endpoint_eligible_for_wire_pin(knot.position):
+                    eligible = side
+                    break
+        if eligible is None:
+            self._status_msg(
+                "Convert endpoint to wire-pin: no eligible half-orphan endpoint "
+                "on a plated-through pad."
+            )
+            return
+        wire_net_id = self._session.cached_wire_net_map().get(wire.id)
+        cmd = cast(
+            "Command[ComponentState]",
+            ConvertEndpointToWirePinCommand(
+                wire_id=wire.id, endpoint=eligible, net_id=wire_net_id,
+            ),
+        )
+        self._execute_command(cmd)
+        self._refresh_after_wire_op()
+
+    def convert_wire_pin_to_endpoint(self) -> None:
+        """Demote every ``WirePinKnot`` owned by the selected wires to a free endpoint."""
+        from typing import cast
+
+        from protoboard.domain.commands.base import (
+            Command,
+            ComponentState,
+            MacroCommand,
+        )
+        from protoboard.domain.commands.component_cmds import (
+            ConvertWirePinToEndpointCommand,
+        )
+        from protoboard.domain.layout.knot import WirePinKnot
+
+        sel = self._selected_by_kind("wire")
+        if not sel:
+            self._status_msg(
+                "Convert wire-pin to endpoint: select one or more wires that "
+                "own a wire-pin endpoint."
+            )
+            return
+        targets: list[uuid.UUID] = []
+        for wire_id in sel:
+            wire = self._session.layout.wires.get(wire_id)
+            if wire is None:
+                continue
+            for ref in (wire.a, wire.b):
+                if ref is None:
+                    continue
+                knot = self._session.layout.knots.get(ref.id)
+                if isinstance(knot, WirePinKnot) and knot.id not in targets:
+                    targets.append(knot.id)
+        if not targets:
+            self._status_msg(
+                "Convert wire-pin to endpoint: selected wires have no wire-pin "
+                "endpoints."
+            )
+            return
+        cmds = [
+            cast(
+                "Command[ComponentState]",
+                ConvertWirePinToEndpointCommand(wire_pin_id=wp_id),
+            )
+            for wp_id in targets
+        ]
+        cmd = (
+            cmds[0] if len(cmds) == 1
+            else cast(
+                "Command[ComponentState]",
+                MacroCommand(cmds, description="Convert wire-pins to endpoints"),
+            )
+        )
+        self._execute_command(cmd)
+        self._refresh_after_wire_op()
+
+    def _single_selected_wire_id(self) -> uuid.UUID | None:
+        """The one selected wire id, or ``None`` when zero or many are selected."""
+        sel = self._selected_by_kind("wire")
+        return next(iter(sel)) if len(sel) == 1 else None
+
+    def _wire_has_wire_pin_endpoint(self, wire: Wire | None) -> bool:
+        """True when *wire* owns a ``WirePinKnot`` at either endpoint."""
+        from protoboard.domain.layout.knot import WirePinKnot
+
+        if wire is None:
+            return False
+        for ref in (wire.a, wire.b):
+            if ref is None:
+                continue
+            if isinstance(self._session.layout.knots.get(ref.id), WirePinKnot):
+                return True
+        return False
+
+    def _wire_endpoint_wire_pin_eligible(self, wire: Wire | None) -> bool:
+        """True when *wire* has a half-orphan endpoint on a plated-through pad."""
+        from protoboard.domain.layout.knot import JointKnot
+
+        if wire is None:
+            return False
+        for ref in (wire.b, wire.a):
+            if ref is None:
+                continue
+            knot = self._session.layout.knots.get(ref.id)
+            if (
+                isinstance(knot, JointKnot)
+                and knot.wire_ids == frozenset({wire.id})
+                and self._endpoint_eligible_for_wire_pin(knot.position)
+            ):
                 return True
         return False
 

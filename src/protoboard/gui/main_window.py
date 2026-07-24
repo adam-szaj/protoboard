@@ -1184,115 +1184,17 @@ class MainWindow(QMainWindow):
                     toolbar.addAction(act)
 
     def _convert_endpoint_to_wire_pin_action(self) -> None:
-        """Promote the half-orphan endpoint of the singly-selected wire to a wire-pin.
+        """Menu-bar entry: delegate to the SelectTool wire operation.
 
-        Context-sensitive: when no wire is selected (or multiple are),
-        falls back to a status-bar hint pointing at the right-click flow.
-        Endpoint side preference: ``b`` (last placed) when both endpoints
-        are eligible, ``a`` otherwise.
+        The conversion logic (eligibility, command build) lives on the tool —
+        the GUI is only an interface to the Controller. See
+        :meth:`SelectTool.convert_endpoint_to_wire_pin`.
         """
-        sel = list(self._select_tool._selected_wire_ids)
-        if self._select_tool._selected_wire_id is not None:
-            sel.append(self._select_tool._selected_wire_id)
-        sel = list(dict.fromkeys(sel))
-        if len(sel) != 1:
-            self.statusBar().showMessage(
-                "Convert endpoint to wire-pin: select one wire (right-click its endpoint for context menu).",
-                3500,
-            )
-            return
-        from protoboard.domain.commands.component_cmds import (
-            ConvertEndpointToWirePinCommand,
-        )
-        from protoboard.domain.layout.knot import JointKnot
-        from typing import cast as _cast
-        wire_id = sel[0]
-        wire = self._session.layout.wires.get(wire_id)
-        if wire is None:
-            return
-        eligible: str | None = None
-        for side in ("b", "a"):
-            ref = wire.b if side == "b" else wire.a
-            if ref is None:
-                continue
-            knot = self._session.layout.knots.get(ref.id)
-            if isinstance(knot, JointKnot) and knot.wire_ids == frozenset({wire.id}):
-                if self._select_tool._endpoint_eligible_for_wire_pin(knot.position):
-                    eligible = side
-                    break
-        if eligible is None:
-            self.statusBar().showMessage(
-                "Convert endpoint to wire-pin: no eligible half-orphan endpoint on a plated-through pad.",
-                3500,
-            )
-            return
-        wire_net_id = self._session.cached_wire_net_map().get(wire.id)
-        from protoboard.domain.commands.base import Command, ComponentState
-        cmd = _cast(
-            "Command[ComponentState]",
-            ConvertEndpointToWirePinCommand(
-                wire_id=wire.id, endpoint=eligible, net_id=wire_net_id,
-            ),
-        )
-        self._session.stack.execute(cmd, _cast(ComponentState, self._session))
-        self._session.layout_changed.emit()
+        self._select_tool.convert_endpoint_to_wire_pin()
 
     def _convert_wire_pin_to_endpoint_action(self) -> None:
-        """Demote every WirePinKnot owned by the selected wires back to a free endpoint."""
-        sel = list(self._select_tool._selected_wire_ids)
-        if self._select_tool._selected_wire_id is not None:
-            sel.append(self._select_tool._selected_wire_id)
-        sel = list(dict.fromkeys(sel))
-        if not sel:
-            self.statusBar().showMessage(
-                "Convert wire-pin to endpoint: select one or more wires that own a wire-pin endpoint.",
-                3500,
-            )
-            return
-        from protoboard.domain.commands.component_cmds import (
-            ConvertWirePinToEndpointCommand,
-        )
-        from protoboard.domain.layout.knot import WirePinKnot
-        from typing import cast as _cast
-        from protoboard.domain.commands.base import (
-            Command,
-            ComponentState,
-            MacroCommand,
-        )
-        targets: list[uuid.UUID] = []
-        for wire_id in sel:
-            wire = self._session.layout.wires.get(wire_id)
-            if wire is None:
-                continue
-            for ref in (wire.a, wire.b):
-                if ref is None:
-                    continue
-                knot = self._session.layout.knots.get(ref.id)
-                if isinstance(knot, WirePinKnot) and knot.id not in targets:
-                    targets.append(knot.id)
-        if not targets:
-            self.statusBar().showMessage(
-                "Convert wire-pin to endpoint: selected wires have no wire-pin endpoints.",
-                3500,
-            )
-            return
-        cmds = [
-            _cast(
-                "Command[ComponentState]",
-                ConvertWirePinToEndpointCommand(wire_pin_id=wp_id),
-            )
-            for wp_id in targets
-        ]
-        if len(cmds) == 1:
-            self._session.stack.execute(
-                cmds[0], _cast(ComponentState, self._session)
-            )
-        else:
-            self._session.stack.execute(
-                MacroCommand(cmds, description="Convert wire-pins to endpoints"),
-                _cast(ComponentState, self._session),
-            )
-        self._session.layout_changed.emit()
+        """Menu-bar entry: delegate to the SelectTool wire operation."""
+        self._select_tool.convert_wire_pin_to_endpoint()
 
     def _focus_library_for_add(self) -> None:
         """Switch to library tab and focus search, so user can pick a component."""

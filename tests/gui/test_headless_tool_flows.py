@@ -835,3 +835,64 @@ class TestWireFragmentSimplify:
 
         # Refused (same-wire only) — nothing changed.
         assert list(session.layout.wires.get(a.id).path) == before
+
+
+class TestWirePinConversionViaTool:
+    """Wire-pin conversion is owned by SelectTool (moved off MainWindow, §6.3).
+
+    The command behaviour is covered by tests/unit/test_wire_pin_commands.py;
+    these prove the tool drives it end-to-end (the layering fix).
+    """
+
+    @staticmethod
+    def _half_orphan(session: EditorSession) -> Wire:
+        from protoboard.domain.layout.wire import KnotRef
+        pa, pb = Point(1.5, 1.5), Point(2.5, 1.5)
+        ka = session.layout.create_joint_knot(pa)
+        kb = session.layout.create_joint_knot(pb)
+        w = Wire(
+            id=uuid.uuid4(), path=[pa, pb], side="top",
+            a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+        )
+        session.layout.add_wire(w)
+        session.invalidate_graph()
+        session.layout_changed.emit()
+        return w
+
+    def test_convert_endpoint_then_back(
+        self, session: EditorSession
+    ) -> None:
+        from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+
+        view = _headless(session)
+        wire = self._half_orphan(session)
+        tool = _select_tool(view)
+        tool._selection.set(WireSelectable(wire=wire))
+
+        # Endpoint → wire-pin: one endpoint becomes a WirePinKnot.
+        tool.convert_endpoint_to_wire_pin()
+        knots = [
+            session.layout.knots.get(r.id)
+            for r in (wire.a, wire.b) if r is not None
+        ]
+        assert any(isinstance(k, WirePinKnot) for k in knots)
+
+        # Wire-pin → endpoint: it demotes back to a plain JointKnot.
+        tool.convert_wire_pin_to_endpoint()
+        knots = [
+            session.layout.knots.get(r.id)
+            for r in (wire.a, wire.b) if r is not None
+        ]
+        assert not any(isinstance(k, WirePinKnot) for k in knots)
+        assert all(isinstance(k, JointKnot) for k in knots)
+
+    def test_context_menu_offers_conversion(
+        self, session: EditorSession
+    ) -> None:
+        view = _headless(session)
+        wire = self._half_orphan(session)
+        tool = _select_tool(view)
+        tool._selection.set(WireSelectable(wire=wire))
+        opts = tool._ctx_wire_options(wire.id)
+        ids = {o.action_id for o in opts}
+        assert "select-tool.ctx.endpoint_to_wire_pin" in ids
