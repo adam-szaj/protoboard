@@ -365,19 +365,22 @@ class TestControllerState:
         assert armed.state == "move.float.move"
         assert view.notifications.controller_states[-1] == "move.float.rotate"
 
-    def test_cancel_returns_to_idle(
+    def test_cancel_reverts_and_rearms(
         self, session: EditorSession
     ) -> None:
+        # Task 4: cancel reverts the pending op but RE-ARMS instead of
+        # returning to SelectTool — the tool stays active on the (unchanged)
+        # selection.
         view = _headless(session)
         _place(view, 0.5, 0.5)
         tool = _select_tool(view)
         tool.default_action(Point(0.5, 0.5), Mods())
         tool.arm_rotate()
         armed = _armed(view)
-        armed.on_key(key_inp(Qt.Key.Key_Escape))  # cancel → back to SelectTool
-        # The armed tool published select.idle before returning control.
-        assert view.notifications.controller_states[-1] == "select.idle"
-        assert view.active_tool is tool
+        armed.on_key(key_inp(Qt.Key.Key_Escape))  # cancel → re-arms
+        assert view.notifications.controller_states[-1] == "move.float.rotate"
+        assert view.active_tool is armed
+        assert armed._armed is not None and not armed._armed.finished
 
     def test_arm_without_selection_stays_idle(
         self, session: EditorSession
@@ -491,7 +494,10 @@ class TestRotateComponent:
 
         armed.on_key(key_inp(Qt.Key.Key_Return))  # CONFIRM
 
-        assert session.edit_controller.armed_transform is None
+        # Task 4: confirm commits as one command and RE-ARMS instead of
+        # returning to SelectTool.
+        assert view.active_tool is armed
+        assert armed._armed is not None and not armed._armed.finished
         assert session.layout.placements[inst.id].rotation == 90
         assert len(session.stack._undo) == depth + 1
 
@@ -508,7 +514,10 @@ class TestRotateComponent:
         armed.on_key(key_inp(Qt.Key.Key_R))  # +90 (uncommitted)
         armed.on_key(key_inp(Qt.Key.Key_Escape))  # CANCEL
 
-        assert session.edit_controller.armed_transform is None
+        # Task 4: cancel reverts the pending op and RE-ARMS instead of
+        # returning to SelectTool.
+        assert view.active_tool is armed
+        assert armed._armed is not None and not armed._armed.finished
         assert session.layout.placements[inst.id].rotation == before
         assert len(session.stack._undo) == depth  # nothing committed
 
