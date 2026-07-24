@@ -325,6 +325,16 @@ class TestRouteToolExitParity:
         assert view.active_tool is tool  # RouteTool never exited
         assert tool._points == []
 
+    def test_route_tool_conforms_to_armed_subtool(self) -> None:
+        # RouteTool here is the GUI-composed class (gui_tools.RouteTool =
+        # _RouteTool + ViewToolMixin) — the one the app actually instantiates.
+        # The bare controller.tools.route_tool.RouteTool lacks on_key (it's
+        # added by ViewToolMixin), so it alone never satisfies ArmedSubTool;
+        # the composed class is the correct conformance target.
+        from protoboard.controller.tools.armed_subtool import ArmedSubTool
+
+        assert isinstance(RouteTool(), ArmedSubTool)
+
     def test_esc_is_two_stage(self, session: EditorSession) -> None:
         # The host fix: first Esc mid-route cancels the pending op (points
         # cleared) and STAYS in RouteTool -- can_exit() is False while points

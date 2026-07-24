@@ -184,6 +184,20 @@ class RouteTool(ControllerTool):
     def can_exit(self) -> bool:
         return not self.has_pending_op()
 
+    def commit_op(self) -> bool:
+        committable = self.can_commit()
+        self._commit()  # already stays in routing
+        return committable
+
+    def cancel_op(self) -> bool:
+        had = self.has_pending_op()
+        self._cancel()  # clears points, stays routing
+        return had
+
+    def can_commit(self) -> bool:
+        # Conflict gate added in Task 6; no geometric conflict concept yet.
+        return True
+
     def _key_toggle_insulated(self) -> bool:
         self._set_insulated(not self._insulated)
         return True
