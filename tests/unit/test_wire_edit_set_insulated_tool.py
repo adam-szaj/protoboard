@@ -158,6 +158,48 @@ def test_failed_repick_rearms_pick(
     assert tool.has_pending_op() is True  # re-armed, not stuck
 
 
+def test_failed_repick_through_on_release_rearms_pick(
+    wire_edit_tool_on_5pt_wire: WireEditTool,
+) -> None:
+    """Regression: a failed re-pick driven through the REAL click path
+    (``on_press`` / ``on_release`` -> ``mouse.on_click`` -> ``on_done`` chain)
+    must leave a live re-armed pick, not stall the tool.
+
+    ``on_release`` used to null ``self._mouse`` whenever the finished pick's
+    ``on_done`` ran, destroying the fresh pick that ``_range_repicked`` re-armed
+    on a zero-length resolution.  We resolve two clicks onto the SAME vertex
+    (zero-length) so the pick finishes and ``_range_repicked`` re-arms.
+    """
+    from protoboard.controller.selection.adapters import WireVertexSelectable
+
+    from tests.gui.input_helpers import pointer
+
+    tool = wire_edit_tool_on_5pt_wire
+    _arm_sub_range(tool, 1, 3)
+    tool._set_insulated_fragment()  # sub-range cut -> _arm_repick fires
+    assert tool._awaiting_repick is True
+    assert tool._mouse is not None
+
+    # Force both clicks to resolve to the same vertex (zero-length re-pick),
+    # so ``on_done`` -> ``_range_repicked`` takes the same-vertex abort branch
+    # and re-arms a fresh pick.  Patching ``_pick_at`` keeps the vertex
+    # resolution deterministic; the code under test is ``on_release`` itself.
+    anchor = tool._wire_edit_wire_id
+    assert anchor is not None
+    same_vertex = WireVertexSelectable(wire_id=anchor, index=1)
+    tool._pick_at = lambda _what, _pt: same_vertex  # type: ignore[method-assign]
+
+    tool.on_press(pointer(1.5, 1.5))
+    tool.on_release(pointer(1.5, 1.5))
+    tool.on_press(pointer(1.5, 1.5))
+    tool.on_release(pointer(1.5, 1.5))  # 2nd feed finishes the pick -> on_done
+
+    # After the failed re-pick through the REAL path: still waiting, pick live.
+    assert tool._awaiting_repick is True
+    assert tool.has_pending_op() is True
+    assert tool._mouse is not None
+
+
 # --------------------------------------------------------------------------- #
 # Task 6: GUI keybinding [I] + claim predicate covers the re-pick wait
 # --------------------------------------------------------------------------- #

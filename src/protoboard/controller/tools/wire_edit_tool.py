@@ -301,7 +301,8 @@ class WireEditTool(ControllerTool):
         if self._wire_edit is not None:
             self._status(
                 "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-                "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
+                "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
+                "[Del] Delete  ·  [Esc] Cancel",
                 0,
             )
 
@@ -597,7 +598,10 @@ class WireEditTool(ControllerTool):
         if mouse is None:
             return
         mouse.on_click(inp.scene_pos, inp.mods)
-        if mouse.finished:
+        # on_click may run an on_done callback that re-arms a NEW pick
+        # (the re-pick wait fold-in). Only clear if THIS finished pick is
+        # still the current one — else we'd null the freshly-armed pick.
+        if mouse.finished and self._mouse is mouse:
             self._mouse = None
 
     def _arm_pick(
