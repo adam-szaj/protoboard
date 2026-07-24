@@ -124,7 +124,9 @@ src/protoboard/
 │   │                   # gui.session.EditorSession), armed_transform.py,
 │   │                   # drag_commit.py, drag_set.py, drag_preferences.py,
 │   │                   # group_lock.py, item_handle.py (ItemId/ItemTag),
-│   │                   # placement_conflict.py, wire_nets.py, cli.py (CliDriver)
+│   │                   # placement_conflict.py, wire_nets.py, cli.py (CliDriver),
+│   │                   # wire_edit_arm.py (WireEditArm — Qt-free command-building
+│   │                   # core for wire-fragment ops)
 │   ├── selection/      # SelectTool's Qt-free machinery: selectable.py
 │   │                   # (protocol+adapters), service.py (SelectionService +
 │   │                   # pick-API), hit_test.py, queries.py (net relation),
@@ -132,8 +134,11 @@ src/protoboard/
 │   │                   # point_pick_controller.py, drag_controller.py,
 │   │                   # rubber_band_controller.py, drop_resolution.py, adapters.py
 │   └── tools/          # select_tool.py, place_tool.py, route_tool.py, cut_tool.py,
-│                       # simplify_tool.py, armed_transform_tool.py (Qt-free
-│                       # command machines — base.py::ControllerTool);
+│                       # simplify_tool.py, armed_transform_tool.py, wire_edit_tool.py
+│                       # (Qt-free command machines — base.py::ControllerTool);
+│                       # armed_subtool.py (ArmedSubTool protocol — two-level
+│                       # lifecycle: commit_op/cancel_op stay armed, can_exit
+│                       # gates two-stage Esc);
 │                       # drag_commit_decision.py, select_prompts.py;
 │                       # *_preview.py (Protocol only — the Qt implementation
 │                       # lives in gui/tools/*_preview.py), transform_overlays.py

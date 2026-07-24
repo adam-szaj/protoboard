@@ -126,11 +126,22 @@ one of its actions, and disarming — all in one shot) is the **eventual** shape
 
 Grouped by their natural owner.  "Armed today" = already an armed sub-mode.
 
-#### A. Wire operations → **wire-edit sub-tool** (already partly armed)
+#### A. Wire operations → **wire-edit sub-tool** — ✅ DONE (2026-07-24)
 
-The wire-edit op-table (`_wire_edit_on_key`) is the prototype of a delegated
-sub-tool.  These all act on a wire / fragment and should live there, not on
-SelectTool:
+Folded into `WireEditTool` (`controller/tools/wire_edit_tool.py`), conforming
+to the `ArmedSubTool` protocol (§5).  The contract change that made the fold-in
+fit was the **two-level lifecycle** (§5.3 caveat resolved): `commit_op` /
+`cancel_op` act on the *current op* (reroute / autoroute / flip / simplify /
+delete) and the tool **stays armed** — id-preserving ops re-arm on the
+mutated wire's full span; only `delete` exits, via `return_to`.  `[Esc]` is
+two-stage: first clears a pending reroute pick (`can_exit() = not
+has_pending_op()`), a second, empty `[Esc]` exits the tool.  Command-building
+is delegated to `WireEditArm` (`controller/editing/wire_edit_arm.py`), the
+Qt-free core lifted from the old `_wire_edit_on_key` op-table.
+
+The wire-edit op-table (`_wire_edit_on_key`) was the prototype of this
+delegated sub-tool.  These all act on a wire / fragment and now live there,
+not on SelectTool:
 
 | Method | Today | Target |
 |---|---|---|
@@ -329,7 +340,7 @@ behaviour the user wants back.
 
 Redrag is a pick (a degenerate armed sub-tool) and can join later.
 
-### 5.3 Caveats for the implementation
+### 5.3 Caveats for the implementation — ✅ RESOLVED (2026-07-24)
 
 * **Don't force wire-edit in if it fights the interface.**  The skill's rule:
   the three modes must *genuinely* share the shape.  rotate + move clearly do
@@ -337,6 +348,19 @@ Redrag is a pick (a degenerate armed sub-tool) and can join later.
   is a looser fit (its "conflict" is per-op, e.g. reroute validity) — fold it in
   only if `can_commit` / `accept` map cleanly; otherwise leave it ad-hoc and
   note why.
+
+  **Resolution:** it did not map cleanly onto the single-shot `accept()` drafted
+  above — wire-edit's ops are per-op, not one float-then-commit.  The fit came
+  from replacing `accept()`/single-level exit with the **two-level lifecycle**
+  actually shipped in `controller/tools/armed_subtool.py`: an inner
+  `commit_op()` / `cancel_op()` / `has_pending_op()` pair that acts on the
+  *current operation* and always leaves the tool armed, plus an outer
+  `can_exit()` gating a two-stage `[Esc]`.  Under that split, wire-edit's
+  per-op conflict (a reroute pick that can't commit) is just `commit_op()`
+  returning `False` and staying armed — the same shape RouteTool and the
+  float-transform tool now use.  See
+  `docs/superpowers/specs/2026-07-24-armed-subtool-two-level-lifecycle-design.md`
+  for the full protocol design.
 * The shared **conflict surface** (corner text amber/red, status hint) already
   exists for drag (`_drag_preview` / `DragCornerText`); the protocol should
   route every sub-tool's conflict through it so the feedback is identical.

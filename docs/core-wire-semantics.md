@@ -115,6 +115,16 @@ wires of a moved component/group.
 
 ### Operations (`_wire_edit_on_key` op-table, `select_tool.py:2218`)
 
+> **2026-07-24 update:** the op-table below (F1–F5, plus simplify F6 in §4) has
+> been extracted into `WireEditTool` (`controller/tools/wire_edit_tool.py`),
+> which conforms to the `ArmedSubTool` protocol
+> (`docs/armed-rotate-and-subtool-delegation.md` §5, §2.1 A). Both whole-wire
+> and full-span-fragment ops now run through `WireEditArm`
+> (`controller/editing/wire_edit_arm.py`) — the command-*building* half of each
+> op, unifying control-flow on top of the data-level `WireRange` that already
+> spans full-wire and fragment cases identically. The op semantics below are
+> unchanged; only the entry point moved off `select_tool.py`.
+
 | # | Operation | Key | Command | Scope | Guard |
 |---|---|---|---|---|---|
 | F1 | **Reroute** | `[W]` | same-wire `ReplaceWireFragmentsCommand`; cross-wire `Macro[excise, AddWire]` | fragment, single or cross | resulting path ≥ 2 pts |
@@ -304,7 +314,9 @@ the opposite direction from the simplify gap.
 | Wire / Fragment / KnotRef model | `domain/layout/wire.py` |
 | Knot kinds (Pin/Joint/WirePin) | `domain/layout/knot.py` |
 | Fragment value object + command builders | `controller/selection/wire_edit.py` |
-| Whole-wire menu + fragment op-table + entry | `controller/tools/select_tool.py` |
+| Whole-wire menu + entry | `controller/tools/select_tool.py` |
+| Fragment op-table (`ArmedSubTool`) | `controller/tools/wire_edit_tool.py` |
+| Op command-building core (`WireEditArm`) | `controller/editing/wire_edit_arm.py` |
 | Net-restricted vertex hit-test + cycle | `controller/selection/hit_test.py` |
 | Simplify input prep | `controller/selection/wire_ops.py` |
 | Wire-net resolution (creation only) | `controller/editing/wire_nets.py` |
