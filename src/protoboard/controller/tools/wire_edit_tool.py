@@ -1,0 +1,704 @@
+# SPDX-License-Identifier: MIT
+"""``WireEditTool`` — wire-fragment edit mode as its own registered tool.
+
+Entered from :class:`~protoboard.gui.tools.gui_tools.SelectTool` on ``[E]``
+(which resolves the selected wire to a :class:`WireRange` and swaps to this
+tool).  Unlike :class:`~protoboard.controller.tools.armed_transform_tool.
+ArmedTransformTool` — which re-enters a *controller transform session* — a
+wire-edit op mints a domain :class:`Command` and executes it **locally**
+(``_execute_command`` + ``_refresh_after_wire_op``), delegating only the
+command-*building* half to Task-7's :class:`~protoboard.controller.editing.
+wire_edit_arm.WireEditArm`.
+
+STAY-ARMED semantics (see ``docs/superpowers/specs`` armed-subtool design):
+
+* ``flip`` / ``simplify`` / ``reroute`` / ``autoroute`` preserve the wire id, so
+  after committing the tool RE-ARMS on the **full span** of the now-mutated wire
+  (the old fragment indices may be stale after a path change) and stays active.
+* ``delete`` removes the wire — nothing to re-arm — so it EXITS via the injected
+  ``return_to`` (drop back to plain select).  The only op that exits on commit.
+* ``has_pending_op()`` is True ONLY while a reroute waypoint sub-pick is live
+  (``self._mouse is not None``); a bare armed fragment with no live pick is
+  exitable (first ``[Esc]`` exits).  ``can_exit() = not has_pending_op()``.
+* ``commit_op()`` confirms the live reroute pick (Enter); ``cancel_op()`` drops
+  its waypoints but keeps the fragment armed.
+
+The reroute waypoint pick reuses the same pick machinery SelectTool has: a
+per-session :class:`~protoboard.controller.selection.service.SelectionService`
+mints a :class:`~protoboard.controller.selection.point_pick_controller.
+PointPickController`, parked as ``self._mouse`` so board clicks / intents route
+through it exactly as they do in SelectTool.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import TYPE_CHECKING, Callable, cast
+
+from protoboard.controller.tools.base import ControllerTool
+
+if TYPE_CHECKING:
+    from protoboard.geometry import Point
+    from protoboard.controller.ports import HoverEvent, KeyInput, PointerInput
+    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing.wire_edit_arm import WireEditArm
+    from protoboard.controller.selection.mouse_input import MouseInputController, Mods
+    from protoboard.controller.selection.adapters import WireVertexSelectable
+    from protoboard.controller.selection.mouse_input import Intent
+    from protoboard.controller.selection.selectable import Selectable
+    from protoboard.controller.selection.service import SelectionService
+    from protoboard.controller.selection.hit_test import WireEditCycle
+    from protoboard.controller.selection.wire_edit import WireRange
+    from protoboard.controller.tools.select_preview import SelectPreview
+    from protoboard.domain.commands.base import Command, ComponentState
+    from protoboard.domain.layout.wire import Wire
+
+
+# Own action namespace — the wire-edit op keys.  Copied verbatim from
+# select_tool.py (lines 98-119) so the SAME ids drive both tools while SelectTool
+# still owns wire-edit (8a); 8b repoints the call site.
+_ACT_REROUTE = "select-tool.action.reroute"
+_ACT_AUTOROUTE = "select-tool.action.autoroute"
+_ACT_DELETE = "select-tool.action.delete"
+_ACT_CANCEL = "select-tool.action.cancel"
+_ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
+_ACT_SIMPLIFY_FRAGMENT = "select-tool.action.simplify_fragment"
+
+
+class WireEditTool(ControllerTool):
+    """The wire-fragment edit mode, driven as a registered tool."""
+
+    def __init__(
+        self,
+        wire_range: WireRange,
+        wire_id: uuid.UUID,
+        *,
+        return_to: Callable[[], None],
+    ) -> None:
+        from protoboard.controller.selection.hit_test import WireEditCycle
+
+        super().__init__()  # sets _session / _view to None up-front
+        self._return_to = return_to
+        self._arm: WireEditArm | None = None
+        self._preview: SelectPreview | None = None
+        # The selection service driving the reroute pick + its live controller.
+        self._selection: SelectionService = None  # type: ignore[assignment]
+        self._mouse: MouseInputController | None = None
+        # The armed fragment (WireRange) + cluster-cycle + anchor wire.  The
+        # cross-wire ``_wire_edit_start`` first-vertex is only used by the
+        # net-restricted vertex hit-test (a bare full-span arm has none).
+        self._wire_edit: WireRange | None = wire_range
+        self._wire_edit_wire_id: uuid.UUID | None = wire_id
+        self._wire_edit_cycle: WireEditCycle = WireEditCycle()
+        self._wire_edit_start: WireVertexSelectable | None = None
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def activate(self, session: EditState, view: object) -> None:
+        from protoboard.controller.editing.wire_edit_arm import WireEditArm
+        from protoboard.controller.selection.service import SelectionService
+
+        self._session = session
+        self._view = view
+        # Reuse the per-session SelectionService (SelectTool parks one) so a
+        # reroute pick shares the same pick registry; create + park if absent.
+        svc = getattr(session, "selection_service", None)
+        if not isinstance(svc, SelectionService):
+            svc = SelectionService()
+            session.selection_service = svc  # type: ignore[attr-defined]
+        self._selection = svc
+        self._arm = WireEditArm(
+            cast(
+                "Callable[[Wire], Command[ComponentState]]",
+                self._net_aware_add_factory(),
+            )
+        )
+        self._draw_wire_edit_overlay()
+        self._status(
+            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+            "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
+            0,
+        )
+
+    def deactivate(self) -> None:
+        self._wire_edit_clear()
+        self._session = None  # type: ignore[assignment]
+        self._view = None
+        self._arm = None
+
+    def on_scene_cleared(self) -> None:
+        if self._preview is not None:
+            self._preview.on_scene_cleared()
+
+    @property
+    def preview(self) -> SelectPreview:
+        assert self._preview is not None  # set by activate() / injection
+        return self._preview
+
+    @property
+    def state(self) -> str:
+        return "wire_edit" if self._wire_edit is not None else "select.idle"
+
+    # -- commands -----------------------------------------------------------
+
+    def command_table(self) -> dict[str, Callable[[], object]]:
+        """``action_id -> command`` — the wire-edit op-table the View resolves
+        keys against (mirrors ``_wire_edit_on_key`` in SelectTool)."""
+        return {
+            _ACT_REROUTE: self._begin_reroute,
+            _ACT_AUTOROUTE: self._autoroute_fragment,
+            _ACT_FLIP_FRAGMENT: self._flip_wire_fragment,
+            _ACT_SIMPLIFY_FRAGMENT: self._simplify_wire_fragment,
+            _ACT_DELETE: self._delete_fragment,
+            _ACT_CANCEL: self.cancel_op,
+        }
+
+    def displayable_action_ids(self) -> list[str]:
+        return [
+            _ACT_REROUTE, _ACT_AUTOROUTE, _ACT_FLIP_FRAGMENT,
+            _ACT_SIMPLIFY_FRAGMENT, _ACT_DELETE,
+        ]
+
+    # -- ArmedSubTool surface ----------------------------------------------
+
+    def has_pending_op(self) -> bool:
+        # Pending == a live reroute waypoint pick (a REAL in-flight op), NOT
+        # mere armedness — a bare armed fragment is exitable on the first Esc.
+        mouse = self._mouse
+        return mouse is not None and not mouse.finished
+
+    def can_commit(self) -> bool:
+        # A wire-edit op has no HARD-conflict park concept (the net-restricted
+        # hit-test keeps a fragment within one net) — a commit always lands.
+        return True
+
+    def can_exit(self) -> bool:
+        return not self.has_pending_op()
+
+    def commit_op(self) -> bool:
+        """Confirm ([Enter]) the live reroute pick, if one is in flight."""
+        return self._dispatch_intent_confirm()
+
+    def cancel_op(self) -> bool:
+        """Esc: drop a live reroute pick's waypoints (keep the fragment); with
+        no pick in flight there is nothing to cancel."""
+        if self.has_pending_op():
+            self._dispatch_intent_cancel()
+            return True
+        return False
+
+    # -- reroute waypoint pick ---------------------------------------------
+
+    def _begin_reroute(self) -> None:
+        """Arm the waypoint pick — ``[W]`` reroute (a chained ``point`` pick).
+
+        Collects snapped board waypoints; ``on_progress`` previews the dashed
+        orange polyline, ``on_preview`` draws the live cursor segment, Enter
+        commits (``_commit_reroute``), Esc keeps the fragment.
+        """
+        from protoboard.controller.selection.selectable import Stop
+
+        if self._wire_edit is None:
+            return
+        self._status(
+            "Reroute: click waypoints  ·  [Enter] Commit  ·  "
+            "[Backspace] Undo  ·  [Esc] Cancel",
+            0,
+        )
+        self._arm_pick(
+            "point",
+            Stop.confirm(),
+            on_done=self._commit_reroute,
+            on_cancel=self._reroute_cancel,
+            on_progress=self._reroute_progress,
+            on_preview=self._reroute_preview,
+        )
+
+    def _reroute_progress(self, picked: list[Selectable]) -> None:
+        from protoboard.controller.selection.adapters import PointSelectable
+
+        pts = [p.point for p in picked if isinstance(p, PointSelectable)]
+        self._draw_reroute_preview(pts)
+
+    def _reroute_preview(self, scene_pt: Point, _mods: Mods) -> None:
+        """Live rubber-band from the last anchor to the cursor (snapped)."""
+        self._clear_reroute_live()
+        anchor = self._reroute_anchor()
+        if anchor is None:
+            return
+        snapped = self._snap(scene_pt)
+        self.preview.show_reroute_live(anchor, snapped)
+
+    def _reroute_anchor(self) -> Point | None:
+        """The point a new reroute segment starts from (last waypoint or start).
+
+        Single source of truth — the live ``PickSession``'s collected waypoints
+        (``state.waypoints`` is only populated at commit time, so reading it
+        here would make every live segment start from the fragment start).
+        """
+        state = self._wire_edit
+        if state is None:
+            return None
+        last = self._reroute_last_picked_point()
+        if last is not None:
+            return last
+        wire = self._wire_by_id(state.start_wire_id)
+        if wire is None:
+            return None
+        return wire.path[state.start_idx]
+
+    def _reroute_last_picked_point(self) -> Point | None:
+        """The last confirmed waypoint from the active pick, or None."""
+        from protoboard.controller.selection.adapters import PointSelectable
+
+        mouse = self._mouse
+        session = getattr(mouse, "session", None)
+        if session is None:
+            return None
+        pts = [p.point for p in session.collected if isinstance(p, PointSelectable)]
+        return pts[-1] if pts else None
+
+    def _commit_reroute(self, picked: list[Selectable]) -> None:
+        """Commit the reroute: build the path command, execute, RE-ARM."""
+        from protoboard.controller.selection.adapters import PointSelectable
+
+        state = self._wire_edit
+        arm = self._arm
+        if state is None or arm is None:
+            self._reroute_cancel()
+            return
+        pts = [p.point for p in picked if isinstance(p, PointSelectable)]
+        cmd = arm.reroute(
+            self._session.layout,
+            list(self._session.layout.wires),
+            self._wire_net_map(),
+            state.with_waypoints(pts),
+        )
+        self._commit_and_rearm(cmd)
+
+    def _reroute_cancel(self) -> None:
+        """Esc during reroute → drop the waypoints, keep the fragment armed."""
+        self._clear_reroute_overlay()
+        if self._wire_edit is not None:
+            self._status(
+                "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+                "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
+                0,
+            )
+
+    # -- ops (build via arm, execute locally, re-arm or exit) --------------
+
+    def _autoroute_fragment(self) -> None:
+        """A* re-route the fragment — ``[A]`` (stays armed)."""
+        state = self._wire_edit
+        arm = self._arm
+        if state is None or arm is None:
+            return
+        source, target, side = self._fragment_endpoints(state)
+        if source is None or target is None:
+            self._exit()
+            return
+        cmd = arm.autoroute(
+            self._session.layout,
+            list(self._session.layout.wires),
+            self._wire_net_map(),
+            state,
+            self._session.connectivity_graph(),
+            source,
+            target,
+            side,
+        )
+        if cmd is None:
+            self._status("Autoroute: no path found")
+            self._refresh_after_wire_op()
+            return
+        self._commit_and_rearm(cmd)
+
+    def _flip_wire_fragment(self, target_side: str | None = None) -> None:
+        """Flip the selected fragment to the opposite layer — ``[F]`` (stays armed)."""
+        state = self._wire_edit
+        arm = self._arm
+        if state is None or arm is None:
+            return
+        cmd = arm.flip(list(self._session.layout.wires), state, target_side)
+        if cmd is None:
+            self._status(
+                "Flip: pick a fragment on a single wire (two vertices apart)."
+            )
+            return
+        self._commit_and_rearm(cmd)
+
+    def _simplify_wire_fragment(self) -> None:
+        """Simplify the selected fragment — ``[S]`` (a range op; stays armed)."""
+        from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.services.routing.postprocess import SimplifyMode
+
+        state = self._wire_edit
+        arm = self._arm
+        if state is None or arm is None or state.is_cross:
+            self._status(
+                "Simplify: pick a fragment on a single wire (two vertices apart)."
+            )
+            return
+        mode = getattr(
+            self._session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
+        )
+        cmd = arm.simplify(
+            self._session.layout,
+            list(self._session.layout.wires),
+            state,
+            build_simplify_inputs(self._session),
+            mode,
+        )
+        if cmd is None:
+            self._status("Simplify: nothing to shorten on this fragment.")
+            self._refresh_after_wire_op()
+            return
+        self._commit_and_rearm(cmd)
+
+    def _delete_fragment(self) -> None:
+        """Delete the selected fragment — ``[Del]`` (the ONE op that exits)."""
+        state = self._wire_edit
+        arm = self._arm
+        if state is None or arm is None:
+            return
+        cmd = arm.delete(
+            list(self._session.layout.wires), self._wire_net_map(), state
+        )
+        if cmd is not None:
+            self._execute_command(cmd)
+        self._refresh_after_wire_op()
+        # The wire is gone — nothing to re-arm, so drop to plain select.
+        self._exit()
+
+    # -- commit / re-arm / exit --------------------------------------------
+
+    def _commit_and_rearm(self, cmd: Command[ComponentState] | None) -> None:
+        """Execute *cmd* (if any), refresh, then RE-ARM on the mutated wire's
+        full span so the tool stays active for the next op."""
+        if cmd is not None:
+            self._execute_command(cmd)
+        self._refresh_after_wire_op()
+        self._rearm_full_span()
+
+    def _rearm_full_span(self) -> None:
+        """Re-arm on the FULL SPAN of the (now-mutated) wire.
+
+        The old fragment indices may be stale after a path change; the full span
+        of the surviving wire is the safe, always-selectable re-arm.  If the wire
+        vanished (shouldn't happen for id-preserving ops), exit instead.
+        """
+        from protoboard.controller.selection.hit_test import WireEditCycle
+        from protoboard.controller.selection.wire_edit import WireRange
+
+        wire_id = self._wire_edit_wire_id
+        wire = self._wire_by_id(wire_id) if wire_id is not None else None
+        if wire is None:
+            self._exit()
+            return
+        self._wire_edit = WireRange.full_span(wire)
+        self._wire_edit_cycle = WireEditCycle()
+        self._wire_edit_start = None
+        self._draw_wire_edit_overlay()
+        self._status(
+            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+            "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
+            0,
+        )
+
+    def _exit(self) -> None:
+        """Drop wire-edit and hand control back to the SelectTool that armed us."""
+        self._wire_edit_clear()
+        self._return_to()
+
+    def _wire_edit_clear(self) -> None:
+        """Leave wire-edit: drop the fragment, cycle, overlays."""
+        from protoboard.controller.selection.hit_test import WireEditCycle
+
+        self._clear_wire_edit_overlay()
+        self._clear_reroute_overlay()
+        self._wire_edit = None
+        self._wire_edit_wire_id = None
+        self._wire_edit_start = None
+        self._wire_edit_cycle = WireEditCycle()
+
+    # -- pick machinery (replicated from SelectTool — reroute needs it) -----
+
+    def on_press(self, inp: PointerInput) -> bool:
+        from protoboard.controller.ports import LEFT_BUTTON
+
+        if inp.button != LEFT_BUTTON:
+            return False
+        mouse = self._mouse
+        if mouse is not None and not mouse.finished:
+            mouse.on_press(inp.scene_pos, inp.mods)
+            return True
+        return False
+
+    def on_move(self, inp: PointerInput) -> None:
+        if self._mouse is not None:
+            self._mouse.on_move(inp.scene_pos, inp.mods)
+
+    def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
+        from protoboard.controller.ports import HoverEvent
+
+        if self._mouse is not None:
+            self._mouse.on_move(point, mods)
+        return HoverEvent(point=point)
+
+    def on_release(self, inp: PointerInput) -> None:
+        mouse = self._mouse
+        if mouse is None:
+            return
+        mouse.on_click(inp.scene_pos, inp.mods)
+        if mouse.finished:
+            self._mouse = None
+
+    def _arm_pick(
+        self,
+        what: str,
+        stop: object,
+        *,
+        on_done: object,
+        on_cancel: object = None,
+        on_progress: object = None,
+        on_preview: object = None,
+    ) -> None:
+        """Start a ``point`` pick and park it as the active mouse interaction.
+
+        Builds a ``PickSession`` via the service, wraps it in a
+        ``PointPickController``, and routes clicks / intents through
+        ``self._mouse`` (the reroute waypoint pick).  The resolver is this tool's
+        :meth:`_pick_at`.  Mirrors ``SelectTool._arm_pick`` (only the surface
+        wire-edit needs — no custom ``resolve``).
+        """
+        from collections.abc import Callable as _Callable
+
+        from protoboard.controller.selection.point_pick_controller import (
+            PointPickController,
+        )
+        from protoboard.controller.selection.selectable import PickKind, Stop
+
+        if self._mouse is not None and not self._mouse.finished:
+            self._dispatch_intent_cancel()
+        kind = cast("PickKind", what)
+        session = self._selection.request_pick(
+            kind,
+            cast("Stop", stop),
+            on_done=cast("_Callable[[list[Selectable]], None]", on_done),
+            on_cancel=cast("_Callable[[], None] | None", on_cancel),
+            on_progress=cast(
+                "_Callable[[list[Selectable]], None] | None", on_progress
+            ),
+        )
+
+        def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
+            return self._pick_at(kind, pt)
+
+        self._mouse = PointPickController(
+            session,
+            _resolve,
+            on_preview=cast(
+                "_Callable[[Point, Mods], None] | None", on_preview
+            ),
+        )
+
+    def _pick_at(self, what: object, scene_pt: Point) -> Selectable | None:
+        """Resolve a click into the Selectable the active pick wants.
+
+        A ``point`` pick resolves to the snapped board coordinate; a
+        ``wire-vertex`` pick runs the net-restricted cluster-cycling vertex
+        hit-test (threading ``self._wire_edit_cycle`` so repeated clicks at a
+        shared knot rotate through siblings).  Mirrors the reroute-relevant
+        branches of ``SelectTool._pick_at``.
+        """
+        if what in ("pad", "point"):
+            from protoboard.controller.selection.adapters import PointSelectable
+
+            return PointSelectable(point=self._snap(scene_pt))
+        if what == "wire-vertex":
+            from protoboard.controller.selection.hit_test import HitTester
+            from protoboard.types import Side
+
+            camera_side = getattr(self._view, "camera_side", "top")
+            hitter = HitTester(
+                self._session, camera_side=cast("Side", camera_side)
+            )
+            sel, cycle = hitter.hit_wire_vertex(
+                scene_pt.x,
+                scene_pt.y,
+                start_wire_id=self._wire_edit_active_start_wire(),
+                wire_net_map=self._session.cached_wire_net_map(),
+                cycle=self._wire_edit_cycle,
+            )
+            self._wire_edit_cycle = cycle
+            return sel
+        return None
+
+    def _wire_edit_active_start_wire(self) -> uuid.UUID | None:
+        """The wire the wire-vertex pick is anchored on for tie-breaking."""
+        start = self._wire_edit_start
+        if start is not None:
+            return start.wire_id
+        return self._wire_edit_wire_id
+
+    def _dispatch_intent_confirm(self) -> bool:
+        from protoboard.controller.selection.mouse_input import Intent
+
+        return self._dispatch_intent(Intent.CONFIRM)
+
+    def _dispatch_intent_cancel(self) -> bool:
+        from protoboard.controller.selection.mouse_input import Intent
+
+        return self._dispatch_intent(Intent.CANCEL)
+
+    def _dispatch_intent(self, intent: Intent) -> bool:
+        """Route a semantic intent to the active reroute pick; return consumed."""
+        mouse = self._mouse
+        if mouse is None:
+            return False
+        if not mouse.on_event(intent):
+            return False
+        if mouse.finished:
+            self._mouse = None
+        return True
+
+    # -- helpers ------------------------------------------------------------
+
+    def _net_aware_add_factory(self) -> object:
+        """A wire-range ``add_factory`` that reclassifies nets on cut/reroute.
+
+        The Qt-free range builders mint fresh wires when a cut re-adds a
+        surviving / replacement piece.  This factory wraps each fresh wire in an
+        ``AddWireWithNetsCommand`` and runs ``resolve_wire_nets`` against the
+        live session, so a piece whose new endpoint lands on a pin re-extends /
+        re-merges the schematic instead of keeping the stale net.  (Copied from
+        ``SelectTool._net_aware_add_factory``.)
+        """
+        from protoboard.domain.commands.base import Command, ComponentState
+        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
+        from protoboard.controller.editing.wire_nets import resolve_wire_nets
+        from protoboard.domain.layout.wire import Wire as _Wire
+
+        def _factory(wire: _Wire) -> "Command[ComponentState]":
+            cmd = AddWireWithNetsCommand(wire=wire)
+            resolve_wire_nets(
+                self._session,
+                wire,
+                cmd,
+                merge_prompt=lambda net_a, _net_b: net_a.name,
+            )
+            return cast("Command[ComponentState]", cmd)
+
+        return _factory
+
+    def _fragment_endpoints(
+        self, state: WireRange
+    ) -> tuple[Point | None, Point | None, str]:
+        """Resolve the fragment's two boundary points + side for autoroute."""
+        start_wire = self._wire_by_id(state.start_wire_id)
+        end_wire = self._wire_by_id(state.end_wire_id)
+        if start_wire is None or end_wire is None:
+            return None, None, "top"
+        return (
+            start_wire.path[state.start_idx],
+            end_wire.path[state.end_idx],
+            start_wire.side,
+        )
+
+    def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
+        return next(
+            (w for w in self._session.layout.wires if w.id == wire_id), None
+        )
+
+    def _wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
+        return self._session.cached_wire_net_map()
+
+    def _refresh_after_wire_op(self) -> None:
+        if self._view is not None:
+            self._view.refresh()
+
+    def _execute_command(self, cmd: object) -> bool:
+        from protoboard.domain.commands.base import (
+            Command,
+            CommandRejectedError,
+            ComponentState,
+        )
+
+        try:
+            self._session.stack.execute(
+                cast("Command[ComponentState]", cmd),
+                cast("ComponentState", self._session),
+            )
+        except CommandRejectedError:
+            return False
+        self._session.layout_changed.emit()
+        return True
+
+    def _snap(self, raw: Point) -> Point:
+        assert self._view is not None
+        return cast("Point", self._view.snap(raw, exclude_ids=frozenset()))
+
+    def _status(self, msg: str, timeout_ms: int = 3000) -> None:
+        from protoboard.controller.ports import StatusEvent
+
+        if self._view is None:
+            return
+        self._view.notify_status(
+            StatusEvent(
+                "wire-edit.status", {"text": msg, "timeout_ms": timeout_ms}
+            )
+        )
+
+    # -- wire-edit overlays (tool-drawn) ------------------------------------
+
+    def _draw_wire_edit_overlay(self) -> None:
+        """Cyan segments for the armed wire + red dots at the range endpoints."""
+        if self._preview is None:
+            return
+        self._clear_wire_edit_overlay()
+        marked: dict[uuid.UUID, set[int]] = {}
+        if self._wire_edit is not None:
+            marked.setdefault(self._wire_edit.start_wire_id, set()).add(
+                self._wire_edit.start_idx
+            )
+            marked.setdefault(self._wire_edit.end_wire_id, set()).add(
+                self._wire_edit.end_idx
+            )
+        wire_ids = set(marked)
+        if self._wire_edit_wire_id is not None:
+            wire_ids.add(self._wire_edit_wire_id)
+        for wid in wire_ids:
+            wire = self._wire_by_id(wid)
+            if wire is None:
+                continue
+            self.preview.show_wire_edit_wire(
+                list(wire.path), marked.get(wid, set())
+            )
+
+    def _draw_reroute_preview(self, waypoints: list[Point]) -> None:
+        """Dashed orange polyline from the fragment start through the waypoints."""
+        if self._preview is None:
+            return
+        self._clear_reroute_overlay()
+        anchor = None
+        state = self._wire_edit
+        if state is not None:
+            wire = self._wire_by_id(state.start_wire_id)
+            if wire is not None:
+                anchor = wire.path[state.start_idx]
+        if anchor is None:
+            return
+        self.preview.show_reroute_path([anchor, *waypoints])
+
+    def _clear_wire_edit_overlay(self) -> None:
+        if self._preview is not None:
+            self._preview.clear_wire_edit()
+
+    def _clear_reroute_overlay(self) -> None:
+        if self._preview is not None:
+            self._preview.clear_reroute()
+
+    def _clear_reroute_live(self) -> None:
+        if self._preview is not None:
+            self._preview.clear_reroute_live()

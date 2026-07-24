@@ -21,6 +21,7 @@ from protoboard.controller.tools.armed_transform_tool import (
     ArmedTransformTool as _ArmedTransformTool,
 )
 from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
+from protoboard.controller.tools.wire_edit_tool import WireEditTool as _WireEditTool
 from protoboard.controller.tools.select_tool import (
     _ACT_DELETE,
     _ACT_EDIT,
@@ -49,6 +50,7 @@ __all__ = [
     "ArmedTransformTool",
     "SelectTool",
     "SimplifyTool",
+    "WireEditTool",
     "qt_group_target_prompt",
 ]
 
@@ -174,6 +176,32 @@ class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
         # The base activate() already drew pivot markers / published status
         # before this preview existed — redraw now that it does.
         self._draw_pivot_markers()  # type: ignore[attr-defined]
+
+    def on_key(self, inp: KeyInput) -> bool:
+        return _dispatch_key_by_action_id(self, inp)
+
+
+class WireEditTool(_WireEditTool, ViewToolMixin):
+    """WireEditTool with the default Qt wire-edit / reroute preview.
+
+    ``on_key`` is the raw-key translation a GUI subclass owns: the controller
+    tool's ``command_table()`` maps every wire-edit op action id (reroute /
+    autoroute / flip / simplify / delete / cancel) to its command handler —
+    this resolves the key to an id via the KeyMap and dispatches it through the
+    Controller.  The wire-edit + reroute overlays render through ``self.preview``
+    (``QtSelectPreview``, the same overlay implementation SelectTool uses).
+    """
+
+    make_key_map = ViewToolMixin.make_key_map
+    _theme = ViewToolMixin._theme
+
+    def activate(self, session: object, view: object) -> None:
+        from protoboard.gui.tools.select_preview import QtSelectPreview
+
+        # Inject the Qt preview BEFORE base activate() (it draws the fragment
+        # overlay), matching PlaceTool's inject-then-activate ordering.
+        self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
+        super().activate(session, view)  # type: ignore[arg-type]
 
     def on_key(self, inp: KeyInput) -> bool:
         return _dispatch_key_by_action_id(self, inp)
