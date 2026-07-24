@@ -172,8 +172,7 @@ class RouteTool(ControllerTool):
         }
 
     def _key_commit(self) -> bool:
-        self._commit()
-        return True
+        return self.commit_op()
 
     def _key_cancel(self) -> bool:
         self._cancel()

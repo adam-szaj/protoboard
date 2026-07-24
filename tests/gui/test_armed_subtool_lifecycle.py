@@ -560,3 +560,44 @@ class TestRouteConflictGate:
         assert tool.commit_op() is True
         assert len(session.layout.wires) == added_before + 1
 
+    def test_alien_route_refuses_via_enter_key(self, session: EditorSession) -> None:
+        # Same alien-net scenario as test_route_ending_on_alien_net_pad_refuses,
+        # but driven through the REAL key path (on_key -> command_table ->
+        # _key_commit) instead of calling commit_op() directly -- this is the
+        # coverage gap that let the Task 6 gate ship inert on the Enter key.
+        view = _headless(session)
+        # comp1: net-A pad pair, wired together (netted).
+        _place(view, 0.5, 0.5)
+        # comp2: pad pair left UNCONNECTED (no wire) -- its pins carry no net.
+        _place(view, 2.5, 0.5)
+
+        view.tools.set_tool(RouteTool())
+        tool = view.active_tool
+        assert isinstance(tool, RouteTool)
+        tool.on_press(pointer(0.5, 0.5))
+        tool.on_press(pointer(0.5, 1.5))
+        tool._commit()  # net A now lives on comp1's two pins
+
+        # Route from comp2's (unconnected) pad to comp1's (netted) pad.
+        tool.on_press(pointer(2.5, 0.5))
+        tool.on_press(pointer(0.5, 0.5))
+
+        added_before = len(session.layout.wires)
+        tool.on_key(key_inp(Qt.Key.Key_Return))  # real Enter dispatch
+
+        assert len(session.layout.wires) == added_before  # gate fired, not committed
+        assert tool.has_pending_op()  # stays armed, points intact
+        assert view.active_tool is tool
+
+    def test_clean_route_commits_via_enter_key(self, session: EditorSession) -> None:
+        # Regression guard: a clean route still commits through the real
+        # Enter-key dispatch path (not just via commit_op() directly).
+        view, tool = self._routing(session)
+        tool.on_press(pointer(0.5, 0.5))
+        tool.on_press(pointer(0.5, 1.5))
+
+        added_before = len(session.layout.wires)
+        tool.on_key(key_inp(Qt.Key.Key_Return))
+
+        assert len(session.layout.wires) == added_before + 1
+
