@@ -67,6 +67,7 @@ def _default_add_factory(wire: Wire) -> "Command[ComponentState]":
 __all__ = [
     "AddWireFactory",
     "WireEditState",
+    "WireRange",
     "autoroute_fragment_path",
     "build_delete_command",
     "build_reroute_command",
@@ -79,14 +80,22 @@ __all__ = [
 
 
 @dataclass(frozen=True, slots=True)
-class WireEditState:
-    """The selected wire fragment — an inclusive index range on one or two wires.
+class WireRange:
+    """An inclusive index range on one wire (or across two same-net wires).
+
+    The *single* granularity every wire operation targets: an inclusive
+    ``[start_idx : end_idx]`` on a wire's flattened path. A **whole wire** is the
+    special case ``full_span(wire) = [0, len(path)-1]`` — so a select-mode
+    whole-wire op and a wire-edit fragment op are the same operation on different
+    ranges (``docs/core-wire-semantics.md``: "reduce op-on-wire to op-on-range").
 
     Same-wire when ``start_wire_id == end_wire_id`` (then ``start_idx <= end_idx``
     by construction); cross-wire when the two ids differ (sibling wires of the
     same net).  ``waypoints`` holds the hand-drawn reroute points of the *active*
     reroute operation (empty otherwise).  Constructed only when both endpoints
     are chosen — the "armed but incomplete" state is ``None`` in the tool.
+
+    (Formerly ``WireEditState``; kept as an alias for callers not yet renamed.)
     """
 
     start_wire_id: uuid.UUID
@@ -95,20 +104,45 @@ class WireEditState:
     end_idx: int
     waypoints: tuple[Point, ...] = field(default=())
 
+    @classmethod
+    def full_span(cls, wire: Wire) -> WireRange:
+        """The whole-wire range ``[0 : len(path)-1]`` — the op-on-wire special case."""
+        return cls(
+            start_wire_id=wire.id,
+            start_idx=0,
+            end_wire_id=wire.id,
+            end_idx=len(wire.path) - 1,
+        )
+
     @property
     def is_cross(self) -> bool:
         """True when the fragment spans two distinct wires (cross-wire edit)."""
         return self.start_wire_id != self.end_wire_id
 
-    def with_waypoints(self, waypoints: Sequence[Point]) -> WireEditState:
+    def is_full_span(self, wire: Wire) -> bool:
+        """True when this range covers *wire* end-to-end (a whole-wire op)."""
+        return (
+            not self.is_cross
+            and self.start_wire_id == wire.id
+            and self.start_idx == 0
+            and self.end_idx == len(wire.path) - 1
+        )
+
+    def with_waypoints(self, waypoints: Sequence[Point]) -> WireRange:
         """Return a copy carrying *waypoints* (the active reroute points)."""
-        return WireEditState(
+        return WireRange(
             start_wire_id=self.start_wire_id,
             start_idx=self.start_idx,
             end_wire_id=self.end_wire_id,
             end_idx=self.end_idx,
             waypoints=tuple(waypoints),
         )
+
+
+#: Backward-compatible alias — ``WireRange`` was introduced when whole-wire ops
+#: were unified onto the same range abstraction as wire-edit fragments. Existing
+#: callers still importing ``WireEditState`` keep working.
+WireEditState = WireRange
 
 
 # -- small pure geometry helpers (ports of the legacy free/static funcs) -----

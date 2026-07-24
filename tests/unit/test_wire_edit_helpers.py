@@ -371,6 +371,36 @@ class TestWireEditState:
         assert s1.start_idx == 0 and s1.end_idx == 2
 
 
+class TestWireRange:
+    """The unified range abstraction — whole wire is the full-span special case."""
+
+    def test_alias_is_identity(self) -> None:
+        from protoboard.controller.selection.wire_edit import WireRange
+        assert WireEditState is WireRange
+
+    def test_full_span_covers_whole_path(self) -> None:
+        from protoboard.controller.selection.wire_edit import WireRange
+        w = _wire((0, 0), (1, 0), (2, 0), (3, 0))
+        r = WireRange.full_span(w)
+        assert (r.start_wire_id, r.start_idx) == (w.id, 0)
+        assert (r.end_wire_id, r.end_idx) == (w.id, len(w.path) - 1)
+        assert not r.is_cross
+        assert r.is_full_span(w)
+
+    def test_sub_range_is_not_full_span(self) -> None:
+        from protoboard.controller.selection.wire_edit import WireRange
+        w = _wire((0, 0), (1, 0), (2, 0), (3, 0))
+        assert not WireRange(w.id, 1, w.id, 2).is_full_span(w)
+
+    def test_cross_range_is_never_full_span(self) -> None:
+        from protoboard.controller.selection.wire_edit import WireRange
+        a = _wire((0, 0), (1, 0))
+        b = _wire((1, 0), (2, 0))
+        r = WireRange(a.id, 0, b.id, 1)
+        assert r.is_cross
+        assert not r.is_full_span(a)
+
+
 def _session():
     from protoboard.gui.session import EditorSession
     from protoboard.services.library.loader import load_library
