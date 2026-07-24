@@ -34,6 +34,7 @@ from protoboard.controller.selection.wire_edit import (
     WireEditState,
     WireRange,
     build_delete_command,
+    build_delete_range_edit,
     build_flip_fragment_command,
     build_reroute_command,
     build_set_insulated_range_command,
@@ -472,6 +473,45 @@ class TestBuildSetInsulatedRangeCommand:
         state = WireRange(w1.id, 2, w2.id, 1)  # cross-wire
         assert state.is_cross
         result = build_set_insulated_range_command([w1, w2], nm, state, insulated=True)
+        assert result is None
+
+
+# -- build_delete_range_edit --------------------------------------------------
+
+
+class TestBuildDeleteRangeEdit:
+    def _wire(self) -> Wire:
+        return Wire(
+            id=uuid.uuid4(),
+            path=[Point(0, 0), Point(1, 0), Point(2, 0), Point(3, 0), Point(4, 0)],
+            insulated=False, side="top", color=None,
+        )
+
+    def test_full_span_delete_is_not_a_cut(self) -> None:
+        wire = self._wire()
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange.full_span(wire)
+        result = build_delete_range_edit([wire], nm, state)
+        assert result is not None
+        assert result.was_cut is True          # a cut happened...
+        assert result.survivor_wire_ids == ()  # ...but nothing survived → tool exits
+
+    def test_sub_range_delete_reports_two_survivors(self) -> None:
+        wire = self._wire()
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange(wire.id, 1, wire.id, 3)
+        result = build_delete_range_edit([wire], nm, state)
+        assert result is not None
+        assert result.was_cut is True
+        assert len(result.survivor_wire_ids) == 2
+
+    def test_invalid_cross_returns_none(self) -> None:
+        w1 = self._wire()
+        w2 = Wire(id=uuid.uuid4(), path=[Point(9, 9), Point(10, 9)],
+                  insulated=False, side="top", color=None)
+        nm = {w1.id: uuid.uuid4(), w2.id: uuid.uuid4()}
+        state = WireRange(w1.id, 2, w2.id, 1)  # disconnected nets → excise None
+        result = build_delete_range_edit([w1, w2], nm, state)
         assert result is None
 
 

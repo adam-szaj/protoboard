@@ -82,6 +82,7 @@ __all__ = [
     "WireRangeEdit",
     "autoroute_fragment_path",
     "build_delete_command",
+    "build_delete_range_edit",
     "build_reroute_command",
     "build_set_insulated_range_command",
     "build_simplify_range_command",
@@ -578,6 +579,33 @@ def build_set_insulated_range_command(
         ),
         survivor_wire_ids=tuple(survivors),
         was_cut=True,
+    )
+
+
+def build_delete_range_edit(
+    wires: Sequence[Wire],
+    wire_net_map: dict[uuid.UUID, uuid.UUID],
+    state: WireEditState,
+    add_factory: AddWireFactory = _default_add_factory,
+) -> WireRangeEdit | None:
+    """``build_delete_command`` wrapped as a ``WireRangeEdit``.
+
+    Captures the fresh survivor ids by wrapping *add_factory*, and reports
+    ``was_cut=True`` whenever a delete actually removed wire (always, for a
+    valid range).  Full-span delete removes the whole wire → no survivors →
+    the tool exits; a sub-range delete leaves the two halves as survivors.
+    """
+    survivors: list[uuid.UUID] = []
+
+    def _capture(wire: Wire) -> "Command[ComponentState]":
+        survivors.append(wire.id)
+        return add_factory(wire)
+
+    cmd = build_delete_command(wires, wire_net_map, state, _capture)
+    if cmd is None:
+        return None
+    return WireRangeEdit(
+        command=cmd, survivor_wire_ids=tuple(survivors), was_cut=True
     )
 
 
