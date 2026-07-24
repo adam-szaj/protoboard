@@ -63,6 +63,7 @@ _ACT_DELETE = "select-tool.action.delete"
 _ACT_CANCEL = "select-tool.action.cancel"
 _ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
 _ACT_SIMPLIFY_FRAGMENT = "select-tool.action.simplify_fragment"
+_ACT_SET_INSULATED_FRAGMENT = "select-tool.action.set_insulated_fragment"
 
 
 class WireEditTool(ControllerTool):
@@ -132,7 +133,8 @@ class WireEditTool(ControllerTool):
         self._draw_wire_edit_overlay()
         self._status(
             "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
+            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
+            "[Del] Delete  ·  [Esc] Cancel",
             0,
         )
 
@@ -165,6 +167,7 @@ class WireEditTool(ControllerTool):
             _ACT_AUTOROUTE: self._autoroute_fragment,
             _ACT_FLIP_FRAGMENT: self._flip_wire_fragment,
             _ACT_SIMPLIFY_FRAGMENT: self._simplify_wire_fragment,
+            _ACT_SET_INSULATED_FRAGMENT: self._set_insulated_fragment,
             _ACT_DELETE: self._delete_fragment,
             _ACT_CANCEL: self.cancel_op,
         }
@@ -172,7 +175,7 @@ class WireEditTool(ControllerTool):
     def displayable_action_ids(self) -> list[str]:
         return [
             _ACT_REROUTE, _ACT_AUTOROUTE, _ACT_FLIP_FRAGMENT,
-            _ACT_SIMPLIFY_FRAGMENT, _ACT_DELETE,
+            _ACT_SIMPLIFY_FRAGMENT, _ACT_SET_INSULATED_FRAGMENT, _ACT_DELETE,
         ]
 
     # -- ArmedSubTool surface ----------------------------------------------
@@ -386,6 +389,30 @@ class WireEditTool(ControllerTool):
         )
         self._apply_range_edit(edit, "Delete: nothing to remove.")
 
+    def _set_insulated_fragment(self) -> None:
+        """Toggle the selected range's insulation — ``[I]``.
+
+        Reads the anchored wire's current ``insulated`` and targets the
+        opposite, so a single key flips bare<->insulated for the slice.
+        Full-span → id-preserving toggle (stays armed).  Sub-range → split
+        into bare/insulated/bare and wait for a re-pick."""
+        state = self._wire_edit
+        arm = self._arm
+        if state is None or arm is None:
+            return
+        wire = self._wire_by_id(state.start_wire_id)
+        if wire is None:
+            return
+        edit = arm.set_insulated(
+            list(self._session.layout.wires),
+            self._wire_net_map(),
+            state,
+            insulated=not wire.insulated,
+        )
+        self._apply_range_edit(
+            edit, "Insulate: pick a range within one wire (two vertices apart)."
+        )
+
     # -- commit / re-arm / exit --------------------------------------------
 
     def _apply_range_edit(
@@ -444,18 +471,26 @@ class WireEditTool(ControllerTool):
     def _range_repicked(self, picked: list[Selectable]) -> None:
         """Resolve two picked vertices into a new armed range (port of
         SelectTool._range_picked): same-wire swap to start<=end, zero-length
-        abort; cross-wire kept as-is."""
+        abort; cross-wire kept as-is.
+
+        A failed resolution (<2 vertices, or a zero-length same-vertex pick)
+        leaves the tool ``_awaiting_repick`` with no live pick (the ``Stop.
+        count(2)`` pick that got us here has already finished) — re-arm a
+        fresh pick so the wait loop stays live instead of stalling until Esc.
+        """
         from protoboard.controller.selection.adapters import WireVertexSelectable
         from protoboard.controller.selection.wire_edit import WireRange
 
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
-            return  # keep waiting; caller re-arms the pick if needed
+            self._rearm_repick_if_waiting()
+            return  # keep waiting; the pick above stays live
         v0, v1 = verts[0], verts[1]
         start_wire, start_idx = v0.wire_id, v0.index
         end_wire, end_idx = v1.wire_id, v1.index
         if start_wire == end_wire:
             if start_idx == end_idx:
+                self._rearm_repick_if_waiting()
                 return  # zero-length, ignore
             if end_idx < start_idx:
                 start_idx, end_idx = end_idx, start_idx
@@ -469,6 +504,18 @@ class WireEditTool(ControllerTool):
             "[Del] Delete  ·  [Esc] Cancel",
             0,
         )
+
+    def _rearm_repick_if_waiting(self) -> None:
+        """Re-arm the 2-vertex re-pick if a failed resolution left the tool
+        ``_awaiting_repick`` with no live pick (see ``_range_repicked``)."""
+        from protoboard.controller.selection.selectable import Stop
+
+        if self._awaiting_repick:
+            self._arm_pick(
+                "wire-vertex",
+                Stop.count(2),
+                on_done=self._range_repicked,
+            )
 
     def _commit_and_rearm(self, cmd: Command[ComponentState] | None) -> None:
         """Execute *cmd* (if any), refresh, then RE-ARM on the mutated wire's
@@ -499,7 +546,8 @@ class WireEditTool(ControllerTool):
         self._draw_wire_edit_overlay()
         self._status(
             "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
+            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
+            "[Del] Delete  ·  [Esc] Cancel",
             0,
         )
 
