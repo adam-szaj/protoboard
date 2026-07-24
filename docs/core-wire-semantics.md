@@ -143,7 +143,7 @@ entering edit mode."* Measured against the two inventories:
 | Flip / move to layer | W4 / W5 ✅ | F3 ✅ (same-wire) | **near-parity**; cross-wire fragment falls back to whole-wire (loss of intent, §6.1) |
 | Reroute (manual path) | — | F1 ✅ | **fragment-only** — no whole-wire equivalent (arguably correct: reroute *is* a path edit) |
 | Autoroute | — (only *group* autoroute / global `F6`) | F2 ✅ | **fragment-only** — no "autoroute this whole wire" |
-| **Simplify** | W6 ✅ | ❌ | **GAP** — the doc's headline example; simplify is whole-wire only |
+| **Simplify** | W6 ✅ | ✅ `[S]` (F6) | **CLOSED** — `build_simplify_range_command`; whole-wire is the `full_span` case of the same builder (same code) |
 | **Optimize with plugin** | W7 ✅ | ❌ | **GAP** |
 | **Set bare / insulated** | W3 ✅ | ❌ | **GAP** (per-wire attribute — see §6.2 for whether a fragment version is even coherent) |
 | **Unweave** | W8 ✅ | ❌ | inherently multi-wire; no fragment analog (acceptable) |

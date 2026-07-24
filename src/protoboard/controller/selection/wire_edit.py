@@ -45,8 +45,18 @@ from protoboard.geometry import Point
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Protocol
 
     from protoboard.domain.commands.base import Command, ComponentState
+
+    class _SimplifyInputsLike(Protocol):
+        """The ``SimplifyInputs`` fields ``build_simplify_range_command`` reads."""
+
+        pin_positions: set[Point]
+        pad_to_net: dict[Point, uuid.UUID]
+        board_pads: set[Point]
+        wire_to_net: dict[uuid.UUID, uuid.UUID | None]
+        pad_index: object
 
 #: Builds the "add this freshly-minted wire" command for the range ops that cut
 #: a wire and re-add a surviving/replacement piece (cross-wire excise, reroute,
@@ -71,6 +81,7 @@ __all__ = [
     "autoroute_fragment_path",
     "build_delete_command",
     "build_reroute_command",
+    "build_simplify_range_command",
     "dedupe_adjacent",
     "excise_cross_wire_range",
     "net_wires_ordered",
@@ -512,6 +523,93 @@ def build_flip_fragment_command(
         FlipWireFragmentCommand(
             wire_id=wire.id, start_idx=start, end_idx=end, target_side=side
         ),
+    )
+
+
+def build_simplify_range_command(
+    layout: object,
+    wires: Sequence[Wire],
+    state: WireEditState,
+    inputs: object,
+    mode: object,
+) -> Command[ComponentState] | None:
+    """Simplify one *range* of a wire — whole wire is the full-span special case.
+
+    Same-wire only. Extracts the slice ``wire.path[start_idx:end_idx+1]`` as a
+    temporary :class:`Wire` **carrying the original wire's id** (so
+    ``generic_simplify_wire``'s own-wire self-exclusion works and the untouched
+    prefix/suffix are not treated as obstacles), simplifies it, then re-stitches
+    ``prefix + simplified-interior + suffix`` and issues an id-preserving
+    :func:`replace_wire_path_cmd` (``ReplaceWireFragmentsCommand``). Because the
+    wire id is preserved, the derived net is unchanged — no ``add_factory`` needed.
+
+    *inputs* is a ``SimplifyInputs`` snapshot (from ``wire_ops.build_simplify_inputs``)
+    and *mode* a ``SimplifyMode`` — taken as ``object`` to keep this module free of
+    the ``services.routing`` import at module load; resolved lazily here.
+
+    Returns ``None`` for a cross-wire range, a missing/degenerate wire, or when
+    simplification changes nothing.
+
+    Note (BARE_PARITY edge): ``generic_simplify_wire`` anchors bare-diagonal
+    parity on ``wire.path[0]``. For a *mid-wire bare slice* the temp slice's
+    ``path[0]`` is the slice start, whose grid parity may differ from the real
+    wire origin — so a bare + BARE_PARITY sub-range simplify may pick a
+    wrong-parity diagonal. Full-span ranges and insulated / CHEBYSHEV modes are
+    unaffected; callers that need bare sub-range parity must thread the true
+    origin (tracked in the plan, docs §5 / Stage 5 caveat).
+    """
+    from protoboard.services.routing.postprocess import generic_simplify_wire
+
+    if state.is_cross:
+        return None
+    wire = _find_wire(wires, state.start_wire_id)
+    if wire is None or len(wire.path) < 2:
+        return None
+    start, end = state.start_idx, state.end_idx
+    if start >= end:
+        return None
+
+    inp = cast("_SimplifyInputsLike", inputs)
+    other_wires = [w for w in wires if w.id != wire.id]
+
+    if state.is_full_span(wire):
+        slice_wire = wire
+    else:
+        # Slice as a standalone wire, KEEPING the id (self-exclusion + parity).
+        slice_wire = Wire(
+            id=wire.id,
+            path=list(wire.path[start:end + 1]),
+            insulated=wire.insulated,
+            side=wire.side,
+            color=wire.color,
+        )
+
+    simplified = generic_simplify_wire(
+        slice_wire,
+        other_wires=other_wires,
+        pin_positions=inp.pin_positions,
+        pad_to_net=inp.pad_to_net,
+        mode=mode,  # type: ignore[arg-type]
+        board_pads=inp.board_pads,
+        wire_net_id=inp.wire_to_net.get(wire.id),
+        other_wire_nets=inp.wire_to_net,
+        pin_net_map=inp.pad_to_net,
+        pad_index=inp.pad_index,
+    )
+    if simplified is slice_wire or simplified.path == slice_wire.path:
+        return None  # nothing shortened
+
+    if state.is_full_span(wire):
+        new_path = list(simplified.path)
+    else:
+        prefix = list(wire.path[:start])
+        suffix = list(wire.path[end + 1:])
+        new_path = dedupe_adjacent(prefix + list(simplified.path) + suffix)
+    if new_path == list(wire.path) or len(new_path) < 2:
+        return None
+    return cast(
+        "Command[ComponentState]",
+        replace_wire_path_cmd(layout, wire, new_path, list(wire.path)),
     )
 
 

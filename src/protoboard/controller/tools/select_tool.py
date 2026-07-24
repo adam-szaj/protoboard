@@ -101,6 +101,9 @@ _ACT_DELETE = "select-tool.action.delete"
 _ACT_CANCEL = "select-tool.action.cancel"
 # Wire-edit op-table extra: [F] flips the selected fragment to the other layer.
 _ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
+# Wire-edit op-table extra: [S] simplifies the selected fragment (range op —
+# whole-wire simplify is the full-span case of the same builder).
+_ACT_SIMPLIFY_FRAGMENT = "select-tool.action.simplify_fragment"
 # Transform entry keys: [R] arms float-rotate, [G] arms keyboard float-move
 # (both hand off to the ArmedTransformTool, which owns the step/wheel keys on
 # its own layer); [Alt+R] is an immediate flip. Dispatched by id, never raw key.
@@ -2211,7 +2214,7 @@ class SelectTool(ControllerTool):
         self._draw_wire_edit_overlay()
         self._status(
             "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [Del] Delete  ·  [Esc] Cancel",
+            "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
             0,
         )
 
@@ -2228,6 +2231,8 @@ class SelectTool(ControllerTool):
             self._autoroute_fragment()
         elif self._key_matches(inp, _ACT_FLIP_FRAGMENT):
             self._flip_wire_fragment()
+        elif self._key_matches(inp, _ACT_SIMPLIFY_FRAGMENT):
+            self._simplify_wire_fragment()
         elif self._key_matches(inp, _ACT_DELETE):
             self._delete_fragment()
         elif self._key_matches(inp, _ACT_CANCEL):
@@ -2380,7 +2385,7 @@ class SelectTool(ControllerTool):
         if self._wire_edit is not None:
             self._status(
                 "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-                "[F] Flip layer  ·  [Del] Delete  ·  [Esc] Cancel",
+                "[F] Flip layer  ·  [S] Simplify  ·  [Del] Delete  ·  [Esc] Cancel",
                 0,
             )
 
@@ -2559,6 +2564,7 @@ class SelectTool(ControllerTool):
             _ACT_MOVE: "G",         # arm keyboard float-move ("grab")
             _ACT_FLIP: None,        # global.action.flip (default "Alt+R") — immediate flip
             _ACT_FLIP_FRAGMENT: "F",  # wire-edit op: flip fragment to other layer
+            _ACT_SIMPLIFY_FRAGMENT: "S",  # wire-edit op: simplify the fragment
         }
 
     def command_table(self) -> dict[str, Callable[[], object]]:
@@ -2577,6 +2583,7 @@ class SelectTool(ControllerTool):
             _ACT_REROUTE: self._begin_reroute,
             _ACT_AUTOROUTE: self._autoroute_fragment,
             _ACT_FLIP_FRAGMENT: self._flip_wire_fragment,
+            _ACT_SIMPLIFY_FRAGMENT: self._simplify_wire_fragment,
             _ACT_DELETE: self._delete_selection_or_fragment,
             _ACT_CANCEL: self._wire_edit_clear,
             _ACT_ROTATE: self.arm_rotate,
@@ -2614,6 +2621,7 @@ class SelectTool(ControllerTool):
             (_ACT_REROUTE, wire_edit),
             (_ACT_AUTOROUTE, wire_edit),
             (_ACT_FLIP_FRAGMENT, wire_edit),
+            (_ACT_SIMPLIFY_FRAGMENT, wire_edit),
             (_ACT_DELETE, wire_edit),
             (_ACT_DELETE, self._has_selection),
         )
@@ -3758,6 +3766,45 @@ class SelectTool(ControllerTool):
             )
             return
         self._wire_edit_clear()
+        self._execute_command(cmd)
+        self._refresh_after_wire_op()
+
+    def _simplify_wire_fragment(self) -> None:
+        """Simplify the selected wire *fragment* — ``[S]`` (a range op).
+
+        The fragment-scoped counterpart of whole-wire *Simplify* (W6): both go
+        through :func:`build_simplify_range_command`, differing only by range —
+        whole-wire simplify is ``WireRange.full_span``. Same-wire only (a slice
+        of one conductor); a cross-wire selection has no single slice. Runs
+        synchronously (one short fragment, no worker needed).
+        """
+        from protoboard.controller.selection.wire_edit import (
+            build_simplify_range_command,
+        )
+        from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.services.routing.postprocess import SimplifyMode
+
+        state = self._wire_edit
+        if state is None or state.is_cross:
+            self._status_msg(
+                "Simplify: pick a fragment on a single wire (two vertices apart)."
+            )
+            return
+        mode = getattr(
+            self._session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
+        )
+        cmd = build_simplify_range_command(
+            self._session.layout,
+            list(self._session.layout.wires),
+            state,
+            build_simplify_inputs(self._session),
+            mode,
+        )
+        self._wire_edit_clear()
+        if cmd is None:
+            self._status_msg("Simplify: nothing to shorten on this fragment.")
+            self._refresh_after_wire_op()
+            return
         self._execute_command(cmd)
         self._refresh_after_wire_op()
 

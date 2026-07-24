@@ -764,3 +764,74 @@ class TestDispatchToolCommandIsTheBoundary:
 
         assert handled is True
         assert inst.id not in session.layout.placements
+
+
+class TestWireFragmentSimplify:
+    """[S] in wire-edit mode simplifies the selected fragment (plan Stage 5).
+
+    Whole-wire Simplify and fragment Simplify share build_simplify_range_command
+    — this drives the tool path (arm fragment → simplify → command executes).
+    """
+
+    @staticmethod
+    def _add_detour_wire(session: EditorSession) -> Wire:
+        # An orthogonal L on the top layer: simplify corner-cuts it to a
+        # diagonal (5 → 3 points) even with real board pads present.
+        w = Wire(
+            id=uuid.uuid4(),
+            path=[
+                Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
+                Point(3.5, 2.5), Point(3.5, 3.5),
+            ],
+            insulated=True,
+            side="top",
+        )
+        session.layout.wires.append(w)
+        session.invalidate_graph()
+        session.layout_changed.emit()
+        return w
+
+    def test_fragment_simplify_shortens_wire(
+        self, session: EditorSession
+    ) -> None:
+        from protoboard.controller.selection.wire_edit import WireRange
+
+        view = _headless(session)
+        wire = self._add_detour_wire(session)
+        tool = _select_tool(view)
+        tool._selection.set(WireSelectable(wire=wire))
+        # Arm a full-span fragment directly (the two-vertex pick is covered by
+        # the builder unit tests); [S] then simplifies it.
+        tool._wire_edit = WireRange.full_span(wire)
+        n_before = len(session.layout.wires.get(wire.id).path)
+
+        tool._simplify_wire_fragment()
+
+        after = session.layout.wires.get(wire.id)
+        assert after is not None  # id preserved (net derivation stable)
+        assert len(after.path) < n_before
+        assert after.path[0] == Point(1.5, 1.5)
+        assert after.path[-1] == Point(3.5, 3.5)
+
+    def test_cross_wire_fragment_simplify_is_refused(
+        self, session: EditorSession
+    ) -> None:
+        from protoboard.controller.selection.wire_edit import WireRange
+
+        view = _headless(session)
+        a = self._add_detour_wire(session)
+        b = Wire(
+            id=uuid.uuid4(),
+            path=[Point(4.5, 1.5), Point(5.5, 1.5)],
+            insulated=True, side="top",
+        )
+        session.layout.wires.append(b)
+        tool = _select_tool(view)
+        tool._selection.set(WireSelectable(wire=a))
+        tool._wire_edit = WireRange(a.id, 0, b.id, 1)  # cross-wire
+        before = list(session.layout.wires.get(a.id).path)
+
+        tool._simplify_wire_fragment()
+
+        # Refused (same-wire only) — nothing changed.
+        assert list(session.layout.wires.get(a.id).path) == before

@@ -170,6 +170,91 @@ class TestExciseCrossWire:
         assert excise_cross_wire_range([a, b], nm, state) is None
 
 
+# -- build_simplify_range_command (Stage 5: op-on-range, whole = full span) ----
+
+
+def _simplify_inputs():
+    """A SimplifyInputs snapshot from a real (empty) session."""
+    from protoboard.controller.selection.wire_ops import build_simplify_inputs
+    return build_simplify_inputs(_session())
+
+
+class TestBuildSimplifyRange:
+    def test_full_span_simplifies_whole_wire(self) -> None:
+        from protoboard.controller.selection.wire_edit import (
+            WireRange,
+            build_simplify_range_command,
+        )
+        from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.services.routing.postprocess import SimplifyMode
+        sess = _session()
+        # Collinear detour (1,0),(2,0) between endpoints → straightens to [(0,0),(3,0)].
+        wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), insulated=True)
+        sess.layout.wires.append(wire)
+        cmd = build_simplify_range_command(
+            sess.layout, cast(Sequence[Wire], sess.layout.wires),
+            WireRange.full_span(wire),
+            build_simplify_inputs(sess), SimplifyMode.CHEBYSHEV,
+        )
+        assert isinstance(cmd, ReplaceWireFragmentsCommand)
+        assert cmd.wire_id == wire.id  # id preserved → net derivation stable
+        flat = [p for f in cmd.new_fragments for p in f.path]
+        assert flat[0] == Point(0, 0) and flat[-1] == Point(3, 0)
+
+    def test_sub_range_keeps_prefix_and_suffix(self) -> None:
+        from protoboard.controller.selection.wire_edit import (
+            WireRange,
+            build_simplify_range_command,
+        )
+        from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.services.routing.postprocess import SimplifyMode
+        sess = _session()
+        # Two collinear runs; simplify only the middle slice [1..4], keep the
+        # first and last vertices as fixed context.
+        wire = _wire(
+            (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), insulated=True
+        )
+        sess.layout.wires.append(wire)
+        r = WireRange(wire.id, 1, wire.id, 4)
+        cmd = build_simplify_range_command(
+            sess.layout, cast(Sequence[Wire], sess.layout.wires), r,
+            build_simplify_inputs(sess), SimplifyMode.CHEBYSHEV,
+        )
+        assert isinstance(cmd, ReplaceWireFragmentsCommand)
+        flat = [p for f in cmd.new_fragments for p in f.path]
+        # Endpoints untouched; the redundant interior collapses.
+        assert flat[0] == Point(0, 0) and flat[-1] == Point(5, 0)
+        assert len(flat) < len(wire.path)
+
+    def test_cross_wire_returns_none(self) -> None:
+        from protoboard.controller.selection.wire_edit import (
+            WireRange,
+            build_simplify_range_command,
+        )
+        from protoboard.services.routing.postprocess import SimplifyMode
+        a = _wire((0, 0), (1, 0), insulated=True)
+        b = _wire((1, 0), (2, 0), insulated=True)
+        r = WireRange(a.id, 0, b.id, 1)
+        cmd = build_simplify_range_command(
+            None, [a, b], r, _simplify_inputs(), SimplifyMode.CHEBYSHEV,
+        )
+        assert cmd is None
+
+    def test_nothing_to_shorten_returns_none(self) -> None:
+        from protoboard.controller.selection.wire_edit import (
+            WireRange,
+            build_simplify_range_command,
+        )
+        from protoboard.services.routing.postprocess import SimplifyMode
+        # Already-minimal straight wire → no change.
+        wire = _wire((0, 0), (3, 0), insulated=True)
+        cmd = build_simplify_range_command(
+            None, [wire], WireRange.full_span(wire),
+            _simplify_inputs(), SimplifyMode.CHEBYSHEV,
+        )
+        assert cmd is None
+
+
 # -- build_reroute_command ----------------------------------------------------
 
 
