@@ -338,3 +338,9 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
   wire-vs-wire same-side crossing/overlap detector does not exist and is out of
   scope for the ArmedSubTool lifecycle round. See
   `docs/superpowers/specs/2026-07-24-armed-subtool-two-level-lifecycle-design.md` §4.3.
+- **Cross-wire fragment set-insulated** (deferred 2026-07-24): same-wire
+  set-insulated on a sub-range ships via split
+  (`build_set_insulated_range_command`); the cross-wire case (re-adding the
+  excised interior across a plated-through via as insulated wires) is deferred
+  for murky join semantics. Spec:
+  `docs/superpowers/specs/2026-07-24-set-insulated-fragment-design.md`.

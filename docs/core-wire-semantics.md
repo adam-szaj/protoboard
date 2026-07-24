@@ -155,7 +155,7 @@ entering edit mode."* Measured against the two inventories:
 | Autoroute | — (only *group* autoroute / global `F6`) | F2 ✅ | **fragment-only** — no "autoroute this whole wire" |
 | **Simplify** | W6 ✅ | ✅ `[S]` (F6) | **CLOSED** — `build_simplify_range_command`; whole-wire is the `full_span` case of the same builder (same code) |
 | **Optimize with plugin** | W7 ✅ | ❌ | **GAP** |
-| **Set bare / insulated** | W3 ✅ | ❌ | **GAP** (per-wire attribute — see §6.2 for whether a fragment version is even coherent) |
+| **Set bare / insulated** | W3 ✅ | ✅ (same-wire, via split — `build_set_insulated_range_command`; cross-wire deferred) | — |
 | **Unweave** | W8 ✅ | ❌ | inherently multi-wire; no fragment analog (acceptable) |
 | **Merge / fuse fragments** | W9 ✅ | ❌ | inherently whole-wire topology; no fragment analog (acceptable) |
 | **Convert endpoint ↔ wire-pin** | W10/W11 ✅ | n/a (endpoint op) | **layering FIXED** — dispatch moved to `SelectTool.convert_*` + wire context menu; MainWindow slots now delegate (§6.3). Stays endpoint-scoped, not a range op. |
@@ -226,18 +226,19 @@ verified against the code and the `TestBuildFlipFragmentCommand` golden in
 `tests/unit/test_wire_edit_helpers.py`, that is not the case.) The open choice is
 merely: implement cross-wire fragment flip, or leave it refused-with-a-message.
 
-### 6.2 "Fragment" mixes two granularities
+### 6.2 "Fragment" mixes two granularities — but insulate-on-a-slice is feasible
 
-`insulated` and `color` are per-wire; `side` is per-fragment. A future
-"fragment op-table" that lists *both* "set insulated" and "flip fragment" would
-be incoherent — setting insulation on a fragment has no model representation
-(you'd have to split the wire into an insulated middle + bare ends, which
-changes ids and net derivation, §5). **Recommendation:** keep the fragment
-op-table to operations that are genuinely per-fragment or per-slice
-(reroute / autoroute / flip-side / delete-slice / **simplify-slice**), and keep
-per-wire attribute toggles (insulate, wire-pin) explicitly whole-wire. The
-"same ops everywhere" goal should mean *the per-slice ops*, not literally every
-whole-wire op.
+`insulated` and `color` are per-wire; `side` is per-fragment. Because
+`Fragment` has no `insulated` field, "insulate this sub-range" cannot be a flag
+flip — but it **is** feasible, and is now implemented, by the same split +
+net-rederivation `delete-slice` already performs: the wire is cut into an
+insulated middle plus bare-end survivors (`build_set_insulated_range_command`,
+`controller/selection/wire_edit.py`). This is physically faithful — a bare
+wire with heat-shrink only in the middle *is* three conductors. **Same-wire
+ranges are supported; cross-wire set-insulated is deferred** (murky semantics
+across a plated-through via — matches the cross-wire flip refusal). The
+"same ops everywhere" goal therefore covers per-slice set-insulated too, via
+split, not just the genuinely per-fragment ops.
 
 ### 6.3 Wire-pin conversion layer — FIXED
 
@@ -298,9 +299,11 @@ the opposite direction from the simplify gap.
    thin delegator. Update `gui.md` either way.
 5. **Decide the granularity contract explicitly (§6.2).** Document that the
    "same ops on a fragment as on a whole wire" goal covers **per-slice**
-   operations (reroute / autoroute / flip-side / delete-slice / simplify-slice)
-   and that per-wire attributes (insulate, color, wire-pin) stay whole-wire by
-   design. This turns an implicit inconsistency into a stated rule.
+   operations (reroute / autoroute / flip-side / delete-slice / simplify-slice),
+   and that set-insulated is now a per-slice op via split
+   (`build_set_insulated_range_command`), while color and wire-pin stay
+   whole-wire by design. This turns an implicit inconsistency into a stated
+   rule.
 6. **Reconcile the docs (§6.3, §6.4).** `gui.md` describes a separate wire-edit
    menu and a right-click wire-pin flow that the code does not implement as
    described.
