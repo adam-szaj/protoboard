@@ -5,6 +5,19 @@ Open follow-ups that don't fit into the closed plans archived under
 the work cold.  Completed entries are pruned (2026-07-04) — recover
 their full write-ups from this file's git history.
 
+## Wire-edit fragment highlight — deferred test (added 2026-07-25)
+
+- **Cross-wire span-fallback test.** `WireEditTool._draw_wire_edit_overlay`
+  passes an empty `span` for a cross-wire `WireRange` (`is_cross` → cyan+dots
+  only, no bright polyline). The same-wire sub-range and full-span paths are
+  covered by executed spy-preview tests in `tests/gui/test_wire_edit_tool.py`
+  (commit 7db3dfd), but the `is_cross` branch is verified by code inspection
+  only — constructing a genuine cross-wire range in the headless harness was
+  not cheap. Add a dedicated executed test once a cross-wire fixture helper
+  exists. Low risk: the guard is a one-line `is_cross` check. See also the
+  deferred cross-wire span *highlight* itself (spec §5 of the fragment-highlight
+  design — cross-wire keeps today's cyan+dots).
+
 ## Qt ports — deferred pieces (added 2026-07-09)
 
 The Qt-ports analysis ([qt-ports.md](qt-ports.md)) is a decision gate; even

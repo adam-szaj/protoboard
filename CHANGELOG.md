@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Wire-edit mode now dims the board (except the edited wire) and draws a bright
+  highlight over the selected fragment span, so the picked range is visible. A
+  failed two-vertex pick now shows a status hint instead of clearing silently.
+
 - Wire fragment set-insulated: `[I]` toggles a sub-range of a wire between bare
   and insulated by splitting it into bare/insulated/bare segments. After a
   cut, wire-edit waits for a fresh range pick (delete unified onto the same
