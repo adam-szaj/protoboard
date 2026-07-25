@@ -69,3 +69,33 @@ def test_dim_not_double_pushed_on_repick_reactivate(session: EditorSession) -> N
 
     session.highlight_stack.pop_transient()
     assert session.highlight_stack.active() is None
+
+
+def test_dim_popped_on_deactivate_external_switch(session: EditorSession) -> None:
+    """Guards a leak where switching tools via the toolbar / double-clicking a
+    library part (``ToolHost.set_tool``) calls ``deactivate()`` directly --
+    NOT ``_exit()`` -- leaving the transient wire-edit dim permanently stuck
+    on the ``HighlightStack`` (board never brightens again).  ``deactivate()``
+    must pop the dim itself."""
+    view = _headless(session)
+    wire = _detour_wire(session)
+    tool = _arm(view, wire)
+    assert session.highlight_stack.active() is not None
+
+    tool.deactivate()  # exactly what ToolHost.set_tool does on an external switch
+
+    assert session.highlight_stack.active() is None
+
+
+def test_exit_then_deactivate_does_not_double_pop(session: EditorSession) -> None:
+    """The internal exit route (_exit -> _pop_dim) followed by deactivate()'s
+    own _pop_dim() must not double-pop / underflow the stack -- _pop_dim is
+    idempotent via ``_dim_active``."""
+    view = _headless(session)
+    wire = _detour_wire(session)
+    tool = _arm(view, wire)
+
+    tool._exit()
+    tool.deactivate()
+
+    assert session.highlight_stack.active() is None

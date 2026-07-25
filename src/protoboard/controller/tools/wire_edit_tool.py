@@ -176,6 +176,7 @@ class WireEditTool(ControllerTool):
         self._dim_active = False
 
     def deactivate(self) -> None:
+        self._pop_dim()  # ToolHost.set_tool bypasses _exit(); restore brightness.
         self._wire_edit_clear()
         self._session = None  # type: ignore[assignment]
         self._view = None
