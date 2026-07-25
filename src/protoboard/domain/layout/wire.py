@@ -332,6 +332,40 @@ class WireCollection:
     def get(self, wire_id: uuid.UUID, default: "Wire | None" = None) -> "Wire | None":
         return self._by_id.get(wire_id, default)
 
+    def get_or_raise(
+        self,
+        wire_id: uuid.UUID,
+        exc: "Callable[[uuid.UUID], Exception] | Exception | None" = None,
+    ) -> "Wire":
+        """Return the wire for *wire_id*, or raise on a miss.
+
+        ``exc`` may be a ready ``Exception`` or a factory taking the missing
+        id; the hook returns/builds the exception to raise (it never returns a
+        ``Wire`` — recovery is :meth:`get_or_return`'s job). Default miss raises
+        ``KeyError(wire_id)``.
+        """
+        wire = self.get(wire_id)
+        if wire is not None:
+            return wire
+        if exc is None:
+            raise KeyError(wire_id)
+        raise exc(wire_id) if callable(exc) else exc
+
+    def get_or_return(
+        self,
+        wire_id: uuid.UUID,
+        instead_val: "Callable[[uuid.UUID], Wire] | Wire",
+    ) -> "Wire":
+        """Return the wire for *wire_id*, or a fallback on a miss.
+
+        *instead_val* is either an eager ``Wire`` or a lazy factory taking the
+        missing id.
+        """
+        wire = self.get(wire_id)
+        if wire is not None:
+            return wire
+        return instead_val(wire_id) if callable(instead_val) else instead_val
+
     def values(self) -> "list[Wire]":
         return list(self._by_id.values())
 
