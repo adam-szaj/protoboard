@@ -95,6 +95,9 @@ class WireEditTool(ControllerTool):
         # True while, after a sub-range cut, the tool is disarmed and waiting
         # for the user to pick a fresh 2-vertex range (or [Esc] to leave).
         self._awaiting_repick: bool = False
+        # Guards the transient board-dim highlight: pushed once on activate(),
+        # popped once on _exit() -- see _push_dim/_pop_dim.
+        self._dim_active = False
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -130,6 +133,7 @@ class WireEditTool(ControllerTool):
                 wire = self._wire_by_id(wid)
                 if wire is not None:
                     session.layout.ensure_wire_knots(wire)
+        self._push_dim()
         self._draw_wire_edit_overlay()
         self._status(
             "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
@@ -137,6 +141,39 @@ class WireEditTool(ControllerTool):
             "[Del] Delete  ·  [Esc] Cancel",
             0,
         )
+
+    def _push_dim(self) -> None:
+        """Dim the whole board except the edited wire (transient highlight)."""
+        if self._dim_active:
+            return
+        wid = self._wire_edit_wire_id
+        if wid is None or self._session is None:
+            return
+        stack = getattr(self._session, "highlight_stack", None)
+        if stack is None:
+            return
+        from protoboard.controller.highlight_entry import (
+            PROFILE_DIMMED_2,
+            HighlightEntry,
+        )
+
+        stack.push_transient(
+            HighlightEntry(
+                wire_ids=frozenset({wid}),
+                profile=PROFILE_DIMMED_2,
+                transient=True,
+                label="wire-edit",
+            )
+        )
+        self._dim_active = True
+
+    def _pop_dim(self) -> None:
+        if not self._dim_active:
+            return
+        stack = getattr(self._session, "highlight_stack", None)
+        if stack is not None:
+            stack.pop_transient()
+        self._dim_active = False
 
     def deactivate(self) -> None:
         self._wire_edit_clear()
@@ -554,6 +591,7 @@ class WireEditTool(ControllerTool):
 
     def _exit(self) -> None:
         """Drop wire-edit and hand control back to the SelectTool that armed us."""
+        self._pop_dim()
         self._wire_edit_clear()
         self._return_to()
 
