@@ -17,6 +17,10 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
+from protoboard.controller.selection.wire_edit import (
+    WireEditState,
+    build_flip_fragment_command,
+)
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
     FlipWireFragmentCommand,
@@ -73,6 +77,75 @@ def _joint_knots_at(state: _State, x: float, y: float) -> list[JointKnot]:
         and abs(k.position.x - x) < 1e-6
         and abs(k.position.y - y) < 1e-6
     ]
+
+
+class TestRepeatedFlipToggles:
+    """Regression: pressing [F] twice on the same fragment must toggle it
+    back, not flip to the same side twice.
+
+    Reported 2026-07-25: fragment flip in wire-edit "doesn't work" — the log
+    showed two consecutive presses both emitting 'Flip wire fragment to
+    bottom'. Root cause: build_flip_fragment_command derived the opposite side
+    from ``wire.side`` (a field snapshotted at construction that
+    FlipWireFragmentCommand.apply never updates), so after the first flip the
+    stale ``wire.side`` still read "top" and the second press recomputed
+    "bottom" again — a no-op. The toggle reference must be the selected
+    fragment's ACTUAL current side, read from the fragments.
+    """
+
+    def test_second_flip_on_same_range_toggles_back(self) -> None:
+        state = _State()
+        # Whole-wire (side="top"), single fragment.
+        _add(state, [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)], side="top")
+        wire = list(state.layout.wires)[0]
+        full = WireEditState(
+            start_wire_id=wire.id, start_idx=0,
+            end_wire_id=wire.id, end_idx=len(wire.path) - 1,
+        )
+
+        # First flip: top -> bottom.
+        cmd1 = build_flip_fragment_command(list(state.layout.wires), full)
+        assert cmd1 is not None
+        assert cmd1.target_side == "bottom"  # type: ignore[attr-defined]
+        cmd1.apply(state)
+        w = list(state.layout.wires)[0]
+        assert [f.side for f in w.fragments] == ["bottom"]
+
+        # Second flip on the SAME full-span range must target "top" (toggle
+        # back) — reading the fragment's current side, not stale wire.side.
+        full2 = WireEditState(
+            start_wire_id=w.id, start_idx=0,
+            end_wire_id=w.id, end_idx=len(w.path) - 1,
+        )
+        cmd2 = build_flip_fragment_command(list(state.layout.wires), full2)
+        assert cmd2 is not None
+        assert cmd2.target_side == "top", (  # type: ignore[attr-defined]
+            "second flip must toggle back to top, not repeat 'bottom'"
+        )
+        cmd2.apply(state)
+        w2 = list(state.layout.wires)[0]
+        assert [f.side for f in w2.fragments] == ["top"]
+
+    def test_sub_range_flip_reference_is_fragment_side(self) -> None:
+        # Wire with a middle fragment already flipped to bottom; flipping that
+        # same middle sub-range again must return it to top (the surrounding
+        # fragments are top, so the reference is the middle fragment's side).
+        state = _State()
+        _add(state, [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+             side="top")
+        wire = list(state.layout.wires)[0]
+        FlipWireFragmentCommand(
+            wire_id=wire.id, start_idx=1, end_idx=3, target_side="bottom",
+        ).apply(state)
+        w = list(state.layout.wires)[0]
+        assert [f.side for f in w.fragments] == ["top", "bottom", "top"]
+
+        mid = WireEditState(
+            start_wire_id=w.id, start_idx=1, end_wire_id=w.id, end_idx=3
+        )
+        cmd = build_flip_fragment_command(list(state.layout.wires), mid)
+        assert cmd is not None
+        assert cmd.target_side == "top"  # type: ignore[attr-defined]
 
 
 class TestSingleFlip:

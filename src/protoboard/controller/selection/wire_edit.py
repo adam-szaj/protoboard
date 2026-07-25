@@ -609,6 +609,25 @@ def build_delete_range_edit(
     )
 
 
+def _segment_side(wire: Wire, seg_idx: int) -> str:
+    """Current side of the wire segment ``path[seg_idx] -> path[seg_idx+1]``.
+
+    A fragment spans ``len(fragment.path) - 1`` consecutive segments; walking
+    the fragment list in order maps each segment to its fragment's side. This
+    is the live per-fragment side (unlike ``wire.side``, a construction-time
+    snapshot). Falls back to ``wire.side`` for a wire with no fragment list.
+    """
+    if not wire.fragments:
+        return wire.side
+    cursor = 0
+    for frag in wire.fragments:
+        span = len(frag.path) - 1
+        if cursor <= seg_idx < cursor + span:
+            return frag.side
+        cursor += span
+    return wire.fragments[-1].side
+
+
 def build_flip_fragment_command(
     wires: Sequence[Wire],
     state: WireEditState,
@@ -619,9 +638,9 @@ def build_flip_fragment_command(
     Same-wire only: a fragment-flip re-sides one contiguous index range of a
     single wire (the conductor stays one :class:`Wire`; the boundary vertices
     become vias).  A cross-wire selection has no single wire to flip, so this
-    returns ``None``.  ``target_side`` defaults to the opposite of the wire's
-    current side.  Returns ``None`` when the wire is missing or the range is
-    degenerate (a single vertex cannot be a fragment).
+    returns ``None``.  ``target_side`` defaults to the opposite of the
+    *selected range's* current side.  Returns ``None`` when the wire is missing
+    or the range is degenerate (a single vertex cannot be a fragment).
     """
     if state.is_cross:
         return None
@@ -631,7 +650,12 @@ def build_flip_fragment_command(
     start, end = state.start_idx, state.end_idx
     if start >= end:
         return None
-    side = target_side or ("bottom" if wire.side == "top" else "top")
+    # Toggle relative to the side of the fragment covering the range's first
+    # segment — NOT ``wire.side``, which is a construction-time snapshot that
+    # FlipWireFragmentCommand never updates (so it goes stale after one flip,
+    # and repeated flips would target the same side forever).
+    current_side = _segment_side(wire, start)
+    side = target_side or ("bottom" if current_side == "top" else "top")
     from typing import cast
 
     return cast(
