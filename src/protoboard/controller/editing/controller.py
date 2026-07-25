@@ -818,6 +818,103 @@ class EditController:
         self._execute(cast("Command[ComponentState]", cmd))
         return wire.id
 
+    def set_wires_insulated(
+        self, wire_ids: "Iterable[uuid.UUID]", *, insulated: bool
+    ) -> None:
+        """Set every wire in *wire_ids* insulated/bare as one macro.
+
+        The single unified builder for the "Wire: Set Insulated / Bare" op —
+        both the menu-bar slot and the context-menu handler call this.
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import SetWireInsulatedCommand
+
+        ids = list(wire_ids)
+        if not ids:
+            return
+        cmds: list[Command[ComponentState]] = [
+            cast("Command[ComponentState]",
+                 SetWireInsulatedCommand(wire_id=w, insulated=insulated))
+            for w in ids
+        ]
+        verb = "insulated" if insulated else "bare"
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds, description=f"Set {len(cmds)} wires {verb}",
+        )
+        self._execute(cmd)
+
+    def set_wires_side(
+        self, wire_ids: "Iterable[uuid.UUID]", *, side: "Side"
+    ) -> None:
+        """Flatten every wire in *wire_ids* onto *side* (explicit "Move to").
+
+        The single unified builder for "Wire: Move to Top/Bottom Layer".
+        Distinct verb from :meth:`flip_wires` (toggle).
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import SetWireSideCommand
+
+        ids = list(wire_ids)
+        if not ids:
+            return
+        cmds: list[Command[ComponentState]] = [
+            cast("Command[ComponentState]", SetWireSideCommand(wire_id=w, side=side))
+            for w in ids
+        ]
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds, description=f"Move {len(cmds)} wires to {side}",
+        )
+        self._execute(cmd)
+
+    def flip_wires(self, wire_ids: "Iterable[uuid.UUID]") -> None:
+        """Flip every wire in *wire_ids* by toggling each fragment's side.
+
+        A mixed wire stays mixed (inverted); no ``wire.side`` is read, so a
+        mixed wire is never flattened (the old ``side=None`` bug). The single
+        unified builder for the "Wire: Flip to Opposite Layer" op.
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import FlipWireSideCommand
+
+        ids = list(wire_ids)
+        if not ids:
+            return
+        cmds: list[Command[ComponentState]] = [
+            cast("Command[ComponentState]", FlipWireSideCommand(wire_id=w))
+            for w in ids
+        ]
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds, description=f"Flip {len(cmds)} wires",
+        )
+        self._execute(cmd)
+
+    def set_locked(
+        self, component_ids: "Iterable[uuid.UUID]", *, locked: bool
+    ) -> None:
+        """Set the lock flag on every component in *component_ids* as one macro.
+
+        The single unified builder for "Lock / Unlock". The toggle decision
+        (all-locked -> unlock) stays with the caller, which passes an explicit
+        *locked*.
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import LockComponentCommand
+
+        placements = self._state.layout.placements
+        cmds: list[Command[ComponentState]] = [
+            cast("Command[ComponentState]",
+                 LockComponentCommand(component_id=c, locked=locked))
+            for c in component_ids
+            if c in placements and placements[c].locked != locked
+        ]
+        if not cmds:
+            return
+        verb = "Lock" if locked else "Unlock"
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds, description=f"{verb} {len(cmds)} component(s)",
+        )
+        self._execute(cmd)
+
     def resolve_placement(
         self,
         ref: str,
