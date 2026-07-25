@@ -220,6 +220,81 @@ class TestWireEditToolConformance:
 
 
 # --------------------------------------------------------------------------- #
+# Overlay span slice
+# --------------------------------------------------------------------------- #
+
+
+class _SpyPreview:
+    """Minimal ``SelectPreview`` stand-in recording ``show_wire_edit_wire``
+    calls; every other method is a no-op stub."""
+
+    def __init__(self) -> None:
+        self.last_span: list[Point] | None = None
+
+    def show_wire_edit_wire(self, path, marked, span=None) -> None:  # type: ignore[no-untyped-def]
+        self.last_span = span
+
+    def show_pivot(self, pos, *, shared) -> None: ...  # type: ignore[no-untyped-def]
+    def clear_pivots(self) -> None: ...
+    def show_band(self, a, b, ltr) -> None: ...  # type: ignore[no-untyped-def]
+    def clear_band(self) -> None: ...
+    def show_redrag_pad(self, pt) -> None: ...  # type: ignore[no-untyped-def]
+    def show_reach_disc(self, centre, radius) -> None: ...  # type: ignore[no-untyped-def]
+    def show_redrag_live(self, pos, ok) -> None: ...  # type: ignore[no-untyped-def]
+    def clear_redrag_live(self) -> None: ...
+    def clear_redrag(self) -> None: ...
+    def clear_wire_edit(self) -> None: ...
+    def show_reroute_path(self, points) -> None: ...  # type: ignore[no-untyped-def]
+    def show_reroute_live(self, a, b) -> None: ...  # type: ignore[no-untyped-def]
+    def clear_reroute_live(self) -> None: ...
+    def clear_reroute(self) -> None: ...
+    def on_scene_cleared(self) -> None: ...
+
+
+class TestWireEditToolOverlaySpan:
+    def test_overlay_receives_span_slice_for_sub_range(
+        self, session: EditorSession
+    ) -> None:
+        """_draw_wire_edit_overlay passes wire.path[start:end+1] as the span
+        for a same-wire sub-range pick."""
+        view = _headless(session)
+        wire = _detour_wire(session)  # 5-point path
+        assert len(wire.path) >= 4
+        select = SelectTool()
+        view.tools.set_tool(select)
+        tool = WireEditTool(
+            WireRange(
+                start_wire_id=wire.id, start_idx=1,
+                end_wire_id=wire.id, end_idx=3,
+            ),
+            wire.id,
+            return_to=lambda: view.tools.set_tool(select),
+        )
+        view.tools.set_tool(tool)
+        spy = _SpyPreview()
+        tool._preview = spy  # type: ignore[assignment]
+
+        tool._draw_wire_edit_overlay()
+
+        assert spy.last_span == list(wire.path[1:4])
+
+    def test_overlay_receives_full_span_for_whole_wire(
+        self, session: EditorSession
+    ) -> None:
+        """A whole-wire arm (``WireRange.full_span``) yields a span equal to
+        the entire path."""
+        view = _headless(session)
+        wire = _detour_wire(session)
+        tool = _arm(view, wire)
+        spy = _SpyPreview()
+        tool._preview = spy  # type: ignore[assignment]
+
+        tool._draw_wire_edit_overlay()
+
+        assert spy.last_span == list(wire.path)
+
+
+# --------------------------------------------------------------------------- #
 # Two consecutive ops, both execute without a re-arm round-trip
 # --------------------------------------------------------------------------- #
 

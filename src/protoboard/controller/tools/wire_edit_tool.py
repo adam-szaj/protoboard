@@ -803,18 +803,25 @@ class WireEditTool(ControllerTool):
     # -- wire-edit overlays (tool-drawn) ------------------------------------
 
     def _draw_wire_edit_overlay(self) -> None:
-        """Cyan segments for the armed wire + red dots at the range endpoints."""
+        """Cyan segments for the armed wire + red endpoint dots + a bright
+        polyline over the picked span (fragment or whole wire)."""
         if self._preview is None:
             return
         self._clear_wire_edit_overlay()
         marked: dict[uuid.UUID, set[int]] = {}
-        if self._wire_edit is not None:
-            marked.setdefault(self._wire_edit.start_wire_id, set()).add(
-                self._wire_edit.start_idx
-            )
-            marked.setdefault(self._wire_edit.end_wire_id, set()).add(
-                self._wire_edit.end_idx
-            )
+        state = self._wire_edit
+        if state is not None:
+            marked.setdefault(state.start_wire_id, set()).add(state.start_idx)
+            marked.setdefault(state.end_wire_id, set()).add(state.end_idx)
+        # Span points: only for a same-wire range (cross-wire has no single-wire
+        # sub-path -> empty span, falls back to cyan + dots).
+        span_wid: uuid.UUID | None = None
+        span_pts: list[Point] = []
+        if state is not None and not state.is_cross:
+            span_wire = self._wire_by_id(state.start_wire_id)
+            if span_wire is not None:
+                span_pts = list(span_wire.path[state.start_idx : state.end_idx + 1])
+                span_wid = state.start_wire_id
         wire_ids = set(marked)
         if self._wire_edit_wire_id is not None:
             wire_ids.add(self._wire_edit_wire_id)
@@ -823,7 +830,9 @@ class WireEditTool(ControllerTool):
             if wire is None:
                 continue
             self.preview.show_wire_edit_wire(
-                list(wire.path), marked.get(wid, set())
+                list(wire.path),
+                marked.get(wid, set()),
+                span_pts if wid == span_wid else [],
             )
 
     def _draw_reroute_preview(self, waypoints: list[Point]) -> None:
