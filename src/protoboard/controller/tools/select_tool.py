@@ -3313,21 +3313,11 @@ class SelectTool(ControllerTool):
     def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:
         from typing import cast
 
-        from protoboard.domain.commands.base import Command, ComponentState, MacroCommand
-        from protoboard.domain.commands.component_cmds import SetWireSideCommand
         from protoboard.types import Side
 
-        raw = [
-            cast("Command[ComponentState]",
-                 SetWireSideCommand(wire_id=wid, side=cast(Side, side)))
-            for wid in wire_ids
-        ]
-        if not raw:
+        if not wire_ids:
             return
-        cmd = raw[0] if len(raw) == 1 else MacroCommand(
-            raw, description=f"Move {len(raw)} wires"
-        )
-        self._execute_command(cmd)
+        self._session.edit_controller.set_wires_side(wire_ids, side=cast(Side, side))
         self._session.layout_changed.emit()
 
     def _menu_flip_component_side(self, comp_id: uuid.UUID) -> None:
@@ -3630,52 +3620,39 @@ class SelectTool(ControllerTool):
                 return True
         return False
 
-    def _move_selected_wires_to_side(self, target_side: str | None) -> None:
-        """Move all selected *whole* wires to a layer (``None`` toggles a shared
-        side).  The menu-bar surface (Edit ► Design ► Wire ► Move to Top/Bottom
-        Layer, and Wire: Flip) drives this via MainWindow; the per-fragment flip
-        is the WireEditTool's ``[F]`` op."""
-        from protoboard.domain.commands.base import MacroCommand
-        from protoboard.domain.commands.component_cmds import SetWireSideCommand
+    def _move_selected_wires_to_side(self, target_side: str) -> None:
+        """Flatten all selected whole wires onto *target_side* (explicit Move).
+
+        "Wire: Move to Top/Bottom Layer". The per-fragment toggle flip is
+        :meth:`_flip_selected_wires`; the per-fragment [F] op is WireEditTool's.
+        """
+        from typing import cast
+
+        from protoboard.types import Side
 
         wire_ids = self._selected_by_kind("wire")
         if not wire_ids:
             return
-        wires = [w for w in self._session.layout.wires if w.id in wire_ids]
-        if not wires:
-            return
-
-        if target_side is None:
-            sides = {w.side for w in wires}
-            if len(sides) > 1:
-                self._status_msg(
-                    "Cannot flip: selected wires are on different layers."
-                )
-                return
-            current_side = next(iter(sides))
-            resolved_side = "bottom" if current_side == "top" else "top"
-        else:
-            resolved_side = target_side
-
-        wires_to_move = [w for w in wires if w.side != resolved_side]
-        if not wires_to_move:
-            self._status_msg(f"Selected wires already on {resolved_side} layer.")
-            return
-
-        raw: list[object] = [
-            SetWireSideCommand(wire_id=w.id, side=resolved_side)
-            for w in wires_to_move
-        ]
-        if len(raw) == 1:
-            cmd: object = raw[0]
-        else:
-            desc = f"Move {len(raw)} wires to {resolved_side}"
-            cmd = MacroCommand(raw, description=desc)  # type: ignore[arg-type]
-        self._exec_command(cmd)
+        self._session.edit_controller.set_wires_side(
+            wire_ids, side=cast(Side, target_side)
+        )
         self._session.layout_changed.emit()
         self._status_msg(
-            f"Moved {len(wires_to_move)} wire(s) to {resolved_side} layer."
+            f"Moved {len(wire_ids)} wire(s) to {target_side} layer."
         )
+
+    def _flip_selected_wires(self) -> None:
+        """Flip all selected whole wires by toggling each fragment's side.
+
+        Mixed wires stay mixed (inverted) — no flatten, no "different layers"
+        refusal (the old stale-wire.side guard is gone; see cd01742).
+        """
+        wire_ids = self._selected_by_kind("wire")
+        if not wire_ids:
+            return
+        self._session.edit_controller.flip_wires(wire_ids)
+        self._session.layout_changed.emit()
+        self._status_msg(f"Flipped {len(wire_ids)} wire(s).")
 
     # -- group creation dialog (Ctrl+G) -------------------------------------
 

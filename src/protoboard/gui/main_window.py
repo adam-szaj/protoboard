@@ -1098,7 +1098,10 @@ class MainWindow(QMainWindow):
         self._set_wire_insulated(not self._wire_insulated)
 
     def _wire_flip_action(self) -> None:
-        self._move_selected_wires_to_side(None)
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        tool._flip_selected_wires()
 
     def _wire_edit_action(self) -> None:
         """Menu entry for wire-edit — delegates to the active SelectTool.
@@ -1940,13 +1943,13 @@ class MainWindow(QMainWindow):
         )
         self._session.layout_changed.emit()
 
-    def _move_selected_wires_to_side(self, side: str | None) -> None:
-        """Move all selected whole wires to a layer; ``side=None`` toggles (flip).
+    def _move_selected_wires_to_side(self, side: str) -> None:
+        """Move all selected whole wires to a layer (explicit "Move to").
 
-        Operates on all selected wires (toggle requires same current side).
-        Delegates to SelectTool which owns validation and status messages.  The
-        per-fragment flip is the WireEditTool's ``[F]`` op (entered via ``[E]``),
-        not this menu slot.
+        Operates on all selected wires. Delegates to SelectTool which owns
+        validation and status messages. The whole-wire toggle flip is
+        ``_wire_flip_action``; the per-fragment flip is the WireEditTool's
+        ``[F]`` op (entered via ``[E]``), not this menu slot.
         """
         tool = self._get_select_tool()
         if tool is None:
