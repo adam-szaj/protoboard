@@ -838,6 +838,45 @@ class SetWireSideCommand(Command[ComponentState]):
 
 
 @dataclass
+class FlipWireSideCommand(Command[ComponentState]):
+    """Flip a whole wire by toggling EACH fragment's side independently.
+
+    A mixed wire ``[top, bottom, top]`` becomes ``[bottom, top, bottom]`` — it
+    stays mixed, inverted. Distinct from :class:`SetWireSideCommand`, which
+    flattens every fragment to one side ("Move to <side>"). Reads no direction
+    off ``wire.side`` (it always inverts), so it cannot flatten a mixed wire the
+    way the old ``side=None`` toggle did (see docs/todo.md, commit cd01742).
+    """
+
+    wire_id: uuid.UUID
+    _old_fragment_sides: list[str] = field(
+        default_factory=list, init=False, repr=False,
+    )
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Flip wire"
+
+    def apply(self, state: ComponentState) -> None:
+        wire = state.layout.wires.get_or_raise(self.wire_id)
+        self._old_fragment_sides = [f.side for f in wire.fragments]
+        flipped = [
+            "bottom" if s == "top" else "top" for s in self._old_fragment_sides
+        ]
+        wire.fragments = rebuild_fragments(wire.fragments, flipped)  # type: ignore[arg-type]
+        wire.side = wire.fragments[0].side
+
+    def revert(self, state: ComponentState) -> None:
+        if not self._old_fragment_sides:
+            return
+        wire = state.layout.wires.get_or_raise(self.wire_id)
+        wire.fragments = rebuild_fragments(
+            wire.fragments, self._old_fragment_sides,  # type: ignore[arg-type]
+        )
+        wire.side = wire.fragments[0].side
+
+
+@dataclass
 class FuseTouchingWiresCommand(Command[ComponentState]):
     """Collapse every pair of wires that share a 2-degree JointKnot.
 
