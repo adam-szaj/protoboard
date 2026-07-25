@@ -344,3 +344,15 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
   excised interior across a plated-through via as insulated wires) is deferred
   for murky join semantics. Spec:
   `docs/superpowers/specs/2026-07-24-set-insulated-fragment-design.md`.
+
+## Entry-point semantics alignment follow-ups (2026-07-25)
+
+- **Generalize `WireCollection.get_or_raise` / `get_or_return`** to the other
+  id-keyed collections (`placements`, `instances`, `components`) via a shared
+  mixin — deferred from the 2026-07-25 entry-point alignment, which scoped the
+  two lookup helpers to `WireCollection` only. Spec:
+  `docs/superpowers/specs/2026-07-25-entry-point-semantics-alignment-design.md`.
+- **Component "Flip" single/multi split** — the menu single-selection path
+  (`_flip_selected`) and multi path (`_flip_multi`) are separate entry methods;
+  multi already routes through `EditController.flip`. Converge both on the
+  façade verb (low-risk, deferred from the same alignment task).

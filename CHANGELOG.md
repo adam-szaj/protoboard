@@ -14,6 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cut, wire-edit waits for a fresh range pick (delete unified onto the same
   flow).
 
+### Fixed
+
+- Whole-wire "Flip" of a mixed-side wire now toggles each fragment
+  independently (a `[top, bottom, top]` wire flips to `[bottom, top, bottom]`,
+  staying mixed) instead of flattening every fragment to one layer.
+
+### Changed
+
+- Wire set-insulated/bare, move-to-side, whole-wire flip, and component
+  lock/unlock now route through single `EditController` verbs
+  (`set_wires_insulated`, `set_wires_side`, `flip_wires`, `set_locked`) from
+  both the menu bar and the context menu — one code path per operation
+  (same-op-same-code).
+
 ### feat: body-printed value + hover-reveal (2026-07-14)
 
 * **Body-printed value.** Every component body now prints its value:
