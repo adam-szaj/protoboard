@@ -5,10 +5,11 @@ import uuid
 import pytest
 
 from protoboard.domain.layout.wire import Fragment, Wire, WireCollection
+from protoboard.geometry import Point
 
 
 def _wire() -> Wire:
-    frag = Fragment(path=[(0, 0), (1, 0)], side="top")
+    frag = Fragment(path=[Point(0, 0), Point(1, 0)], side="top")
     return Wire(id=uuid.uuid4(), fragments=[frag], insulated=True)
 
 
