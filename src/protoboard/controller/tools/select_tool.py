@@ -3352,22 +3352,9 @@ class SelectTool(ControllerTool):
         self._notify_selection()  # refresh Properties panel (side changed)
 
     def _menu_lock(self, comp_ids: set[uuid.UUID], locked: bool) -> None:
-        from protoboard.domain.commands.base import MacroCommand
-        from protoboard.domain.commands.component_cmds import (
-            LockComponentCommand,
-        )
-
-        cmds = [
-            LockComponentCommand(component_id=t, locked=locked)
-            for t in comp_ids if t in self._session.layout.placements
-        ]
-        if not cmds:
+        if not comp_ids:
             return
-        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
-            cmds,
-            description=f"{'Lock' if locked else 'Unlock'} {len(cmds)} component(s)",
-        )
-        self._execute_command(cmd)
+        self._session.edit_controller.set_locked(comp_ids, locked=locked)
         self._session.layout_changed.emit()
 
     def _menu_assign_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:

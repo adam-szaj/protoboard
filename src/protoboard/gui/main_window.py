@@ -1824,12 +1824,10 @@ class MainWindow(QMainWindow):
 
         If every component in the selection is already locked → unlock
         them all.  Otherwise lock the whole selection (idempotent for
-        already-locked entries).
+        already-locked entries). The all-locked decision stays here (it
+        reads current placements); the command build is
+        EditController.set_locked.
         """
-        from protoboard.domain.commands.base import ComponentState, MacroCommand
-        from protoboard.domain.commands.component_cmds import LockComponentCommand
-        from typing import cast
-
         tool = self._get_select_tool()
         if tool is None:
             return
@@ -1849,19 +1847,11 @@ class MainWindow(QMainWindow):
 
         all_locked = all(placements[cid].locked for cid in valid)
         new_locked = not all_locked
-        cmds = [
-            LockComponentCommand(component_id=cid, locked=new_locked)
-            for cid in valid
-            if placements[cid].locked != new_locked
-        ]
-        if not cmds:
-            return
-        macro = MacroCommand(cmds) if len(cmds) > 1 else cmds[0]
-        self._session.stack.execute(macro, cast(ComponentState, self._session))
+        self._session.edit_controller.set_locked(valid, locked=new_locked)
         self._session.layout_changed.emit()
         self._update_undo_redo()
         verb = "Locked" if new_locked else "Unlocked"
-        self._status.showMessage(f"{verb} {len(cmds)} component(s).", 3000)
+        self._status.showMessage(f"{verb} component(s).", 3000)
 
     def _rotate_cw(self) -> None:
         tool = self._get_select_tool()
