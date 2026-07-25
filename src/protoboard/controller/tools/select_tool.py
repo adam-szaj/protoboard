@@ -3303,24 +3303,11 @@ class SelectTool(ControllerTool):
     def _menu_set_wire_insulated(
         self, wire_ids: set[uuid.UUID], insulated: bool
     ) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import Command, ComponentState, MacroCommand
-        from protoboard.domain.commands.component_cmds import (
-            SetWireInsulatedCommand,
-        )
-
-        raw = [
-            cast("Command[ComponentState]",
-                 SetWireInsulatedCommand(wire_id=wid, insulated=insulated))
-            for wid in wire_ids
-        ]
-        if not raw:
+        if not wire_ids:
             return
-        cmd = raw[0] if len(raw) == 1 else MacroCommand(
-            raw, description=f"Set {len(raw)} wires"
+        self._session.edit_controller.set_wires_insulated(
+            wire_ids, insulated=insulated
         )
-        self._execute_command(cmd)
         self._session.layout_changed.emit()
 
     def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:

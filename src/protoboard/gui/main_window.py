@@ -1932,25 +1932,12 @@ class MainWindow(QMainWindow):
         return ids
 
     def _set_selected_wire_insulated(self, insulated: bool) -> None:
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import (
-            ComponentState,
-            SetWireInsulatedCommand,
-        )
-        from typing import cast
-
         wire_ids = self._get_selected_wire_ids()
         if not wire_ids:
             return
-        cmds = [
-            cast(Command[ComponentState], SetWireInsulatedCommand(wire_id=wid, insulated=insulated))
-            for wid in wire_ids
-        ]
-        cmd: Command[ComponentState] = (
-            cmds[0] if len(cmds) == 1
-            else MacroCommand(cmds, description=f"Set {len(cmds)} wires {'insulated' if insulated else 'bare'}")
+        self._session.edit_controller.set_wires_insulated(
+            wire_ids, insulated=insulated
         )
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.layout_changed.emit()
 
     def _move_selected_wires_to_side(self, side: str | None) -> None:
