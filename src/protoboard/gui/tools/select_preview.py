@@ -51,6 +51,10 @@ _EDIT_PREVIEW_PEN = QPen(QColor(255, 120, 0, 200), 0.12)
 _EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
 _NODE_RADIUS = 0.13
 
+_WIRE_SPAN_PEN = QPen(QColor(255, 210, 0, 235), 0.7)  # bright neon, wider than cyan
+_WIRE_SPAN_PEN.setCapStyle(Qt.PenCapStyle.RoundCap)
+_WIRE_SPAN_PEN.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+
 _REDRAG_PAD_RADIUS = 0.18
 _REDRAG_GREEN = QColor(0, 200, 80, 120)
 
@@ -216,7 +220,10 @@ class _WireEditOverlay:
         self._scene = scene
         self.items: list[QGraphicsItem] = []
 
-    def show_wire(self, path: list[Point], marked: Collection[int]) -> None:
+    def show_wire(
+        self, path: list[Point], marked: Collection[int],
+        span: "list[Point] | None" = None,
+    ) -> None:
         from PySide6.QtGui import QBrush
         from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
 
@@ -227,6 +234,17 @@ class _WireEditOverlay:
             seg.setZValue(9.0)
             self._scene().addItem(seg)
             self.items.append(seg)
+        # NEW: bright thick polyline over the picked span (fragment or whole wire).
+        span_pts = span or []
+        for i in range(len(span_pts) - 1):
+            hi = QGraphicsLineItem(
+                span_pts[i].x, span_pts[i].y,
+                span_pts[i + 1].x, span_pts[i + 1].y,
+            )
+            hi.setPen(_WIRE_SPAN_PEN)
+            hi.setZValue(9.3)
+            self._scene().addItem(hi)
+            self.items.append(hi)
         for i, pt in enumerate(pts):
             r = _NODE_RADIUS
             dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
@@ -337,8 +355,11 @@ class QtSelectPreview:
         self.redrag.clear()
 
     # wire-edit
-    def show_wire_edit_wire(self, path: list[Point], marked: Collection[int]) -> None:
-        self.wire_edit.show_wire(path, marked)
+    def show_wire_edit_wire(
+        self, path: list[Point], marked: Collection[int],
+        span: "list[Point] | None" = None,
+    ) -> None:
+        self.wire_edit.show_wire(path, marked, span)
 
     def clear_wire_edit(self) -> None:
         self.wire_edit.clear()

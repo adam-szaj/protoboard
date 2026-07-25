@@ -58,8 +58,12 @@ class SelectPreview(Protocol):
         ...
 
     # wire-edit fragment overlay
-    def show_wire_edit_wire(self, path: list[Point], marked: Collection[int]) -> None:
-        """Add one wire's cyan segments + vertex dots (*marked* indices red)."""
+    def show_wire_edit_wire(
+        self, path: list[Point], marked: Collection[int],
+        span: "list[Point] | None" = None,
+    ) -> None:
+        """Add one wire's cyan segments + vertex dots (*marked* indices red),
+        plus a bright thick polyline over *span* (the picked range's points)."""
         ...
 
     def clear_wire_edit(self) -> None: ...
