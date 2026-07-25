@@ -91,10 +91,11 @@ for "flip".
 ### The fix — a per-fragment toggle command
 
 New `FlipWireSideCommand` in `component_cmds.py`, sibling to
-`SetWireSideCommand`, toggling **each fragment independently**. Uses the
-existing `WireCollection.get()` (`wire.py:332`) — no manual `for wire in wires`
-loop (the pre-existing loops in `component_cmds.py` are legacy lint-debt, left
-untouched per surgical-changes; new code is written clean).
+`SetWireSideCommand`, toggling **each fragment independently**. Uses the new
+`WireCollection.get_or_raise()` (see §2a) instead of `.get()` + manual
+`if None: raise` — no manual `for wire in wires` loop (the pre-existing loops in
+`component_cmds.py` are legacy lint-debt, left untouched per surgical-changes;
+new code is written clean).
 
 ```python
 @dataclass
@@ -113,9 +114,7 @@ class FlipWireSideCommand(Command[ComponentState]):
         return "Flip wire"
 
     def apply(self, state: ComponentState) -> None:
-        wire = state.layout.wires.get(self.wire_id)
-        if wire is None:
-            raise KeyError(f"Wire {self.wire_id} not found")
+        wire = state.layout.wires.get_or_raise(self.wire_id)
         self._old_fragment_sides = [f.side for f in wire.fragments]
         flipped = ["bottom" if s == "top" else "top" for s in self._old_fragment_sides]
         wire.fragments = rebuild_fragments(wire.fragments, flipped)
@@ -128,6 +127,49 @@ class FlipWireSideCommand(Command[ComponentState]):
         wire.fragments = rebuild_fragments(wire.fragments, self._old_fragment_sides)
         wire.side = wire.fragments[0].side
 ```
+
+### 2a. `WireCollection` lookup ergonomics
+
+The `.get()` + `if x is None: raise/return/continue` idiom repeats ~15× across
+`wire_utils.py`, `drag_cmds.py`, and the wire commands. Add two methods to
+`WireCollection` (`wire.py`), alongside the existing `.get() -> Wire | None`:
+
+```python
+def get_or_raise(
+    self,
+    wire_id: uuid.UUID,
+    exc: Callable[[uuid.UUID], Exception] | Exception | None = None,
+) -> Wire:
+    """Return the wire, or raise. Default miss -> KeyError(wire_id).
+
+    ``exc`` may be a ready Exception or a factory taking the missing id;
+    the hook returns/builds an Exception — it never returns a Wire (recovery
+    is get_or_return's job).
+    """
+    wire = self.get(wire_id)
+    if wire is not None:
+        return wire
+    if exc is None:
+        raise KeyError(wire_id)
+    raise exc(wire_id) if callable(exc) else exc
+
+def get_or_return(
+    self,
+    wire_id: uuid.UUID,
+    instead_val: Callable[[uuid.UUID], Wire] | Wire,
+) -> Wire:
+    """Return the wire, or a fallback (eager value or lazy factory)."""
+    wire = self.get(wire_id)
+    if wire is not None:
+        return wire
+    return instead_val(wire_id) if callable(instead_val) else instead_val
+```
+
+Scope: **`WireCollection` only** this task. Generalizing to `placements` /
+`instances` / `components` (a shared id-keyed-collection mixin, ~232 `.get()`
+sites) is a noted follow-up, out of scope here. Existing callers are **not**
+mass-migrated; `FlipWireSideCommand` uses `get_or_raise` as the first adopter,
+and the new wire-side / insulated verbs adopt it where they build commands.
 
 ### Wiring into the verb
 
