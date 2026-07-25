@@ -1167,6 +1167,27 @@ class TestWireEdit:
         # The single wire is cut into two surviving halves.
         assert len(list(session.layout.wires)) == n_before + 1
 
+    def test_range_pick_same_vertex_shows_hint(self, qtbot) -> None:
+        """Picking the same vertex twice is a degenerate (zero-length) range —
+        silently clearing wire-edit with no feedback left the user pressing
+        [F]/etc. afterward with nothing happening and no explanation."""
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        wire = next(iter(session.layout.wires))
+        session.layout.ensure_wire_knots(wire)
+
+        msgs: list[str] = []
+        tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)  # idx 1
+        _click(tool, 2.5, 1.5)  # same vertex again -> degenerate pick
+
+        # No handoff: still the SelectTool.
+        assert isinstance(view._active_tool, SelectTool)
+        assert msgs[-1] == "Wire edit: pick two different vertices on one wire."
+
     def test_esc_on_clean_fragment_exits_no_command(self, qtbot) -> None:
         # Task-8 swap two-stage model: a bare armed fragment (no pending pick)
         # is exitable — can_exit() is True, so the host [Esc] drops back to

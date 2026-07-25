@@ -2206,6 +2206,7 @@ class SelectTool(ControllerTool):
 
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
+            self._status_msg("Wire edit: pick two different vertices on one wire.")
             self._wire_edit_clear()
             return
         v0, v1 = verts[0], verts[1]
@@ -2215,6 +2216,7 @@ class SelectTool(ControllerTool):
         # length range is not a fragment.
         if start_wire == end_wire:
             if start_idx == end_idx:
+                self._status_msg("Wire edit: pick two different vertices on one wire.")
                 self._wire_edit_clear()
                 return
             if end_idx < start_idx:
