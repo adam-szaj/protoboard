@@ -30,6 +30,7 @@ from protoboard.domain.commands.component_cmds import (
     DisconnectPinCommand,
     DropWiresCommand,
     FlipWireFragmentCommand,
+    FlipWireSideCommand,
     FuseTouchingWiresCommand,
     LockComponentCommand,
     MoveComponentCommand,
@@ -491,6 +492,20 @@ def _set_wire_side_from(d: dict[str, Any]) -> SetWireSideCommand:
 _register(
     SetWireSideCommand, "set_wire_side",
     _set_wire_side_to, _set_wire_side_from,
+)
+
+
+def _flip_wire_side_to(cmd: FlipWireSideCommand) -> dict[str, Any]:
+    return {"wire_id": _uuid_to(cmd.wire_id)}
+
+
+def _flip_wire_side_from(d: dict[str, Any]) -> FlipWireSideCommand:
+    return FlipWireSideCommand(wire_id=_uuid_from(d["wire_id"]))
+
+
+_register(
+    FlipWireSideCommand, "flip_wire_side",
+    _flip_wire_side_to, _flip_wire_side_from,
 )
 
 
