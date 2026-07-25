@@ -560,9 +560,16 @@ class ToolHost:
         # action id), so an idle tool still scrolls on arrows as before.
         tool = self._active_tool
         if tool is not None and tool.wants_key(inp):
-            if tool.on_key(inp):
-                event.accept()
-                return
+            # The tool claimed this key (via wants_key / key_claims), so it OWNS
+            # the dispatch: hand it to on_key once and stop.  Returning only on a
+            # truthy on_key would fall through to the unconditional second
+            # on_key below, double-dispatching every op whose handler is
+            # ``-> None`` (e.g. wire-edit flip) — one physical [F] fired twice,
+            # net-zero.  A claimed key is consumed whether or not on_key reports
+            # a truthy "consumed" value.
+            tool.on_key(inp)
+            event.accept()
+            return
 
         # Arrow keys — scroll by one raster unit (only without modifier).
         if not event.modifiers() and key in (

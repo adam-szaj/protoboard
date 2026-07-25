@@ -36,6 +36,7 @@ import uuid
 from typing import TYPE_CHECKING, Callable, cast
 
 from protoboard.controller.tools.base import ControllerTool
+from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
@@ -101,6 +102,7 @@ class WireEditTool(ControllerTool):
 
     # -- lifecycle ----------------------------------------------------------
 
+    @traced()
     def activate(self, session: EditState, view: object) -> None:
         from protoboard.controller.editing.wire_edit_arm import WireEditArm
         from protoboard.controller.selection.service import SelectionService
@@ -142,6 +144,7 @@ class WireEditTool(ControllerTool):
             0,
         )
 
+    @traced()
     def _push_dim(self) -> None:
         """Dim the whole board except the edited wire (transient highlight)."""
         if self._dim_active:
@@ -368,6 +371,7 @@ class WireEditTool(ControllerTool):
             return
         self._commit_and_rearm(cmd)
 
+    @traced()
     def _flip_wire_fragment(self, target_side: str | None = None) -> None:
         """Flip the selected fragment to the opposite layer — ``[F]`` (stays armed)."""
         state = self._wire_edit
@@ -380,7 +384,10 @@ class WireEditTool(ControllerTool):
                 "Flip: pick a fragment on a single wire (two vertices apart)."
             )
             return
-        self._commit_and_rearm(cmd)
+        # Flip preserves the wire's vertex count, so the picked sub-range stays
+        # valid: keep it armed (highlight + a repeated [F] target the SAME
+        # fragment) instead of growing to the whole wire.
+        self._commit_and_rearm(cmd, preserve_range=True)
 
     def _simplify_wire_fragment(self) -> None:
         """Simplify the selected fragment — ``[S]`` (a range op; stays armed)."""
@@ -552,13 +559,47 @@ class WireEditTool(ControllerTool):
                 on_done=self._range_repicked,
             )
 
-    def _commit_and_rearm(self, cmd: Command[ComponentState] | None) -> None:
-        """Execute *cmd* (if any), refresh, then RE-ARM on the mutated wire's
-        full span so the tool stays active for the next op."""
+    def _commit_and_rearm(
+        self, cmd: Command[ComponentState] | None, *, preserve_range: bool = False
+    ) -> None:
+        """Execute *cmd* (if any), refresh, then re-arm so the tool stays active.
+
+        ``preserve_range=True`` keeps the picked sub-range armed instead of
+        growing it to the wire's full span.  Only safe for **geometry-preserving**
+        ops (flip): they keep the wire's vertex count, so the picked
+        ``[start_idx, end_idx]`` stays valid and the user's fragment selection
+        (and its highlight) survives the op.  Geometry-*changing* ops
+        (reroute / autoroute / simplify) must re-arm the full span, since their
+        path edits invalidate the old indices.
+        """
         if cmd is not None:
             self._execute_command(cmd)
         self._refresh_after_wire_op()
-        self._rearm_full_span()
+        if preserve_range:
+            self._rearm_same_range()
+        else:
+            self._rearm_full_span()
+
+    def _rearm_same_range(self) -> None:
+        """Re-arm on the CURRENTLY-picked sub-range (geometry-preserving ops).
+
+        The wire's vertex count is unchanged, so ``self._wire_edit`` stays valid;
+        just refresh the overlay + status so the same fragment stays highlighted
+        and armed.  If the wire vanished (shouldn't for id-preserving ops) or no
+        range is armed, fall back to the full-span re-arm.
+        """
+        wire_id = self._wire_edit_wire_id
+        wire = self._wire_by_id(wire_id) if wire_id is not None else None
+        if wire is None or self._wire_edit is None:
+            self._rearm_full_span()
+            return
+        self._draw_wire_edit_overlay()
+        self._status(
+            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
+            "[Del] Delete  ·  [Esc] Cancel",
+            0,
+        )
 
     def _rearm_full_span(self) -> None:
         """Re-arm on the FULL SPAN of the (now-mutated) wire.
@@ -837,6 +878,7 @@ class WireEditTool(ControllerTool):
 
     # -- wire-edit overlays (tool-drawn) ------------------------------------
 
+    @traced()
     def _draw_wire_edit_overlay(self) -> None:
         """Cyan segments for the armed wire + red endpoint dots + a bright
         polyline over the picked span (fragment or whole wire)."""

@@ -99,6 +99,46 @@ class TestConsumptionParity:
         assert win.forwarded == []
 
 
+class _WantsButUnconsumingTool(_Tool):
+    """Wants the key (``wants_key`` True) but ``on_key`` returns False.
+
+    Models a wire-edit op like ``[F]`` flip whose handler is ``-> None``: the
+    tool DID act on the key, but ``on_key`` reports a falsy 'consumed' value.
+    A single physical press must still reach ``on_key`` exactly ONCE.
+    """
+
+    def __init__(self, wanted: set[Qt.Key]) -> None:
+        super().__init__()
+        self._wanted = wanted
+        self.seen: list[int] = []
+
+    def wants_key(self, inp) -> bool:  # type: ignore[override]
+        return inp.key in self._wanted
+
+    def on_key(self, inp) -> bool:  # type: ignore[override]
+        self.seen.append(inp.key)
+        return False  # acted, but reports "not consumed" (handler is -> None)
+
+
+class TestNoDoubleDispatch:
+    """A key the tool *wants* must reach ``on_key`` exactly once, even when
+    ``on_key`` returns False (regression: the ``wants_key`` branch fell through
+    to the unconditional second ``on_key`` at the end of ``handle_key_press``,
+    so ``[F]`` flip fired twice per press → net-zero visible effect)."""
+
+    def test_wanted_key_dispatched_once_even_if_unconsumed(
+        self, board_view: BoardView, monkeypatch
+    ) -> None:
+        tool = _WantsButUnconsumingTool({Qt.Key.Key_F})
+        _install(board_view, tool, monkeypatch)
+        ev = _key_event(Qt.Key.Key_F)
+        board_view.tools.handle_key_press(ev)
+        assert tool.seen == [Qt.Key.Key_F], (
+            f"wanted key must dispatch to on_key exactly once; "
+            f"got {len(tool.seen)} calls: {tool.seen}"
+        )
+
+
 class TestShortcutOverrideVeto:
     def test_wanting_tool_vetoes_global_shortcut(
         self, board_view: BoardView, monkeypatch

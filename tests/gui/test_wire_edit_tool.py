@@ -89,6 +89,25 @@ def _arm(
     return tool
 
 
+def _arm_range(
+    view: HeadlessBoardView, wire: Wire, start_idx: int, end_idx: int
+) -> WireEditTool:
+    """Arm a WireEditTool on a SUB-RANGE ``[start_idx, end_idx]`` of *wire*
+    (not the full span), through the ToolHost so activate() runs."""
+    select = SelectTool()
+    view.tools.set_tool(select)
+    tool = WireEditTool(
+        WireRange(
+            start_wire_id=wire.id, start_idx=start_idx,
+            end_wire_id=wire.id, end_idx=end_idx,
+        ),
+        wire.id,
+        return_to=lambda: view.tools.set_tool(select),
+    )
+    view.tools.set_tool(tool)
+    return tool
+
+
 # --------------------------------------------------------------------------- #
 # Stays-armed after an id-preserving op
 # --------------------------------------------------------------------------- #
@@ -124,6 +143,58 @@ class TestWireEditToolStaysArmed:
 
         assert tool._wire_edit is not None
         assert view.active_tool is tool
+
+
+class TestFlipPreservesSubRange:
+    """Regression: flipping a picked SUB-RANGE must keep that sub-range armed,
+    not grow it to the whole wire.
+
+    Bug: ``_commit_and_rearm`` always called ``_rearm_full_span``, so after one
+    flip of ``[1,3]`` the armed range became the whole 5-point wire ``[0,4]``.
+    Combined with the intentional double-dispatch of ``[F]`` (Qt ShortcutOverride
+    veto + re-delivered KeyPress), the SECOND flip then hit the whole wire instead
+    of re-toggling the fragment -- flipping segments the user never selected, and
+    the highlight span visibly grew to cover the entire wire.
+    """
+
+    def test_flip_keeps_sub_range_armed(self, session: EditorSession) -> None:
+        view = _headless(session)
+        wire = _detour_wire(session)  # 5-point wire, idx 0..4
+        tool = _arm_range(view, wire, 1, 3)
+
+        tool._flip_wire_fragment()
+
+        state = tool._wire_edit
+        assert state is not None
+        # The armed range must still be the picked sub-range, NOT the full span.
+        assert (state.start_idx, state.end_idx) == (1, 3), (
+            f"flip grew the armed range to "
+            f"({state.start_idx}, {state.end_idx}); expected (1, 3)"
+        )
+
+    def test_double_flip_sub_range_is_net_zero(
+        self, session: EditorSession
+    ) -> None:
+        """Two flips of the same sub-range (as one physical [F] double-dispatches)
+        return every segment to its original side -- no whole-wire corruption."""
+        view = _headless(session)
+        wire = _detour_wire(session)  # all segments start on "top"
+        tool = _arm_range(view, wire, 1, 3)
+
+        def _sides() -> list[str]:
+            w = session.layout.wires.get(wire.id)
+            assert w is not None
+            return [seg.side for seg in w.fragments]
+
+        before = _sides()
+        tool._flip_wire_fragment()  # dispatch 1
+        tool._flip_wire_fragment()  # dispatch 2 (same physical [F])
+        after = _sides()
+
+        assert after == before, (
+            f"double-flip of sub-range must be net-zero; "
+            f"sides went {before} -> {after}"
+        )
 
 
 class TestWireEditToolKnotlessWire:
