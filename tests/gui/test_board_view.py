@@ -13,6 +13,7 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _DefaultTool
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
+from protoboard.gui.qt_help_overlay import QtHelpOverlay
 
 
 def _arm_wire_edit(board_view: BoardView) -> WireEditTool:
@@ -247,7 +248,7 @@ class TestShortcutsHelp:
         # reroute is a WireEditTool op after the Task-8 swap.
         _arm_wire_edit(board_view)
         board_view.tools._show_shortcuts_overlay()
-        ov = board_view.help_overlay._label
+        ov = cast(QtHelpOverlay, board_view.help_overlay)._label
         assert isinstance(ov, QLabel)
         text = ov.text()
         # A wire-edit tool action and its shortcut appear.
@@ -260,7 +261,7 @@ class TestShortcutsHelp:
         from PySide6.QtWidgets import QLabel
         board_view.set_tool(SelectTool())
         board_view.tools._show_shortcuts_overlay()
-        ov = board_view.help_overlay._label
+        ov = cast(QtHelpOverlay, board_view.help_overlay)._label
         assert isinstance(ov, QLabel)
         text = ov.text()
         assert "Save" in text and "Ctrl+S" in text  # File
@@ -272,7 +273,7 @@ class TestShortcutsHelp:
         board_view.keymap.set_override("select-tool.action.reroute", "Q")
         _arm_wire_edit(board_view)  # reroute is a WireEditTool op now
         board_view.tools._show_shortcuts_overlay()
-        ov = board_view.help_overlay._label
+        ov = cast(QtHelpOverlay, board_view.help_overlay)._label
         assert isinstance(ov, QLabel)
         # The rebound key, not the default, is shown.
         assert ">Q<" in ov.text() or "<code>Q</code>" in ov.text()

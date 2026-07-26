@@ -222,7 +222,7 @@ class TestWireEditToolKnotlessWire:
     ) -> None:
         view = _headless(session)
         wire = _knotless_wire(session)
-        n_before = len(session.layout.wires.get(wire.id).path)
+        n_before = len(session.layout.wires.get_or_raise(wire.id).path)
         tool = _arm(view, wire)
 
         tool._simplify_wire_fragment()  # must not raise

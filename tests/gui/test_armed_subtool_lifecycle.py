@@ -296,8 +296,7 @@ class TestWireEditExitParity:
         tool.arm_wire_edit()  # runs _ensure_wire_ready_for_edit + arms the pick
         # Re-read the wire: _ensure_wire_ready_for_edit may have enriched its
         # path (and thus replaced the object) before the fragment resolves.
-        wire = view.session.layout.wires.get(wire.id)
-        assert wire is not None
+        wire = view.session.layout.wires.get_or_raise(wire.id)
         last = len(wire.path) - 1
         tool._range_picked(
             [WireVertexSelectable(wire.id, 0), WireVertexSelectable(wire.id, last)]

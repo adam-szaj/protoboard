@@ -17,7 +17,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.types import Side
 from protoboard.gui.layer_state import (
     LayerOverrides,
@@ -180,7 +180,7 @@ class TestCompFingerprint:
     def test_pin_offsets_affect_fingerprint(self) -> None:
         pl_no_off = _make_placement()
         pl_with_off = _make_placement()
-        pl_with_off.pin_offsets = {1: Point(0.5, 0.0)}
+        pl_with_off.pin_offsets = {1: Vector(0.5, 0.0)}
         lk = _layers_key(LayerState())
         fp_a = comp_fingerprint(pl_no_off, "R", {}, None, lk)
         fp_b = comp_fingerprint(pl_with_off, "R", {}, None, lk)

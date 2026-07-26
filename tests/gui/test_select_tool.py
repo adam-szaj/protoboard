@@ -8,6 +8,8 @@ select, rubber-band, rotate, ESC-pop, and routing a click into an active pick.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 
@@ -20,6 +22,9 @@ from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
 from tests.gui.input_helpers import key_inp, pointer, wheel
+
+if TYPE_CHECKING:
+    from protoboard.gui.tools.gui_tools import WireEditTool
 
 
 def _qt_preview(tool: SelectTool) -> QtSelectPreview:

@@ -10,13 +10,14 @@ CameraMath viewport, recorded notifications — without qtbot or an event loop
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from PySide6.QtCore import Qt
 
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
-from tests.fakes.board_view import FakeExecutor, HeadlessBoardView
+from tests.fakes.board_view import FakeExecutor, FakeHelpOverlay, HeadlessBoardView
 from tests.gui.input_helpers import key_inp, pointer
 
 
@@ -114,9 +115,10 @@ class TestKeyDispatchHeadless:
         # [?] overlay surfaces its shortcuts.
         _arm_wire_edit(view)
         view.tools._toggle_shortcuts_overlay()
-        assert view.help_overlay.help_visible
-        assert view.help_overlay.html is not None
-        assert "Reroute" in view.help_overlay.html
+        overlay = cast(FakeHelpOverlay, view.help_overlay)
+        assert overlay.help_visible
+        assert overlay.html is not None
+        assert "Reroute" in overlay.html
         view.tools._toggle_shortcuts_overlay()
         assert not view.help_overlay.help_visible
 

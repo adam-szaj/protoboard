@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
@@ -15,6 +15,9 @@ from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_preview import QtPlacePreview
 from protoboard.gui.tools.gui_tools import PlaceTool
 from tests.gui.input_helpers import key_inp, pointer
+
+if TYPE_CHECKING:
+    from protoboard.gui.placement_conflict import PlacementPrompts
 
 
 def _left_click(tool: PlaceTool, x: float, y: float) -> None:

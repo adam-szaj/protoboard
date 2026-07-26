@@ -831,7 +831,7 @@ class TestWireFragmentSimplify:
         wire = self._add_detour_wire(session)
         # Full-span fragment armed in the WireEditTool; [S] then simplifies it.
         tool = self._arm_wire_edit(view, WireRange.full_span(wire), wire.id)
-        n_before = len(session.layout.wires.get(wire.id).path)
+        n_before = len(session.layout.wires.get_or_raise(wire.id).path)
 
         tool._simplify_wire_fragment()
 
@@ -855,12 +855,12 @@ class TestWireFragmentSimplify:
         )
         session.layout.wires.append(b)
         tool = self._arm_wire_edit(view, WireRange(a.id, 0, b.id, 1), a.id)
-        before = list(session.layout.wires.get(a.id).path)
+        before = list(session.layout.wires.get_or_raise(a.id).path)
 
         tool._simplify_wire_fragment()
 
         # Refused (same-wire only) — nothing changed.
-        assert list(session.layout.wires.get(a.id).path) == before
+        assert list(session.layout.wires.get_or_raise(a.id).path) == before
 
 
 class TestWirePinConversionViaTool:
