@@ -82,18 +82,22 @@ class AbstractBoardView(Protocol):
     @property
     def camera_side(self) -> str:
         """Which board face the camera looks at: ``"top"`` | ``"bottom"``."""
+        ...
 
     @property
     def keymap(self) -> KeyMap:
         """The namespaced keybindings map tools resolve their actions in."""
+        ...
 
     @property
     def session(self) -> EditorSession:
         """The editor session this canvas currently renders."""
+        ...
 
     @property
     def theme(self) -> Theme:
         """The resolved theme (Preferences override or the default)."""
+        ...
 
     @property
     def active_tool(self) -> BoardViewTool | None:
@@ -102,26 +106,33 @@ class AbstractBoardView(Protocol):
     @property
     def antialiasing(self) -> bool:
         """Whether render passes (scene + cached pixmaps) antialias."""
+        ...
 
     def layer_state(self) -> LayerState:
         """The resolved per-layer visibility/alpha state for this paint."""
+        ...
 
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
+        ...
 
     def in_transform_burst(self) -> bool:
         """True while a wheel-zoom or pan-scroll burst is in flight."""
+        ...
 
     # -- scene-item registries (read-only; consumed by extracted services) ----
 
     def component_groups(self) -> Mapping[uuid.UUID, object]:
         """comp_id → its persistent ``QGraphicsItemGroup`` (or stand-in)."""
+        ...
 
     def component_label_groups(self) -> Mapping[uuid.UUID, object]:
         """comp_id → its label ``QGraphicsItemGroup`` (refdes / pin names)."""
+        ...
 
     def wire_groups(self) -> Mapping[uuid.UUID, object]:
         """wire_id → its persistent ``QGraphicsItemGroup`` (or stand-in)."""
+        ...
 
     def invalidate_back_cache(self) -> None:
         """Drop the rasterised back-side pixmap; next paint rebuilds it."""
@@ -139,6 +150,7 @@ class AbstractBoardView(Protocol):
     @property
     def layer_overrides(self) -> LayerOverrides:
         """User per-layer visibility overrides (Layers panel state)."""
+        ...
 
     def apply_label_visibility(self, *, deferred: bool = False) -> None:
         """Re-evaluate label visibility for the current zoom.
@@ -150,6 +162,7 @@ class AbstractBoardView(Protocol):
     @property
     def active_group_id(self) -> uuid.UUID:
         """The group whose context drives rendering (set by SelectTool)."""
+        ...
 
     # -- geometry / hit helpers ----------------------------------------------
 
@@ -157,12 +170,15 @@ class AbstractBoardView(Protocol):
         self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None
     ) -> Point:
         """Snap *scene_pt* to the nearest board pad centre."""
+        ...
 
     def is_locked_pin(self, scene_pt: Point, tol: float = 0.6) -> bool:
         """True when *scene_pt* hits a pin of a locked component."""
+        ...
 
     def board_pad_positions(self) -> list[Point]:
         """All pad centres of the current board (cached)."""
+        ...
 
     # -- scene / camera -------------------------------------------------------
 
