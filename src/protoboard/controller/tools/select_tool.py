@@ -263,16 +263,20 @@ class SelectTool(ControllerTool):
 
     @property
     def _view(self) -> SelectToolView:  # type: ignore[override]
-        """The bound view, narrowed to SelectTool's own view surface.
+        """The bound view, typed as SelectTool's own view surface.
 
         The base stores ``_view`` as ``_ViewProto | None`` (None until
-        activate). SelectTool binds a wider :class:`SelectToolView` and only
-        ever touches it from post-activate event handlers, so this accessor
-        asserts it is set and returns the precise type all the ``self._view.*``
-        call sites need — the same idiom as :attr:`preview` above.
+        activate). SelectTool binds a wider :class:`SelectToolView`; this
+        accessor re-types the getter to it so the post-activate ``self._view.*``
+        event-handler call sites don't each need a None-guard.
+
+        It deliberately does **not** assert non-None: several methods (e.g.
+        :meth:`_status`) legitimately run before/without a bound view and guard
+        with ``if self._view is None`` — an assert here would turn those guards
+        into crashes.  The stored value is returned as-is (may be None at
+        runtime); the return *type* stays narrow for the common guarded paths.
         """
-        assert self.__view is not None  # set by activate()
-        return self.__view
+        return self.__view  # type: ignore[return-value]  # may be None pre-activate; guarded call sites check
 
     @_view.setter
     def _view(self, value: SelectToolView | None) -> None:
