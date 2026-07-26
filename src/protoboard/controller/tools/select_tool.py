@@ -1505,7 +1505,7 @@ class SelectTool(ControllerTool):
             )
         except CommandRejectedError:
             return False
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         return True
 
     # -- rubber-band Qt seams ----------------------------------------------
@@ -3275,7 +3275,7 @@ class SelectTool(ControllerTool):
         self._session.edit_controller.set_wires_insulated(
             wire_ids, insulated=insulated
         )
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
 
     def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:
         from typing import cast
@@ -3285,7 +3285,7 @@ class SelectTool(ControllerTool):
         if not wire_ids:
             return
         self._session.edit_controller.set_wires_side(wire_ids, side=cast(Side, side))
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
 
     def _menu_flip_component_side(self, comp_id: uuid.UUID) -> None:
         """Move a component to the other board side (top ↔ bottom).
@@ -3322,7 +3322,7 @@ class SelectTool(ControllerTool):
         if not comp_ids:
             return
         self._session.edit_controller.set_locked(comp_ids, locked=locked)
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
 
     def _menu_assign_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:
         """Delegate to MainWindow's parameterised assign dialog (single source
@@ -3340,7 +3340,7 @@ class SelectTool(ControllerTool):
         self._execute_command(
             DisconnectPinCommand(component_id=comp_id, pin_number=pin_num)
         )
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
 
     def _menu_export(self, action: str, data: Mapping[str, object]) -> None:
         from typing import cast
@@ -3376,7 +3376,7 @@ class SelectTool(ControllerTool):
                     group_id=group_id, new_exported=new_exported
                 )
             )
-            self._session.layout_changed.emit()
+            self._session.notify_changed()
 
     def _menu_autoroute_group(self) -> None:
         """Delegate to MainWindow's group-autoroute slot (worker plumbing)."""
@@ -3590,7 +3590,7 @@ class SelectTool(ControllerTool):
         self._session.edit_controller.set_wires_side(
             wire_ids, side=cast(Side, target_side)
         )
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         self._status_msg(
             f"Moved {len(wire_ids)} wire(s) to {target_side} layer."
         )
@@ -3605,7 +3605,7 @@ class SelectTool(ControllerTool):
         if not wire_ids:
             return
         self._session.edit_controller.flip_wires(wire_ids)
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         self._status_msg(f"Flipped {len(wire_ids)} wire(s).")
 
     # -- group creation dialog (Ctrl+G) -------------------------------------
@@ -4040,7 +4040,7 @@ class SelectTool(ControllerTool):
         self._exec_command(cmd)
         if invalidate:
             self._session.invalidate_graph()
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         self._refresh_after_wire_op()
 
     def _exec_command(self, cmd: object) -> None:
@@ -4062,7 +4062,7 @@ class SelectTool(ControllerTool):
     @traced()
     def _execute(self, cmd: object) -> None:
         self._exec_command(cmd)
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         self._refresh_highlight()
 
     # -- group navigation ---------------------------------------------------

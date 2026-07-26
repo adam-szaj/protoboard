@@ -619,7 +619,7 @@ class PlaceTool(ControllerTool):
             self._session.layout.placements[inst.id] = placement
             self._session.instances[inst.id] = inst
             self._set_phase(PhaseEnum.FLOATING)
-            self._session.layout_changed.emit()
+            self._session.notify_changed()
             if self._view is not None:
                 self._view.notify_status(StatusEvent(
                     "place.floating",
@@ -660,7 +660,7 @@ class PlaceTool(ControllerTool):
             inst_id = self._pending.instance.id
             self._session.layout.placements.pop(inst_id, None)
             self._session.instances.pop(inst_id, None)
-            self._session.layout_changed.emit()
+            self._session.notify_changed()
         self._reset_pending()
         self._set_phase(PhaseEnum.ANCHOR)
         if self._view is not None:

@@ -821,7 +821,7 @@ class WireEditTool(ControllerTool):
             )
         except CommandRejectedError:
             return False
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         return True
 
     def _snap(self, raw: Point) -> Point:

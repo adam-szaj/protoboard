@@ -47,7 +47,7 @@ class CutTool(ControllerTool):
         view = self._view
         if view is not None:
             view.mark_board_layer_dirty()
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         return True
 
 

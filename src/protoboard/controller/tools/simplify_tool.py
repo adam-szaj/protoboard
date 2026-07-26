@@ -216,7 +216,7 @@ class SimplifyTool(SelectTool):
             new_fragments=tuple(new_fragments),
         )
         self._exec_command(cmd)
-        self._session.layout_changed.emit()
+        self._session.notify_changed()
         self._clear_draft()
         self._status_msg("Simplify: applied.")
         return True
