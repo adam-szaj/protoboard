@@ -69,6 +69,7 @@ class PreviewState:
         # Shared straight through from the live session.
         self.routing_settings = live.routing_settings
         self.selection_service = live.selection_service
+        self.highlight_stack = live.highlight_stack
 
     # -- the swapped-in pose (preview) --------------------------------------
 

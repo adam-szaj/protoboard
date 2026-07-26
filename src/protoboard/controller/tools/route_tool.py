@@ -420,7 +420,7 @@ class RouteTool(ControllerTool):
             net = self._session.schematic.nets.get(net_id)
             if net is not None:
                 comp_ids = frozenset(ref.component_id for ref in net.pins)
-        self._session.highlight_stack.push_transient(  # type: ignore[attr-defined]
+        self._session.highlight_stack.push_transient(
             HighlightEntry(
                 comp_ids=comp_ids,
                 net_id=net_id,
@@ -436,7 +436,7 @@ class RouteTool(ControllerTool):
         """Pop transient highlight + remove background dim overlay."""
         if not self._route_highlight_active:
             return
-        self._session.highlight_stack.pop_transient()  # type: ignore[attr-defined]
+        self._session.highlight_stack.pop_transient()
         self.preview.clear_dim()
         self._route_highlight_active = False
 

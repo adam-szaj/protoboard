@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
+    from protoboard.controller.highlight_stack import HighlightStackBase
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Rect, Vector
     from protoboard.controller.selection.service import SelectionService
@@ -258,6 +259,7 @@ class EditState(SchematicState, Protocol):
 
     routing_settings: RoutingSettings
     selection_service: SelectionService | None
+    highlight_stack: HighlightStackBase
 
     def set_routing_net(self, net_id: uuid.UUID | None) -> None:
         """Mark a net as actively routed (RouteTool while drawing); None clears."""

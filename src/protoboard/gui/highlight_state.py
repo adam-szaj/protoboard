@@ -18,6 +18,11 @@ Precedence (top of stack wins within a tier):
     persistent > transient > auto
 - The stack is held by EditorSession so all GUI components share it.
 
+The stack *logic* is Qt-free and lives in
+:class:`protoboard.controller.highlight_stack.HighlightStackBase`; this module
+adds only the ``changed`` Qt signal so ``BoardView`` can react.  A headless
+session uses the bare base directly (the signal is simply absent).
+
 Profiles
 --------
 PROFILE_DIMMED_1: light dimming — use during drag/rotate/route where context
@@ -29,6 +34,8 @@ PROFILE_DIMMED_2: strong dimming — use for explicit "highlight selection"
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
+
+from protoboard.controller.highlight_stack import HighlightStackBase
 
 # HighlightEntry + the pre-defined profiles are pure data (Qt-free) and live
 # in controller/highlight_entry.py; re-exported here for existing GUI
@@ -51,137 +58,22 @@ from protoboard.controller.highlight_entry import (
 # HighlightStack
 # ---------------------------------------------------------------------------
 
-class HighlightStack(QObject):
-    """Stack of highlight entries with three precedence tiers.
 
-    The active entry returned by ``active()`` is the topmost entry of the
-    highest non-empty tier (persistent > transient > auto).  Within a tier
-    the topmost entry wins.
+class HighlightStack(QObject, HighlightStackBase):
+    """The Qt-visible highlight stack: :class:`HighlightStackBase` + a signal.
+
+    All push/pop/clear/query behaviour comes from the Qt-free base; this class
+    contributes the ``changed`` signal (emitted by the base's ``_changed``
+    hook) so ``BoardView`` can re-apply opacity dimming.  The active entry
+    returned by ``active()`` is the topmost entry of the highest non-empty tier
+    (persistent > transient > auto).
     """
 
     changed = Signal()  # emitted whenever the active entry changes
 
     def __init__(self, parent: QObject | None = None) -> None:
-        super().__init__(parent)
-        self._stack: list[HighlightEntry] = []
+        QObject.__init__(self, parent)
+        HighlightStackBase.__init__(self)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def active(self) -> HighlightEntry | None:
-        """Return the active entry under the precedence rule, or None."""
-        # Scan from top of stack within each tier.
-        for predicate in (
-            lambda e: not e.transient and not e.auto,  # persistent
-            lambda e: e.transient,                      # transient
-            lambda e: e.auto,                           # auto
-        ):
-            for entry in reversed(self._stack):
-                if predicate(entry):
-                    return entry
-        return None
-
-    def push(self, entry: HighlightEntry) -> None:
-        """Push a persistent entry (user action / explicit highlight)."""
-        new = HighlightEntry(
-            comp_ids=entry.comp_ids,
-            wire_ids=entry.wire_ids,
-            net_id=entry.net_id,
-            profile=entry.profile,
-            label=entry.label,
-            transient=False,  # force non-transient
-            auto=False,
-        )
-        self._stack.append(new)
+    def _changed(self) -> None:
         self.changed.emit()
-
-    def push_transient(self, entry: HighlightEntry) -> None:
-        """Push a transient entry (tool activation).
-
-        Transient entries are removed by pop_transient() when the tool
-        deactivates.  They take precedence over auto entries but lose to
-        persistent ones.
-        """
-        new = HighlightEntry(
-            comp_ids=entry.comp_ids,
-            wire_ids=entry.wire_ids,
-            net_id=entry.net_id,
-            profile=entry.profile,
-            label=entry.label,
-            transient=True,
-            auto=False,
-        )
-        self._stack.append(new)
-        self.changed.emit()
-
-    def push_auto(self, entry: HighlightEntry, *, source_id: str) -> None:
-        """Push (or replace) an auto entry keyed by ``source_id``.
-
-        Auto entries are the weakest tier — they only become active when no
-        persistent or transient entry exists.  At most one auto entry per
-        source_id; pushing again from the same source replaces the previous.
-        """
-        # Drop existing auto entry from this source.
-        self._stack = [
-            e for e in self._stack
-            if not (e.auto and e.source_id == source_id)
-        ]
-        new = HighlightEntry(
-            comp_ids=entry.comp_ids,
-            wire_ids=entry.wire_ids,
-            net_id=entry.net_id,
-            profile=entry.profile,
-            label=entry.label,
-            transient=False,
-            auto=True,
-            source_id=source_id,
-        )
-        self._stack.append(new)
-        self.changed.emit()
-
-    def clear_auto(self, source_id: str) -> None:
-        """Remove the auto entry pushed by ``source_id`` (if any)."""
-        before = len(self._stack)
-        self._stack = [
-            e for e in self._stack
-            if not (e.auto and e.source_id == source_id)
-        ]
-        if len(self._stack) != before:
-            self.changed.emit()
-
-    def pop_transient(self) -> None:
-        """Remove the topmost transient entry (tool deactivation)."""
-        for i in range(len(self._stack) - 1, -1, -1):
-            if self._stack[i].transient:
-                self._stack.pop(i)
-                self.changed.emit()
-                return
-
-    def pop(self) -> None:
-        """Remove the topmost persistent entry (user undo highlight)."""
-        for i in range(len(self._stack) - 1, -1, -1):
-            e = self._stack[i]
-            if not e.transient and not e.auto:
-                self._stack.pop(i)
-                self.changed.emit()
-                return
-
-    def clear(self) -> None:
-        """Remove all persistent entries (keep transient and auto ones)."""
-        had_persistent = any(not e.transient and not e.auto for e in self._stack)
-        self._stack = [e for e in self._stack if e.transient or e.auto]
-        if had_persistent:
-            self.changed.emit()
-
-    def clear_all(self) -> None:
-        """Remove all entries including transient and auto ones."""
-        if self._stack:
-            self._stack.clear()
-            self.changed.emit()
-
-    def is_empty(self) -> bool:
-        return len(self._stack) == 0
-
-    def has_persistent(self) -> bool:
-        return any(not e.transient and not e.auto for e in self._stack)

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.item_handle import ItemId
     from protoboard.controller.selection.service import SelectionService
 
+from protoboard.controller.highlight_stack import HighlightStackBase
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import CommandStack, ComponentState
@@ -182,6 +183,11 @@ class HeadlessSession:
         # carries them too and the ``EditState`` contract can name them.
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.selection_service: SelectionService | None = None
+        # The shared highlight stack the controller tools push/pop dimming onto.
+        # Qt-free base here (headless: the ``_changed`` hook is a no-op); the GUI
+        # session overrides with the signal-emitting ``gui.highlight_state``
+        # subclass so BoardView re-applies opacity.
+        self.highlight_stack: HighlightStackBase = HighlightStackBase()
         self._routing_net_id: uuid.UUID | None = None
 
     @property

@@ -142,7 +142,13 @@ class EditorSession(HeadlessSession, QObject):
         self.routing_settings: RoutingSettings = RoutingSettings()
         # axis_label_settings is initialised by HeadlessSession.__init__.
         self.layer_overrides: LayerOverrides = LayerOverrides()
-        self.highlight_stack: HighlightStack = HighlightStack(self)
+        # The GUI session holds the QObject subclass (it carries the ``changed``
+        # signal BoardView/MainWindow connect to); the base declares the field
+        # as the Qt-free ``HighlightStackBase``. Narrowing a mutable attribute
+        # trips pyright's invariance rule, but ``HighlightStack`` IS-A
+        # ``HighlightStackBase`` and nothing writes a bare base back — the
+        # override is sound.
+        self.highlight_stack: HighlightStack = HighlightStack(self)  # type: ignore[assignment]
         self._routing_net_id: uuid.UUID | None = None
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []

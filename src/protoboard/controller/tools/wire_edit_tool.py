@@ -149,15 +149,12 @@ class WireEditTool(ControllerTool):
         wid = self._wire_edit_wire_id
         if wid is None or self._session is None:
             return
-        stack = getattr(self._session, "highlight_stack", None)
-        if stack is None:
-            return
         from protoboard.controller.highlight_entry import (
             PROFILE_DIMMED_2,
             HighlightEntry,
         )
 
-        stack.push_transient(
+        self._session.highlight_stack.push_transient(
             HighlightEntry(
                 wire_ids=frozenset({wid}),
                 profile=PROFILE_DIMMED_2,
@@ -170,9 +167,8 @@ class WireEditTool(ControllerTool):
     def _pop_dim(self) -> None:
         if not self._dim_active:
             return
-        stack = getattr(self._session, "highlight_stack", None)
-        if stack is not None:
-            stack.pop_transient()
+        if self._session is not None:
+            self._session.highlight_stack.pop_transient()
         self._dim_active = False
 
     def deactivate(self) -> None:
