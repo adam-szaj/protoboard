@@ -41,9 +41,9 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
-    from protoboard.geometry import Point
+    from protoboard.geometry import Point, Rect
     from protoboard.services.drc.engine import DRCIssue
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditController, EditState
     from protoboard.controller.editing.item_handle import ItemId
 
 
@@ -63,6 +63,12 @@ class PreviewState:
         self.schematic = live.schematic
         self.stack = live.stack
         self.package_families = live.package_families
+        # Settable EditState data members — plain attributes (not properties)
+        # for the same reason as the block above: the protocol declares them
+        # mutable, so a read-only property would fail the structural match.
+        # Shared straight through from the live session.
+        self.routing_settings = live.routing_settings
+        self.selection_service = live.selection_service
 
     # -- the swapped-in pose (preview) --------------------------------------
 
@@ -147,3 +153,34 @@ class PreviewState:
 
     def notify_changed(self) -> None:
         self._live.notify_changed()
+
+    def notify_active_tool_changed(self) -> None:
+        self._live.notify_active_tool_changed()
+
+    def notify_selection(
+        self,
+        comp_ids: frozenset[uuid.UUID],
+        wire_ids: frozenset[uuid.UUID],
+        net_id: uuid.UUID | None,
+    ) -> None:
+        self._live.notify_selection(comp_ids, wire_ids, net_id)
+
+    @property
+    def edit_controller(self) -> EditController:
+        return self._live.edit_controller
+
+    def set_routing_net(self, net_id: uuid.UUID | None) -> None:
+        self._live.set_routing_net(net_id)
+
+    @property
+    def routing_net_id(self) -> uuid.UUID | None:
+        return self._live.routing_net_id
+
+    def component_bbox(self, comp_id: uuid.UUID) -> Rect | None:
+        return self._live.component_bbox(comp_id)
+
+    def cached_plated_through_pads(self) -> set[Point]:
+        return self._live.cached_plated_through_pads()
+
+    def invalidate_graph(self) -> None:
+        self._live.invalidate_graph()

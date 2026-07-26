@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.controller.editing.controller import EditController
     from protoboard.controller.editing.item_handle import ItemId
+    from protoboard.controller.selection.service import SelectionService
 
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
@@ -44,6 +45,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
@@ -173,6 +175,14 @@ class HeadlessSession:
         # read. A headless session owns it directly; EditorSession overrides the
         # accessors to bridge its Hit-based SelectionService.
         self._selection: frozenset[ItemId] = frozenset()
+        # Routing/selection state the controller tools read/write. These are
+        # domain/controller concepts (RoutingSettings is domain, SelectionService
+        # is controller) that merely happened to be initialised on the GUI
+        # session during the migration — declared here so a headless driver
+        # carries them too and the ``EditState`` contract can name them.
+        self.routing_settings: RoutingSettings = RoutingSettings()
+        self.selection_service: SelectionService | None = None
+        self._routing_net_id: uuid.UUID | None = None
 
     @property
     def edit_controller(self) -> EditController:
@@ -195,6 +205,31 @@ class HeadlessSession:
         No-op in the headless base — a bare driver has no KeyMap layer to
         swap. ``EditorSession`` overrides it to emit ``active_tool_changed``.
         """
+
+    def notify_selection(
+        self,
+        comp_ids: frozenset[uuid.UUID],
+        wire_ids: frozenset[uuid.UUID],
+        net_id: uuid.UUID | None,
+    ) -> None:
+        """Broadcast selection state (SelectTool → panels).
+
+        No-op in the headless base (no panels). ``EditorSession`` overrides it
+        to emit ``selection_changed``.
+        """
+
+    def set_routing_net(self, net_id: uuid.UUID | None) -> None:
+        """Mark a net as actively routed (RouteTool while drawing); None clears.
+
+        Headless just records it; ``EditorSession`` also emits
+        ``routing_net_changed`` for the view to union into the highlight.
+        """
+        self._routing_net_id = net_id
+
+    @property
+    def routing_net_id(self) -> uuid.UUID | None:
+        """The net RouteTool is currently drawing (None when idle)."""
+        return self._routing_net_id
 
     # ------------------------------------------------------------------
     # Selection (model-side, ItemId-based)

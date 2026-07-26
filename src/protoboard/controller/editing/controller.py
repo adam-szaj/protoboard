@@ -50,7 +50,8 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.geometry import Point, Vector
+    from protoboard.geometry import Point, Rect, Vector
+    from protoboard.controller.selection.service import SelectionService
     from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.services.drc.engine import DRCIssue
@@ -237,6 +238,46 @@ class EditState(SchematicState, Protocol):
     def notify_active_tool_changed(self) -> None:
         """Signal that :attr:`EditController.active_tool` changed (GUI: emit;
         headless: no-op).  The View consumes this to swap its KeyMap layer."""
+        ...
+
+    def notify_selection(
+        self,
+        comp_ids: frozenset[uuid.UUID],
+        wire_ids: frozenset[uuid.UUID],
+        net_id: uuid.UUID | None,
+    ) -> None:
+        """Broadcast selection state to panels (GUI: emit; headless: no-op)."""
+        ...
+
+    # -- session state controller tools read/write ---------------------------
+
+    @property
+    def edit_controller(self) -> EditController:
+        """The session's verb surface (built once per session)."""
+        ...
+
+    routing_settings: RoutingSettings
+    selection_service: SelectionService | None
+
+    def set_routing_net(self, net_id: uuid.UUID | None) -> None:
+        """Mark a net as actively routed (RouteTool while drawing); None clears."""
+        ...
+
+    @property
+    def routing_net_id(self) -> uuid.UUID | None:
+        """The net RouteTool is currently drawing (None when idle)."""
+        ...
+
+    def component_bbox(self, comp_id: uuid.UUID) -> Rect | None:
+        """Cached world-space bounding box of a placed component."""
+        ...
+
+    def cached_plated_through_pads(self) -> set[Point]:
+        """Board-only set of plated-through pad centres (cached)."""
+        ...
+
+    def invalidate_graph(self) -> None:
+        """Drop the cached connectivity graph + derived read caches."""
         ...
 
 
