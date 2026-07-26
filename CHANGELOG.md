@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side the moment `[I]` split the same wire. Cross-wire reroute's new
   segment likewise takes the live side at the pick start.
 
+- A back-side wire fragment now genuinely stacks under the board layer:
+  each wire renders as two top-level scene groups (front + back sibling,
+  kept in lockstep for drag/highlight), because children of one
+  QGraphicsItemGroup can never interleave with the board item between them.
+  Previously the whole wire sat on one Z layer and the back fragment was
+  only dimmed.
+
 - Wires render per-fragment side: a fragment flipped to the other layer is
   now actually visible — it paints at its own Z and a clearly lower alpha
   (new `wire_back_alpha`, well below the generic back dim), with a via

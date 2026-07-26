@@ -64,7 +64,11 @@ class _RenderState:
 
 
 def _line_items(grp: QGraphicsItemGroup) -> list[QGraphicsLineItem]:
-    return [it for it in grp.childItems() if isinstance(it, QGraphicsLineItem)]
+    items = list(grp.childItems())
+    back = getattr(grp, "back", None)
+    if back is not None:
+        items += back.childItems()
+    return [it for it in items if isinstance(it, QGraphicsLineItem)]
 
 
 def _z_levels(grp: QGraphicsItemGroup) -> set[int]:
@@ -110,6 +114,57 @@ def test_all_top_wire_single_level_no_via_markers(scene: QGraphicsScene) -> None
     grp = _RenderState().render(scene, _all_top_wire())
     assert _z_levels(grp) == {round(Z_FRONT_WIRES)}
     assert _via_markers(grp) == []
+
+
+class TestBackFragmentIsOnTheBackLayer:
+    """A bottom fragment must live UNDER the board, not just be dimmed.
+
+    Children of one QGraphicsItemGroup can never interleave with items
+    outside it, so per-fragment zValues inside a single group cannot put a
+    back fragment below the board while front fragments stay above it. The
+    wire's scene presence is two top-level groups (front + back sibling).
+    """
+
+    def test_back_fragments_live_in_a_top_level_back_group(
+        self, scene: QGraphicsScene
+    ) -> None:
+        from protoboard.gui.layer_state import Z_BOARD
+
+        grp = _RenderState().render(scene, _mixed_wire())
+        back = getattr(grp, "back", None)
+        assert back is not None, "wire group has no top-level back sibling"
+        assert back.parentItem() is None, "back group must be top-level"
+        assert back.scene() is scene
+        # Scene-effective stacking: front above the board, back below it.
+        assert grp.zValue() > Z_BOARD
+        assert back.zValue() < Z_BOARD
+        back_lines = [
+            it for it in back.childItems() if isinstance(it, QGraphicsLineItem)
+        ]
+        assert back_lines, "bottom fragment's lines must be in the back group"
+
+    def test_group_ops_fan_out_to_the_back_sibling(
+        self, scene: QGraphicsScene
+    ) -> None:
+        grp = _RenderState().render(scene, _mixed_wire())
+        grp.setOpacity(0.5)
+        assert grp.back.opacity() == pytest.approx(0.5)
+        grp.setPos(3.0, 4.0)
+        assert grp.back.pos().x() == pytest.approx(3.0)
+        assert grp.back.pos().y() == pytest.approx(4.0)
+
+    def test_removed_wire_removes_its_back_group(
+        self, scene: QGraphicsScene
+    ) -> None:
+        state = _RenderState()
+        wire = _mixed_wire()
+        grp = state.render(scene, wire)
+        back = grp.back
+        update_wire_groups_v2(
+            scene, [], {}, state.groups, state.fingerprints,
+            layers=LayerState(),
+        )
+        assert back.scene() is None, "back group leaked after wire removal"
 
 
 #: Minimum front-vs-back alpha gap for a wire — the visibility bar of the

@@ -24,7 +24,7 @@ from protoboard.domain.layout.wire import Fragment, Wire, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerState, Z_FRONT_WIRES
+from protoboard.gui.layer_state import LayerState, Z_BACK_WIRES, Z_FRONT_WIRES
 from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 _Z_OUTLINE_OFFSET = -0.05
@@ -71,6 +71,50 @@ def _dim(color: QColor, opacity: float) -> QColor:
 # ---------------------------------------------------------------------------
 # v2 — Wire / Fragment-aware rendering
 # ---------------------------------------------------------------------------
+
+
+class WireSceneGroup(QGraphicsItemGroup):
+    """One wire's scene presence: this (front) group + a top-level back sibling.
+
+    Children of a QGraphicsItemGroup can never interleave with items outside
+    the group, so per-fragment zValues inside one group cannot put a back-side
+    fragment under the board while front fragments stay above it.  Back-side
+    fragments therefore live in ``self.back`` — a SIBLING top-level group at
+    the back-wires Z.  The group-level operations consumers apply per wire
+    (live-drag ``setPos``, highlight ``setOpacity``) fan out to both, so the
+    pair behaves as one item everywhere else (``isinstance`` checks against
+    ``QGraphicsItemGroup`` still hold).
+
+    Use ``add_to_scene`` / ``remove_from_scene`` so the pair's scene
+    membership stays in lockstep.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.back = QGraphicsItemGroup()
+
+    def setOpacity(self, opacity: float) -> None:
+        super().setOpacity(opacity)
+        self.back.setOpacity(opacity)
+
+    def setPos(self, *args: object) -> None:  # (QPointF) or (x, y)
+        super().setPos(*args)  # type: ignore[call-overload]
+        self.back.setPos(*args)  # type: ignore[call-overload]
+
+    def add_to_scene(self, scene: QGraphicsScene) -> None:
+        scene.addItem(self)
+        scene.addItem(self.back)
+
+    def remove_from_scene(self, scene: QGraphicsScene) -> None:
+        scene.removeItem(self)
+        scene.removeItem(self.back)
+
+
+def _remove_wire_group(scene: QGraphicsScene, grp: QGraphicsItemGroup) -> None:
+    if isinstance(grp, WireSceneGroup):
+        grp.remove_from_scene(scene)
+    else:
+        scene.removeItem(grp)
 
 
 def wire_fingerprint_v2(
@@ -125,7 +169,7 @@ def update_wire_groups_v2(
     new_ids = {w.id for w in wires}
     for wid in list(existing_groups):
         if wid not in new_ids:
-            scene.removeItem(existing_groups.pop(wid))
+            _remove_wire_group(scene, existing_groups.pop(wid))
             existing_fingerprints.pop(wid, None)
 
     for wire in wires:
@@ -158,7 +202,7 @@ def update_wire_groups_v2(
 
         if wire.id in existing_groups:
             if existing_fingerprints.get(wire.id) != fp:
-                scene.removeItem(existing_groups.pop(wire.id))
+                _remove_wire_group(scene, existing_groups.pop(wire.id))
                 existing_fingerprints.pop(wire.id, None)
                 if base_alpha == 0.0:
                     continue
@@ -166,11 +210,9 @@ def update_wire_groups_v2(
                     wire, net_id, color_override, base_alpha, z_base, theme,
                     layers, glow=False, bold=is_bold,
                 )
-                scene.addItem(grp)
+                grp.add_to_scene(scene)
                 existing_groups[wire.id] = grp
                 existing_fingerprints[wire.id] = fp
-            else:
-                grp = existing_groups[wire.id]
         else:
             if base_alpha == 0.0:
                 continue
@@ -178,7 +220,7 @@ def update_wire_groups_v2(
                 wire, net_id, color_override, base_alpha, z_base, theme,
                 layers, glow=False, bold=is_bold,
             )
-            scene.addItem(grp)
+            grp.add_to_scene(scene)
             existing_groups[wire.id] = grp
             existing_fingerprints[wire.id] = fp
 
@@ -196,17 +238,22 @@ def _build_wire_group_v2(
     layers: LayerState,
     glow: bool,
     bold: bool = False,
-) -> QGraphicsItemGroup:
-    """Build a QGraphicsItemGroup for one v2 Wire — one group, N fragments."""
-    grp = QGraphicsItemGroup()
+) -> WireSceneGroup:
+    """Build one wire's scene groups — front-side fragments in the returned
+    group, back-side fragments in its top-level ``back`` sibling, so a back
+    fragment genuinely stacks under the board layer (Z), not merely dimmed.
+    """
+    grp = WireSceneGroup()
+    front_side = layers.front_side()
     color = _net_color(net_id, color_override, theme)
     if alpha < 1.0:
         color = _dim(color, alpha)
 
     for frag in wire.fragments:
         pts = list(frag.path)
-        # Use the fragment's own side for Z so a top fragment in a wire
-        # whose first side is bottom still renders above the board layer.
+        # The fragment's own side decides which top-level group (and thus
+        # which scene Z layer) its items land in.
+        target = grp if frag.side == front_side else grp.back
         frag_alpha = layers.alpha_for_wire(frag.side)
         frag_z = layers.z_for_wire(frag.side)
         frag_color = QColor(color)
@@ -225,14 +272,15 @@ def _build_wire_group_v2(
                 g = QGraphicsLineItem(x1, y1, x2, y2)
                 g.setPen(glow_pen)
                 g.setZValue(frag_z - 0.1)
-                grp.addToGroup(g)
+                target.addToGroup(g)
 
         if wire.insulated:
-            _fill_insulated(grp, pts, frag_color, frag_z, theme, bold=bold)
+            _fill_insulated(target, pts, frag_color, frag_z, theme, bold=bold)
         else:
-            _fill_bare(grp, pts, frag_color, frag_z, theme, bold=bold)
+            _fill_bare(target, pts, frag_color, frag_z, theme, bold=bold)
 
-    # Via markers at fragment boundaries (side transitions).
+    # Via markers at fragment boundaries (side transitions) — always on the
+    # front group: a plated-through via is visible from the camera side.
     via_color = QColor(theme.via_marker_color)
     via_ring = QColor(theme.via_marker_ring_color)
     via_radius = theme.via_marker_radius
@@ -245,7 +293,8 @@ def _build_wire_group_v2(
         )
         grp.addToGroup(marker)
 
-    grp.setZValue(z_base)
+    grp.setZValue(Z_FRONT_WIRES)
+    grp.back.setZValue(Z_BACK_WIRES)
     return grp
 
 
@@ -308,7 +357,7 @@ def _draw_wire(
         wire, net_id, color_override, alpha, z_base, theme, layers, glow=glow,
     )
     grp.setOpacity(net_alpha)
-    scene.addItem(grp)
+    grp.add_to_scene(scene)
 
 
 def _fill_insulated(
