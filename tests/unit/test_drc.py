@@ -16,7 +16,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, PlacementColl
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Vector, Vector3D
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from tests.instance_utils import bind
 
@@ -280,7 +280,7 @@ class TestDRCOverlap:
         )
 
         leads = Leads(
-            direction=((0, 0, -1), (0, 0, -1)),
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
             body_offset_mm=(Vector(2.5, 0.0),),
             board_offset=BOARD_DEFAULT,
         )

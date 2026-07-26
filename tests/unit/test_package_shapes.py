@@ -28,7 +28,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Insets, Point, Vector
+from protoboard.geometry import Insets, Point, Vector, Vector3D
 
 from geometry_utils import _pt, _ve
 
@@ -47,8 +47,8 @@ class TestResistorAxial:
 
     def _cyl(self) -> Cylinder:
         leads = Leads(
-            direction=((0, 0, -1), (0, 0, 1)),
-            body_offset_mm=(_ve(0, 0),),
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, 1)),
+            body_offset_mm=(Vector(0, 0),),
             board_offset=BOARD_SOLVE,
             lead_length_mm=32.0,
             lead_r_mm=0.27,
@@ -80,8 +80,8 @@ class TestElectrolyticRadial:
 
     def _cyl(self) -> Cylinder:
         leads = Leads(
-            direction=((0, 0, -1), (0, 0, -1)),
-            body_offset_mm=(_ve(2.5, 0),),   # 1 hole
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
+            body_offset_mm=(Vector(2.5, 0),),   # 1 hole
             board_offset=BOARD_DEFAULT,
         )
         return Cylinder(diameter_mm=6.3, length_mm=11.0, leads=leads, bend_holes=4.0)
@@ -108,7 +108,7 @@ class TestBoardOffsetDefaultMechanism:
 
     def _prism(self) -> Prism:
         leads = Leads(
-            direction=((0, 0, -1), (0, 0, -1), (0, 0, -1)),
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
             body_offset_mm=_steps_mm([[1, 0], [1, 0]], 1.25),  # 1.25mm steps
             board_offset=BOARD_DEFAULT,
         )
@@ -132,7 +132,7 @@ class TestDIP8:
     def _prism(self) -> Prism:
         body = _steps_mm([[3, [0, 1]], [3, 0], [3, [0, -1]]], 2.5)
         leads = Leads(
-            direction=((0, 0, -1),) * 8,
+            direction=(Vector3D(0, 0, -1),) * 8,
             body_offset_mm=body,
             board_offset=BOARD_DEFAULT,
         )
@@ -157,7 +157,7 @@ class TestDevboardMargin:
     def _prism(self) -> Prism:
         # 2-pin SIL spanning some holes; margin CSS 2-value: V=0, H=2.5mm.
         leads = Leads(
-            direction=((0, 0, -1), (0, 0, -1)),
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
             body_offset_mm=_steps_mm([[0, 4]], 2.5),  # pins 4 holes apart
             board_offset=BOARD_DEFAULT,
         )
@@ -174,8 +174,8 @@ class TestDevboardMargin:
 
 def _radial_leads(*, lead_r: float | None = 0.25) -> Leads:
     return Leads(
-        direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
-        body_offset_mm=(_ve(2.5, 0.0),),
+        direction=(Vector3D(0.0, 0.0, -1.0), Vector3D(0.0, 0.0, -1.0)),
+        body_offset_mm=(Vector(2.5, 0.0),),
         board_offset=BOARD_DEFAULT,
         lead_r_mm=lead_r,
     )
@@ -203,7 +203,7 @@ class TestDisc:
 
     def test_disc_rejects_solver(self) -> None:
         leads = Leads(
-            direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
+            direction=(Vector3D(0.0, 0.0, -1.0), Vector3D(0.0, 0.0, -1.0)),
             body_offset_mm=(),
             board_offset=BOARD_SOLVE,
         )
@@ -215,8 +215,8 @@ class TestMinPitch:
     def test_cylinder_pitches(self) -> None:
         # lead_d = 2·0.25 = 0.5 → radial (D+0.5)/2, axial L+0.5
         leads = Leads(
-            direction=((0.0, 0.0, -1.0), (0.0, 0.0, 1.0)),
-            body_offset_mm=(_ve(10.0, 0.0),),
+            direction=(Vector3D(0.0, 0.0, -1.0), Vector3D(0.0, 0.0, 1.0)),
+            body_offset_mm=(Vector(10.0, 0.0),),
             board_offset=BOARD_DEFAULT,
             lead_r_mm=0.25,
         )
@@ -236,8 +236,8 @@ class TestMinPitch:
 
     def test_prism_pitch_from_explicit_dims(self) -> None:
         leads = Leads(
-            direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
-            body_offset_mm=(_ve(2.5, 0.0),),
+            direction=(Vector3D(0.0, 0.0, -1.0), Vector3D(0.0, 0.0, -1.0)),
+            body_offset_mm=(Vector(2.5, 0.0),),
             board_offset=BOARD_DEFAULT,
             lead_r_mm=0.25,
         )
@@ -318,8 +318,8 @@ class TestFlipTransform:
     def _to92(self) -> Cylinder:
         # 3 inline leads along +x at holes (0,0),(1,0),(2,0).
         leads = Leads(
-            direction=((0, 0, -1), (0, 0, -1), (0, 0, -1)),
-            body_offset_mm=(_ve(2.5, 0.0), _ve(2.5, 0.0)),
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
+            body_offset_mm=(Vector(2.5, 0.0), Vector(2.5, 0.0)),
             board_offset=(_ve(1.0, 0.0), _ve(1.0, 0.0)),
             lead_r_mm=0.25,
         )
@@ -331,7 +331,7 @@ class TestFlipTransform:
     def _dip8(self) -> Prism:
         body = _steps_mm([[3, [0, 1]], [3, 0], [3, [0, -1]]], 2.5)
         leads = Leads(
-            direction=((0, 0, -1),) * 8,
+            direction=(Vector3D(0, 0, -1),) * 8,
             body_offset_mm=body,
             board_offset=BOARD_DEFAULT,
         )
@@ -341,7 +341,7 @@ class TestFlipTransform:
         # 5 leads down +y at (0,0),(0,1)…(0,4).
         body = _steps_mm([[4, [0, 1]]], 2.5)
         leads = Leads(
-            direction=((0, 0, -1),) * 5,
+            direction=(Vector3D(0, 0, -1),) * 5,
             body_offset_mm=body,
             board_offset=BOARD_DEFAULT,
         )

@@ -28,7 +28,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ class TestApply:
             members={r1.id: (old_pl1, new_pl1), r2.id: (old_pl2, new_pl2)},
             internal_wire_ids=frozenset({wire.id}),
             dropped_wire_ids=frozenset(),
-            delta=Point(1.0, 0.0),
+            delta=Vector(1.0, 0.0),
         )
         cmd.apply(state)  # type: ignore[arg-type]
 
@@ -181,7 +181,7 @@ class TestApply:
             members={r1.id: (old_pl, new_pl)},
             internal_wire_ids=frozenset({wire.id}),
             dropped_wire_ids=frozenset(),
-            delta=Point(2.0, 3.0),
+            delta=Vector(2.0, 3.0),
         )
         cmd.apply(state)  # type: ignore[arg-type]
         new_wire = state.layout.wires.get(wire.id)
@@ -221,7 +221,7 @@ class TestApply:
             members={r1.id: (old_pl, new_pl)},
             internal_wire_ids=frozenset(),
             dropped_wire_ids=frozenset({wire.id}),
-            delta=Point(1.0, 0.0),
+            delta=Vector(1.0, 0.0),
         )
         cmd.apply(state)  # type: ignore[arg-type]
         assert state.layout.wires.get(wire.id) is None
@@ -266,7 +266,7 @@ class TestRevert:
             members={r1.id: (old_pl, new_pl)},
             internal_wire_ids=frozenset({wire.id}),
             dropped_wire_ids=frozenset(),
-            delta=Point(2.0, 0.0),
+            delta=Vector(2.0, 0.0),
         )
         cmd.apply(state)  # type: ignore[arg-type]
         cmd.revert(state)  # type: ignore[arg-type]
@@ -306,7 +306,7 @@ class TestRevert:
             members={r1.id: (old_pl, new_pl)},
             internal_wire_ids=frozenset(),
             dropped_wire_ids=frozenset({wire.id}),
-            delta=Point(1.0, 0.0),
+            delta=Vector(1.0, 0.0),
         )
         cmd.apply(state)  # type: ignore[arg-type]
         cmd.revert(state)  # type: ignore[arg-type]
@@ -332,7 +332,7 @@ class TestDescription:
             members={r1.id: (old_pl, new_pl)},
             internal_wire_ids=frozenset(),
             dropped_wire_ids=frozenset(),
-            delta=Point(1.0, 0.0),
+            delta=Vector(1.0, 0.0),
         )
         assert cmd.description == "Move 1 component"
 
@@ -347,7 +347,7 @@ class TestDescription:
             members={r1.id: (old_pl1, new_pl1), r2.id: (old_pl2, new_pl2)},
             internal_wire_ids=frozenset(),
             dropped_wire_ids=frozenset(),
-            delta=Point(1.0, 0.0),
+            delta=Vector(1.0, 0.0),
         )
         assert cmd.description == "Move 2 components"
 
@@ -357,8 +357,8 @@ class TestDescription:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("delta", [Point(0.0, 0.0), Point(1.0, 1.0)])
-def test_empty_drag_set_no_op(delta: Point) -> None:
+@pytest.mark.parametrize("delta", [Vector(0.0, 0.0), Vector(1.0, 1.0)])
+def test_empty_drag_set_no_op(delta: Vector) -> None:
     layout = Layout()
     layout.ensure_root_group()
     state = _State(
