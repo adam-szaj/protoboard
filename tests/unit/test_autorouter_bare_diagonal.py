@@ -12,7 +12,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -82,10 +82,10 @@ class TestBareDiagonalMode:
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         # R1 horizontal at (0.5,0.5): pin2 = (1.5, 0.5)  → parity (1+0)=1 → "\"
         # R2 horizontal at (3.5,3.5): pin1 = (3.5, 3.5)  → parity (3+3)=0 → "/"
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),
             cid_b: _place(cid_b, 3.5, 3.5),
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -120,12 +120,12 @@ class TestBareDiagonalMode:
             ids[3]: bind(ComponentInstance(id=ids[3], definition_ref="COMP", refdes="R4", value=""), defn, {}),
         }
         # Place so that pin1 sits exactly at the desired endpoints.
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             ids[0]: _place(ids[0], 0.5, 0.5),  # pin1=(0.5,0.5)
             ids[1]: _place(ids[1], 3.5, 3.5),  # pin1=(3.5,3.5)
             ids[2]: _place(ids[2], 0.5, 3.5),  # pin1=(0.5,3.5)
             ids[3]: _place(ids[3], 3.5, 0.5),  # pin1=(3.5,0.5)
-        })
+        }))
         net1 = Net(
             id=uuid.uuid4(), name="N1",
             pins={PinRef(component_id=ids[0], pin_number=1),

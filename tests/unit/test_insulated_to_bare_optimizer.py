@@ -19,7 +19,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
@@ -104,7 +104,7 @@ def _two_pin_project_with_insulated_wire(
             placements[cid] = _place(cid, x, y)
             instances[cid] = inst
 
-    layout = Layout(placements=placements)
+    layout = Layout(placements=PlacementCollection(placements))
     ref_a2 = PinRef(component_id=cid_a, pin_number=2)
     ref_b1 = PinRef(component_id=cid_b, pin_number=1)
     net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -133,7 +133,7 @@ def _two_pin_project_with_insulated_wire(
         side="top",
         color=None,
     )
-    layout = Layout(placements=placements, wires=WireCollection([wire]))
+    layout = Layout(placements=PlacementCollection(placements), wires=WireCollection([wire]))
     return board, layout, schematic, {"COMP": defn}, instances, wire
 
 
@@ -311,7 +311,7 @@ class TestRefusesWhenUnsafe:
         ]
         w1 = Wire(id=uuid.uuid4(), path=w1_path, insulated=True, side="top")
         w2 = Wire(id=uuid.uuid4(), path=w2_path, insulated=True, side="top")
-        layout = Layout(placements=placements, wires=WireCollection([w1, w2]))
+        layout = Layout(placements=PlacementCollection(placements), wires=WireCollection([w1, w2]))
 
         req = _make_request(board, layout, schematic, {"COMP": defn}, instances)
         result = AutorouteResult(wires=[w1, w2], unrouted_nets=[], pass_stats=[])

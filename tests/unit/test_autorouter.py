@@ -19,7 +19,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -80,11 +80,11 @@ class TestAutorouter:
             id=cid_b, definition_ref="COMP", refdes="R2", value="1k"
         ), defn, {})
         layout = Layout(
-            placements={
+            placements=PlacementCollection({
                 cid_a: _place(cid_a, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
                 cid_b: _place(cid_b, 3.5, 0.5),  # pin1=(3.5,0.5) pin2=(4.5,0.5)
             }
-        )
+        ))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)  # (1.5, 0.5)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (3.5, 0.5)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -103,7 +103,7 @@ class TestAutorouter:
 
     def test_empty_schematic_returns_no_wires(self) -> None:
         board = _perfboard(5, 5)
-        layout = Layout(placements={})
+        layout = Layout(placements=PlacementCollection({}))
         schematic = Schematic(nets={})
         result = autoroute(board, layout, schematic, {}, {})
         assert result.wires == []
@@ -114,7 +114,7 @@ class TestAutorouter:
         cid = uuid.uuid4()
         defn = _sil2_def()
         inst = bind(ComponentInstance(id=cid, definition_ref="COMP", refdes="R1", value="1k"), defn, {})
-        layout = Layout(placements={cid: _place(cid, 0.5, 0.5)})
+        layout = Layout(placements=PlacementCollection({cid: _place(cid, 0.5, 0.5)}))
         ref = PinRef(component_id=cid, pin_number=1)
         net = Net(id=uuid.uuid4(), name="SOLO", pins={ref})
         schematic = Schematic(nets={net.id: net})
@@ -138,11 +138,11 @@ class TestAutorouter:
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         inst_c = bind(ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value=""), defn, {})
 
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
             cid_b: _place(cid_b, 5.5, 0.5),  # pin1=(5.5,0.5) pin2=(6.5,0.5)
             cid_c: _place(cid_c, 3.5, 0.5),  # pin1=(3.5,0.5) pin2=(4.5,0.5) — blocker
-        })
+        }))
 
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)  # (1.5, 0.5)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (5.5, 0.5)
@@ -190,10 +190,10 @@ class TestAutorouter:
             side="top",
         )
         layout = Layout(
-            placements={
+            placements=PlacementCollection({
                 cid_a: _place(cid_a, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
                 cid_b: _place(cid_b, 2.5, 0.5),  # pin1=(2.5,0.5) pin2=(3.5,0.5)
-            },
+            }),
             wires=WireCollection([existing_wire]),
         )
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)  # (1.5, 0.5)
@@ -222,11 +222,11 @@ class TestAutorouter:
         inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         inst_c = bind(ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value=""), defn, {})
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),   # pin1=(0.5,0.5) pin2=(1.5,0.5)
             cid_b: _place(cid_b, 3.5, 0.5),   # pin1=(3.5,0.5) pin2=(4.5,0.5)
             cid_c: _place(cid_c, 2.5, 0.5),   # pin1=(2.5,0.5) pin2=(3.5,0.5) — blocker
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -265,12 +265,12 @@ class TestAutorouter:
             id=cid, definition_ref="COMP", refdes=ref, value=""
         ), defn, {})
         # rot=90: pin1=(x,y), pin2=(x+1,y)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 1.5),  # pin2=(1.5,1.5) ← NET1 source
             cid_b: _place(cid_b, 3.5, 1.5),  # pin2=(4.5,1.5) ← NET1 target
             cid_c: _place(cid_c, 3.5, 0.5),  # pin1=(3.5,0.5) ← NET2 source
             cid_d: _place(cid_d, 2.5, 2.5),  # pin2=(3.5,2.5) ← NET2 target
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b2 = PinRef(component_id=cid_b, pin_number=2)
         ref_c1 = PinRef(component_id=cid_c, pin_number=1)
@@ -315,7 +315,7 @@ class TestAutorouter:
         defn = _sil2_def()
         cid = uuid.uuid4()
         inst = bind(ComponentInstance(id=cid, definition_ref="COMP", refdes="R1", value="1k"), defn, {})
-        layout = Layout(placements={cid: _place(cid, 0.5, 0.5)})
+        layout = Layout(placements=PlacementCollection({cid: _place(cid, 0.5, 0.5)}))
         ref1 = PinRef(component_id=cid, pin_number=1)
         ref2 = PinRef(component_id=cid, pin_number=2)
         net = Net(id=uuid.uuid4(), name="SAME", pins={ref1, ref2})
@@ -341,11 +341,11 @@ class TestAutorouter:
         )
         cid = uuid.uuid4()
         inst = bind(ComponentInstance(id=cid, definition_ref="DIP8", refdes="U1", value=""), defn, {})
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid: ComponentPlacement(
                 component_id=cid, position=Point(2.5, 1.5), rotation=0, side="top"
             )
-        })
+        }))
         ref_1 = PinRef(component_id=cid, pin_number=1)
         ref_5 = PinRef(component_id=cid, pin_number=5)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_1, ref_5})
@@ -384,11 +384,11 @@ class TestAutorouter:
         )
         cid = uuid.uuid4()
         inst = bind(ComponentInstance(id=cid, definition_ref="DIP8", refdes="U1", value=""), defn, {})
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid: ComponentPlacement(
                 component_id=cid, position=Point(2.5, 1.5), rotation=0, side="top"
             )
-        })
+        }))
 
         ref_1 = PinRef(component_id=cid, pin_number=1)   # (2.5,1.5)
         ref_5 = PinRef(component_id=cid, pin_number=5)   # (5.5,4.5)
@@ -435,11 +435,11 @@ class TestAutorouter:
         inst_c = bind(ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value=""), defn, {})
 
         # rot=90: pin1=(x,y), pin2=(x+1,y)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),   # pin2=(1.5,0.5) ← net source
             cid_b: _place(cid_b, 3.5, 0.5),   # pin2=(4.5,0.5) ← net target
             cid_c: _place(cid_c, 2.5, 0.5),   # pin1=(2.5,0.5), pin2=(3.5,0.5) — floating
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b2 = PinRef(component_id=cid_b, pin_number=2)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b2})
@@ -468,10 +468,10 @@ class TestAutorouterOptimization:
         cid_b = uuid.uuid4()
         inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),  # pin2=(1.5,0.5)
             cid_b: _place(cid_b, 3.5, 0.5),  # pin1=(3.5,0.5)
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -502,10 +502,10 @@ class TestAutorouterOptimization:
         cid_b = uuid.uuid4()
         inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),  # pin2=(1.5,0.5)
             cid_b: _place(cid_b, 3.5, 0.5),  # pin1=(3.5,0.5)
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -547,14 +547,14 @@ class TestAutorouterOptimization:
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         inst_c = bind(ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value=""), defn, {})
         # Arrange: R1-pin1=(0.5,0.5), blocker at (1.5,0.5), R3-pin1=(2.5,0.5)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
                                       rotation=0, side="top"),   # pin1=(0.5,0.5)
             cid_b: ComponentPlacement(component_id=cid_b, position=Point(1.5, 0.5),
                                       rotation=0, side="top"),   # pin1=(1.5,0.5) — blocker
             cid_c: ComponentPlacement(component_id=cid_c, position=Point(2.5, 0.5),
                                       rotation=0, side="top"),   # pin1=(2.5,0.5)
-        })
+        }))
         ref_a1 = PinRef(component_id=cid_a, pin_number=1)  # (0.5, 0.5)
         ref_c1 = PinRef(component_id=cid_c, pin_number=1)  # (2.5, 0.5)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (1.5, 0.5) blocker net
@@ -587,7 +587,7 @@ class TestAutorouterOptimization:
             id=cid, definition_ref="COMP", refdes=ref, value=""
         ), defn, {})
         # rot=0 → vertical: pin1=(x,y), pin2=(x,y+1) — use pin1 only in the net
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
                                       rotation=0, side="top"),
             cid_b: ComponentPlacement(component_id=cid_b, position=Point(2.5, 0.5),
@@ -596,7 +596,7 @@ class TestAutorouterOptimization:
                                       rotation=0, side="top"),
             cid_d: ComponentPlacement(component_id=cid_d, position=Point(6.5, 0.5),
                                       rotation=0, side="top"),
-        })
+        }))
         refs = [PinRef(component_id=cid, pin_number=1)
                 for cid in (cid_a, cid_b, cid_c, cid_d)]
         net = Net(id=uuid.uuid4(), name="BUS", pins=set(refs))
@@ -642,12 +642,12 @@ class TestAutorouterOptimization:
         inst_d = bind(ComponentInstance(id=cid_d, definition_ref="COMP", refdes="R4", value=""), defn, {})
 
         # rot=90: pin1=(x,y), pin2=(x+1,y); rot=0: pin1=(x,y), pin2=(x,y+1)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 1.5),   # pin1=(0.5,1.5) — NET1 source (rot90)
             cid_b: _place(cid_b, 3.5, 1.5),   # pin2=(4.5,1.5) — NET1 target (rot90)
             cid_c: _place_v(cid_c, 1.5, 0.5), # pin1=(1.5,0.5) — NET2 source (rot0)
             cid_d: _place_v(cid_d, 1.5, 1.5), # pin2=(1.5,2.5) — NET2 target (rot0)
-        })
+        }))
         ref_a1 = PinRef(component_id=cid_a, pin_number=1)  # (0.5, 1.5)
         ref_b2 = PinRef(component_id=cid_b, pin_number=2)  # (4.5, 1.5)
         ref_c1 = PinRef(component_id=cid_c, pin_number=1)  # (1.5, 0.5)
@@ -712,11 +712,11 @@ class TestAutorouterOptimization:
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         inst_c = bind(ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value=""), defn, {})
 
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),   # pin1=(0.5,0.5) pin2=(1.5,0.5)
             cid_b: _place_v(cid_b, 2.5, 0.5), # pin1=(2.5,0.5) pin2=(2.5,1.5)
             cid_c: _place(cid_c, 2.5, 0.5),   # pin1=(2.5,0.5) pin2=(3.5,0.5) — shares col
-        })
+        }))
 
         # Use distinct pins so they don't collide in the net graph:
         # NET1 connects R1-pin2 → R3-pin2
@@ -776,10 +776,10 @@ class TestAutoroutePreconditions:
         # Both components placed at (0.5, 0.5) — pin 1 of each lands on
         # the same physical pad.  DRC catches this as OVERLAP (and
         # depending on graph state, also SHORT).
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),
             cid_b: _place(cid_b, 0.5, 0.5),
-        })
+        }))
         # Assign each colliding pin to a different net.
         ref_a1 = PinRef(component_id=cid_a, pin_number=1)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
@@ -827,11 +827,11 @@ class TestAutoroutePreconditions:
         ), defn, {})
         # R1.pin2 = (1.5, 0.5).  R2.pin1 = (1.5, 0.5) — same pad → OVERLAP.
         # R3 is the routing target, placed elsewhere.
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
             cid_b: _place(cid_b, 1.5, 0.5),  # pin1=(1.5,0.5) pin2=(2.5,0.5)
             cid_c: _place(cid_c, 3.5, 0.5),  # pin1=(3.5,0.5) pin2=(4.5,0.5)
-        })
+        }))
         # Single shared net for the series junction (R1.pin2 = R2.pin1),
         # second net connects R2.pin2 → R3.pin1 — that's what autoroute
         # actually needs to draw a wire for.
@@ -868,10 +868,10 @@ class TestAutoroutePreconditions:
         inst_b = bind(ComponentInstance(
             id=cid_b, definition_ref="COMP", refdes="R2", value="1k",
         ), defn, {})
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),
             cid_b: _place(cid_b, 3.5, 0.5),
-        })
+        }))
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -926,7 +926,7 @@ class TestPartialRoutingRollback:
         # Pin C is placed at the right edge.  Around it we place a
         # horizontal blocker spanning the row so A* must detour
         # through the other row, which is also constrained.
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
                                       rotation=0, side="top"),  # pin1=(0.5,0.5)
             cid_b: ComponentPlacement(component_id=cid_b, position=Point(1.5, 0.5),
@@ -937,7 +937,7 @@ class TestPartialRoutingRollback:
             # forcing detour through row 1.
             cid_block1: ComponentPlacement(component_id=cid_block1, position=Point(5.5, 0.5),
                                             rotation=90, side="top"),  # pin1=(5.5,0.5), pin2=(6.5,0.5)
-        })
+        }))
 
         ref_a1 = PinRef(component_id=cid_a, pin_number=1)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
@@ -993,14 +993,14 @@ class TestPartialRoutingRollback:
         inst_c = bind(ComponentInstance(id=cid_c, definition_ref="COMP", refdes="C", value=""), defn, {})
         # rot=0 SIL(2): pin1=(x,y), pin2=(x,y+1).
         # A at (0.5,0.5)/(0.5,1.5), B at (3.5,0.5)/(3.5,1.5), C at (0.5,3.5)/(0.5,4.5).
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
                                       rotation=0, side="top"),
             cid_b: ComponentPlacement(component_id=cid_b, position=Point(3.5, 0.5),
                                       rotation=0, side="top"),
             cid_c: ComponentPlacement(component_id=cid_c, position=Point(0.5, 3.5),
                                       rotation=0, side="top"),
-        })
+        }))
         ref_a1 = PinRef(component_id=cid_a, pin_number=1)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         ref_c1 = PinRef(component_id=cid_c, pin_number=1)
@@ -1025,10 +1025,10 @@ class TestIterativeSimplifyAll:
         board = _perfboard(5, 5)
         defn = _sil2_def()
         cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),
             cid_b: _place(cid_b, 3.5, 0.5),
-        })
+        }))
         inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         net = Net(
@@ -1050,10 +1050,10 @@ class TestIterativeSimplifyAll:
         board = _perfboard(5, 5)
         defn = _sil2_def()
         cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),
             cid_b: _place(cid_b, 3.5, 0.5),
-        })
+        }))
         inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         net = Net(
@@ -1076,10 +1076,10 @@ class TestIterativeSimplifyAll:
         board = _perfboard(5, 5)
         defn = _sil2_def()
         cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             cid_a: _place(cid_a, 0.5, 0.5),
             cid_b: _place(cid_b, 3.5, 0.5),
-        })
+        }))
         inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
         inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         net = Net(

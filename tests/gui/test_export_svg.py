@@ -17,7 +17,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 from protoboard.services.export.svg import export_svg
@@ -45,27 +45,27 @@ def _r_defn() -> ComponentDefinition:
 class TestSvgExport:
     def test_returns_string(self, qtbot: QtBot) -> None:
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         result = export_svg(board, lay, components={}, instances={})
         assert isinstance(result, str)
         assert result, "SVG export must produce non-empty output"
 
     def test_is_valid_xml(self, qtbot: QtBot) -> None:
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         result = export_svg(board, lay, components={}, instances={})
         ET.fromstring(result)  # must not raise
 
     def test_svg_root_element(self, qtbot: QtBot) -> None:
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         result = export_svg(board, lay, components={}, instances={})
         root = ET.fromstring(result)
         assert root.tag.endswith("svg") or root.tag == "svg"
 
     def test_viewbox_covers_board(self, qtbot: QtBot) -> None:
         board = _perfboard(5, 10)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         result = export_svg(board, lay, components={}, instances={})
         root = ET.fromstring(result)
         vb = root.get("viewBox", "")
@@ -80,7 +80,7 @@ class TestSvgExport:
 
     def test_write_to_file(self, qtbot: QtBot, tmp_path: Path) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         out = tmp_path / "board.svg"
         svg_str = export_svg(board, lay, components={}, instances={})
         out.write_text(svg_str, encoding="utf-8")
@@ -97,7 +97,7 @@ class TestSvgExport:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         result = export_svg(
             board, lay, components={defn.name: defn}, instances={inst.id: inst}
         )
@@ -111,7 +111,7 @@ class TestSvgExport:
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True, side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         result = export_svg(board, lay, components={}, instances={})
         ET.fromstring(result)
         assert "<svg" in result

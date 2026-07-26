@@ -12,7 +12,7 @@ from protoboard.domain.commands.component_cmds import (
 )
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.geometry import Point
 
@@ -31,7 +31,7 @@ class _FakeSession:
                          layers=PadLayers()),
             rows=1, cols=1, row_gap=0.0, col_gap=0.0,
         ))
-        self.layout = Layout(placements={}, wires=WireCollection())
+        self.layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         from protoboard.domain.components.definition import ComponentDefinition
         self.components: dict[str, ComponentDefinition] = {}

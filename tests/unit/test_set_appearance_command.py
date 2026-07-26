@@ -20,6 +20,7 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 
 
@@ -40,7 +41,7 @@ def _board() -> Board:
 class _State:
     board: Board = field(default_factory=_board)
     layout: Layout = field(
-        default_factory=lambda: Layout(placements={}, wires=WireCollection())
+        default_factory=lambda: Layout(placements=PlacementCollection({}), wires=WireCollection())
     )
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)

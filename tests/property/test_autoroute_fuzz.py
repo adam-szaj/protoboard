@@ -22,6 +22,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
@@ -104,7 +105,7 @@ def _generate_layout(
         insts.append(inst)
         placements[inst.id] = place(inst.id, col + 0.5, row + 0.5, rot)
 
-    layout = Layout(placements=placements, wires=WireCollection())
+    layout = Layout(placements=PlacementCollection(placements), wires=WireCollection())
     return layout, insts, {i.id: i for i in insts}
 
 

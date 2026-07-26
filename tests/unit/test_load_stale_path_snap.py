@@ -26,7 +26,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -78,7 +78,7 @@ def _build_pin_to_pin_wire_state() -> tuple[Layout, dict, Schematic]:
     """One internal pin-to-pin wire whose path matches both PinKnots."""
     from protoboard.domain.layout.placement import pin_world_position
     defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    layout = Layout(placements={}, wires=WireCollection())
+    layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
     # The R defn has no package → bind with families={}; resolved_footprint then
     # returns defn.default_footprint() (the part's genuine default geometry).
     inst_a = ComponentInstance.new(
@@ -310,7 +310,7 @@ class TestVariantFootprintOnLoad:
         lib = _MiniLibrary()
         lib._by_name["P"] = defn
 
-        layout = Layout(placements={}, wires=WireCollection())
+        layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         inst = ComponentInstance.new(
             definition_ref="P", refdes="P1", value="",
             package_variant=f"{family_id}/{other_vid}").bind(defn, fam)
@@ -382,7 +382,7 @@ class TestPadIndexUsesVariantFootprint:
         ).bind(defn, families)
 
         board = _board()
-        layout = Layout(placements={}, wires=WireCollection())
+        layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         # The HUG board's pad centres sit at half-integer coordinates, so place
         # pin-1 on a real pad centre; variant pin-2 then lands on (6.5, 5.5).
         placement = ComponentPlacement(

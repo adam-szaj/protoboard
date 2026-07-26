@@ -19,7 +19,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 
@@ -139,7 +139,7 @@ def _layout_with_group(
     wires: list[Wire] | None = None,
 ) -> Layout:
     layout = Layout(
-        placements=placements,
+        placements=PlacementCollection(placements),
         wires=WireCollection(wires or []),
         groups={ROOT_GROUP_ID: ComponentGroup(
             id=ROOT_GROUP_ID,

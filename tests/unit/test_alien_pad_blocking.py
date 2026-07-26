@@ -20,7 +20,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
@@ -100,12 +100,12 @@ class TestAlienPadBlocking:
         inst_b2 = bind(ComponentInstance(id=cid_b2, definition_ref="COMP", refdes="B2", value=""), defn, {})
 
         layout = Layout(
-            placements={
+            placements=PlacementCollection({
                 cid_a1: _place(cid_a1, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
                 cid_a2: _place(cid_a2, 8.5, 0.5),  # pin1=(8.5,0.5) pin2=(9.5,0.5)
                 cid_b1: _place(cid_b1, 0.5, 2.5),  # pin1=(0.5,2.5) pin2=(1.5,2.5)
                 cid_b2: _place(cid_b2, 9.5, 2.5),  # pin1=(9.5,2.5) pin2=(10.5,2.5)
-            },
+            }),
             wires=WireCollection([
                 # NET_A chain on bottom: (1.5,0.5) → (8.5,0.5)
                 _bare_wire((1.5, 0.5), (2.5, 0.5), side="bottom"),

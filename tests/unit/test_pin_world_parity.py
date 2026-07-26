@@ -28,6 +28,7 @@ from protoboard.domain.layout.placement import (
     ComponentPlacement,
     compose_placement,
     pin_world_position,
+    PlacementCollection,
 )
 from protoboard.geometry import Point, Transform2D, Vector
 
@@ -89,7 +90,7 @@ class TestPinWorldParityThroughPlacements:
             270: [(10.0, 10.0), (9.0, 10.0), (8.0, 10.0)],
         }.items():
             pl = _placed(position=Point(10.0, 10.0), rotation=rot, side="top")
-            layout = Layout(placements={cid: pl})
+            layout = Layout(placements=PlacementCollection({cid: pl}))
             assert _world_pins(fp, layout.placements[cid]) == expected, rot
 
     def test_sil3_bottom_is_mirror(self) -> None:
@@ -98,7 +99,7 @@ class TestPinWorldParityThroughPlacements:
         fp = SIL(3)
         cid = uuid.uuid4()
         pl = _placed(position=Point(5.0, 5.0), rotation=0, side="bottom")
-        layout = Layout(placements={cid: pl})
+        layout = Layout(placements=PlacementCollection({cid: pl}))
         assert _world_pins(fp, layout.placements[cid]) == [
             (5.0, 5.0), (5.0, 6.0), (5.0, 7.0),
         ]
@@ -107,7 +108,7 @@ class TestPinWorldParityThroughPlacements:
         fp = DIL(8)
         cid = uuid.uuid4()
         pl_top = _placed(position=Point(20.0, 20.0), rotation=0, side="top")
-        layout = Layout(placements={cid: pl_top})
+        layout = Layout(placements=PlacementCollection({cid: pl_top}))
         assert _world_pins(fp, layout.placements[cid]) == [
             (20.0, 20.0), (20.0, 21.0), (20.0, 22.0), (20.0, 23.0),
             (23.0, 23.0), (23.0, 22.0), (23.0, 21.0), (23.0, 20.0),
@@ -115,7 +116,7 @@ class TestPinWorldParityThroughPlacements:
         # Bottom: DIL columns (x=0,3) → reflect x about x=1.5 → columns swap on
         # the same holes (pin 1 lands where pin 8 was).
         pl_bot = _placed(position=Point(20.0, 20.0), rotation=0, side="bottom")
-        layout_b = Layout(placements={cid: pl_bot})
+        layout_b = Layout(placements=PlacementCollection({cid: pl_bot}))
         assert _world_pins(fp, layout_b.placements[cid]) == [
             (23.0, 20.0), (23.0, 21.0), (23.0, 22.0), (23.0, 23.0),
             (20.0, 23.0), (20.0, 22.0), (20.0, 21.0), (20.0, 20.0),
@@ -128,7 +129,7 @@ class TestPinWorldParityThroughPlacements:
             position=Point(0.0, 0.0), rotation=0, side="top",
             pin_offsets={2: Vector(0.5, 0.0)},
         )
-        layout = Layout(placements={cid: pl})
+        layout = Layout(placements=PlacementCollection({cid: pl}))
         assert _world_pins(fp, layout.placements[cid]) == [
             (0.0, 0.0), (0.5, 1.0),
         ]
@@ -139,7 +140,7 @@ class TestPinWorldParityThroughPlacements:
         fp = SIL(3)
         cid = uuid.uuid4()
         pl = _placed(position=Point(7.0, 3.0), rotation=90, side="top")
-        layout = Layout(placements={cid: pl})
+        layout = Layout(placements=PlacementCollection({cid: pl}))
         via_index = _world_pins(fp, layout.placements[cid])
         via_get = _world_pins(fp, layout.placements.get(cid))  # type: ignore[arg-type]
         via_values = _world_pins(fp, next(iter(layout.placements.values())))
@@ -161,7 +162,7 @@ class TestGroupedMemberComposesThroughSeam:
     ) -> Layout:
         gid = uuid.uuid4()
         return Layout(
-            placements={cid: local},
+            placements=PlacementCollection({cid: local}),
             groups={
                 ROOT_GROUP_ID: ComponentGroup(
                     id=ROOT_GROUP_ID, name="", child_group_ids=frozenset({gid})

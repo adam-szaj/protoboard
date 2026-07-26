@@ -11,6 +11,7 @@ from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -48,7 +49,7 @@ class _FakeSchematicState:
             ),
             rows=1, cols=1, row_gap=0.0, col_gap=0.0,
         ))
-        self.layout = Layout(placements={}, wires=WireCollection())
+        self.layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
         self.schematic = Schematic(nets={})

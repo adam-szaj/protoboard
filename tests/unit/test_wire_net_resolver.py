@@ -16,7 +16,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import WireNetResolver, _wire_net_id
 from protoboard.domain.schematic.net import Net
@@ -74,7 +74,7 @@ class TestWireNetResolverEquivalence:
         defn = _defn()
         r1 = _inst()
         pl = _placement(r1.id, 2.0, 2.0)  # pin1 at (2,2)
-        layout = Layout(placements={r1.id: pl})
+        layout = Layout(placements=PlacementCollection({r1.id: pl}))
         instances = {r1.id: r1}
         components = {"R": defn}
         sch = Schematic(nets={
@@ -99,7 +99,7 @@ class TestWireNetResolverEquivalence:
         defn = _defn()
         r1 = _inst()
         pl = _placement(r1.id, 2.0, 2.0)
-        layout = Layout(placements={r1.id: pl})
+        layout = Layout(placements=PlacementCollection({r1.id: pl}))
         instances = {r1.id: r1}
         components = {"R": defn}
         sch = Schematic(nets={})
@@ -117,7 +117,7 @@ class TestWireNetResolverEquivalence:
         defn = _defn()
         r1 = _inst()
         pl = _placement(r1.id, 2.0, 2.0)
-        layout = Layout(placements={r1.id: pl})
+        layout = Layout(placements=PlacementCollection({r1.id: pl}))
         instances = {r1.id: r1}
         components = {"R": defn}
         sch = Schematic(nets={})  # pin exists but is on no net
@@ -140,7 +140,7 @@ class TestFromState:
         defn = _defn()
         r1 = _inst()
         pl = _placement(r1.id, 2.0, 2.0)
-        layout = Layout(placements={r1.id: pl})
+        layout = Layout(placements=PlacementCollection({r1.id: pl}))
         instances = {r1.id: r1}
         components = {"R": defn}
         sch = Schematic(nets={})
@@ -162,7 +162,7 @@ class TestFromState:
     def test_from_state_forwards_pad_index(self) -> None:
         defn = _defn()
         r1 = _inst()
-        layout = Layout(placements={r1.id: _placement(r1.id, 2.0, 2.0)})
+        layout = Layout(placements=PlacementCollection({r1.id: _placement(r1.id, 2.0, 2.0)}))
         state = _FakeState(
             layout=layout, instances={r1.id: r1}, components={"R": defn},
         )
@@ -175,7 +175,7 @@ class TestFromState:
     def test_from_state_missing_board_defaults_none(self) -> None:
         defn = _defn()
         r1 = _inst()
-        layout = Layout(placements={r1.id: _placement(r1.id, 2.0, 2.0)})
+        layout = Layout(placements=PlacementCollection({r1.id: _placement(r1.id, 2.0, 2.0)}))
 
         @dataclass
         class _NoBoard:

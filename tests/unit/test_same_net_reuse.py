@@ -17,6 +17,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
@@ -67,7 +68,7 @@ class TestExtendedTargetSet:
             side="top",
             insulated=True,
         )
-        lay = Layout(placements={}, wires=WireCollection([existing_wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([existing_wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(existing_wire)
 
@@ -100,7 +101,7 @@ class TestExtendedTargetSet:
     def test_no_discount_without_active_net_id(self) -> None:
         """When active_net_id is None the extended target_set never grows."""
         board = _perfboard(5, 5)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         existing_verts = {
             (Point(1.5, 2.5), "top"),
@@ -142,7 +143,7 @@ class TestTeleportEdges:
             Point(6.5, 0.5 + i) for i in range(1, 7)
         ]
         bridge_wire = Wire(id=uuid.uuid4(), path=path, side="top", insulated=True)
-        lay = Layout(placements={}, wires=WireCollection([bridge_wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([bridge_wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(bridge_wire)
 
@@ -191,7 +192,7 @@ class TestSourceNotInExtendedTargets:
             side="top",
             insulated=True,
         )
-        lay = Layout(placements={}, wires=WireCollection([bridge]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([bridge]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(bridge)
 
@@ -253,7 +254,7 @@ class TestTwoIslandSafety:
             side="top",
             insulated=True,
         )
-        lay = Layout(placements={}, wires=WireCollection([island_a, island_b]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([island_a, island_b]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(island_a)
         graph.add_wire(island_b)
@@ -312,7 +313,7 @@ class TestSameNetReuseDoesNotInfectOtherNets:
         # active_net_id=net_B, the same-net discount must NOT apply to
         # net A's segment.
         board = _perfboard(5, 5)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         net_a = uuid.uuid4()
         net_b = uuid.uuid4()

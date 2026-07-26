@@ -25,6 +25,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
@@ -66,7 +67,7 @@ def _perfboard(rows: int, cols: int, plated: bool = True) -> Board:
 
 
 def _graph(board: Board, wires: list[Wire] | None = None) -> ConnectivityGraph:
-    lay = Layout(placements={}, wires=WireCollection(wires or []))
+    lay = Layout(placements=PlacementCollection({}), wires=WireCollection(wires or []))
     return ConnectivityGraph(board=board, layout=lay, components={})
 
 

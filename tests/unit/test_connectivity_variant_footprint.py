@@ -19,6 +19,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
+    PlacementCollection,
 )
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.connectivity.graph import ConnectivityGraph
@@ -84,7 +85,7 @@ class TestVariantPinConnectivity:
             path=[Point(pin2_world.x, pin2_world.y), neighbour],
             insulated=False, side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},
@@ -116,7 +117,7 @@ class TestVariantPinConnectivity:
         fp = inst.resolved_footprint()
         pin3_world = pin_world_position(fp, pl, 3)
 
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},

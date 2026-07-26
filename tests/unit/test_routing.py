@@ -16,6 +16,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
@@ -84,7 +85,7 @@ class TestFindPathsBasic:
     def test_direct_neighbour(self) -> None:
         # 1×3 board; source=(0.5,0.5), target=(1.5,0.5) — one step right.
         board = _perfboard(1, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         source = Point(0.5, 0.5)
         target = Point(1.5, 0.5)
@@ -107,7 +108,7 @@ class TestFindPathsBasic:
         # 1×3 board; source=(0.5,0.5), target=(2.5,0.5).
         # Path must go through (1.5,0.5) — only valid intermediate pad.
         board = _perfboard(1, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -127,7 +128,7 @@ class TestFindPathsBasic:
     def test_no_path_when_target_unreachable(self) -> None:
         # 1×1 board — source == target only pad, target off-board.
         board = _perfboard(1, 1)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -141,7 +142,7 @@ class TestFindPathsBasic:
 
     def test_source_equals_target_returns_trivial_path(self) -> None:
         board = _perfboard(1, 2)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         pt = Point(0.5, 0.5)
         results = find_paths(
@@ -159,7 +160,7 @@ class TestFindPathsBasic:
     def test_top_k_paths_ordered_by_cost(self) -> None:
         # 3×3 board; multiple paths from corner to corner.
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -178,7 +179,7 @@ class TestFindPathsBasic:
         # 1×3 board, source=(0.5,0.5), target=(2.5,0.5).
         # No turns possible → direction_change cost should NOT apply.
         board = _perfboard(1, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         model_no_penalty = RoutingCostModel(direction_change=0.0)
         model_with_penalty = RoutingCostModel(direction_change=10.0)
@@ -213,7 +214,7 @@ class TestFindPathsWithOccupiedPads:
             name="OTHER",
             pins={PinRef(component_id=comp_id, pin_number=1)},
         )
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
 
         # Mark the middle pad (top layer) as belonging to another net.
@@ -236,7 +237,7 @@ class TestFindPathsWithOccupiedPads:
         # One path goes through a pad of the *same* net (lower cost).
         board = _perfboard(2, 3)
         net_id = uuid.uuid4()
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
 
         # Mark (1.5, 0.5) on top as same-net (discount).
@@ -266,7 +267,7 @@ class TestFindPathsWithOccupiedPads:
 class TestRoutingResult:
     def test_result_has_path_and_cost(self) -> None:
         board = _perfboard(1, 2)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -288,7 +289,7 @@ class TestRoutingResult:
         # Same-layer: differ by at most 1 in x and y (orthogonal or diagonal).
         # Layer-change: same position, different side — dx==dy==0 is allowed.
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -314,7 +315,7 @@ class TestMultiLayerRouting:
     def test_single_layer_when_no_vias(self) -> None:
         """Without plated_through_pads, path stays on starting layer."""
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -331,7 +332,7 @@ class TestMultiLayerRouting:
     def test_layer_change_possible_at_plated_through(self) -> None:
         """Router can switch layers when plated_through_pads are provided."""
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # All pads are plated-through (perfboard).
         all_pads = {Point(c + 0.5, r + 0.5) for r in range(3) for c in range(3)}
@@ -358,7 +359,7 @@ class TestMultiLayerRouting:
         Bottom path: source-bottom → (1.5,0.5)-bottom → ... → target-bottom.
         """
         board = _perfboard(1, 5)
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board=board, layout=lay, components={})
 
         # Block the middle pad only on the top layer.
@@ -492,14 +493,14 @@ class TestValidNodesByCache:
 
     def test_cache_returns_same_object(self) -> None:
         board = _perfboard(3, 3)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements={}, wires=WireCollection()), components={})
+        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
         a = graph.valid_nodes_by_side()
         b = graph.valid_nodes_by_side()
         assert a is b
 
     def test_cache_invalidated_after_add_wire(self) -> None:
         board = _perfboard(3, 3)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements={}, wires=WireCollection()), components={})
+        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
         before = graph.valid_nodes_by_side()
         wire = Wire(
             id=uuid.uuid4(),
@@ -519,7 +520,7 @@ class TestValidNodesByCache:
             insulated=True,
             side="top",
         )
-        graph = ConnectivityGraph(board=board, layout=Layout(placements={}, wires=WireCollection([wire])), components={})
+        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection([wire])), components={})
         graph.valid_nodes_by_side()  # warm cache
         graph.remove_wire(wire)
         # After remove, cache must be cleared — accessing it rebuilds.
@@ -528,7 +529,7 @@ class TestValidNodesByCache:
 
     def test_valid_nodes_contains_board_pads(self) -> None:
         board = _perfboard(2, 2)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements={}, wires=WireCollection()), components={})
+        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
         vn = graph.valid_nodes_by_side()
         # 2×2 perfboard: pads at (0.5,0.5), (1.5,0.5), (0.5,1.5), (1.5,1.5)
         assert Point(0.5, 0.5) in vn["top"]
@@ -540,7 +541,7 @@ class TestValidNodesByCache:
     def test_find_paths_uses_cache(self) -> None:
         # Routing twice on the same graph should hit the cache (same object returned).
         board = _perfboard(1, 5)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements={}, wires=WireCollection()), components={})
+        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
         cm = RoutingCostModel()
         src = Point(0.5, 0.5)
         tgt = Point(4.5, 0.5)

@@ -128,6 +128,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
         )
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.layout import Layout
+        from protoboard.domain.layout.placement import PlacementCollection
         from protoboard.domain.layout.wire import (
             Fragment,
             KnotRef,
@@ -144,7 +145,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
             ),
             rows=5, cols=5, row_gap=0.0, col_gap=0.0,
         ))
-        layout = Layout(placements={}, wires=WireCollection([]))
+        layout = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
 
         # Joint A and Joint B carry both wires together.  Joint A is
         # the endpoint we'll later slide via ReplaceWireFragments.

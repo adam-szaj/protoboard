@@ -39,6 +39,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
+    PlacementCollection,
 )
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
@@ -428,7 +429,7 @@ def generate_project(spec: ProjectSpec) -> ProjectBundle:
         placement, _ = _placement_for_slot(slot, inst.id)
         placements[inst.id] = placement
 
-    layout = Layout(placements=placements)
+    layout = Layout(placements=PlacementCollection(placements))
     schematic = _build_nets(rng, spec, instances, components, placements)
 
     routing = RoutingSettings()

@@ -18,7 +18,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -74,10 +74,10 @@ def _two_pin_diag_project() -> tuple[Board, Layout, Schematic, dict, dict]:
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
     inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
     inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
-    layout = Layout(placements={
+    layout = Layout(placements=PlacementCollection({
         cid_a: _place(cid_a, 0.5, 0.5),
         cid_b: _place(cid_b, 3.5, 3.5),
-    })
+    }))
     ref_a2 = PinRef(component_id=cid_a, pin_number=2)
     ref_b1 = PinRef(component_id=cid_b, pin_number=1)
     net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})

@@ -17,6 +17,7 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.services.routing.autorouter import autoroute
 
@@ -68,12 +69,12 @@ class TestAlienPadStealing:
         defn = make_sil("COMP")
         a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
         b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 8.5, 0.5),
             b1.id: place(b1.id, 0.5, 2.5),
             b2.id: place(b2.id, 9.5, 2.5),
-        }, wires=WireCollection([
+        }), wires=WireCollection([
             bare((1.5, 0.5), (2.5, 0.5), side="bottom"),
             bare((2.5, 0.5), (3.5, 0.5), side="bottom"),
             bare((3.5, 0.5), (4.5, 0.5), side="bottom"),
@@ -94,12 +95,12 @@ class TestAlienPadStealing:
         defn = make_sil("COMP")
         a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
         b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 5.5, 5.5),
             b1.id: place(b1.id, 5.5, 0.5),
             b2.id: place(b2.id, 0.5, 5.5),
-        }, wires=WireCollection([
+        }), wires=WireCollection([
             # NET_A diagonal chain through (1.5,1.5), (2.5,2.5), (3.5,3.5), (4.5,4.5)
             bare((1.5, 0.5), (1.5, 1.5), side="top"),
             bare((1.5, 1.5), (2.5, 2.5), side="top"),
@@ -127,14 +128,14 @@ class TestPlatedThroughBlocking:
         defn = make_sil("COMP")
         a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
         b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             # NET_A on row 0 with bare bottom wires across (1.5..3.5, 0.5)
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 3.5, 0.5),
             # NET_B on row 2 that must traverse columns 1.5..3.5 somewhere
             b1.id: place(b1.id, 0.5, 2.5),
             b2.id: place(b2.id, 5.5, 2.5),
-        }, wires=WireCollection([
+        }), wires=WireCollection([
             bare((1.5, 0.5), (2.5, 0.5), side="bottom"),
             bare((2.5, 0.5), (3.5, 0.5), side="bottom"),
         ]))
@@ -160,14 +161,14 @@ class TestAlienElectricSetWithoutPin:
         defn = make_sil("COMP")
         a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
         b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             # NET_A connects (1.5, 0.5) to (8.5, 0.5) — pins on row 0.
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 8.5, 0.5),
             # NET_B pins at (1.5, 2.5) and (8.5, 2.5) — row 2.
             b1.id: place(b1.id, 0.5, 2.5),
             b2.id: place(b2.id, 8.5, 2.5),
-        }, wires=WireCollection([
+        }), wires=WireCollection([
             # NET_A pre-wired through row 1.5 (intermediate pads with no pin).
             bare((1.5, 0.5), (1.5, 1.5), side="bottom"),
             bare((1.5, 1.5), (2.5, 1.5), side="bottom"),
@@ -199,12 +200,12 @@ class TestInsulatedJumperEndpoints:
         defn = make_sil("COMP")
         a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
         b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 6.5, 0.5),
             b1.id: place(b1.id, 0.5, 3.5),
             b2.id: place(b2.id, 6.5, 3.5),
-        }, wires=WireCollection([
+        }), wires=WireCollection([
             # NET_A claims pads (1.5..6.5, 0.5) via bare bottom row.
             bare((1.5, 0.5), (2.5, 0.5), side="bottom"),
             bare((2.5, 0.5), (3.5, 0.5), side="bottom"),
@@ -234,14 +235,14 @@ class TestDiagonalCrossings:
         defn = make_sil("COMP")
         a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
         b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             # NET_A: (1.5, 1.5) → (3.5, 3.5) — even parity "/" family
             a1.id: place(a1.id, 0.5, 1.5),  # pin1=(0.5,1.5), pin2=(1.5,1.5)
             a2.id: place(a2.id, 3.5, 3.5),
             # NET_B: (1.5, 3.5) → (3.5, 1.5) — odd parity "\" family
             b1.id: place(b1.id, 0.5, 3.5),
             b2.id: place(b2.id, 3.5, 1.5),
-        })
+        }))
         net_a = _net("NET_A", (a1, 2), (a2, 1))
         net_b = _net("NET_B", (b1, 2), (b2, 1))
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
@@ -261,7 +262,7 @@ class TestMultiNetSmoke:
         board = make_perfboard(rows=6, cols=8)
         defn = make_sil("COMP")
         comps = {f"R{i}": _inst("COMP", f"R{i}", defn) for i in range(1, 9)}
-        layout = Layout(placements={
+        layout = Layout(placements=PlacementCollection({
             comps["R1"].id: place(comps["R1"].id, 0.5, 0.5),
             comps["R2"].id: place(comps["R2"].id, 6.5, 0.5),
             comps["R3"].id: place(comps["R3"].id, 0.5, 2.5),
@@ -270,7 +271,7 @@ class TestMultiNetSmoke:
             comps["R6"].id: place(comps["R6"].id, 6.5, 4.5),
             comps["R7"].id: place(comps["R7"].id, 3.5, 0.5),
             comps["R8"].id: place(comps["R8"].id, 3.5, 5.5),
-        })
+        }))
         nets = [
             _net("N1", (comps["R1"], 2), (comps["R2"], 1)),
             _net("N2", (comps["R3"], 2), (comps["R4"], 1)),

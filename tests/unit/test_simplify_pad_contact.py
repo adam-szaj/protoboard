@@ -29,6 +29,7 @@ from protoboard.domain.board.pad_state import (
 )
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.postprocess import (
@@ -55,7 +56,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _empty_layout() -> Layout:
-    return Layout(placements={})
+    return Layout(placements=PlacementCollection({}))
 
 
 def _empty_schematic() -> Schematic:

@@ -13,7 +13,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -56,7 +56,7 @@ class TestNetIsComplete:
         board = _perfboard()
         defn = _r_defn()
         r1 = ComponentInstance.new("R", "R1", "10k")
-        lay = Layout(placements={r1.id: _place(r1.id, 0.5)}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({r1.id: _place(r1.id, 0.5)}), wires=WireCollection())
         graph = ConnectivityGraph(board, lay, {defn.name: defn}, {r1.id: r1})
         net = Net(
             id=uuid.uuid4(),
@@ -78,7 +78,7 @@ class TestNetIsComplete:
             side="top",
         )
         lay = Layout(
-            placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
+            placements=PlacementCollection({r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)}),
             wires=WireCollection([wire]),
         )
         graph = ConnectivityGraph(
@@ -100,7 +100,7 @@ class TestNetIsComplete:
         r1 = ComponentInstance.new("R", "R1", "10k")
         r2 = ComponentInstance.new("R", "R2", "10k")
         lay = Layout(
-            placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
+            placements=PlacementCollection({r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)}),
             wires=WireCollection(),
         )
         graph = ConnectivityGraph(
@@ -121,7 +121,7 @@ class TestNetIsComplete:
         defn = _r_defn()
         r1 = ComponentInstance.new("R", "R1", "10k")
         # r1 not placed
-        lay = Layout(placements={}, wires=WireCollection())
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection())
         graph = ConnectivityGraph(board, lay, {defn.name: defn}, {r1.id: r1})
         net = Net(
             id=uuid.uuid4(),
@@ -148,7 +148,7 @@ class TestRoutedNetIds:
             side="top",
         )
         lay = Layout(
-            placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
+            placements=PlacementCollection({r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)}),
             wires=WireCollection([wire]),
         )
         graph = ConnectivityGraph(
@@ -183,7 +183,7 @@ class TestRoutedNetIds:
         r1 = ComponentInstance.new("R", "R1", "10k")
         r2 = ComponentInstance.new("R", "R2", "10k")
         lay = Layout(
-            placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
+            placements=PlacementCollection({r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)}),
             wires=WireCollection(),
         )
         graph = ConnectivityGraph(

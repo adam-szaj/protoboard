@@ -15,7 +15,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.schematic import PinRef
 from protoboard.geometry import Point
@@ -41,7 +41,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 class TestConnectivityGraphBasic:
     def test_isolated_pads_are_separate_nodes(self) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # 4 pads, plated-through → each pad has top+bottom nodes connected by an
         # edge (2 nodes per pad = 8 total), but no wire connects different pads
@@ -58,7 +58,7 @@ class TestConnectivityGraphBasic:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # 3 pads; pad at (0.5,0) and pad at (1.5,0) connected → 2 components.
         assert graph.component_count() == 2
@@ -67,7 +67,7 @@ class TestConnectivityGraphBasic:
         # A perfboard pad with plated=True: top and bottom are electrically one
         # component (connected by an edge), but represented as 2 graph nodes.
         board = _perfboard(1, 1)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         assert graph.node_count() == 2  # one top node + one bottom node
         assert graph.component_count() == 1  # electrically one component
@@ -88,7 +88,7 @@ class TestConnectivityGraphBasic:
             col_gap=0.0,
         )
         board = Board(root=grid)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         assert graph.node_count() == 2
 
@@ -112,7 +112,7 @@ class TestConnectivityGraphWithComponents:
             rotation=0,
             side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         graph = ConnectivityGraph(
             board=board,
             layout=lay,
@@ -148,7 +148,7 @@ class TestConnectivityGraphWithComponents:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(
             board=board,
             layout=lay,
@@ -178,7 +178,7 @@ class TestInternalNetsSameNamePins:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},
@@ -195,7 +195,7 @@ class TestInternalNetsSameNamePins:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},
@@ -222,7 +222,7 @@ class TestInternalNetsSameNamePins:
             path=[Point(1.5, 0.5), Point(0.5, 0.5)],
             insulated=False, side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},
@@ -241,7 +241,7 @@ class TestInternalNetsSameNamePins:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},
@@ -257,7 +257,7 @@ class TestInternalNetsSameNamePins:
 class TestElectricalNets:
     def test_electrical_nets_empty_board(self) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         nets = graph.electrical_nets()
         # 4 isolated pads → 4 nets of 0 pins each (no components placed).
@@ -272,7 +272,7 @@ class TestElectricalNets:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         nets = graph.electrical_nets()
         assert len(nets) == 1
@@ -292,7 +292,7 @@ class TestInsulatedWireIsolation:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # Wire endpoints (0.5,0.5) and (2.5,0.5) should be in the same set.
         # Middle pad (1.5,0.5) must be in a DIFFERENT set.
@@ -321,7 +321,7 @@ class TestInsulatedWireIsolation:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # Middle pad must still be isolated from the wire endpoints.
         node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
@@ -337,7 +337,7 @@ class TestInsulatedWireIsolation:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
         node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
@@ -363,7 +363,7 @@ class TestInsulatedWireIsolation:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         node_a_left = graph.node_for_pad(Point(0.5, 0.5), "top")
         node_b_left = graph.node_for_pad(Point(0.5, 1.5), "top")
@@ -384,7 +384,7 @@ class TestInsulatedWireIsolation:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         nodes = [
             graph.node_for_pad(Point(x + 0.5, 0.5), "top") for x in range(4)
@@ -405,7 +405,7 @@ class TestInsulatedWireIsolation:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
         node_mid1 = graph.node_for_pad(Point(1.5, 0.5), "top")
@@ -429,7 +429,7 @@ class TestInsulatedWireIsolation:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=WireCollection([wire]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
         node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
@@ -455,7 +455,7 @@ class TestStripboardConnectivity:
                 children=[strip],
             )
         )
-        lay = Layout(placements={}, wires=WireCollection([]))
+        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # All 4 holes in the strip share one electrical node.
         assert graph.component_count() == 1
