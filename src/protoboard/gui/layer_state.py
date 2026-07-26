@@ -80,6 +80,9 @@ Z_SELECTION        = 10.0
 # when you have a Theme instance.  These module-level names are kept for
 # backward compatibility and for code that does not have a theme reference.
 BACK_ALPHA        = 0.30
+# Back-side WIRE fragments only — kept clearly below the front so a fragment
+# flipped to the other side reads as recessed (see theme.wire_back_alpha).
+WIRE_BACK_ALPHA   = 0.45
 BOARD_GHOST_ALPHA = 0.55
 GHOST_COMP_ALPHA  = 0.25
 
@@ -161,6 +164,7 @@ class LayerState:
     #: names are still drawn (hover+Alt reveal).  None = strict hidden.
     pin_names_reveal_cid: uuid.UUID | None = None
     back_alpha: float = BACK_ALPHA
+    wire_back_alpha: float = WIRE_BACK_ALPHA
     board_ghost_alpha: float = BOARD_GHOST_ALPHA
     ghost_comp_alpha: float = GHOST_COMP_ALPHA
     # Alpha for the mid (second) blit of the board pixmap in the sandwich.
@@ -217,7 +221,10 @@ class LayerState:
 
     def alpha_for_wire(self, side: Side) -> float:
         ov = self.overrides.wires_top if side == "top" else self.overrides.wires_bottom
-        tool_alpha = 1.0 if side == self.camera_side else self.back_alpha
+        # Wires use their own back alpha (well below the generic back_alpha)
+        # so a fragment on the far side is clearly recessed, not a near-1.0
+        # whisper away from the front side.
+        tool_alpha = 1.0 if side == self.camera_side else self.wire_back_alpha
         return self._vis_alpha(ov, tool_alpha)
 
     def _side_tool_alpha(self, side: Side) -> float:
@@ -355,6 +362,7 @@ def layer_state_for_tool(
             state = dataclasses.replace(
                 state,
                 back_alpha=theme.back_alpha,
+                wire_back_alpha=theme.wire_back_alpha,
                 board_ghost_alpha=theme.board_ghost_alpha,
                 ghost_comp_alpha=theme.ghost_comp_alpha,
                 board_mid_alpha=theme.board_mid_alpha,

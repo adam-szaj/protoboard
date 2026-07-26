@@ -112,6 +112,53 @@ def test_all_top_wire_single_level_no_via_markers(scene: QGraphicsScene) -> None
     assert _via_markers(grp) == []
 
 
+#: Minimum front-vs-back alpha gap for a wire — the visibility bar of the
+#: per-fragment render work: a bottom fragment must read as clearly
+#: recessed, not a 0.01 alpha whisper (spec §3, cue A).
+_MIN_SIDE_ALPHA_GAP = 0.3
+
+
+def test_wire_back_alpha_gap_is_perceptible_by_default() -> None:
+    from protoboard.controller.theme import DEFAULT_THEME
+    from protoboard.gui.layer_state import layer_state_for_tool
+
+    layers = layer_state_for_tool(object(), "top", theme=DEFAULT_THEME)
+    gap = layers.alpha_for_wire("top") - layers.alpha_for_wire("bottom")
+    assert gap >= _MIN_SIDE_ALPHA_GAP
+
+
+def test_wire_back_alpha_gap_survives_ghost_top_full_bottom() -> None:
+    """The affected project's config: wires_top ghost vs wires_bottom full.
+
+    Historically ghost≈0.89 collided with back_alpha≈0.90 — a 0.01 delta.
+    The wire-specific back alpha must keep the sides distinct even here.
+    """
+    from protoboard.controller.theme import DEFAULT_THEME
+    from protoboard.gui.layer_state import (
+        LayerOverrides,
+        LayerVisibility,
+        layer_state_for_tool,
+    )
+
+    layers = layer_state_for_tool(
+        object(), "top", theme=DEFAULT_THEME,
+        overrides=LayerOverrides(
+            wires_top=LayerVisibility.GHOST, wires_bottom=LayerVisibility.FULL,
+        ),
+    )
+    gap = layers.alpha_for_wire("top") - layers.alpha_for_wire("bottom")
+    assert gap >= _MIN_SIDE_ALPHA_GAP
+
+
+def test_via_marker_is_prominent(scene: QGraphicsScene) -> None:
+    """Cue C: the side-transition marker must be visible at a glance —
+    a big-enough disc with a contrasting ring (non-color-only)."""
+    grp = _RenderState().render(scene, _mixed_wire())
+    marker = _via_markers(grp)[0]
+    assert marker.boundingRect().width() >= 0.5
+    assert marker.pen().color().rgb() != marker.brush().color().rgb()
+
+
 def test_routing_target_net_renders_in_neon(scene: QGraphicsScene) -> None:
     """v1 parity: wires of the actively-routed net take routing_target_color."""
     from PySide6.QtGui import QColor

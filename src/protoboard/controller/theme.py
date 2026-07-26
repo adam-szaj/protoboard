@@ -242,6 +242,10 @@ class Theme:
 
     # ── Layer automatic alphas ───────────────────────────────────────────────
     back_alpha: float = 0.9          # non-camera-side layers
+    # Back-side WIRE fragments only — deliberately far below back_alpha so a
+    # fragment flipped to the other side reads as clearly recessed (the
+    # generic 0.9 was indistinguishable from the front at a glance).
+    wire_back_alpha: float = 0.45
     board_ghost_alpha: float = 0.51  # board while placing/routing
     ghost_comp_alpha: float = 0.89   # components while placing/routing
 
@@ -287,6 +291,13 @@ class Theme:
     # matches the pad's / wire's net.  Bright yellow chosen to read against
     # both dark and light board backgrounds; alpha=FF for full neon.
     routing_target_color: str = "#FFFFEE00"
+    # ── Via markers (wire side transitions) ──────────────────────────────────
+    # Drawn where a wire fragment crosses to the other board side.  Light
+    # disc + dark ring: a shape/contrast cue (not colour-only) that stays
+    # readable regardless of the net colour underneath.
+    via_marker_color: str = "#E8E8E8"
+    via_marker_ring_color: str = "#202020"
+    via_marker_radius: float = 0.28
 
     # ── Export SVG ───────────────────────────────────────────────────────────
     svg_scale: float = 10.0

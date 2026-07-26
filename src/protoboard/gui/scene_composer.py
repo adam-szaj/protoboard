@@ -27,7 +27,7 @@ from protoboard.gui.renderers.component_renderer import (
 )
 from protoboard.gui.renderers.wire_renderer import (
     render_ratsnest,
-    update_wire_groups,
+    update_wire_groups_v2,
 )
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.services.debug_trace import traced
@@ -312,8 +312,13 @@ class SceneComposer:
         self, session: EditorSession, scene: QGraphicsScene, render_layout: Layout,
         theme: Theme, layers: LayerState, net_color_map: dict[uuid.UUID, str | None],
     ) -> None:
-        """Wires (group reuse) — unchanged wire groups survive untouched."""
-        update_wire_groups(
+        """Wires (group reuse) — unchanged wire groups survive untouched.
+
+        Fragment-aware path: each fragment paints on its own side (alpha+Z)
+        with a via marker at every side transition, so a flipped fragment
+        is visible immediately.
+        """
+        update_wire_groups_v2(
             scene,
             list(render_layout.wires),
             session.cached_wire_net_map(),

@@ -387,13 +387,16 @@ def _build_wire_group_v2(
             _fill_bare(grp, pts, frag_color, frag_z, theme, bold=bold)
 
     # Via markers at fragment boundaries (side transitions).
-    via_color = QColor(getattr(theme, "via_marker_color", "#E0E0E0"))
-    via_radius = float(getattr(theme, "via_marker_radius", 0.18))
+    via_color = QColor(theme.via_marker_color)
+    via_ring = QColor(theme.via_marker_ring_color)
+    via_radius = theme.via_marker_radius
     for i in range(len(wire.fragments) - 1):
         if wire.fragments[i].side == wire.fragments[i + 1].side:
             continue
         boundary = wire.fragments[i].path[-1]
-        marker = _build_via_marker(boundary, via_radius, via_color, z_base + 0.01)
+        marker = _build_via_marker(
+            boundary, via_radius, via_color, via_ring, z_base + 0.01,
+        )
         grp.addToGroup(marker)
 
     grp.setZValue(z_base)
@@ -401,13 +404,17 @@ def _build_wire_group_v2(
 
 
 def _build_via_marker(
-    pos: Point, radius: float, color: QColor, z: float,
+    pos: Point, radius: float, color: QColor, ring_color: QColor, z: float,
 ) -> QGraphicsPathItem:
-    """Small filled circle marking a plated-through via point."""
+    """Filled circle marking a plated-through via point.
+
+    Light disc + dark ring — a shape/contrast cue that reads on any net
+    colour and does not rely on colour perception alone.
+    """
     path = QPainterPath()
     path.addEllipse(pos.x - radius, pos.y - radius, 2 * radius, 2 * radius)
     item = QGraphicsPathItem(path)
-    item.setPen(QPen(color, 0.02))
+    item.setPen(QPen(ring_color, 0.08))
     item.setBrush(color)
     item.setZValue(z)
     return item
