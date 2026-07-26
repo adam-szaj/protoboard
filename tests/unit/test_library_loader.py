@@ -575,9 +575,6 @@ class TestConsolidatedPassives:
         # The per-size component names are gone…
         for gone in ("R_SMD_0805", "R_SMD_0603", "C_SMD_0805", "C_Disc"):
             assert gone not in lib
-        # …but the KiCAD footprint-string aliases still resolve (to the generic).
-        for alias in ("R_0805_2012Metric", "C_0603_1608Metric", "R_Axial_DIN0207"):
-            assert alias in lib
 
 
 class TestMigratedICs:

@@ -141,6 +141,7 @@ class TestHitWire:
         ctx = _FakeCtx()
         wid = _add_wire(ctx, [(0.0, 0.0), (10.0, 0.0)])
         sel = _tester(ctx).hit(5.0, 0.2)  # 0.2 < WIRE_HIT_DIST 0.35
+        assert type(sel) == str
         assert isinstance(sel, WireSelectable)
         assert sel.wire.id == wid
 

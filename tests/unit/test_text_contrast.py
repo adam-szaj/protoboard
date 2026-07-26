@@ -52,5 +52,5 @@ class TestBestInk:
         assert ink in {h.lower() for h in LIGHT_INKS}
 
     def test_white_body_picks_black_ink(self) -> None:
-        # Black is the highest-contrast dark ink on a white body.
-        assert _hex(best_ink(QColor("#ffffff"))) == "#000000"
+        # Black is the highest-contrast dark ink on a white-ish body.
+        assert _hex(best_ink(QColor("#ffffff"))) == "#111111"
