@@ -11,7 +11,7 @@ import tools from this module, never from ``controller.tools`` directly.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from protoboard.gui.board_view_tool import ViewToolMixin
 from protoboard.controller.tools.cut_tool import CutTool as _CutTool
@@ -37,11 +37,34 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.ports import KeyInput
+    from protoboard.controller.theme import Theme
     from protoboard.controller.tools.select_prompts import (
         GroupTargetChoice,
         GroupTargetRequest,
     )
     from protoboard.controller.selection.mouse_input import Intent
+    from protoboard.gui.board_view_tool import AbstractBoardView
+
+
+def _gui_view(view: object) -> AbstractBoardView:
+    """Narrow a tool's ``activate(view)`` argument to the GUI board-view surface.
+
+    The controller tools type the view only as the Qt-free ``_ViewProto`` (which
+    lacks ``scene()``); the Qt-composed tools here genuinely receive an
+    ``AbstractBoardView``. This cast localises that knowledge to activation.
+    """
+    return cast("AbstractBoardView", view)
+
+
+def _theme_fn(tool: ViewToolMixin) -> Callable[[], Theme]:
+    """The tool's theme reader typed as ``() -> Theme``.
+
+    ``ViewToolMixin._theme`` really returns :class:`Theme`, but on a concrete
+    tool pyright resolves the looser ``ControllerTool._theme`` (``-> object |
+    None``) from the MRO. Binding it through ``ViewToolMixin`` restores the
+    precise return type for the Qt preview constructors that require it.
+    """
+    return cast("Callable[[], Theme]", tool._theme)
 
 __all__ = [
     "CutTool",
@@ -87,11 +110,11 @@ def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
 # explicitly re-pointed at ViewToolMixin's real implementation below.
 
 
-class CutTool(_CutTool, ViewToolMixin):
+class CutTool(_CutTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """Cut tool — no ``on_key``; click-only, already fully generic."""
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         # Same ``object``-typed signature as every sibling tool's ``activate``
@@ -104,7 +127,7 @@ class CutTool(_CutTool, ViewToolMixin):
         ControllerTool.activate(self, session, view)  # type: ignore[arg-type]
 
 
-class PlaceTool(_PlaceTool, ViewToolMixin):
+class PlaceTool(_PlaceTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """PlaceTool with the default ghost/reach Qt preview + Qt conflict prompts.
 
     ``on_key`` is the raw-key translation a GUI subclass owns: the controller
@@ -113,8 +136,8 @@ class PlaceTool(_PlaceTool, ViewToolMixin):
     via the KeyMap and dispatches it through the Controller.
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         # Bind session/view first (ControllerTool.activate — no ghost build
@@ -124,21 +147,22 @@ class PlaceTool(_PlaceTool, ViewToolMixin):
         from protoboard.controller.tools.base import ControllerTool
 
         ControllerTool.activate(self, session, view)  # type: ignore[arg-type]
+        gui_view = _gui_view(view)
         if not self._preview_injected:
             from protoboard.gui.tools.place_preview import QtPlacePreview
 
-            self._preview = QtPlacePreview(self._view.scene, self._theme)
+            self._preview = QtPlacePreview(gui_view.scene, _theme_fn(self))
         if not self._prompts_injected:
             from protoboard.gui.placement_conflict import qt_placement_prompts
 
-            self._prompts = qt_placement_prompts(lambda: self._view.window())
+            self._prompts = qt_placement_prompts(lambda: gui_view.window())
         self.finish_activate()
 
     def on_key(self, inp: KeyInput) -> bool:
         return _dispatch_key_by_action_id(self, inp)
 
 
-class RouteTool(_RouteTool, ViewToolMixin):
+class RouteTool(_RouteTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """RouteTool with the default segment/hint Qt preview + net-merge prompt.
 
     ``on_key`` is the one raw-key translation left for a GUI subclass to own:
@@ -146,25 +170,26 @@ class RouteTool(_RouteTool, ViewToolMixin):
     its command handler — this just resolves the key through it.
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
+        gui_view = _gui_view(view)
         if not self._preview_injected:
             from protoboard.gui.tools.route_preview import QtRoutePreview
 
-            self._preview = QtRoutePreview(self._view.scene, self._theme)
+            self._preview = QtRoutePreview(gui_view.scene, _theme_fn(self))
         if not self._merge_prompt_injected:
             from protoboard.gui.wire_net_resolver import qt_net_merge_prompt
 
-            self._merge_prompt = qt_net_merge_prompt(lambda: self._view.window())
+            self._merge_prompt = qt_net_merge_prompt(lambda: gui_view.window())
 
     def on_key(self, inp: KeyInput) -> bool:
         return _dispatch_key_by_action_id(self, inp)
 
 
-class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
+class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """ArmedTransformTool with the default pivot-marker preview + conflict overlay.
 
     ``on_key`` is the raw-key translation a GUI subclass owns: the controller
@@ -173,8 +198,8 @@ class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
     via the KeyMap and dispatches it through the Controller.
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         from protoboard.gui.tools.select_preview import QtSelectPreview
@@ -191,7 +216,7 @@ class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):
         return _dispatch_key_by_action_id(self, inp)
 
 
-class WireEditTool(_WireEditTool, ViewToolMixin):
+class WireEditTool(_WireEditTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """WireEditTool with the default Qt wire-edit / reroute preview.
 
     ``on_key`` is the raw-key translation a GUI subclass owns: the controller
@@ -202,8 +227,8 @@ class WireEditTool(_WireEditTool, ViewToolMixin):
     (``QtSelectPreview``, the same overlay implementation SelectTool uses).
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def key_actions(self) -> dict[str, str | None]:
         """The wire-edit op keys, registered on this tool's own KeyMap layer.
@@ -271,7 +296,7 @@ class WireEditTool(_WireEditTool, ViewToolMixin):
         return _dispatch_key_by_action_id(self, inp)
 
 
-class SelectTool(_SelectTool, ViewToolMixin):
+class SelectTool(_SelectTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SelectTool with the default Qt preview, group-target prompt, overlays.
 
     ``on_key`` is the raw-key → command translation the controller tool can't
@@ -281,8 +306,8 @@ class SelectTool(_SelectTool, ViewToolMixin):
     command methods it dispatches into.
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         if not self._preview_injected:  # type: ignore[attr-defined]
@@ -404,7 +429,7 @@ class SelectTool(_SelectTool, ViewToolMixin):
         pass
 
 
-class SimplifyTool(_SimplifyTool, ViewToolMixin):
+class SimplifyTool(_SimplifyTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SimplifyTool with the default Qt draft-overlay preview.
 
     ``on_key`` is just the ``[Esc]`` clear-draft raw-key check ahead of
@@ -416,8 +441,8 @@ class SimplifyTool(_SimplifyTool, ViewToolMixin):
     injection is not in this class's MRO and has to be repeated here.
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         if not self._preview_injected:  # type: ignore[attr-defined]
