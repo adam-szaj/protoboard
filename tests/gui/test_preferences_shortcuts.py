@@ -56,6 +56,22 @@ class TestSubTabs:
         tabs = page.findChild(QTabWidget)
         assert [tabs.tabText(i) for i in range(tabs.count())] == ["Application"]
 
+    def test_production_tool_builds_its_tab(self, qtbot) -> None:
+        # Regression: MainWindow passes a real, composed production tool
+        # (SelectTool = (_SelectTool, ViewToolMixin)) as keymap_tools — it is
+        # NOT a nominal _Tool subclass, so the old `assert isinstance(tool,
+        # _Tool)` crashed here (AssertionError) when opening Preferences.
+        from protoboard.gui.tools.gui_tools import SelectTool
+
+        page = _ShortcutsPage(
+            KeyBindings(), keymap=_base(), keymap_tools=(SelectTool(),))
+        qtbot.addWidget(page)
+        tabs = page.findChild(QTabWidget)
+        labels = [tabs.tabText(i) for i in range(tabs.count())]
+        # The production tool contributes at least its own key-map tab on top
+        # of Application/Global/View (does not crash).
+        assert labels[:3] == ["Application", "Global", "View"]
+
 
 class TestKeyMapTabEditing:
     def _tool_tab(self, base: KeyMap) -> _KeyMapTab:
