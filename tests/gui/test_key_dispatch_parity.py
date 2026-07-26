@@ -99,7 +99,7 @@ class TestConsumptionParity:
         assert win.forwarded == []
 
 
-class _WantsButUnconsumingTool(_Tool):
+class _WantsButUnconsumingTool(_DefaultTool):
     """Wants the key (``wants_key`` True) but ``on_key`` returns False.
 
     Models a wire-edit op like ``[F]`` flip whose handler is ``-> None``: the

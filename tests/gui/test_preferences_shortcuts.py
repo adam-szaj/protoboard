@@ -5,6 +5,8 @@ action on the SAME KeyMap clears it from the previous owner."""
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from PySide6.QtWidgets import QMessageBox, QTabWidget
 
@@ -47,6 +49,7 @@ class TestSubTabs:
             KeyBindings(), keymap=_base(), keymap_tools=(_FakeTool(),))
         qtbot.addWidget(page)
         tabs = page.findChild(QTabWidget)
+        assert tabs is not None
         labels = [tabs.tabText(i) for i in range(tabs.count())]
         assert labels == ["Application", "Global", "View", "Fake Tool"]
 
@@ -54,6 +57,7 @@ class TestSubTabs:
         page = _ShortcutsPage(KeyBindings())
         qtbot.addWidget(page)
         tabs = page.findChild(QTabWidget)
+        assert tabs is not None
         assert [tabs.tabText(i) for i in range(tabs.count())] == ["Application"]
 
     def test_production_tool_builds_its_tab(self, qtbot) -> None:
@@ -67,6 +71,7 @@ class TestSubTabs:
             KeyBindings(), keymap=_base(), keymap_tools=(SelectTool(),))
         qtbot.addWidget(page)
         tabs = page.findChild(QTabWidget)
+        assert tabs is not None
         labels = [tabs.tabText(i) for i in range(tabs.count())]
         # The production tool contributes at least its own key-map tab on top
         # of Application/Global/View (does not crash).
@@ -75,7 +80,9 @@ class TestSubTabs:
 
 class TestKeyMapTabEditing:
     def _tool_tab(self, base: KeyMap) -> _KeyMapTab:
-        layer = _FakeTool().make_key_map(base)
+        # make_key_map is typed loosely (-> object) on the _Tool surface; the
+        # real ViewToolMixin impl returns a KeyMap.
+        layer = cast(KeyMap, _FakeTool().make_key_map(base))
         return _KeyMapTab(layer, [a.id for a in layer.known_actions()])
 
     def test_edit_applies_override_to_shared_store(self, qtbot, base=None) -> None:
@@ -85,7 +92,7 @@ class TestKeyMapTabEditing:
         tab._edits["fake-tool.action.zap"].setText("K")
         tab.apply()
         # Lands in the shared store → a future layer of the tool sees it.
-        relayer = _FakeTool().make_key_map(base)
+        relayer = cast(KeyMap, _FakeTool().make_key_map(base))
         assert relayer.resolve("fake-tool.action.zap") == "K"
 
     def test_same_map_conflict_steals_old_binding(self, qtbot) -> None:
@@ -95,7 +102,7 @@ class TestKeyMapTabEditing:
         # zip takes over zap's "Z" — zap must not keep it (ambiguous keys).
         tab._edits["fake-tool.action.zip"].setText("Z")
         tab.apply()
-        relayer = _FakeTool().make_key_map(base)
+        relayer = cast(KeyMap, _FakeTool().make_key_map(base))
         assert relayer.resolve("fake-tool.action.zip") == "Z"
         assert relayer.resolve("fake-tool.action.zap") == ""
         # The stolen row updates visibly in the UI too.
@@ -128,7 +135,7 @@ class TestKeyMapTabEditing:
         tab._edits["fake-tool.action.zap"].setText("NotAKey123|???")
         tab.apply()
         assert tab._edits["fake-tool.action.zap"].text() == "Z"
-        relayer = _FakeTool().make_key_map(base)
+        relayer = cast(KeyMap, _FakeTool().make_key_map(base))
         assert relayer.resolve("fake-tool.action.zap") == "Z"
 
     def test_claiming_final_trigger_is_rejected(self, qtbot) -> None:

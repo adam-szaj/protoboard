@@ -27,7 +27,7 @@ _THIS = Path(__file__).resolve()
 _REPO = _THIS.parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
-from protoboard.services.editing.cli import CliDriver, CliError  # noqa: E402
+from protoboard.controller.editing.cli import CliDriver, CliError  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

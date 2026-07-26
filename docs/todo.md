@@ -369,3 +369,16 @@ The verb-layer seam shipped step by step (docs/mvc-verb-layer.md, commits
   (`_flip_selected`) and multi path (`_flip_multi`) are separate entry methods;
   multi already routes through `EditController.flip`. Converge both on the
   façade verb (low-risk, deferred from the same alignment task).
+
+## make_body_label upright-flipping regression (2026-07-26)
+
+- **180°-rotated body value labels read upside-down.** `make_body_label`
+  (`gui/renderers/packages/body_label.py`) once flipped an upside-down value
+  upright (commit `bc95d3a`, "mirror/upright"); the body/label channel split
+  (which changed the return type to `[full_alpha, half_alpha]`) kept only the
+  det<0 *mirror* compensation and dropped the 180°-rotation *upright* fix.
+  Guarded by `tests/gui/test_body_label.py::test_upside_down_rotation_flipped_
+  upright`, currently `xfail(strict=True)`. Discovered while type-fixing the
+  test (it was AttributeError-ing on the list return, masking the behaviour
+  loss). Fix: re-add the reading-angle normalisation to `make_body_label`,
+  then drop the xfail.

@@ -39,13 +39,10 @@ from protoboard.domain.components.definition import (  # noqa: E402
     ComponentDefinition,
 )
 from protoboard.domain.components.footprints import (  # noqa: E402
-    DIP,
+    DIL,
     SIL,
-    DualRow,
-    FootprintTemplate,
-    GridFootprint,
-    QuadRow,
-    TO220Footprint,
+    Footprint,
+    GenericFootprint,
 )
 from protoboard.domain.components.instance import ComponentInstance  # noqa: E402
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
@@ -60,6 +57,60 @@ OUT_DIR = REPO_ROOT / "docs" / "footprints"
 
 
 # ---------------------------------------------------------------------------
+# Footprint factories
+#
+# The dedicated ``DualRow`` / ``QuadRow`` / ``GridFootprint`` /
+# ``TO220Footprint`` classes were folded into the package model; only the
+# ``SIL`` / ``DIL`` factories and the ``GenericFootprint`` offset primitive
+# survive.  These thin helpers rebuild the same pin geometry (pin 1 at the
+# origin, other pins as offset steps) so the gallery still renders every
+# historical layout.
+# ---------------------------------------------------------------------------
+
+
+def DIP(n: int) -> Footprint:
+    """DIP-N (dual in-line, ``rows_spacing=3.0``)."""
+    return DIL(n)
+
+
+def DualRow(n_per_row: int, rows_spacing: float = 3.0) -> Footprint:
+    """Two columns of ``n_per_row`` pins, ``rows_spacing`` holes apart."""
+    return DIL(2 * n_per_row, rows_spacing=rows_spacing)
+
+
+def TO220Footprint(n: int = 3) -> Footprint:
+    """TO-220 pin row — a single in-line row of ``n`` pins."""
+    return SIL(n)
+
+
+def QuadRow(n_per_col: int, col_spacings: tuple[float, float, float] = (1.0, 8.0, 1.0)) -> Footprint:
+    """Four parallel pin columns (dev-module layout).
+
+    Pins run bottom-to-top up column 1, jump ``col_spacings[0]`` to column 2,
+    and so on.  Offsets are the consecutive-difference steps expected by
+    ``GenericFootprint``.
+    """
+    offsets: list[Vector] = []
+    for col in range(4):
+        if col > 0:
+            # Jump to the next column, then back down to its bottom pin.
+            offsets.append(Vector(col_spacings[col - 1], -(n_per_col - 1)))
+        offsets.extend([Vector(0.0, 1.0)] * (n_per_col - 1))
+    return GenericFootprint(offsets)
+
+
+def GridFootprint(rows: int, cols: int) -> Footprint:
+    """Row-major grid; pin 1 at (0, 0), stepping right then up a row."""
+    offsets: list[Vector] = []
+    for r in range(rows):
+        if r > 0:
+            # Jump up one row and back to column 0.
+            offsets.append(Vector(-(cols - 1), 1.0))
+        offsets.extend([Vector(1.0, 0.0)] * (cols - 1))
+    return GenericFootprint(offsets)
+
+
+# ---------------------------------------------------------------------------
 # Inventory
 # ---------------------------------------------------------------------------
 
@@ -69,7 +120,7 @@ class Spec:
     slug: str
     title: str
     description: str
-    footprint: FootprintTemplate
+    footprint: Footprint
     component_class: ComponentClass
     pin_names: dict[int, str]
     # When non-empty, render N panels in one PNG, each with these pin
@@ -292,7 +343,9 @@ INVENTORY: list[Spec] = [
 
 
 def _make_definition(spec: Spec) -> ComponentDefinition:
-    return ComponentDefinition(
+    # ComponentDefinition no longer stores a bare footprint; from_footprint
+    # synthesizes a generic bbox package over the footprint's pin cloud.
+    return ComponentDefinition.from_footprint(
         name=spec.title,
         footprint=spec.footprint,
         pin_names=dict(spec.pin_names),
@@ -314,7 +367,7 @@ def _make_placement(
 
 
 def _pin_world_positions(
-    footprint: FootprintTemplate,
+    footprint: Footprint,
     placement: ComponentPlacement,
 ) -> list[Point]:
     base = footprint.pin_positions()
@@ -533,7 +586,9 @@ def _render_panel(
     )
     fill = QColor(theme.comp_fill_color)
     border = QColor(theme.comp_border)
-    for item in shape.draw(shifted, fill, border, 1.0, 5.0, theme):
+    # draw() returns (body_items, label_items) after the channel split.
+    body_items, label_items = shape.draw(shifted, fill, border, 1.0, 5.0, theme)
+    for item in (*body_items, *label_items):
         scene.addItem(item)
     skip_pins = shape.drawn_pin_numbers(shifted, theme)
 

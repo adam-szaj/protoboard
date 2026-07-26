@@ -203,7 +203,6 @@ def _build_actions(board, layout, schematic, instances, components):
         id=_uuid.uuid4(),
         name="_bench_universe",
         component_ids=all_comp_ids,
-        origin=None,
     )
     wires_list = list(layout.wires)
 

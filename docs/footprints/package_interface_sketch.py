@@ -23,11 +23,12 @@ Stan decyzji (2026-06-14):
 
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass
 from enum import IntFlag, StrEnum
 from typing import Protocol, runtime_checkable
 
-from protoboard.geometry import Insets, Point, Rect
+from protoboard.geometry import Insets, Point, Rect, Vector
 
 # --------------------------------------------------------------------------- #
 # Wartości pomocnicze
