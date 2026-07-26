@@ -259,7 +259,14 @@ class EditState(SchematicState, Protocol):
 
     routing_settings: RoutingSettings
     selection_service: SelectionService | None
-    highlight_stack: HighlightStackBase
+
+    # Read-only *property* rather than a mutable attribute: the GUI session
+    # narrows it to the ``HighlightStack`` subclass, and a mutable-attribute
+    # Protocol member is invariant (the subclass would fail the structural
+    # check).  Nothing outside a session's ``__init__`` reassigns it, so a
+    # covariant read-only member is both sound and sufficient.
+    @property
+    def highlight_stack(self) -> HighlightStackBase: ...
 
     def set_routing_net(self, net_id: uuid.UUID | None) -> None:
         """Mark a net as actively routed (RouteTool while drawing); None clears."""

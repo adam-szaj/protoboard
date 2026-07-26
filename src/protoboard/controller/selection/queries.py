@@ -37,7 +37,7 @@ from protoboard.controller.selection_axes import RelationClass
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from protoboard.controller.editing.headless_session import HeadlessSession
+    from protoboard.controller.editing import EditState
     from protoboard.controller.selection.selectable import ConnQuery
     from protoboard.types import NetId
 
@@ -161,9 +161,9 @@ def relation_correlated(
 
 @dataclass(frozen=True, slots=True)
 class SessionConnQuery:
-    """A :class:`ConnQuery` over a ``HeadlessSession`` (schematic + wire-net map)."""
+    """A :class:`ConnQuery` over an edit session (schematic + wire-net map)."""
 
-    session: HeadlessSession
+    session: EditState
 
     def nets_for_component(self, component_id: object) -> frozenset[NetId]:
         return frozenset(
@@ -192,7 +192,7 @@ class SessionConnQuery:
 class SessionNetSource:
     """A :class:`NetSource` over a ``HeadlessSession`` (reverse net membership)."""
 
-    session: HeadlessSession
+    session: EditState
 
     def net_component_ids(self, net_id: NetId) -> frozenset[uuid.UUID]:
         net = self.session.schematic.nets.get(net_id)

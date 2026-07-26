@@ -35,9 +35,20 @@ class ComponentState(Protocol):
     """
 
     board: "Board"
-    layout: "Layout"
     instances: dict[uuid.UUID, "ComponentInstance"]
     components: dict[str, "ComponentDefinition"]
+
+    # A read-write *property* rather than a plain mutable attribute: the real
+    # sessions expose ``layout`` through a ``@property`` + setter (the setter
+    # re-binds the wire resolver — see ``HeadlessSession.layout``), and a
+    # Protocol data member declared ``layout: Layout`` is *invariant* — a
+    # property implementer then fails the structural check ("layout is invariant
+    # because it is mutable").  Declaring it as a settable property here matches
+    # both property implementers and plain-attribute test stubs.
+    @property
+    def layout(self) -> "Layout": ...
+    @layout.setter
+    def layout(self, value: "Layout") -> None: ...
     # NOTE: ``package_families`` is intentionally NOT a required member here.
     # The binding ritual (``build_pin_identities_for``) reads it best-effort via
     # ``getattr(state, "package_families", None)`` so an instance binds to its
