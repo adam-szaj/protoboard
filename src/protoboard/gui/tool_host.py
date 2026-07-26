@@ -12,7 +12,7 @@ and delegate here; the host talks to the canvas only through
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.gui.board_view_tool import AbstractBoardView
+    from protoboard.controller.tools.base import ControllerTool
     from protoboard.controller.ports import (
         ActionOption,
         InteractionContext,
@@ -153,7 +154,12 @@ class ToolHost:
         view.mark_board_layer_dirty()
         if tool is not None:
             tool.activate(view.session, view)
-        view.session.edit_controller.set_active_tool(tool)
+        # Every concrete _Tool is a ControllerTool at runtime (composed as
+        # ``(_XTool, ViewToolMixin)``); the controller-side API types its param
+        # as ControllerTool and cannot import the gui-side _Tool protocol.
+        view.session.edit_controller.set_active_tool(
+            cast("ControllerTool | None", tool)
+        )
         view.refresh()
 
     @traced()
@@ -165,8 +171,12 @@ class ToolHost:
         the GUI.
         """
         tool = self._active_tool
+        # _Tool types make_key_map loosely (-> object); the runtime impl
+        # (ViewToolMixin.make_key_map) returns a KeyMap.
         self._tool_keymap = (
-            tool.make_key_map(self._base_keymap) if tool is not None else None
+            cast("KeyMap", tool.make_key_map(self._base_keymap))
+            if tool is not None
+            else None
         )
 
     @traced()

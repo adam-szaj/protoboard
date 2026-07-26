@@ -389,18 +389,20 @@ class ViewToolMixin:
         def key_actions(self) -> dict[str, str | None]: ...
         def mouse_actions(self) -> dict[str, str | None]: ...
 
-    @override
+    # NOTE: no ``@override`` on the members below.  ViewToolMixin is a
+    # standalone mixin — it inherits from nothing, so statically it has no base
+    # method to override.  These bodies only *shadow* ControllerTool's once a
+    # concrete tool composes ``(_XTool, ViewToolMixin)``; the decorator can't
+    # see that composition and would (correctly) report "no base method".
     @traced()
     def on_press(self, inp: PointerInput) -> bool:
         """Handle mouse press. Return True if the event was consumed."""
         return False
 
-    @override
     @traced()
     def on_key(self, inp: KeyInput) -> bool:
         return False
 
-    @override
     @traced()
     def on_key_release(self, inp: KeyInput) -> None:
         pass
@@ -410,7 +412,6 @@ class ViewToolMixin:
         t = getattr(self._view, "_theme_override", None)
         return t if isinstance(t, Theme) else DEFAULT_THEME
 
-    @override
     @traced()
     def make_key_map(self, parent: AbstractKeyMap) -> KeyMap:
         """Build this tool's key-map layer chained onto *parent*.
@@ -483,9 +484,15 @@ class _Tool(Protocol):
     def perform_context_action(
         self, action_id: str, data: Mapping[str, object]
     ) -> None: ...
+    # Semantic verbs + Esc gate ToolHost drives on the active tool (all live
+    # on ControllerTool; declared here so the View's _Tool-typed active_tool
+    # can call them).
+    def default_action(self, point: Point, mods: Mods) -> bool: ...
+    def empty_action(self, point: Point, mods: Mods) -> HoverEvent: ...
+    def can_exit(self) -> bool: ...
 
 
-class _DefaultTool(ControllerTool, ViewToolMixin, BoardViewTool):
+class _DefaultTool(ControllerTool, ViewToolMixin, BoardViewTool):  # pyright: ignore[reportIncompatibleMethodOverride]
     """Do-nothing default implementation test doubles subclass.
 
     Concrete GUI tools do *not* descend from this — they compose
@@ -503,8 +510,8 @@ class _DefaultTool(ControllerTool, ViewToolMixin, BoardViewTool):
     ``gui/tools/gui_tools.py`` does, so runtime behaviour is unchanged.
     """
 
-    make_key_map = ViewToolMixin.make_key_map
-    _theme = ViewToolMixin._theme
+    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
+    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
     on_press = ViewToolMixin.on_press
     on_key = ViewToolMixin.on_key
     on_key_release = ViewToolMixin.on_key_release
@@ -517,15 +524,15 @@ class _DefaultTool(ControllerTool, ViewToolMixin, BoardViewTool):
         # callers all access these only via the event-handler paths that run
         # *after* activate().
         ControllerTool.__init__(self)
-        self._session: EditorSession = None  # type: ignore[assignment]
-        self._view: AbstractBoardView = None  # type: ignore[assignment]
+        self._session: EditorSession = None  # type: ignore[assignment]  # pyright: ignore[reportAttributeAccessIssue]
+        self._view: AbstractBoardView = None  # type: ignore[assignment]  # pyright: ignore[reportAttributeAccessIssue]
 
     def __json_repr__(self) -> str:
         return str(type(self))
 
     @override
     @traced()
-    def activate(self, session: EditorSession, view: AbstractBoardView) -> None:
+    def activate(self, session: EditorSession, view: AbstractBoardView) -> None:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
         self._session = session
         self._view = view
 

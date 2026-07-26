@@ -1292,7 +1292,7 @@ class MainWindow(QMainWindow):
         # be rebuilt; ``layout_changed`` alone only re-renders
         # components/wires, since the board layer is cached on a separate
         # ``_board_layer_dirty`` flag for performance.
-        self._board_view._board_layer_dirty = True
+        self._board_view.mark_board_layer_dirty()
         self._session.layout_changed.emit()
         self._board_view.fit_board()
         self._update_undo_redo()

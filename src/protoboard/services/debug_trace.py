@@ -84,13 +84,18 @@ class TraceJSONEncoder(JSONEncoder):
         return self.default(o)
 
 # Step: 1
+# Deliberate runtime monkeypatch of the stdlib JSONEncoder: we stash the
+# original default on both the function object and the class, then swap in a
+# __json_repr__-aware default. These dynamic attribute assignments are not
+# something a static checker can model (function objects / class have no such
+# declared members), so they are suppressed rather than restructured.
 def wrapped_default(self, obj):
-    return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(obj)
-wrapped_default.default = JSONEncoder().default
+    return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(obj)  # pyright: ignore[reportFunctionMemberAccess]
+wrapped_default.default = JSONEncoder().default  # pyright: ignore[reportFunctionMemberAccess]
 # apply the patch
 
-JSONEncoder.original_default = JSONEncoder.default
-JSONEncoder.default = wrapped_default
+JSONEncoder.original_default = JSONEncoder.default  # pyright: ignore[reportAttributeAccessIssue]
+JSONEncoder.default = wrapped_default  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _json(value: object) -> str:
