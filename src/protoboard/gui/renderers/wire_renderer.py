@@ -239,7 +239,7 @@ def update_wire_groups_v2(
                 if not visible:
                     continue
                 grp = _build_wire_group_v2(
-                    wire, net_id, color_override, z_base, theme,
+                    wire, net_id, color_override, theme,
                     layers, glow=False, bold=is_bold,
                 )
                 grp.add_to_scene(scene)
@@ -249,7 +249,7 @@ def update_wire_groups_v2(
             if not visible:
                 continue
             grp = _build_wire_group_v2(
-                wire, net_id, color_override, z_base, theme,
+                wire, net_id, color_override, theme,
                 layers, glow=False, bold=is_bold,
             )
             grp.add_to_scene(scene)
@@ -264,7 +264,6 @@ def _build_wire_group_v2(
     wire: Wire,
     net_id: uuid.UUID | None,
     color_override: str | None,
-    z_base: float,
     theme: Theme,
     layers: LayerState,
     glow: bool,
@@ -315,7 +314,9 @@ def _build_wire_group_v2(
             _fill_bare(target, pts, frag_color, frag_z, theme, bold=bold)
 
     # Via markers at fragment boundaries (side transitions) — always on the
-    # front group: a plated-through via is visible from the camera side.
+    # front group (a plated-through via is visible from the camera side),
+    # always UNDER the wire strokes (glow −0.1, strokes −0.05): the wire
+    # crosses over its pad, on both view sides alike.
     via_color = QColor(theme.via_marker_color)
     via_ring = QColor(theme.via_marker_ring_color)
     via_radius = theme.via_marker_radius
@@ -324,7 +325,7 @@ def _build_wire_group_v2(
             continue
         boundary = wire.fragments[i].path[-1]
         marker = _build_via_marker(
-            boundary, via_radius, via_color, via_ring, z_base + 0.01,
+            boundary, via_radius, via_color, via_ring, Z_FRONT_WIRES - 0.2,
         )
         grp.addToGroup(marker)
 
@@ -387,9 +388,8 @@ def _draw_wire(
     visible = any(layers.alpha_for_wire(f.side) > 0.0 for f in wire.fragments)
     if not visible or net_alpha == 0.0:
         return
-    z_base = layers.z_for_wire(wire.fragments[0].side)
     grp = _build_wire_group_v2(
-        wire, net_id, color_override, z_base, theme, layers, glow=glow,
+        wire, net_id, color_override, theme, layers, glow=glow,
     )
     grp.setOpacity(net_alpha)
     grp.add_to_scene(scene)

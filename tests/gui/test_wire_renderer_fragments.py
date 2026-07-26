@@ -167,6 +167,30 @@ def test_mixed_side_wire_has_via_marker_per_transition(
     assert len(_via_markers(grp)) == 2
 
 
+def test_via_marker_renders_under_the_wire_strokes(
+    scene: QGraphicsScene,
+) -> None:
+    """The via disc sits UNDER the front wire strokes, on both view sides.
+
+    Regression: the marker's child z came from ``z_base`` (the FIRST
+    fragment's side) while the strokes use their fragment's own z — so from
+    the wire's original side the marker painted OVER the wire (4.01 vs
+    3.95) and only from the other side under it.
+    """
+    grp = _RenderState().render(scene, _mixed_wire())
+    marker_zs = {m.zValue() for m in _via_markers(grp)}
+    front_line_zs = {
+        it.zValue() for it in grp.childItems()
+        if isinstance(it, QGraphicsLineItem)
+    }
+    assert marker_zs, "no via markers"
+    assert front_line_zs, "no front strokes"
+    assert max(marker_zs) < min(front_line_zs), (
+        f"marker z {sorted(marker_zs)} must be below stroke z "
+        f"{sorted(front_line_zs)}"
+    )
+
+
 def test_all_top_wire_single_level_no_via_markers(scene: QGraphicsScene) -> None:
     grp = _RenderState().render(scene, _all_top_wire())
     assert _z_levels(grp) == {round(Z_FRONT_WIRES)}
