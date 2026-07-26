@@ -37,7 +37,7 @@ import structlog
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
-from protoboard.controller.tools.base import ControllerTool
+from protoboard.controller.tools.base import ControllerTool, _ViewProto
 from protoboard.controller.highlight_controller import HighlightController
 from protoboard.controller.ports import (
     LEFT_BUTTON,
@@ -111,49 +111,14 @@ _ACT_CONTEXT_MENU = "select-tool.action.context_menu"
 _ACT_RELATION_CYCLE = "highlight_cycle"
 _ACT_RELATION_CYCLE_BACK = "relation_cycle_back"
 
-class _ToolsPort(Protocol):
-    """The ``ToolHost`` surface SelectTool drives (arm/read the active tool)."""
-
-    @property
-    def active_tool(self) -> object | None: ...
-
-    def set_tool(self, tool: object | None) -> None: ...
-
-    def get_context_at(
-        self, scene_pos: Point, view_pos: Point
-    ) -> InteractionContext: ...
-
-
-class SelectToolView(Protocol):
+class SelectToolView(_ViewProto, Protocol):
     """The view surface SelectTool depends on (qt-ports §4 pattern).
 
-    Deliberately a *narrower*, Qt-free sibling of ``gui.board_view_tool.
-    AbstractBoardView`` (same rationale as ``ControllerTool``'s ``_ViewProto``)
-    — this tool needs only these members, and importing the full
-    ``AbstractBoardView`` here would make ``controller`` depend on ``gui``.
+    SelectTool needs exactly the shared controller→view contract, so this is
+    just ``ControllerTool``'s :class:`_ViewProto` under a tool-local name (kept
+    for readable signatures). Any SelectTool-only view member would be added
+    here on top of the inherited base.
     """
-
-    tools: _ToolsPort
-    executor: ExecutorPort
-
-    @property
-    def camera_side(self) -> str: ...
-
-    def snap(
-        self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None
-    ) -> Point: ...
-
-    def board_pad_positions(self) -> list[Point]: ...
-
-    def refresh(self) -> None: ...
-
-    def set_active_group(self, group_id: uuid.UUID) -> None: ...
-
-    def notify_status(self, event: StatusEvent) -> None: ...
-
-    def notify_context(self, ctx: InteractionContext) -> None: ...
-
-    def window(self) -> object | None: ...
 
 
 def _segment_intersects_rect(

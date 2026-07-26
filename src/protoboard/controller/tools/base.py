@@ -7,13 +7,18 @@ from typing import TYPE_CHECKING, Callable, Mapping, Protocol
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
+    import uuid
+
     from protoboard.geometry import Point
     from protoboard.controller.editing import EditState
     from protoboard.controller.ports import (
+        ExecutorPort,
         HoverEvent,
+        InteractionContext,
         KeyInput,
         Mods,
         PointerInput,
+        StatusEvent,
         WheelInput,
     )
 
@@ -24,14 +29,57 @@ class KeyResolver(Protocol):
     def matches(self, key: int, mods: int, action_id: str) -> bool: ...
 
 
+class _ToolHostProto(Protocol):
+    """The slice of the view's tool host that controller tools drive.
+
+    ``ControllerTool`` swaps/queries the active tool through here (e.g. a
+    SelectTool arming a sub-tool). Typed ``object`` for the tool itself: the
+    controller passes ``self`` or another tool and never inspects the value's
+    concrete gui type — that keeps this Qt-free (the gui ``ToolHost`` satisfies
+    it structurally).
+    """
+
+    @property
+    def active_tool(self) -> object | None: ...
+    def set_tool(self, tool: object | None) -> None: ...
+    def get_context_at(
+        self, scene_pos: Point, view_pos: Point
+    ) -> InteractionContext: ...
+
+
 class _ViewProto(Protocol):
-    """Minimal local surface ``ControllerTool`` needs from the view.
+    """The view surface ``ControllerTool`` (and its subclasses) depend on.
 
     Deliberately not ``AbstractBoardView`` (declared in ``gui`` — importing it
-    here would make ``controller`` depend on ``gui``).
+    here would make ``controller`` depend on ``gui``, which
+    ``tests/unit/test_controller_no_gui_import.py`` forbids). Instead it
+    re-declares exactly the members the controller tools call, using only
+    types available in the controller layer. ``AbstractBoardView`` (gui)
+    satisfies it structurally; a parity test
+    (``tests/unit/test_view_proto_parity.py``) guards against drift.
     """
 
     keymap: KeyResolver
+    executor: ExecutorPort
+    tools: _ToolHostProto
+
+    @property
+    def camera_side(self) -> str: ...
+
+    def snap(
+        self,
+        scene_pt: Point,
+        exclude_ids: frozenset[uuid.UUID] | None = None,
+    ) -> Point: ...
+    def is_locked_pin(self, scene_pt: Point, tol: float = 0.6) -> bool: ...
+    def board_pad_positions(self) -> list[Point]: ...
+    def refresh(self) -> None: ...
+    def set_active_group(self, group_id: uuid.UUID) -> None: ...
+    def mark_board_layer_dirty(self) -> None: ...
+    def notify_status(self, event: StatusEvent) -> None: ...
+    def notify_context(self, ctx: InteractionContext) -> None: ...
+    def notify_controller_state(self, state: str) -> None: ...
+    def window(self) -> object | None: ...
 
 
 class ControllerTool:
