@@ -473,6 +473,7 @@ class TestSchemaBodyOffsetUnwrap:
             {"name": "prism", "abstract": True, "shape": "prism"},
             {"name": "P", "extends": "prism", "dims": dims,
              "leads": dict(leads)}])["P"]
+        assert isinstance(with_schema, Prism) and isinstance(no_schema, Prism)
         assert (with_schema.leads.body_offset_mm
                 == no_schema.leads.body_offset_mm)
 
@@ -529,7 +530,8 @@ class TestDimsValidation:
         with capture_logs() as logs:
             pkgs = load_packages(self._prism(
                 {"width": 3.5, "length": 8.5, "heigth": 10}))
-        assert pkgs["P1"].width_mm == 3.5
+        p1 = pkgs["P1"]
+        assert isinstance(p1, Prism) and p1.width_mm == 3.5
         assert any(e["event"] == "package.unknown_dims_key"
                    and e.get("key") == "heigth" for e in logs)
 
@@ -552,4 +554,5 @@ class TestDimsValidation:
     def test_dims_less_prism_stays_legal(self) -> None:
         # No dims at all = "derive from pins/margin" — the generator path.
         pkgs = load_packages(self._prism({}))
-        assert pkgs["P1"].width_mm is None
+        p1 = pkgs["P1"]
+        assert isinstance(p1, Prism) and p1.width_mm is None

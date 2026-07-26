@@ -23,6 +23,7 @@ from protoboard.gui.footprint_choice import (
     KindVariantView,
     ParamSpec,
 )
+from protoboard.domain.components.package.shapes import Prism
 from protoboard.services.library.loader import load_library
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
@@ -262,6 +263,7 @@ class TestProviderKindParams:
         assert address is not None and "/" in address
         variant = resolve_variant(families, address)
         assert variant is not None
+        assert isinstance(variant.package, Prism)
         assert variant.package.kind == "pin_header"
         # 2×6 header: dual-row geometry (shorter along the row than 1×6).
         assert variant.package.bbox().height < 6
@@ -311,7 +313,8 @@ class TestRecentVariants:
         assert [v.address for v in views] == [built]
         # The rebuild registered the family, so confirming the row resolves.
         variant = resolve_variant(families, built)
-        assert variant is not None and variant.package.kind == "pin_header"
+        assert variant is not None and isinstance(variant.package, Prism)
+        assert variant.package.kind == "pin_header"
 
     def test_remembered_parameters_follow_the_pin_count(
         self, tmp_path

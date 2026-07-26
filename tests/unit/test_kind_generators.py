@@ -161,7 +161,7 @@ class TestBuiltinDispatch:
 
     def test_jst_single_row_color(self) -> None:
         pkg = build_kind_package("jst", GeneratorContext(pin_count=3)).package
-        assert pkg is not None and pkg.color == "#dddddd"
+        assert isinstance(pkg, Prism) and pkg.color == "#dddddd"
 
     def test_unknown_kind_raises(self) -> None:
         with pytest.raises(PackageDefError):
@@ -173,7 +173,7 @@ class TestResiduals:
     def test_missing_required_returns_residual(self, scratch_registry) -> None:
         class Needs(PackageGenerator):
             generates = "_t_needs"
-            params = parse_schema(
+            code_params = parse_schema(
                 {"width": {"type": "float", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -190,7 +190,7 @@ class TestResiduals:
 
         class Holey(PackageGenerator):
             generates = "_t_hole"
-            params = parse_schema({"rows": {"type": "int", "default": 1}})
+            code_params = parse_schema({"rows": {"type": "int", "default": 1}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 seen.update(ctx.values)
@@ -213,7 +213,7 @@ class TestResiduals:
                 return ctx.with_residual(ResidualKind("sil", {}))
 
         out = build_kind_package("_t_redir", GeneratorContext(pin_count=4))
-        assert out.package is not None
+        assert isinstance(out.package, Prism)
         assert out.package.kind == "sil"          # stamped as the final kind
         assert out.package.lineage == ("prism", "sil")
 
@@ -222,7 +222,7 @@ class TestResiduals:
     ) -> None:
         class Target(PackageGenerator):
             generates = "_t_target"
-            params = parse_schema(
+            code_params = parse_schema(
                 {"depth": {"type": "float", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -272,7 +272,7 @@ class TestPluginDiscovery:
         assert is_kind("_t_plugin_kind")
         pkg = build_kind_package(
             "_t_plugin_kind", GeneratorContext(pin_count=3)).package
-        assert pkg is not None and pkg.kind == "_t_plugin_kind"
+        assert isinstance(pkg, Prism) and pkg.kind == "_t_plugin_kind"
 
     def test_broken_plugin_is_skipped(self, tmp_path: Path) -> None:
         plug_dir = tmp_path / "generators"
@@ -298,7 +298,7 @@ class TestLoaderIntegration:
             "    package: {kind: pin_header, rows: 2}\n"
         ))
         defn = lib.get("HDR_2x3")
-        assert defn is not None and defn.package is not None
+        assert defn is not None and isinstance(defn.package, Prism)
         assert defn.package.kind == "pin_header"
         from protoboard.domain.components.package.kind import (
             is_generic_package,
@@ -310,7 +310,7 @@ class TestLoaderIntegration:
     ) -> None:
         class NeedsRows(PackageGenerator):
             generates = "_t_pending"
-            params = parse_schema(
+            code_params = parse_schema(
                 {"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -324,7 +324,7 @@ class TestLoaderIntegration:
             "    package: {kind: _t_pending}\n"
         ))
         defn = lib.get("PART_X")
-        assert defn is not None and defn.package is not None
+        assert defn is not None and isinstance(defn.package, Prism)
         # The placeholder keeps generic semantics (DRC / bend consumers)...
         from protoboard.domain.components.package.kind import (
             GENERIC_PACKAGE_KIND,
@@ -380,7 +380,7 @@ class TestChainDriver:
             GeneratorContext(pin_count=4,
                              values={"dims": {"length": AUTO}}),
         )
-        assert out.package is not None
+        assert isinstance(out.package, Prism)
         # The compute step resolved the auto hole; the final step saw it.
         assert record["seen_length"] == pytest.approx(4 * 2.54)
         # The built body is stamped with the FINAL kind.
@@ -400,7 +400,7 @@ class TestChainDriver:
     def test_single_kind_string_unchanged(self, scratch_registry) -> None:
         # Back-compat: a plain string is a one-step chain.
         out = build_kind_package("sil", GeneratorContext(pin_count=3))
-        assert out.package is not None and out.package.kind == "sil"
+        assert isinstance(out.package, Prism) and out.package.kind == "sil"
 
     def test_compute_step_must_not_build_a_package(
         self, scratch_registry
@@ -423,7 +423,7 @@ class TestChainDriver:
     ) -> None:
         class NeedsX(PackageGenerator):
             generates = "_t_needsx"
-            params = parse_schema({"x": {"type": "int", "required": True}})
+            code_params = parse_schema({"x": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("required missing — must not run")
@@ -442,7 +442,7 @@ class TestChainDriver:
 
         class FinalNeeds(PackageGenerator):
             generates = "_t_finalneeds"
-            params = parse_schema({"rows": {"type": "int", "required": True}})
+            code_params = parse_schema({"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("required missing — must not run")
@@ -472,7 +472,7 @@ class TestChainDriver:
             "    package: {kind: [_t_dims, _t_body]}\n"
         )
         defn = load_library([tmp_path], package_families={}).get("PART_CHAIN")
-        assert defn.package is not None
+        assert isinstance(defn.package, Prism)
         assert defn.package.kind == "_t_body"
         assert record["seen_length"] == pytest.approx(6 * 2.54)
 
@@ -486,7 +486,7 @@ class TestPartialKindFootprintOption:
     def _register_needs_rows(self) -> None:
         class NeedsRows(PackageGenerator):
             generates = "_t_optpending"
-            params = parse_schema(
+            code_params = parse_schema(
                 {"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -518,7 +518,7 @@ class TestPartialKindFootprintOption:
         defn = self._load(tmp_path).get("PART_OPT")
         assert len(defn.footprints) == 1
         opt = defn.footprints[0]
-        assert opt.package is not None
+        assert isinstance(opt.package, Prism)
         # Generic semantics preserved (geometry is the synthetic bbox)...
         assert is_generic_package(opt.package)
         assert GENERIC_PACKAGE_KIND in opt.package.lineage
@@ -655,7 +655,7 @@ class TestDeclarativeNodes:
             "    package: {kind: dip_ic}\n"
         )
         defn = load_library([tmp_path], package_families={}).get("IC_8")
-        assert defn.package is not None
+        assert isinstance(defn.package, Prism)
         assert defn.package.kind == "dip_ic"
         assert defn.package.color == "#2b2b30"
         assert defn.package.lineage == (

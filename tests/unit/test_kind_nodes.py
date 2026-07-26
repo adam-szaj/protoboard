@@ -188,7 +188,7 @@ class TestNodeBuild:
         register_kind_node("_t_nodekind", registry)
         pkg = build_kind_package(
             "_t_nodekind", GeneratorContext(pin_count=2)).package
-        assert pkg is not None and pkg.color == "#abcdef"
+        assert isinstance(pkg, Prism) and pkg.color == "#abcdef"
 
     def test_unresolved_auto_is_a_loud_error(
         self, scratch_registries
@@ -241,7 +241,7 @@ class TestLibraryPackagesSection:
             "    package: {kind: _t_libnode}\n"
         )
         defn = load_library([tmp_path], package_families={}).get("PART_NODE")
-        assert defn.package is not None
+        assert isinstance(defn.package, Prism)
         assert defn.package.kind == "_t_libnode"
         assert defn.package.color == "#654321"
         assert defn.package.lineage[-1] == "_t_libnode"
