@@ -46,7 +46,7 @@ def _place(
 
 
 def _press(
-    tool: SelectTool, x: float, y: float,
+    tool: _Tool, x: float, y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     tool.on_press(pointer(x, y, mods=mods))
@@ -56,12 +56,12 @@ def _move(tool: SelectTool, x: float, y: float) -> None:
     tool.on_move(pointer(x, y))
 
 
-def _release(tool: SelectTool, x: float, y: float) -> None:
+def _release(tool: _Tool, x: float, y: float) -> None:
     tool.on_release(pointer(x, y))
 
 
 def _click(
-    tool: SelectTool, x: float, y: float,
+    tool: _Tool, x: float, y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     """Press + release at the same point — a click (no drag)."""

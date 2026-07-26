@@ -123,7 +123,9 @@ def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> Non
         id=uuid.uuid4(), definition_ref="NE555", refdes="U1", value="NE555",
     ).bind(defn, families)
     fp = resolved_footprint(defn, inst, families)
-    along, across = lead_axis_extents(fp.package)
+    pkg = inst.resolved_package()
+    assert pkg is not None
+    along, across = lead_axis_extents(pkg)
     assert along > across  # sanity: DIP-8 is long along the pin-row axis
 
     captured: dict[str, float] = {}

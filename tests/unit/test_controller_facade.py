@@ -10,6 +10,7 @@ by *action id* — never by touching a key. Mirrors the fixture pattern of
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from protoboard.domain.board.board import Board
@@ -73,7 +74,7 @@ class _DeleteSelectedTool(ControllerTool):
 
     ACTION_ID = "delete-selected-tool.action.delete"
 
-    def command_table(self) -> dict[str, object]:
+    def command_table(self) -> dict[str, Callable[[], object]]:
         return {self.ACTION_ID: self._delete}
 
     def _delete(self) -> bool:

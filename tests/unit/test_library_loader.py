@@ -633,8 +633,12 @@ class TestMigratedICs:
         assert prism.kind == "dip_ic"
         # The declared kind dispatches the DIP-IC renderer (notched body).
         assert renderer_for(prism) is DipIcRenderer
+        # White-box: _silhouette lives on PrismRenderer (DipIcRenderer's base);
+        # the @register_renderer TypeVar widens the decorated class back to
+        # type[PackageRenderer] for pyright, hiding the subtype method.
         assert isinstance(
-            DipIcRenderer(prism)._silhouette(prism), DipSilhouette)
+            DipIcRenderer(prism)._silhouette(prism),  # pyright: ignore[reportAttributeAccessIssue]
+            DipSilhouette)
         # DIP-28 parts are wide.
         wide = lib.get("ATmega328P").package
         assert wide is not None

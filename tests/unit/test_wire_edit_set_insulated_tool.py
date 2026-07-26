@@ -9,6 +9,8 @@ full-span delete (whole wire gone, no survivors) still exits.
 """
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from protoboard.controller.selection.wire_edit import WireRange
@@ -212,8 +214,9 @@ def test_insulate_key_registered_and_claimed_during_wait(
     assert tool.key_actions()["select-tool.action.set_insulated_fragment"] == "I"
     claims = dict((aid, pred) for aid, pred in tool.key_claims())
     assert "select-tool.action.set_insulated_fragment" in claims
-    # Claimed while armed:
-    tool._wire_edit = object()
+    # Claimed while armed: the claim predicate only checks _wire_edit is not
+    # None, so a non-None sentinel suffices (cast to satisfy the typed slot).
+    tool._wire_edit = cast("WireRange", object())
     tool._awaiting_repick = False
     assert claims["select-tool.action.set_insulated_fragment"]() is True
     # Claimed while awaiting re-pick (globals must stay blocked):

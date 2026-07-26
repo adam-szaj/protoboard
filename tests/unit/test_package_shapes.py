@@ -30,7 +30,7 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.package.solver import MountOrientation
 from protoboard.geometry import Insets, Point, Vector, Vector3D
 
-from geometry_utils import _pt, _ve
+from geometry_utils import _pt
 
 
 def _steps_mm(raw: list, unit: float) -> tuple[Vector, ...]:
@@ -320,7 +320,7 @@ class TestFlipTransform:
         leads = Leads(
             direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
             body_offset_mm=(Vector(2.5, 0.0), Vector(2.5, 0.0)),
-            board_offset=(_ve(1.0, 0.0), _ve(1.0, 0.0)),
+            board_offset=(Vector(1.0, 0.0), Vector(1.0, 0.0)),
             lead_r_mm=0.25,
         )
         return Cylinder(

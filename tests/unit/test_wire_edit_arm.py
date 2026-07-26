@@ -22,6 +22,7 @@ from typing import cast
 import pytest
 
 from protoboard.controller.editing.wire_edit_arm import WireEditArm
+from protoboard.types import Side
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
     WireRange,
@@ -44,7 +45,7 @@ _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
 
 
 def _wire(
-    *pts: tuple[float, float], insulated: bool = False, side: str = "bottom"
+    *pts: tuple[float, float], insulated: bool = False, side: Side = "bottom"
 ) -> Wire:
     return Wire(
         id=uuid.uuid4(),

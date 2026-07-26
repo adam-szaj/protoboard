@@ -208,10 +208,12 @@ class TestOfferedBodyFamilies:
         from protoboard.domain.components.package.kind import (
             synth_generic_package,
         )
+        pkg = synth_generic_package(SIL(n=2))
+        assert pkg is not None  # SIL(n=2) always has pins → a real package
         defn = ComponentDefinition(
             name="R", pin_names={},
             component_class=ComponentClass.RESISTOR,
-            package=synth_generic_package(SIL(n=2)),
+            package=pkg,
         )
         offered = offered_body_families(defn, self._two_pin_catalogue())
         assert [f.family_id for f in offered] == ["sil-2"]

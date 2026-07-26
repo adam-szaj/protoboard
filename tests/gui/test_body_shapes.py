@@ -1517,7 +1517,7 @@ class TestSmdChipBody:
         base = _smd_chip_package()
         assert isinstance(base, Prism)
         pkg = dataclasses.replace(base, lineage=("prism", "prism_smd"))
-        items = PackageBody(pkg).draw(
+        items, _labels = PackageBody(pkg).draw(
             _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
         assert len(items) == 3           # body + 2 caps
         body, cap_a, cap_b = items
