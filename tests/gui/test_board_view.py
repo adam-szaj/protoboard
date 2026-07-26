@@ -183,8 +183,12 @@ class TestBoardSandwichCache:
         # (If render failed silently the test still passes — we mainly
         # assert the hidden-items list got populated.)
         if board_view.paint._back_cache is not None:
-            assert wire_group in board_view.paint._back_hidden_items
-            assert wire_group.isVisible() is False
+            # A wire renders as a front group + top-level back sibling; the
+            # bottom wire's content lives in the back sibling — that is the
+            # item the sandwich cache bakes and hides.
+            back_grp = getattr(wire_group, "back", wire_group)
+            assert back_grp in board_view.paint._back_hidden_items
+            assert back_grp.isVisible() is False
 
     def test_alpha_for_board_mid_default(self) -> None:
         from protoboard.gui.layer_state import LayerState

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem, QGraphicsItem, QGraphicsItemGroup, QGraphicsLineItem,
@@ -100,6 +100,19 @@ class WireSceneGroup(QGraphicsItemGroup):
     def setPos(self, *args: object) -> None:  # (QPointF) or (x, y)
         super().setPos(*args)  # type: ignore[call-overload]
         self.back.setPos(*args)  # type: ignore[call-overload]
+
+    def sceneBoundingRect(self) -> QRectF:
+        """The WIRE's scene footprint — union of both groups.
+
+        A wire entirely on the far side has an empty front group; returning
+        only the front rect would make the footprint appear to move when the
+        camera flips (fragments swap groups on rebuild).
+        """
+        if not self.childItems():
+            return self.back.sceneBoundingRect()
+        if not self.back.childItems():
+            return super().sceneBoundingRect()
+        return super().sceneBoundingRect().united(self.back.sceneBoundingRect())
 
     def add_to_scene(self, scene: QGraphicsScene) -> None:
         scene.addItem(self)

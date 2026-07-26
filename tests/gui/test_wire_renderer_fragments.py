@@ -153,6 +153,25 @@ class TestBackFragmentIsOnTheBackLayer:
         assert grp.back.pos().x() == pytest.approx(3.0)
         assert grp.back.pos().y() == pytest.approx(4.0)
 
+    def test_scene_bounding_rect_covers_both_groups(
+        self, scene: QGraphicsScene
+    ) -> None:
+        """The pair's handle must report the WIRE's scene footprint.
+
+        A wire entirely on the far side has an empty front group; its
+        sceneBoundingRect must still be the wire's true rect (the back
+        sibling's), stable across camera flips — pinned by
+        test_camera_mirror_rendering.py::TestOppositeSideWireBackCache.
+        """
+        all_bottom = Wire(
+            id=uuid.uuid4(), path=[Point(1, 2), Point(5, 2)], side="bottom",
+        )
+        grp = _RenderState().render(scene, all_bottom)
+        rect = grp.sceneBoundingRect()
+        assert rect.width() >= 4.0, f"empty footprint for far-side wire: {rect}"
+        assert rect.left() <= 1.0 <= rect.right()
+        assert rect.left() <= 5.0 <= rect.right()
+
     def test_removed_wire_removes_its_back_group(
         self, scene: QGraphicsScene
     ) -> None:
