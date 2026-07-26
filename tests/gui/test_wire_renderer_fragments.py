@@ -103,6 +103,63 @@ def test_mixed_side_wire_dims_the_back_fragment(scene: QGraphicsScene) -> None:
     assert bottom_alpha < top_alpha
 
 
+def test_camera_side_fragment_is_full_alpha_even_when_wire_starts_far(
+    scene: QGraphicsScene,
+) -> None:
+    """A fragment on the CAMERA side must render at full alpha regardless of
+    which side the wire's FIRST fragment is on.
+
+    Regression: the builder pre-dimmed the base colour by fragments[0]'s
+    alpha and the per-fragment correction only ever dimmed further — so a
+    front-side fragment of a wire that starts on the far side inherited the
+    far side's dimness.
+    """
+    from protoboard.domain.layout.wire import Fragment
+
+    starts_far = Wire(
+        id=uuid.uuid4(),
+        fragments=[
+            Fragment(path=[Point(0, 0), Point(2, 0)], side="bottom"),
+            Fragment(path=[Point(2, 0), Point(4, 0)], side="top"),
+        ],
+    )
+    grp = _RenderState().render(scene, starts_far)
+    top_alpha = _min_pen_alpha_at(grp, round(Z_FRONT_WIRES))
+    assert top_alpha == pytest.approx(1.0), (
+        f"camera-side fragment dimmed to {top_alpha} by the far-side start"
+    )
+
+
+def test_hidden_first_side_does_not_hide_the_other_fragments(
+    scene: QGraphicsScene,
+) -> None:
+    """wires_bottom HIDDEN must not erase a wire's TOP fragments just
+    because the wire's first fragment is on the bottom."""
+    from protoboard.domain.layout.wire import Fragment
+    from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
+
+    starts_hidden = Wire(
+        id=uuid.uuid4(),
+        fragments=[
+            Fragment(path=[Point(0, 0), Point(2, 0)], side="bottom"),
+            Fragment(path=[Point(2, 0), Point(4, 0)], side="top"),
+        ],
+    )
+    layers = LayerState(overrides=LayerOverrides(
+        wires_bottom=LayerVisibility.HIDDEN,
+    ))
+    groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
+    fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
+    update_wire_groups_v2(
+        scene, [starts_hidden], {}, groups, fingerprints, layers=layers,
+    )
+    grp = groups.get(starts_hidden.id)
+    assert grp is not None, "wire skipped entirely because its FIRST side is hidden"
+    zs = _z_levels(grp)
+    assert round(Z_FRONT_WIRES) in zs, "top fragment missing"
+    assert round(Z_BACK_WIRES) not in zs, "hidden bottom fragment was drawn"
+
+
 def test_mixed_side_wire_has_via_marker_per_transition(
     scene: QGraphicsScene,
 ) -> None:

@@ -137,8 +137,14 @@ def wire_fingerprint_v2(
     z_base: float,
     base_alpha: float = 1.0,
     is_bold: bool = False,
+    side_alphas: tuple[float, float] | None = None,
 ) -> tuple[object, ...]:
     """Fingerprint for a v2 Wire — accounts for every fragment's side+path.
+
+    ``side_alphas`` is the (top, bottom) wire-alpha pair — per-fragment
+    colour depends on both sides' alphas, so a layer-visibility change on
+    EITHER side must rebuild a mixed wire even when the first fragment's
+    side (and thus ``base_alpha``/``z_base``) is unaffected.
 
     The whole wire is one render group, so a single rebuild trigger
     captures all fragments at once.  ``z_base``/``base_alpha`` come from
@@ -157,6 +163,7 @@ def wire_fingerprint_v2(
         round(z_base, 4),
         round(base_alpha, 4),
         is_bold,
+        side_alphas,
     )
 
 
@@ -200,37 +207,49 @@ def update_wire_groups_v2(
             and net_id == routing_target_net_id
         ):
             color_override = theme.routing_target_color
-        # Z and alpha follow the FIRST fragment's side; per-fragment Z is
-        # applied during build so other-side fragments render at the
-        # correct depth.
+        # z_base anchors the fingerprint / via-marker Z on the FIRST
+        # fragment's side; each fragment's own alpha and Z are applied
+        # during build.
         side = wire.fragments[0].side
         base_alpha = layers.alpha_for_wire(side)
         z_base = layers.z_for_wire(side)
+        side_alphas = (
+            round(layers.alpha_for_wire("top"), 4),
+            round(layers.alpha_for_wire("bottom"), 4),
+        )
+        # A wire disappears only when EVERY side it touches is hidden —
+        # hiding the first fragment's side must not erase the rest.
+        visible = any(
+            layers.alpha_for_wire(f.side) > 0.0 for f in wire.fragments
+        )
         is_bold = (
             highlighted_net_id is not None
             and net_id is not None
             and net_id == highlighted_net_id
         )
-        fp = wire_fingerprint_v2(wire, net_id, color_override, z_base, base_alpha, is_bold)
+        fp = wire_fingerprint_v2(
+            wire, net_id, color_override, z_base, base_alpha, is_bold,
+            side_alphas,
+        )
 
         if wire.id in existing_groups:
             if existing_fingerprints.get(wire.id) != fp:
                 _remove_wire_group(scene, existing_groups.pop(wire.id))
                 existing_fingerprints.pop(wire.id, None)
-                if base_alpha == 0.0:
+                if not visible:
                     continue
                 grp = _build_wire_group_v2(
-                    wire, net_id, color_override, base_alpha, z_base, theme,
+                    wire, net_id, color_override, z_base, theme,
                     layers, glow=False, bold=is_bold,
                 )
                 grp.add_to_scene(scene)
                 existing_groups[wire.id] = grp
                 existing_fingerprints[wire.id] = fp
         else:
-            if base_alpha == 0.0:
+            if not visible:
                 continue
             grp = _build_wire_group_v2(
-                wire, net_id, color_override, base_alpha, z_base, theme,
+                wire, net_id, color_override, z_base, theme,
                 layers, glow=False, bold=is_bold,
             )
             grp.add_to_scene(scene)
@@ -245,7 +264,6 @@ def _build_wire_group_v2(
     wire: Wire,
     net_id: uuid.UUID | None,
     color_override: str | None,
-    alpha: float,
     z_base: float,
     theme: Theme,
     layers: LayerState,
@@ -259,23 +277,27 @@ def _build_wire_group_v2(
     grp = WireSceneGroup()
     front_side = layers.front_side()
     color = _net_color(net_id, color_override, theme)
-    if alpha < 1.0:
-        color = _dim(color, alpha)
 
     for frag in wire.fragments:
+        # Each fragment's alpha comes from ITS OWN side, applied to the
+        # undimmed base colour — never derived from fragments[0]'s alpha,
+        # which would dim a camera-side fragment of a wire that starts on
+        # the far side.
+        frag_alpha = layers.alpha_for_wire(frag.side)
+        if frag_alpha == 0.0:
+            continue  # this side is hidden; other fragments still render
         pts = list(frag.path)
         # The fragment's own side decides which top-level group (and thus
         # which scene Z layer) its items land in.
         target = grp if frag.side == front_side else grp.back
-        frag_alpha = layers.alpha_for_wire(frag.side)
         frag_z = layers.z_for_wire(frag.side)
         frag_color = QColor(color)
         if frag_alpha < 1.0:
-            frag_color = _dim(frag_color, frag_alpha / max(alpha, 1e-6))
+            frag_color = _dim(frag_color, frag_alpha)
 
         if glow:
             glow_color = _net_color(net_id, color_override, theme)
-            glow_color.setAlphaF(theme.route_glow_wire_alpha * alpha)
+            glow_color.setAlphaF(theme.route_glow_wire_alpha * frag_alpha)
             glow_pen = QPen(glow_color, theme.route_glow_wire_width)
             glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
@@ -359,15 +381,15 @@ def _draw_wire(
     net_alpha: float = 1.0,
     glow: bool = False,
 ) -> None:
-    # Same base-side convention as update_wire_groups_v2: alpha/Z anchor on
-    # the first fragment's side; per-fragment side is applied during build.
-    side = wire.fragments[0].side
-    alpha = layers.alpha_for_wire(side)
-    if alpha * net_alpha == 0.0:
+    # Same conventions as update_wire_groups_v2: z anchors on the first
+    # fragment's side; each fragment's own alpha/Z are applied during build,
+    # and the wire disappears only when every side it touches is hidden.
+    visible = any(layers.alpha_for_wire(f.side) > 0.0 for f in wire.fragments)
+    if not visible or net_alpha == 0.0:
         return
-    z_base = layers.z_for_wire(side)
+    z_base = layers.z_for_wire(wire.fragments[0].side)
     grp = _build_wire_group_v2(
-        wire, net_id, color_override, alpha, z_base, theme, layers, glow=glow,
+        wire, net_id, color_override, z_base, theme, layers, glow=glow,
     )
     grp.setOpacity(net_alpha)
     grp.add_to_scene(scene)

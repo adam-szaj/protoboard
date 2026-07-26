@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side the moment `[I]` split the same wire. Cross-wire reroute's new
   segment likewise takes the live side at the pick start.
 
+- A wire fragment's alpha now follows its OWN side, not the side the wire
+  starts on: a fragment on the camera side renders at full alpha even when
+  the wire's first fragment is on the far side (it used to inherit the far
+  side's dim). Hiding one wires layer no longer erases a mixed wire's
+  fragments on the other side, and a visibility change on either side
+  correctly rebuilds the wire.
+
 - A back-side wire fragment now genuinely stacks under the board layer:
   each wire renders as two top-level scene groups (front + back sibling,
   kept in lockstep for drag/highlight), because children of one
