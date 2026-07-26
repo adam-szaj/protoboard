@@ -1383,6 +1383,15 @@ class MainWindow(QMainWindow):
             return  # cancelled or worker error already logged
         recent_projects.add(path)
 
+        # save_project canonicalised the LIVE layout in place (endpoint
+        # split/merge — touching same-insulation wires may have fused into
+        # one).  Resync the session caches, panels and scene with the
+        # mutated model; without this, hit-test keeps resolving the
+        # pre-save wire ids and only the fused wire's winning-id section
+        # stays selectable.  mark_clean() below re-clears the dirty flag
+        # this emit sets.
+        self._session.layout_changed.emit()
+
         self._session.mark_clean()
         commit_status = self._commit_save(path)
         self._status.showMessage(f"Saved to {path}{commit_status}", 4000)

@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   side the moment `[I]` split the same wire. Cross-wire reroute's new
   segment likewise takes the live side at the pick start.
 
+- Saving resyncs the session with the canonicalised layout: `save_project`
+  fuses touching same-insulation wires in place, but the save handler never
+  emitted `layout_changed` — hit-test and the hover highlight kept resolving
+  the pre-save wire ids, so only one section of a save-merged wire stayed
+  selectable until some unrelated edit refreshed the caches.
+
 - A wire fragment's alpha now follows its OWN side, not the side the wire
   starts on: a fragment on the camera side renders at full alpha even when
   the wire's first fragment is on the far side (it used to inherit the far

@@ -390,3 +390,41 @@ class TestWireEditToolConsecutiveOps:
 
         # Both ops landed real commands on the stack.
         assert len(session.stack._undo) == n_before + 2  # type: ignore[attr-defined]
+
+
+class TestWireEditOpsResyncSessionCaches:
+    """Pin the notify contract: every wire-edit op fires ``notify_changed``.
+
+    A wire-edit op that replaces wires ([I] on a sub-range splits one wire
+    into up to three) must leave ``wire_spatial_index`` describing the NEW
+    pieces — otherwise hit-test (and the hover highlight) misses them until
+    some unrelated op emits ``layout_changed``.
+    """
+
+    def test_insulate_split_resyncs_wire_spatial_index(
+        self, session: EditorSession
+    ) -> None:
+        # Mirror the production wiring: BoardView/MainWindow connect
+        # layout_changed -> invalidate_graph; the headless fake does not.
+        session.layout_changed.connect(session.invalidate_graph)
+        view = _headless(session)
+        wire = _detour_wire(session)          # insulated=True
+        session.wire_spatial_index()          # warm the cache pre-op
+        tool = _arm_range(view, wire, 1, 3)   # sub-range → split on [I]
+
+        tool._set_insulated_fragment()        # toggle → bare → 3-way split
+
+        live_ids = {w.id for w in session.layout.wires}
+        assert wire.id not in live_ids, "original wire should be replaced"
+        indexed = {
+            wid
+            for ids in session.wire_spatial_index().values()
+            for wid in ids
+        }
+        assert indexed <= live_ids, (
+            f"spatial index holds dead wire ids: {indexed - live_ids}"
+        )
+        assert live_ids <= indexed, (
+            f"new wire pieces missing from the spatial index: "
+            f"{live_ids - indexed}"
+        )
