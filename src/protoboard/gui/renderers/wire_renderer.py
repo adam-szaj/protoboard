@@ -68,166 +68,6 @@ def _dim(color: QColor, opacity: float) -> QColor:
     return c
 
 
-def wire_fingerprint(
-    wire: Wire,
-    net_id: uuid.UUID | None,
-    color_override: str | None,
-    z_base: float,
-    base_alpha: float = 1.0,
-    is_bold: bool = False,
-) -> tuple[object, ...]:
-    """Stable key capturing structural/connectivity inputs for one wire.
-
-    Net-alpha dim (the ``highlight_dim_wires`` reduction for non-highlighted
-    nets) is applied via setOpacity and stays out of the fingerprint.
-    ``is_bold`` IS in the fingerprint — bold is encoded in pen widths on
-    scene items, so a rebuild is required to apply or remove it.
-    base_alpha is included so layer visibility changes trigger a rebuild.
-    """
-    return (
-        tuple((p.x, p.y) for p in wire.path),
-        wire.insulated,
-        wire.side,
-        net_id,
-        color_override,
-        round(z_base, 4),
-        round(base_alpha, 4),
-        is_bold,
-    )
-
-
-def update_wire_groups(
-    scene: QGraphicsScene,
-    wires: list[Wire],
-    wire_net_map: dict[uuid.UUID, uuid.UUID],
-    existing_groups: dict[uuid.UUID, QGraphicsItemGroup],
-    existing_fingerprints: dict[uuid.UUID, tuple[object, ...]],
-    net_color_map: dict[uuid.UUID, str | None] | None = None,
-    theme: Theme = DEFAULT_THEME,
-    layers: LayerState = _DEFAULT_LAYERS,
-    highlighted_net_id: uuid.UUID | None = None,
-    routing_target_net_id: uuid.UUID | None = None,
-) -> None:
-    """Create/update/remove per-wire QGraphicsItemGroups without full scene clear.
-
-    Groups whose fingerprint is unchanged are left untouched.
-    Removed wires have their group removed from the scene.
-    New or changed wires get a freshly-built group.
-    """
-    new_ids = {w.id for w in wires}
-
-    # Remove groups for wires that no longer exist.
-    for wid in list(existing_groups):
-        if wid not in new_ids:
-            scene.removeItem(existing_groups.pop(wid))
-            existing_fingerprints.pop(wid, None)
-
-    for wire in wires:
-        net_id = wire_net_map.get(wire.id)
-        color_override: str | None = (
-            net_color_map.get(net_id) if net_id is not None and net_color_map else None
-        )
-        # Routing target neon — overrides whatever colour we'd otherwise
-        # pick.  Applies to every wire belonging to the active routing
-        # net, regardless of palette / manual net.color.
-        is_routing_target = (
-            routing_target_net_id is not None
-            and net_id is not None
-            and net_id == routing_target_net_id
-        )
-        if is_routing_target:
-            color_override = theme.routing_target_color
-        side = wire.side  # type: ignore[assignment]
-        base_alpha = layers.alpha_for_wire(side)
-        z_base = layers.z_for_wire(side)
-        # Tier-1 bold for wires belonging to the highlighted net.
-        is_bold = (
-            highlighted_net_id is not None
-            and net_id is not None
-            and net_id == highlighted_net_id
-        )
-        fp = wire_fingerprint(wire, net_id, color_override, z_base, base_alpha, is_bold)
-
-        if wire.id in existing_groups:
-            grp = existing_groups[wire.id]
-            if existing_fingerprints.get(wire.id) != fp:
-                # Structure changed — rebuild.
-                scene.removeItem(existing_groups.pop(wire.id))
-                existing_fingerprints.pop(wire.id, None)
-                if base_alpha == 0.0:
-                    continue
-                grp = _build_wire_group(
-                    wire, net_id, color_override, base_alpha, z_base, theme,
-                    glow=False, bold=is_bold,
-                )
-                scene.addItem(grp)
-                existing_groups[wire.id] = grp
-                existing_fingerprints[wire.id] = fp
-        else:
-            if base_alpha == 0.0:
-                continue
-            grp = _build_wire_group(
-                wire, net_id, color_override, base_alpha, z_base, theme,
-                glow=False, bold=is_bold,
-            )
-            scene.addItem(grp)
-            existing_groups[wire.id] = grp
-            existing_fingerprints[wire.id] = fp
-            grp = existing_groups[wire.id]
-
-        # Apply non-highlighted-wire dim via opacity (cheap, no rebuild).
-        net_alpha = 1.0 if highlighted_net_id is None or is_bold else theme.highlight_dim_wires
-        grp.setOpacity(net_alpha)
-
-
-def _build_wire_group(
-    wire: Wire,
-    net_id: uuid.UUID | None,
-    color_override: str | None,
-    alpha: float,
-    z_base: float,
-    theme: Theme,
-    glow: bool,
-    bold: bool = False,
-) -> QGraphicsItemGroup:
-    """Build a QGraphicsItemGroup containing all line items for one wire.
-
-    *glow* — tier-2 highlight (reserved for direct wire selection).
-    *bold* — tier-1 highlight (routing-in-progress, Net Inspector selection).
-    Bold thickens both the core stroke (kept in the net colour) and the
-    outline (kept in its theme colour — outline distinguishes bare from
-    insulated, not nets).
-    """
-    grp = QGraphicsItemGroup()
-    pts = wire.path
-
-    color = _net_color(net_id, color_override, theme)
-    if alpha < 1.0:
-        color = _dim(color, alpha)
-
-    if glow:
-        glow_color = _net_color(net_id, color_override, theme)
-        glow_color.setAlphaF(theme.route_glow_wire_alpha * alpha)
-        glow_pen = QPen(glow_color, theme.route_glow_wire_width)
-        glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        for i in range(len(pts) - 1):
-            x1, y1 = pts[i].x, pts[i].y
-            x2, y2 = pts[i + 1].x, pts[i + 1].y
-            g = QGraphicsLineItem(x1, y1, x2, y2)
-            g.setPen(glow_pen)
-            g.setZValue(z_base - 0.1)
-            grp.addToGroup(g)
-
-    if wire.insulated:
-        _fill_insulated(grp, pts, color, z_base, theme, bold=bold)
-    else:
-        _fill_bare(grp, pts, color, z_base, theme, bold=bold)
-
-    grp.setZValue(z_base)
-    return grp
-
-
 # ---------------------------------------------------------------------------
 # v2 — Wire / Fragment-aware rendering
 # ---------------------------------------------------------------------------
@@ -275,7 +115,13 @@ def update_wire_groups_v2(
     highlighted_net_id: uuid.UUID | None = None,
     routing_target_net_id: uuid.UUID | None = None,
 ) -> None:
-    """v2 counterpart of ``update_wire_groups`` operating on ``Wire`` objects."""
+    """Create/update/remove per-wire groups without a full scene clear.
+
+    Fragment-aware: each fragment paints on its own side (alpha + Z) with a
+    via marker at every side transition.  Groups whose fingerprint is
+    unchanged are left untouched; removed wires lose their group; new or
+    changed wires get a freshly-built one.
+    """
     new_ids = {w.id for w in wires}
     for wid in list(existing_groups):
         if wid not in new_ids:
@@ -451,13 +297,17 @@ def _draw_wire(
     net_alpha: float = 1.0,
     glow: bool = False,
 ) -> None:
-    pts = wire.path
-    side = wire.side  # type: ignore[assignment]
-    alpha = layers.alpha_for_wire(side) * net_alpha
-    if alpha == 0.0:
+    # Same base-side convention as update_wire_groups_v2: alpha/Z anchor on
+    # the first fragment's side; per-fragment side is applied during build.
+    side = wire.fragments[0].side
+    alpha = layers.alpha_for_wire(side)
+    if alpha * net_alpha == 0.0:
         return
     z_base = layers.z_for_wire(side)
-    grp = _build_wire_group(wire, net_id, color_override, alpha, z_base, theme, glow)
+    grp = _build_wire_group_v2(
+        wire, net_id, color_override, alpha, z_base, theme, layers, glow=glow,
+    )
+    grp.setOpacity(net_alpha)
     scene.addItem(grp)
 
 
