@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import Qt
 
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.board_view_tool import _DefaultTool
 from protoboard.gui.keymap import (
     FinalShortcutError,
     GlobalKeyMap,
@@ -175,7 +175,7 @@ class TestMouseChords:
         assert layer.mouse_matches("WheelUp", "x-tool.action.zap")
 
 
-class _FakeTool(_Tool):
+class _FakeTool(_DefaultTool):
     def key_actions(self) -> dict[str, str | None]:
         return {
             "fake-tool.action.zap": "Z",
@@ -187,11 +187,13 @@ class _FakeTool(_Tool):
 class TestMakeKeyMapFactory:
     def test_registers_declared_actions(self) -> None:
         layer = _FakeTool().make_key_map(_base())
+        assert isinstance(layer, KeyMap)
         assert layer.resolve("fake-tool.action.zap") == "Z"
         assert layer.resolve("fake-tool.action.edit") == "E"
 
     def test_final_collision_skipped_not_fatal(self) -> None:
         layer = _FakeTool().make_key_map(_base())  # must not raise
+        assert isinstance(layer, KeyMap)
         # The offending entry is dropped; Esc keeps meaning cancel.
         assert layer.resolve("fake-tool.action.bad") == ""
         assert layer.matches(
@@ -201,4 +203,5 @@ class TestMakeKeyMapFactory:
         base = _base()
         base.set_override("fake-tool.action.zap", "K")
         layer = _FakeTool().make_key_map(base)
+        assert isinstance(layer, KeyMap)
         assert layer.resolve("fake-tool.action.zap") == "K"

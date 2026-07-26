@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtWidgets import QMessageBox, QTabWidget
 
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.board_view_tool import _DefaultTool
 from protoboard.gui.dialogs.preferences_dialog import (
     _AppShortcutsTab,
     _KeyMapTab,
@@ -32,7 +32,7 @@ def _base() -> KeyMap:
     return km
 
 
-class _FakeTool(_Tool):
+class _FakeTool(_DefaultTool):
     def key_actions(self) -> dict[str, str | None]:
         return {
             "fake-tool.action.zap": "Z",

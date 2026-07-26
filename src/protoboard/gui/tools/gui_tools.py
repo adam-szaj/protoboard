@@ -93,6 +93,16 @@ class CutTool(_CutTool, ViewToolMixin):
     make_key_map = ViewToolMixin.make_key_map
     _theme = ViewToolMixin._theme
 
+    def activate(self, session: object, view: object) -> None:
+        # Same ``object``-typed signature as every sibling tool's ``activate``
+        # (PlaceTool/RouteTool/…): the View seam (``_Tool``) types activate as
+        # ``(EditorSession, AbstractBoardView)``, which ``ControllerTool``'s
+        # Qt-free ``(EditState, _ViewProto)`` does not match — so the concrete
+        # tools re-declare it wide.  No extra activation work for CutTool.
+        from protoboard.controller.tools.base import ControllerTool
+
+        ControllerTool.activate(self, session, view)  # type: ignore[arg-type]
+
 
 class PlaceTool(_PlaceTool, ViewToolMixin):
     """PlaceTool with the default ghost/reach Qt preview + Qt conflict prompts.

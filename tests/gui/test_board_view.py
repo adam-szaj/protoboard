@@ -9,7 +9,8 @@ from PySide6.QtWidgets import QGraphicsItemGroup
 from pytestqt.qtbot import QtBot
 
 from protoboard.geometry import Point
-from protoboard.gui.board_view import BoardView, _Tool
+from protoboard.gui.board_view import BoardView
+from protoboard.gui.board_view_tool import _DefaultTool
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
 
@@ -97,7 +98,7 @@ class TestToolManagement:
     ) -> None:
         deactivated: list[bool] = []
 
-        class TrackingTool(_Tool):
+        class TrackingTool(_DefaultTool):
             def deactivate(self) -> None:
                 deactivated.append(True)
 

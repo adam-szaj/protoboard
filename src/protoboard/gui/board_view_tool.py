@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Protocol, override
+from typing import TYPE_CHECKING, Protocol, override, runtime_checkable
 
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.services.debug_trace import traced
@@ -100,8 +100,15 @@ class AbstractBoardView(Protocol):
         ...
 
     @property
-    def active_tool(self) -> BoardViewTool | None:
-        """The tool currently receiving delegated input events."""
+    def active_tool(self) -> _Tool | None:
+        """The tool currently receiving delegated input events.
+
+        Typed as the structural :class:`_Tool` (the View's tool surface), not
+        the ``BoardViewTool`` ABC: concrete tools compose ``(_XTool,
+        ViewToolMixin)`` and satisfy ``_Tool`` by shape, not by descending
+        from a single base.  ``BoardView.active_tool`` returns ``_Tool | None``
+        for the same reason, so the seam types agree.
+        """
 
     @property
     def antialiasing(self) -> bool:
@@ -427,8 +434,80 @@ class ViewToolMixin:
         return km
 
 
-class _Tool(ViewToolMixin, ControllerTool, BoardViewTool):
-    """Do-nothing default implementation every concrete tool subclasses."""
+@runtime_checkable
+class _Tool(Protocol):
+    """Structural surface the View accepts as "a tool".
+
+    The View (``set_tool``/``active_tool``/``permanent_tools``), ToolHost and
+    the Preferences keybinding tabs annotate against *this* — never the
+    concrete class.  It is a :class:`~typing.Protocol` so the real tools, which
+    compose ``(_XTool, ViewToolMixin)`` in a deliberate order that does *not*
+    nominally descend from a single concrete base (see the composition-order
+    note in ``gui/tools/gui_tools.py``), still satisfy it by *shape*.  A plain
+    ``class _Tool(...)`` forced nominal assignability and produced ~150 spurious
+    ``set_tool(SelectTool())`` argument-type errors.
+
+    ``make_key_map`` is declared LOOSE (``parent: object -> object``) to match
+    what pyright *actually resolves* for a concrete tool.  Although every tool
+    re-points ``make_key_map = ViewToolMixin.make_key_map`` at runtime, pyright
+    ignores a class-body re-point of an inherited ABC method and keeps
+    ``ControllerTool``'s ``object -> object`` as the static type (the concrete
+    tools list ``_XTool`` — hence ``ControllerTool`` — before ``ViewToolMixin``
+    in their MRO; see the composition-order note in ``gui/tools/gui_tools.py``).
+    Declaring the refined ``AbstractKeyMap -> KeyMap`` here would make every
+    concrete tool fail the structural check.
+
+    ``@runtime_checkable`` keeps ``isinstance(tool, _Tool)`` working (the
+    Preferences dialog relies on a structural guard).  It checks method
+    *presence* only, which is all the guard needs.
+    """
+
+    def activate(self, session: EditorSession, view: AbstractBoardView) -> None: ...
+    def deactivate(self) -> None: ...
+    def on_press(self, inp: PointerInput) -> bool: ...
+    def on_move(self, inp: PointerInput) -> None: ...
+    def on_release(self, inp: PointerInput) -> None: ...
+    def on_key(self, inp: KeyInput) -> bool: ...
+    def on_key_release(self, inp: KeyInput) -> None: ...
+    def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]: ...
+    def wants_key(self, inp: KeyInput) -> bool: ...
+    def key_actions(self) -> dict[str, str | None]: ...
+    def mouse_actions(self) -> dict[str, str | None]: ...
+    def mouse_dispatch(self) -> tuple[
+        tuple[str, Callable[[PointerInput | WheelInput], bool]],
+        ...,
+    ]: ...
+    def make_key_map(self, parent: object) -> object: ...
+    def displayable_action_ids(self) -> list[str]: ...
+    def on_scene_cleared(self) -> None: ...
+    def perform_context_action(
+        self, action_id: str, data: Mapping[str, object]
+    ) -> None: ...
+
+
+class _DefaultTool(ControllerTool, ViewToolMixin, BoardViewTool):
+    """Do-nothing default implementation test doubles subclass.
+
+    Concrete GUI tools do *not* descend from this — they compose
+    ``(_XTool, ViewToolMixin)`` (see ``gui/tools/gui_tools.py``).  This base
+    exists only so the handful of test tools that want a ready-made "does
+    nothing" tool can subclass and instantiate one; production annotations use
+    the :class:`_Tool` Protocol above.
+
+    The base order mirrors the concrete tools' ``(_XTool, ViewToolMixin)`` —
+    ``ControllerTool`` (the base ``_XTool``s inherit) first, ``ViewToolMixin``
+    second — so this stand-in resolves the same *static* member signatures a
+    real tool does (notably the loose ``make_key_map``), and therefore
+    satisfies the :class:`_Tool` Protocol the same way.  The real
+    ``ViewToolMixin`` implementations are re-pointed below exactly as
+    ``gui/tools/gui_tools.py`` does, so runtime behaviour is unchanged.
+    """
+
+    make_key_map = ViewToolMixin.make_key_map
+    _theme = ViewToolMixin._theme
+    on_press = ViewToolMixin.on_press
+    on_key = ViewToolMixin.on_key
+    on_key_release = ViewToolMixin.on_key_release
 
     def __init__(self) -> None:
         # Bound on activate(); set to None up-front so that pre-activate code

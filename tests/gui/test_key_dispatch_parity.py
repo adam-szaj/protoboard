@@ -22,6 +22,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
 from protoboard.gui.board_view import BoardView, _Tool
+from protoboard.gui.board_view_tool import _DefaultTool
 
 
 def _key_event(key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> QKeyEvent:
@@ -40,7 +41,7 @@ class _RecordingWindow:
         self.forwarded.append(event.key())
 
 
-class _ClaimingTool(_Tool):
+class _ClaimingTool(_DefaultTool):
     """Consumes the keys in *claimed* and records calls."""
 
     def __init__(self, claimed: set[Qt.Key]) -> None:

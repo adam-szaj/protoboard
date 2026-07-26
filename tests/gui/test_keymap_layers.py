@@ -5,16 +5,16 @@ pop on deactivate) — docs/keymap-per-tool-layer.md."""
 from __future__ import annotations
 
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.board_view_tool import _DefaultTool
 from tests.gui.input_helpers import pointer
 
 
-class _ToolA(_Tool):
+class _ToolA(_DefaultTool):
     def key_actions(self) -> dict[str, str | None]:
         return {"a-tool.action.foo": "K"}
 
 
-class _ToolB(_Tool):
+class _ToolB(_DefaultTool):
     def key_actions(self) -> dict[str, str | None]:
         return {"b-tool.action.bar": "J"}
 
@@ -58,7 +58,7 @@ class TestToolLayerLifecycle:
         assert board_view.keymap.resolve("global.action.edit") == "E"
 
 
-class _DispatchTool(_Tool):
+class _DispatchTool(_DefaultTool):
     """Two actions on one trigger — first table entry decides."""
 
     def __init__(self) -> None:
