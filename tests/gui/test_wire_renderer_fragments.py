@@ -112,6 +112,25 @@ def test_all_top_wire_single_level_no_via_markers(scene: QGraphicsScene) -> None
     assert _via_markers(grp) == []
 
 
+def test_routing_target_net_renders_in_neon(scene: QGraphicsScene) -> None:
+    """v1 parity: wires of the actively-routed net take routing_target_color."""
+    from PySide6.QtGui import QColor
+
+    from protoboard.controller.theme import DEFAULT_THEME
+
+    wire = _all_top_wire()
+    net_id = uuid.uuid4()
+    groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
+    fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
+    update_wire_groups_v2(
+        scene, [wire], {wire.id: net_id}, groups, fingerprints,
+        layers=LayerState(), routing_target_net_id=net_id,
+    )
+    neon = QColor(DEFAULT_THEME.routing_target_color).rgb()
+    pen_colors = {it.pen().color().rgb() for it in _line_items(groups[wire.id])}
+    assert neon in pen_colors
+
+
 def test_fragment_flip_rebuilds_the_group(scene: QGraphicsScene) -> None:
     """Flipping one fragment's side must invalidate the render cache.
 

@@ -273,6 +273,7 @@ def update_wire_groups_v2(
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
     highlighted_net_id: uuid.UUID | None = None,
+    routing_target_net_id: uuid.UUID | None = None,
 ) -> None:
     """v2 counterpart of ``update_wire_groups`` operating on ``Wire`` objects."""
     new_ids = {w.id for w in wires}
@@ -286,6 +287,16 @@ def update_wire_groups_v2(
         color_override: str | None = (
             net_color_map.get(net_id) if net_id is not None and net_color_map else None
         )
+        # Routing target neon — overrides whatever colour we'd otherwise
+        # pick.  Applies to every wire belonging to the active routing
+        # net, regardless of palette / manual net.color.  The override is
+        # part of the fingerprint, so entering/leaving routing rebuilds.
+        if (
+            routing_target_net_id is not None
+            and net_id is not None
+            and net_id == routing_target_net_id
+        ):
+            color_override = theme.routing_target_color
         # Z and alpha follow the FIRST fragment's side; per-fragment Z is
         # applied during build so other-side fragments render at the
         # correct depth.
