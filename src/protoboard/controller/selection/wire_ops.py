@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.geometry import Point
-    from protoboard.controller.editing.headless_session import HeadlessSession
+    from protoboard.controller.editing import EditState
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +43,7 @@ class SimplifyInputs:
     pad_index: PadIndex
 
 
-def build_simplify_inputs(session: HeadlessSession) -> SimplifyInputs:
+def build_simplify_inputs(session: EditState) -> SimplifyInputs:
     """Collect the simplify-pass inputs from session-level caches.
 
     * ``pin_positions`` — every component pin position ("don't drop a pin").

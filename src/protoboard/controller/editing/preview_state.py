@@ -118,6 +118,15 @@ class PreviewState:
 
     # -- delegated methods --------------------------------------------------
 
+    def wire_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
+        """Grid-cell → wire_id index, delegated to the live session.
+
+        Unlike :meth:`comp_spatial_index`, a component-drag preview only swaps
+        component *placements*; the wires are untouched, so the live session's
+        index still reflects them.
+        """
+        return self._live.wire_spatial_index()
+
     def wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
         return self._live.wire_by_id(wire_id)
 
