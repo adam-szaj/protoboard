@@ -1,5 +1,12 @@
 # Wire Fragment Per-Side Rendering Implementation Plan
 
+> **STATUS: COMPLETE (2026-07-26).** All 5 tasks shipped. Parity tests in
+> `tests/gui/test_wire_renderer_fragments.py`; scene_composer and the export
+> paint path render through the fragment-aware builder; v1 renderer deleted.
+> Verified: tests/gui + tests/unit green (pre-existing failures only), plus a
+> headless flip smoke — pixel diff before/after went 0 → 912 with visible
+> via markers and a recessed bottom fragment.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (or executing-plans) to implement task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Make a flipped wire fragment visible: render wires through the

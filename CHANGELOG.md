@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Wires render per-fragment side: a fragment flipped to the other layer is
+  now actually visible — it paints at its own Z and a clearly lower alpha
+  (new `wire_back_alpha`, well below the generic back dim), with a via
+  marker (light disc + dark contrast ring) at every side transition.
+  Previously the renderer flattened the whole wire to its construction-time
+  scalar side, so `[F]` in wire-edit produced a pixel-identical frame. The
+  export paint path renders per-fragment too; the dead v1 wire renderer was
+  removed so one render path remains.
+
 - Whole-wire "Flip" of a mixed-side wire now toggles each fragment
   independently (a `[top, bottom, top]` wire flips to `[bottom, top, bottom]`,
   staying mixed) instead of flattening every fragment to one layer.
