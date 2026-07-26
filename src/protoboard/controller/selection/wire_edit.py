@@ -40,7 +40,8 @@ from protoboard.domain.commands.component_cmds import (
     ReplaceWireFragmentsCommand,
     SetWireInsulatedCommand,
 )
-from protoboard.domain.layout.wire import Fragment, Wire
+from protoboard.domain.layout.wire import Fragment, Wire, fragments_for_slice
+from protoboard.types import Side
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
 
@@ -334,12 +335,13 @@ def excise_cross_wire_range(
     def _remove(wire: Wire) -> None:
         cmds.append(cast("Command[ComponentState]", RemoveWireCommand(wire_id=wire.id)))
 
-    def _add(wire: Wire, new_path: list[Point]) -> None:
+    def _add(wire: Wire, lo: int, hi: int) -> None:
+        # Fragment-style slice — keeps the live per-segment sides of a
+        # mixed wire (path-style + scalar wire.side would flatten them).
         cmds.append(add_factory(Wire(
             id=uuid.uuid4(),
-            path=new_path,
+            fragments=fragments_for_slice(wire, lo, hi),
             insulated=wire.insulated,
-            side=wire.side,
             color=wire.color,
         )))
 
@@ -354,20 +356,19 @@ def excise_cross_wire_range(
         if edit_idx == outer_idx:
             _remove(wire)
             return
-        new_path = (
-            list(wire.path[:edit_idx + 1]) if outer_idx == 0
-            else list(wire.path[edit_idx:])
-        )
         _remove(wire)
-        if len(new_path) >= 2:
-            _add(wire, new_path)
+        lo, hi = (
+            (0, edit_idx) if outer_idx == 0
+            else (edit_idx, len(wire.path) - 1)
+        )
+        if hi > lo:
+            _add(wire, lo, hi)
 
     # Start wire: keep fragment from its outer endpoint to start_idx.
     if len(ordered) == 1:
-        new_path = list(start_wire.path[:state.start_idx + 1])
         _remove(start_wire)
-        if len(new_path) >= 2:
-            _add(start_wire, new_path)
+        if state.start_idx >= 1:
+            _add(start_wire, 0, state.start_idx)
     else:
         start_outer = outer_endpoint_idx(start_wire, ordered[1])
         _keep_fragment(start_wire, state.start_idx, start_outer)
@@ -411,7 +412,12 @@ def build_reroute_command(
 
     if state.is_cross:
         start_wire = _find_wire(wires, state.start_wire_id)
-        side = start_wire.side if start_wire is not None else "bottom"
+        # Live side of the segment at the pick start — wire.side is a
+        # construction-time snapshot and goes stale after a fragment flip.
+        side = (
+            _segment_side(start_wire, state.start_idx)
+            if start_wire is not None else "bottom"
+        )
         # Inherit insulation from the rerouted wire — a bare reroute must
         # stay bare (forcing insulated=True silently changed bare wires).
         insulated = start_wire.insulated if start_wire is not None else False
@@ -475,18 +481,16 @@ def build_delete_command(
     if start == 0 and end == n - 1:
         return cast("Command[ComponentState]", RemoveWireCommand(wire_id=wire.id))
 
-    left_path = list(wire.path[:start + 1])
-    right_path = list(wire.path[end:])
     cmds: list[Command[ComponentState]] = [
         cast("Command[ComponentState]", RemoveWireCommand(wire_id=wire.id))
     ]
-    for half in (left_path, right_path):
-        if len(half) >= 2:
+    # Fragment-style halves keep the live per-segment sides of a mixed wire.
+    for lo, hi in ((0, start), (end, n - 1)):
+        if hi > lo:
             cmds.append(add_factory(Wire(
                 id=uuid.uuid4(),
-                path=half,
+                fragments=fragments_for_slice(wire, lo, hi),
                 insulated=wire.insulated,
-                side=wire.side,
                 color=wire.color,
             )))
     if len(cmds) == 1:
@@ -549,25 +553,24 @@ def build_set_insulated_range_command(
             was_cut=False,
         )
 
-    left_path = list(wire.path[:start + 1])
-    target_path = list(wire.path[start:end + 1])
-    right_path = list(wire.path[end:])
     cmds: list[Command[ComponentState]] = [
         cast("Command[ComponentState]", RemoveWireCommand(wire_id=wire.id))
     ]
     survivors: list[uuid.UUID] = []
-    for path, keep_insulated, is_survivor in (
-        (left_path, wire.insulated, True),
-        (target_path, insulated, False),
-        (right_path, wire.insulated, True),
+    # Fragment-style slices preserve each segment's live per-fragment side —
+    # a path-style rebuild with the scalar ``wire.side`` would flatten a
+    # previously flipped section back onto one layer.
+    for lo, hi, keep_insulated, is_survivor in (
+        (0, start, wire.insulated, True),
+        (start, end, insulated, False),
+        (end, n - 1, wire.insulated, True),
     ):
-        if len(path) >= 2:
+        if hi > lo:
             new_id = uuid.uuid4()
             cmds.append(add_factory(Wire(
                 id=new_id,
-                path=path,
+                fragments=fragments_for_slice(wire, lo, hi),
                 insulated=keep_insulated,
-                side=wire.side,
                 color=wire.color,
             )))
             if is_survivor:
@@ -609,7 +612,7 @@ def build_delete_range_edit(
     )
 
 
-def _segment_side(wire: Wire, seg_idx: int) -> str:
+def _segment_side(wire: Wire, seg_idx: int) -> Side:
     """Current side of the wire segment ``path[seg_idx] -> path[seg_idx+1]``.
 
     A fragment spans ``len(fragment.path) - 1`` consecutive segments; walking

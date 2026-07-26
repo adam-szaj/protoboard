@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Splitting a wire no longer flattens a mixed-side wire onto one layer:
+  set-insulated on a sub-range, sub-range delete, and cross-wire excise now
+  rebuild the pieces from the wire's live per-fragment sides (new
+  `fragments_for_slice` domain helper) instead of the construction-time
+  scalar `wire.side`. Previously a `[F]`-flipped section snapped back to one
+  side the moment `[I]` split the same wire. Cross-wire reroute's new
+  segment likewise takes the live side at the pick start.
+
 - Wires render per-fragment side: a fragment flipped to the other layer is
   now actually visible — it paints at its own Z and a clearly lower alpha
   (new `wire_back_alpha`, well below the generic back dim), with a via

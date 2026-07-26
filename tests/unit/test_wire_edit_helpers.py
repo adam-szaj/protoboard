@@ -706,5 +706,93 @@ class TestBuildFlipFragmentCommand:
         assert cmd.target_side == "bottom"
 
 
+class TestSplitPreservesFragmentSides:
+    """Splitting a mixed-side wire must keep each segment's live side.
+
+    Regression: after a fragment flip ([F]) produced ``[top, bottom, top]``,
+    a set-insulated ([I]) on the same wire rebuilt the pieces path-style with
+    the scalar ``wire.side`` (the construction-time snapshot), flattening the
+    flipped section back onto one layer.
+    """
+
+    def _mixed_wire(self) -> Wire:
+        from protoboard.domain.layout.wire import Fragment
+
+        # 5 points / 4 segments, sides: t t b t.
+        return Wire(
+            id=uuid.uuid4(),
+            fragments=[
+                Fragment(path=[Point(0, 0), Point(1, 0), Point(2, 0)], side="top"),
+                Fragment(path=[Point(2, 0), Point(3, 0)], side="bottom"),
+                Fragment(path=[Point(3, 0), Point(4, 0)], side="top"),
+            ],
+            insulated=False,
+        )
+
+    @staticmethod
+    def _seg_sides(wire: Wire) -> list[str]:
+        return [
+            f.side for f in wire.fragments for _ in range(len(f.path) - 1)
+        ]
+
+    def test_fragments_for_slice_preserves_segment_sides(self) -> None:
+        from protoboard.domain.layout.wire import fragments_for_slice
+
+        wire = self._mixed_wire()
+        frags = fragments_for_slice(wire, 1, 4)  # segments 1..3: t b t
+        assert [f.side for f in frags] == ["top", "bottom", "top"]
+        assert frags[0].path == [Point(1, 0), Point(2, 0)]
+        assert frags[1].path == [Point(2, 0), Point(3, 0)]
+        assert frags[2].path == [Point(3, 0), Point(4, 0)]
+
+    def test_set_insulated_split_keeps_mixed_sides(self) -> None:
+        wire = self._mixed_wire()
+        nm = {wire.id: uuid.uuid4()}
+        state = WireRange(wire.id, 1, wire.id, 3)  # covers segments 1 (t), 2 (b)
+        result = build_set_insulated_range_command(
+            [wire], nm, state, insulated=True
+        )
+        assert result is not None
+        assert isinstance(result.command, MacroCommand)
+        adds = [
+            c for c in result.command._commands if isinstance(c, AddWireCommand)
+        ]
+        assert len(adds) == 3
+        rebuilt = sorted(adds, key=lambda c: c.wire.path[0].x)
+        left, target, right = (c.wire for c in rebuilt)
+        assert self._seg_sides(left) == ["top"]              # segment 0
+        assert self._seg_sides(target) == ["top", "bottom"]  # segments 1..2
+        assert self._seg_sides(right) == ["top"]             # segment 3
+        assert target.insulated is True
+
+    def test_delete_split_keeps_mixed_sides(self) -> None:
+        wire = self._mixed_wire()
+        nm = _net_map(wire)
+        state = WireEditState(
+            start_wire_id=wire.id, start_idx=1,
+            end_wire_id=wire.id, end_idx=3,
+        )
+        cmd = build_delete_command([wire], nm, state)
+        assert isinstance(cmd, MacroCommand)
+        adds = [c for c in cmd._commands if isinstance(c, AddWireCommand)]
+        assert len(adds) == 2
+        halves = sorted(adds, key=lambda c: c.wire.path[0].x)
+        assert self._seg_sides(halves[0].wire) == ["top"]    # segment 0
+        assert self._seg_sides(halves[1].wire) == ["top"]    # segment 3
+        # Deleting a leading range: what remains spans the bottom fragment —
+        # its sides must be the LIVE per-segment sides, not wire.side.
+        wire2 = self._mixed_wire()
+        nm2 = _net_map(wire2)
+        state2 = WireEditState(
+            start_wire_id=wire2.id, start_idx=0,
+            end_wire_id=wire2.id, end_idx=2,
+        )
+        cmd2 = build_delete_command([wire2], nm2, state2)
+        assert isinstance(cmd2, MacroCommand)
+        adds2 = [c for c in cmd2._commands if isinstance(c, AddWireCommand)]
+        assert len(adds2) == 1
+        assert self._seg_sides(adds2[0].wire) == ["bottom", "top"]  # segs 2..3
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

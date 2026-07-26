@@ -75,6 +75,45 @@ def flatten_fragments(fragments: list[Fragment]) -> list[Point]:
     return out
 
 
+def fragments_for_slice(
+    wire: "Wire", start_idx: int, end_idx: int
+) -> list[Fragment]:
+    """Fragment list covering ``wire.path[start_idx..end_idx]`` (inclusive),
+    preserving each segment's live per-fragment side.
+
+    The named home for the side inheritance every split-style wire edit
+    (set-insulated split, sub-range delete, cross-wire excise) needs when it
+    rebuilds a slice of an existing wire as a fresh ``Wire``: constructing
+    the slice path-style with ``side=wire.side`` would flatten a mixed-side
+    wire back to its construction-time scalar side.
+
+    Consecutive same-side segments are grouped into one Fragment, so the
+    result is minimal and adjacent Fragments share their boundary vertex
+    (the via), matching the ``Wire`` chain invariant.
+    """
+    path = wire.path
+    if not (0 <= start_idx < end_idx <= len(path) - 1):
+        raise ValueError(
+            f"invalid slice [{start_idx}, {end_idx}] for path of {len(path)} points"
+        )
+    # Per-segment sides from the fragment list (a fragment covers
+    # len(fragment.path) - 1 consecutive segments).
+    seg_sides: "list[Side]" = [
+        frag.side for frag in wire.fragments for _ in range(len(frag.path) - 1)
+    ]
+    if not seg_sides:
+        seg_sides = [wire.side] * (len(path) - 1)
+    out: list[Fragment] = []
+    k = start_idx
+    while k < end_idx:
+        j = k
+        while j + 1 < end_idx and seg_sides[j + 1] == seg_sides[k]:
+            j += 1
+        out.append(Fragment(path=list(path[k:j + 2]), side=seg_sides[k]))
+        k = j + 1
+    return out
+
+
 def rebuild_fragments(
     fragments: "list[Fragment]", sides: "list[Side]"
 ) -> list[Fragment]:
