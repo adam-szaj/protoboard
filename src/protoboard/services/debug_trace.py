@@ -125,8 +125,8 @@ class _TracedWrapper:
             return self.fn(*args, **kwargs)
         _log.debug(
             f"trace.call[{self.label}]",
-            args=[_json(a) for a in args],
-            kwargs={k: _json(v) for k, v in kwargs.items()},
+            args=[_abbr(a) for a in args],
+            kwargs={k: _abbr(v) for k, v in kwargs.items()},
         )
         try:
             result = self.fn(*args, **kwargs)

@@ -31,6 +31,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
+from protoboard.services.debug_trace import traced
 from protoboard.services.drc.engine import DRCIssue
 
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ class PropertiesPanel(QWidget):
     # MainWindow translates this into HighlightStack pushes + viewport centring.
     drc_issue_clicked = Signal(object)
 
+    @traced()
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         layout = QVBoxLayout(self)
@@ -228,6 +230,7 @@ class PropertiesPanel(QWidget):
 
     # ------------------------------------------------------------------
 
+    @traced()
     def set_session(self, session: "EditorSession") -> None:
         """Bind the session and subscribe to its selection broadcasts.
 
@@ -249,6 +252,7 @@ class PropertiesPanel(QWidget):
         except (TypeError, RuntimeError):
             pass
 
+    @traced()
     def _on_session_selection(
         self, comp_ids: object, _wire_ids: object, _net_id: object
     ) -> None:
@@ -278,6 +282,7 @@ class PropertiesPanel(QWidget):
             package_families=self._session.package_families,
         )
 
+    @traced()
     def show_component(
         self,
         inst: ComponentInstance,
@@ -300,6 +305,7 @@ class PropertiesPanel(QWidget):
         )
         self._rebuild_parameters(defn, inst, package_families or {})
 
+    @traced()
     def _populate_basic_fields(
         self,
         inst: ComponentInstance,
@@ -317,6 +323,7 @@ class PropertiesPanel(QWidget):
             self._label_x_spin.setValue(placement.label_offset.x)
             self._label_y_spin.setValue(placement.label_offset.y)
 
+    @traced()
     def clear_component(self) -> None:
         self._current_id = None
         self._refdes_edit.clear()
@@ -331,6 +338,7 @@ class PropertiesPanel(QWidget):
         self._geo_table.setRowCount(0)
         self._geo_grp.setVisible(False)
 
+    @traced()
     def update_issues(self, issues: list[DRCIssue]) -> None:
         # Refreshing the list invalidates any previously selected row;
         # tell the listener to clear its highlight so we don't leave a
@@ -353,6 +361,7 @@ class PropertiesPanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, issue)
             self._drc_list.addItem(item)
 
+    @traced()
     def _on_drc_item_clicked(self, item: QListWidgetItem) -> None:
         """Toggle highlight for the clicked DRC issue.
 
@@ -376,6 +385,7 @@ class PropertiesPanel(QWidget):
     # Pin offsets section
     # ------------------------------------------------------------------
 
+    @traced()
     def _rebuild_pin_offsets(
         self,
         defn: ComponentDefinition | None,
@@ -418,6 +428,7 @@ class PropertiesPanel(QWidget):
 
         self._pin_offsets_grp.setVisible(bool(self._pin_bend_widgets))
 
+    @traced()
     def _rebuild_parameters(
         self,
         defn: ComponentDefinition | None,
@@ -459,11 +470,13 @@ class PropertiesPanel(QWidget):
             self._add_param_row(view)
         self._params_grp.setVisible(True)
 
+    @traced()
     def _clear_params_form(self) -> None:
         self._param_widgets = {}
         while self._params_form.rowCount():
             self._params_form.removeRow(0)
 
+    @traced()
     def _add_param_row(self, view: "Any") -> None:
         """One label+editor row for a FieldView (read-only signalled non-colour)."""
         from protoboard.domain.components.package.schema import FieldStatus
@@ -490,6 +503,7 @@ class PropertiesPanel(QWidget):
         self._params_form.addRow(label, edit)
         self._param_widgets[view.path] = edit
 
+    @traced()
     def _update_geometry_table(
         self,
         placement: ComponentPlacement | None,
@@ -543,10 +557,12 @@ class PropertiesPanel(QWidget):
         self._geo_table.setMaximumHeight(min(row_h + header_h + 4, 400))
         self._geo_grp.setVisible(True)
 
+    @traced()
     def _on_bend_changed(self) -> None:
         if self._current_id is not None:
             self.pin_offsets_changed.emit(self._current_id, self._collect_pin_offsets())
 
+    @traced()
     def _collect_pin_offsets(self) -> dict[int, Vector]:
         result: dict[int, Vector] = {}
         for pin_num, widget in self._pin_bend_widgets.items():
@@ -562,6 +578,7 @@ class PropertiesPanel(QWidget):
 
     # ------------------------------------------------------------------
 
+    @traced()
     def _rebuild_pin_variant_combo(
         self,
         defn: ComponentDefinition | None,
@@ -589,11 +606,13 @@ class PropertiesPanel(QWidget):
                         break
         self._pin_variant_combo.blockSignals(False)
 
+    @traced()
     def _on_pin_variant_changed(self, index: int) -> None:
         if self._current_id is None or index < 0 or index >= len(self._pin_variant_ids):
             return
         self.pin_variant_changed.emit(self._current_id, self._pin_variant_ids[index])
 
+    @traced()
     def _rebuild_body_variant_combo(
         self,
         defn: ComponentDefinition | None,
@@ -670,6 +689,7 @@ class PropertiesPanel(QWidget):
                     break
         self._body_variant_combo.blockSignals(False)
 
+    @traced()
     def _on_package_variant_changed(self, index: int) -> None:
         if (
             self._current_id is None
@@ -681,10 +701,12 @@ class PropertiesPanel(QWidget):
             self._current_id, self._body_variant_addresses[index],
         )
 
+    @traced()
     def _on_reset_label(self) -> None:
         self._label_x_spin.setValue(0.05)
         self._label_y_spin.setValue(0.05)
 
+    @traced()
     def _populate_appearance_fields(self, appearance: Appearance | None) -> None:
         """Write *appearance* into the style fields (empty field = no override)."""
         self._shown_appearance = appearance
@@ -697,6 +719,7 @@ class PropertiesPanel(QWidget):
             " ".join(f"{v:g}" for v in radii) if radii is not None else ""
         )
 
+    @traced()
     def _collect_appearance(self) -> tuple[bool, Appearance | None]:
         """``(valid, appearance)`` from the style fields.
 
@@ -718,6 +741,7 @@ class PropertiesPanel(QWidget):
         except ValueError:
             return False, None
 
+    @traced()
     def _on_apply(self) -> None:
         if self._current_id is None:
             return
@@ -745,6 +769,7 @@ class PropertiesPanel(QWidget):
 class DRCPanel(QWidget):
     """Standalone DRC panel (kept for backward compat with session.drc_changed)."""
 
+    @traced()
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         layout = QVBoxLayout(self)
@@ -753,6 +778,7 @@ class DRCPanel(QWidget):
         self._list = QListWidget()
         layout.addWidget(self._list)
 
+    @traced()
     def update_issues(self, issues: list[DRCIssue]) -> None:
         self._list.clear()
         if not issues:
@@ -774,6 +800,7 @@ class _BendWidget(QWidget):
     """Abstract base for bend-spec controls."""
     value_changed = Signal()
 
+    @traced()
     def current_value(self) -> Vector:
         raise NotImplementedError
 
@@ -785,6 +812,7 @@ class _FreeBendWidget(_BendWidget):
     This widget just shows the current (dx, dy) and the allowed reach range.
     """
 
+    @traced()
     def __init__(self, spec: PinBendSpec, current: Vector, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._spec = spec
@@ -802,14 +830,17 @@ class _FreeBendWidget(_BendWidget):
         layout.addWidget(reach_label)
         layout.addWidget(hint)
 
+    @traced()
     def set_current(self, pt: Vector) -> None:
         self._current = pt
         self._val_label.setText(self._fmt(pt))
 
+    @traced()
     def current_value(self) -> Vector:
         return self._current
 
     @staticmethod
+    @traced()
     def _fmt(pt: Vector) -> str:
         import math as _math
         d = _math.hypot(pt.x, pt.y)

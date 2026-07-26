@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem
 
+from protoboard.services.debug_trace import traced
+
 if TYPE_CHECKING:
     from protoboard.gui.session import EditorSession
 
@@ -38,6 +40,7 @@ class TreePanelMixin:
     # Column that stores UUID data (default 0).  Override in subclass if needed.
     _id_col: int = 0
 
+    @traced()
     def refresh(self, session: "EditorSession") -> None:
         """Store session, (re)subscribe to ``selection_changed``, and rebuild.
 
@@ -62,6 +65,7 @@ class TreePanelMixin:
         self._session = session
         self._rebuild()
 
+    @traced()
     def _on_session_selection(
         self, comp_ids: object, wire_ids: object, net_id: object
     ) -> None:
@@ -72,10 +76,12 @@ class TreePanelMixin:
         """
         self.sync_selection(comp_ids, wire_ids, net_id)
 
+    @traced()
     def _rebuild(self) -> None:  # pragma: no cover
         """Populate self._tree from self._session.  Must be overridden."""
         raise NotImplementedError
 
+    @traced()
     def sync_selection(
         self,
         comp_ids: object,
@@ -108,10 +114,12 @@ class TreePanelMixin:
     # Item search helpers
     # ------------------------------------------------------------------
 
+    @traced()
     def _find_item(self, id_str: str) -> QTreeWidgetItem | None:
         """Return the first tree item whose _id_col UserRole data equals id_str."""
         col = self._id_col
 
+        @traced()
         def _search(parent: QTreeWidgetItem) -> QTreeWidgetItem | None:
             for i in range(parent.childCount()):
                 child = parent.child(i)
@@ -135,10 +143,12 @@ class TreePanelMixin:
                 return found
         return None
 
+    @traced()
     def _find_item_by_uuid(self, uid: uuid.UUID) -> QTreeWidgetItem | None:
         """Convenience wrapper: find by UUID object."""
         return self._find_item(str(uid))
 
+    @traced()
     def _select_row_by_uuid(self, uid: uuid.UUID) -> None:
         """Select and scroll to the row matching *uid*. No-op if not found."""
         item = self._find_item_by_uuid(uid)
