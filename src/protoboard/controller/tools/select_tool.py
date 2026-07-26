@@ -261,10 +261,27 @@ class SelectTool(ControllerTool):
         assert self._preview is not None  # set by activate() / injection
         return self._preview
 
+    @property
+    def _view(self) -> SelectToolView:  # type: ignore[override]
+        """The bound view, narrowed to SelectTool's own view surface.
+
+        The base stores ``_view`` as ``_ViewProto | None`` (None until
+        activate). SelectTool binds a wider :class:`SelectToolView` and only
+        ever touches it from post-activate event handlers, so this accessor
+        asserts it is set and returns the precise type all the ``self._view.*``
+        call sites need — the same idiom as :attr:`preview` above.
+        """
+        assert self.__view is not None  # set by activate()
+        return self.__view
+
+    @_view.setter
+    def _view(self, value: SelectToolView | None) -> None:
+        self.__view = value
+
     @traced()
     def activate(self, session: EditState, view: SelectToolView) -> None:
         self._session = session
-        self._view = view
+        self._view = view  # pyright: ignore[reportIncompatibleVariableOverride]
         # SelectionService / HighlightController are per-session — reuse one
         # parked on the session if present, else create and park it.
         svc = getattr(session, "selection_service", None)
@@ -871,7 +888,10 @@ class SelectTool(ControllerTool):
             self._relation = relation
             self._refresh_highlight()
             if self._session is not None:
-                self._session.highlight_mode_changed.emit(
+                # GUI-only Qt signal: only EditorSession carries it, not the
+                # Qt-free EditState protocol / HeadlessSession. Routing this
+                # through an EditState notify verb is deferred (docs/todo.md).
+                self._session.highlight_mode_changed.emit(  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
                     RELATION_LABELS[relation]
                 )
 
@@ -1305,7 +1325,9 @@ class SelectTool(ControllerTool):
         """
         # 1) Glide the dragged items to their current (already-mutated) layout
         #    positions.  _on_drag_moved reads layout.placements / wires directly.
-        self._session.drag_moved.emit()
+        # GUI-only Qt signal (see the highlight_mode_changed note above) —
+        # absent from the Qt-free EditState protocol; deferred (docs/todo.md).
+        self._session.drag_moved.emit()  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
 
         # 2) Conflict label + outline colour — cleared whenever the drop is clear.
         self._show_conflict_corner(decision)
