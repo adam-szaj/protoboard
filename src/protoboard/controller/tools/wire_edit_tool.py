@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.controller.ports import HoverEvent, KeyInput, PointerInput
     from protoboard.controller.editing import EditState
+    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.editing.wire_edit_arm import WireEditArm
     from protoboard.controller.selection.mouse_input import MouseInputController, Mods
     from protoboard.controller.selection.adapters import WireVertexSelectable
@@ -108,6 +109,8 @@ class WireEditTool(ControllerTool):
         from protoboard.controller.selection.service import SelectionService
 
         self._session = session
+        # Narrow the object-typed seam param to the controller view surface.
+        view = cast("_ViewProto", view)
         self._view = view
         # Reuse the per-session SelectionService (SelectTool parks one) so a
         # reroute pick shares the same pick registry; create + park if absent.

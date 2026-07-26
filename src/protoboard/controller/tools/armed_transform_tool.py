@@ -23,7 +23,7 @@ tool stays active — the floating-conflict feel.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from protoboard.geometry import Point
     from protoboard.controller.ports import PointerInput, WheelInput
     from protoboard.controller.editing import EditState
+    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
     from protoboard.controller.editing.armed_transform import ArmedTransform
@@ -102,6 +103,10 @@ class ArmedTransformTool(ControllerTool):
 
     def activate(self, session: EditState, view: object) -> None:
         self._session = session
+        # The View seam types activate's ``view`` as ``object`` to satisfy both
+        # the controller (_ViewProto) and GUI (AbstractBoardView) signatures;
+        # narrow to the controller surface this tool actually drives.
+        view = cast("_ViewProto", view)
         self._view = view
         self._begin_transform_args = lambda: session.edit_controller.begin_transform(
             self._comp_ids,

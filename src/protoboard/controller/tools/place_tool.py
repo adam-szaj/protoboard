@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing import EditState
     from protoboard.controller.ports import PointerInput
+    from protoboard.controller.theme import Theme
+    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.place_preview import PlacePreview
     from protoboard.controller.editing.controller import ResolvedPlacement
 
@@ -91,7 +93,7 @@ class PlaceTool(ControllerTool):
     def __init__(
         self,
         definition_ref: str,
-        existing_instance: object | None = None,
+        existing_instance: ComponentInstance | None = None,
         pin_variant: str | None = None,
         package_variant: str | None = None,
         preview: PlacePreview | None = None,
@@ -131,6 +133,34 @@ class PlaceTool(ControllerTool):
     def preview(self) -> PlacePreview:
         assert self._preview is not None  # set by activate() / injection
         return self._preview
+
+    @property
+    def prompts(self) -> PlacementPrompts:
+        assert self._prompts is not None  # set by activate() / injection
+        return self._prompts
+
+    @property
+    def _view(self) -> _ViewProto:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
+        """The bound view, narrowed away from None for the post-activate
+        event handlers (same idiom as :attr:`preview`)."""
+        assert self.__view is not None  # set by activate()
+        return self.__view
+
+    @_view.setter
+    def _view(self, value: _ViewProto | None) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
+        self.__view = value
+
+    def _theme_typed(self) -> Theme:
+        """``_theme()`` narrowed to a concrete :class:`Theme`.
+
+        The Qt-free base declares ``_theme() -> object | None``; the GUI
+        subclass re-points it to the real ``() -> Theme``. Ghost drawing only
+        runs with the real view/theme bound, so this narrows for the drawing
+        path (mirrors gui_tools._theme_fn)."""
+        from protoboard.controller.theme import Theme as _Theme
+        t = self._theme()
+        assert isinstance(t, _Theme)  # real theme bound on the GUI subclass
+        return t
 
     @traced()
     def _is_phase(self, phase: PhaseEnum) -> bool:
@@ -449,7 +479,7 @@ class PlaceTool(ControllerTool):
         import dataclasses
         families = getattr(self._session, "package_families", None)
         theme = dataclasses.replace(
-            self._theme(), package_families=families or {})
+            self._theme_typed(), package_families=families or {})
         self.preview.show_ghost(
             defn,
             rotation=self._rotation,
@@ -599,7 +629,7 @@ class PlaceTool(ControllerTool):
             package_variant=self._package_variant,
             pin_variant=self._pin_variant,
             existing_instance=self._existing_instance,
-            prompts=self._prompts,
+            prompts=self.prompts,
         )
         if resolved is None:
             _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))

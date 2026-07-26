@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.editing import EditState
+    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.ports import PointerInput
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.route_preview import RoutePreview
@@ -93,6 +94,17 @@ class RouteTool(ControllerTool):
     def preview(self) -> RoutePreview:
         assert self._preview is not None  # set by activate() / injection
         return self._preview
+
+    @property
+    def _view(self) -> _ViewProto:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
+        """The bound view, narrowed away from None for the post-activate
+        event handlers (same idiom as :attr:`preview`)."""
+        assert self.__view is not None  # set by activate()
+        return self.__view
+
+    @_view.setter
+    def _view(self, value: _ViewProto | None) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
+        self.__view = value
 
     def deactivate(self) -> None:
         self._clear_route_highlight()
