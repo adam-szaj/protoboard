@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QAbstractGraphicsShapeItem,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
@@ -495,9 +496,11 @@ def _dip8_prism() -> Prism:
     bodies of bare-footprint parts.
     """
     import dataclasses
+
+    from protoboard.domain.components.package.shapes import Prism
     prism = _prism_from_footprint(DIL(n=8, rows_spacing=3))
-    assert prism is not None
-    return dataclasses.replace(  # type: ignore[type-var]
+    assert isinstance(prism, Prism)
+    return dataclasses.replace(
         prism, lineage=("prism", "dip_ic"))
 
 
@@ -507,9 +510,10 @@ def _dip8_positions() -> list[Point]:
 
 def _sil6_prism() -> Prism:
     """The prism synthesized for a 6-pin single-row (SIL) footprint."""
+    from protoboard.domain.components.package.shapes import Prism
     prism = _prism_from_footprint(SIL(n=6))
-    assert prism is not None
-    return prism  # type: ignore[return-value]
+    assert isinstance(prism, Prism)
+    return prism
 
 
 class TestParametricDIPBody:
@@ -579,9 +583,11 @@ class TestDeclaredKindSilhouette:
         # that wins.
         from protoboard.gui.renderers.packages import PlainBodyRenderer
         from protoboard.gui.renderers.prism_silhouette import silhouette_for
+        from protoboard.domain.components.package.shapes import Prism
         pkg = _kind_pkg("dip_switch", 8)
+        assert isinstance(pkg, Prism)
         assert isinstance(silhouette_for(pkg),
-                          DipSilhouette)  # type: ignore[arg-type]
+                          DipSilhouette)
         shape = PackageBody(pkg)  # type: ignore[arg-type]
         assert type(shape) is PlainBodyRenderer
         assert shape._silhouette(pkg) is None  # type: ignore[arg-type]
@@ -1247,9 +1253,11 @@ class TestBodyShapeFor:
         # prism is built explicitly — body_shape_for no longer does this from a
         # bare footprint (it draws GenericBody; a SIL header declares a package),
         # but the prism→silhouette path that PackageBody uses is intact.
+        from protoboard.domain.components.package.shapes import Prism
         prism = _prism_from_footprint(SIL(n=6))
+        assert isinstance(prism, Prism)
         assert isinstance(silhouette_for(prism),
-                          SilSilhouette)  # type: ignore[arg-type]
+                          SilSilhouette)
 
     def test_generic_fallback_for_large_connector(self) -> None:
         # 10-pin SIL connector — no special shape.
@@ -1496,9 +1504,12 @@ class TestSmdChipBody:
         # through SmdChipRenderer: the base outline plus a light metallised
         # terminal band at each end, stacked just above the body.
         import dataclasses
-        pkg = dataclasses.replace(
-            _smd_chip_package(), lineage=("prism", "prism_smd"))
-        items = PackageBody(pkg).draw(  # type: ignore[arg-type]
+
+        from protoboard.domain.components.package.shapes import Prism
+        base = _smd_chip_package()
+        assert isinstance(base, Prism)
+        pkg = dataclasses.replace(base, lineage=("prism", "prism_smd"))
+        items = PackageBody(pkg).draw(
             _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
         assert len(items) == 3           # body + 2 caps
         body, cap_a, cap_b = items
@@ -1543,8 +1554,11 @@ class TestSmdChipBody:
         assert items  # generic bbox body, not a ValueError
         # The prism_smd caps overlay must survive the same degenerate package.
         import dataclasses
+
+        from protoboard.domain.components.package.shapes import Prism
+        assert isinstance(pkg, Prism)
         smd = dataclasses.replace(pkg, lineage=("prism", "prism_smd"))
-        assert PackageBody(smd).draw(  # type: ignore[arg-type]
+        assert PackageBody(smd).draw(
             _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
 
     def test_body_shorter_than_pad_span(self, qtbot: QtBot) -> None:
@@ -1579,7 +1593,7 @@ class TestSmdChipBody:
 class TestPackageBodyColor:
     """Body presentation (colour / edge) is read from the package."""
 
-    def _body_item(self, items: list) -> object:
+    def _body_item(self, items: list) -> QAbstractGraphicsShapeItem:
         # The body fill lives on the largest path/rect item — the silhouette /
         # capsule — not the small pin-1 marker that a prism also emits.
         bodies = [
@@ -1800,16 +1814,18 @@ class TestPackageBodyParity:
         # On a fully-rounded capsule (edge_radius = D/2) the stripe must sit on
         # the straight segment, never on the curved end cap: its outer edge is
         # at most body_len/2 - r from the centre.
+        from protoboard.domain.components.package.shapes import Cylinder
         pkg = _axial_cyl_package(edge_radius=1.25)  # D=2.5 → r = D/2
+        assert isinstance(pkg, Cylinder)
         shape = PackageBody(pkg, component_class=ComponentClass.DIODE)
         items = shape.draw(_pts((0, 0), (8, 0)), _RED, _DARK, 1.0, _Z)
         body, stripe = [
             it for it in items if isinstance(it, QGraphicsPathItem)
         ][0], [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
         mm = DEFAULT_THEME.raster_pitch_mm
-        body_len = pkg.length_mm / mm  # type: ignore[attr-defined]
+        body_len = pkg.length_mm / mm
         r = min(pkg.edge_radius_mm / mm,
-                body_len / 2.0)  # type: ignore[attr-defined]
+                body_len / 2.0)
         mid_x = 4.0  # midpoint of (0,0)-(8,0)
         stripe_right = stripe.sceneBoundingRect().right() - mid_x
         assert stripe_right <= body_len / 2.0 - r + 1e-6

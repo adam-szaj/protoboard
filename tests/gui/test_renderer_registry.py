@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from textwrap import dedent
+from typing import cast
 
 import pytest
 
@@ -113,8 +114,10 @@ class TestRendererDispatch:
 
     def test_unregistered_kind_falls_back_to_prism(self) -> None:
         import dataclasses
+
+        from protoboard.domain.components.package.shapes import Prism
         ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
-        assert ctx.package is not None
+        assert isinstance(ctx.package, Prism)
         pkg = dataclasses.replace(
             ctx.package, lineage=("prism", "no_such_kind"))
         assert renderer_for(pkg) is PrismRenderer
@@ -415,7 +418,11 @@ class TestPaintState:
             [Point(0.0, 0.0), Point(4.0, 0.0)],
             QColor("#888888"), QColor("#222222"), 1.0, 5.0, DEFAULT_THEME,
         )
-        fills = [it.brush().color().name() for it in items
-                 if hasattr(it, "brush")]
+        from PySide6.QtWidgets import QAbstractGraphicsShapeItem
+        fills = [
+            cast(QAbstractGraphicsShapeItem, it).brush().color().name()
+            for it in items
+            if hasattr(it, "brush")
+        ]
         assert "#000000" in fills   # the base body took the override
         assert "#888888" in fills   # the detail kept the resolved fill

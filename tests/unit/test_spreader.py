@@ -339,9 +339,9 @@ class TestSnapToGrid:
             session=session,
         )
         from protoboard.domain.layout.placement import component_bbox
-        fixed_bbox = component_bbox(defn.default_footprint(), fixed_pl, defn.component_class.value)
+        fixed_bbox = component_bbox(defn.default_footprint(), fixed_pl, defn.component_class)
         mobile_bbox = component_bbox(
-            defn.default_footprint(), result[mobile_id], defn.component_class.value
+            defn.default_footprint(), result[mobile_id], defn.component_class
         )
         assert not fixed_bbox.intersects(mobile_bbox)
 

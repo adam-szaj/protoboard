@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, cast
 
+from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 from protoboard.services.routing.unweave import (
@@ -491,7 +492,7 @@ class TestUnweaveConnectivityPreserved:
 
         upper_layout = Layout()
         upper_layout.wires = cast(WireCollection, upper_wires)
-        upper_layout.placements = upper_placements
+        upper_layout.placements = PlacementCollection(upper_placements)
         graph = ConnectivityGraph(
             board=board, layout=upper_layout,
             components=components, instances=upper_instances,
@@ -501,7 +502,7 @@ class TestUnweaveConnectivityPreserved:
         # Build a graph from the output layout.
         new_layout = Layout()
         new_layout.wires = cast(WireCollection, out)
-        new_layout.placements = upper_placements
+        new_layout.placements = PlacementCollection(upper_placements)
         new_graph = ConnectivityGraph(
             board=board, layout=new_layout,
             components=components, instances=upper_instances,

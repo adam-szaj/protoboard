@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import cast
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
@@ -66,7 +67,7 @@ def test_headless_session_is_qt_free_and_builds_caches() -> None:
 def test_controller_executes_and_reverts_wire_command() -> None:
     """EditController._execute runs a real command through the stack."""
     session = _session()
-    controller = EditController(session)
+    controller = EditController(cast(EditState, session))
 
     wire = Wire(
         id=uuid.uuid4(),
@@ -98,7 +99,7 @@ def test_controller_notify_hook_fires_on_success() -> None:
             self.changed += 1
 
     session = _CountingSession()
-    controller = EditController(session)
+    controller = EditController(cast(EditState, session))
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(1.0, 1.0), Point(3.0, 1.0)],

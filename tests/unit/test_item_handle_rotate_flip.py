@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import cast
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
+from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
@@ -112,7 +114,7 @@ def test_rotate_two_groups_is_one_undo_step() -> None:
     g2 = _make_group(session, [c2])
 
     session.edit_controller.rotate([ItemId.group(g1), ItemId.group(g2)])
-    session.stack.undo(session)
+    session.stack.undo(cast(ComponentState, session))
 
     assert session.layout.placements[c1].rotation == 0
     assert session.layout.placements[c2].rotation == 0
@@ -135,12 +137,12 @@ def test_redo_rotate_reapplies_original_target_not_current_selection() -> None:
     h1.rotate(90)
     assert session.layout.placements[c1].rotation == 90
 
-    session.stack.undo(session)
+    session.stack.undo(cast(ComponentState, session))
     assert session.layout.placements[c1].rotation == 0
 
     # "Change selection" to c2 (address a different item) before redo — the
     # command's frozen target must win, so c1 turns and c2 stays put.
-    session.stack.redo(session)
+    session.stack.redo(cast(ComponentState, session))
     assert session.layout.placements[c1].rotation == 90
     assert session.layout.placements[c2].rotation == 0
 
@@ -153,9 +155,9 @@ def test_rotate_execute_undo_redo_round_trip() -> None:
     h = session.edit_controller.get_component(cid)
     assert isinstance(h, ComponentHandle)
     h.rotate(90)
-    session.stack.undo(session)
+    session.stack.undo(cast(ComponentState, session))
     assert session.layout.placements[cid].rotation == 0
-    session.stack.redo(session)
+    session.stack.redo(cast(ComponentState, session))
     assert session.layout.placements[cid].rotation == 90
 
 
@@ -170,9 +172,9 @@ def test_flip_group_execute_undo_redo_round_trip() -> None:
     flipped_side = session.layout.placements[cid].side
     assert flipped_side != before
 
-    session.stack.undo(session)
+    session.stack.undo(cast(ComponentState, session))
     assert session.layout.placements[cid].side == before
-    session.stack.redo(session)
+    session.stack.redo(cast(ComponentState, session))
     assert session.layout.placements[cid].side == flipped_side
 
 

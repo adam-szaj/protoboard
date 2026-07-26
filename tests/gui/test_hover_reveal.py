@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from protoboard.controller.ports.hover import HoverEvent
 from protoboard.controller.ports.inputs import Mods
@@ -85,7 +86,7 @@ def test_dwell_labels_hidden_shows_tooltip(qtbot) -> None:
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="R5", value="4.7k")
 
-    reveal = HoverReveal(view)
+    reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=False), (30, 40))
     reveal._on_dwell()
 
@@ -99,7 +100,7 @@ def test_dwell_pin_names_hidden_alt_sets_reveal(qtbot) -> None:
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
 
-    reveal = HoverReveal(view)
+    reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
 
@@ -113,7 +114,7 @@ def test_clear_hides_and_resets(qtbot) -> None:
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
 
-    reveal = HoverReveal(view)
+    reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
     assert view._pin_names_reveal_cid == cid
@@ -130,7 +131,7 @@ def test_alt_release_clears_active_reveal(qtbot) -> None:
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
 
-    reveal = HoverReveal(view)
+    reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
     assert view._pin_names_reveal_cid == cid
