@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 2-pin SMD chips now rotate in 45° steps: the armed rotate (`[R]`) walks the
+  8 neighbour pads of the pin-1 anchor, so diagonal placements (span √2) are
+  one step away — including the mirrored side, previously unreachable without
+  a prior 180° turn. Re-drag is disabled for such parts (its disc model
+  measured from pin 2's own default and allowed stretched or same-pad chips);
+  the placement-time second-pad pick is unaffected.
+
 - Wire-edit mode now dims the board (except the edited wire) and draws a bright
   highlight over the selected fragment span, so the picked range is visible. A
   failed two-vertex pick now shows a status hint instead of clearing silently.

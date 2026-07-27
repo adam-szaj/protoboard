@@ -1666,6 +1666,11 @@ class SelectTool(ControllerTool):
         if cid is None:
             self._status("Re-drag: select a component with a bendable lead first")
             return
+        if self._is_two_pin_smd(cid):
+            # A rigid SMD chip has no bendable lead — its one degree of freedom
+            # (orientation about pin 1) belongs to [R] rotate's 45° steps.
+            self._status("Re-drag: SMD chip — use [R] rotate (45° steps)")
+            return
         movable = self._movable_pins(cid)
         if not movable:
             self._status("Re-drag: this component has no movable lead or mount")
@@ -1750,6 +1755,20 @@ class SelectTool(ControllerTool):
                 self._status("Click a pad for the lead  ·  [Esc] Cancel", 0)
                 return None
         return self._pick_at("pad", pt)
+
+    def _is_two_pin_smd(self, comp_id: uuid.UUID) -> bool:
+        """Whether *comp_id* is a rigid 2-pin SMD chip (variant-aware)."""
+        from protoboard.domain.components.package.reach import is_two_pin_smd
+
+        inst = self._session.instances.get(comp_id)
+        if inst is None:
+            return False
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return False
+        return is_two_pin_smd(
+            defn, inst, getattr(self._session, "package_families", None)
+        )
 
     def _movable_pins(self, comp_id: uuid.UUID) -> set[int]:
         """The pins of *comp_id* whose lead can bend (free reach), package-aware.

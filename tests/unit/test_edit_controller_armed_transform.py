@@ -211,3 +211,115 @@ def test_snap_prefers_component_pin_over_far_pad() -> None:
     _pin_num, pin_pos = pins[0]
     snapped = ctrl.snap(pin_pos, active_group_id=ROOT_GROUP_ID)
     assert (snapped.x, snapped.y) == (pin_pos.x, pin_pos.y)
+
+
+# -- 2-pin SMD: [R] steps 45° about the pin-1 anchor --------------------------
+
+
+def _place_smd(session: HeadlessSession, x: float, y: float) -> uuid.UUID:
+    """Inject a placed 2-pin SMD chip (rigid body resting on pads)."""
+    from protoboard.domain.components.definition import (
+        ComponentClass,
+        ComponentDefinition,
+    )
+    from protoboard.domain.components.package.loader import build_package
+
+    pkg = build_package(
+        {
+            "shape": "prism", "dims": {"length": 2.0, "width": 1.25},
+            "arrangement": "axial", "mount": "surface", "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "SMD_TEST",
+    )
+    defn = ComponentDefinition(
+        name="R_SMD_T", component_class=ComponentClass.RESISTOR,
+        pin_names={}, package=pkg,
+    )
+    session.components["R_SMD_T"] = defn
+    inst = ComponentInstance.new(
+        definition_ref="R_SMD_T", refdes="R9", value="",
+    ).bind(defn, session.package_families)
+    session.instances[inst.id] = inst
+    session.layout.placements[inst.id] = ComponentPlacement(
+        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+    )
+    session.invalidate_graph()
+    return inst.id
+
+
+def _pin_dir(session: HeadlessSession, cid: uuid.UUID) -> tuple[int, int]:
+    from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
+    from protoboard.domain.layout.placement import pin_world_position
+
+    inst = session.instances[cid]
+    defn = session.components[inst.definition_ref]
+    fp = resolved_footprint_or_default(defn, inst)
+    pl = _pose(session, cid)
+    p1 = pin_world_position(fp, pl, 1)
+    p2 = pin_world_position(fp, pl, 2)
+    return (round(p2.x - p1.x), round(p2.y - p1.y))
+
+
+def test_rotate_armed_smd_single_steps_45() -> None:
+    session = _session()
+    cid = _place_smd(session, 2.5, 2.5)
+    ctrl = session.edit_controller
+    _arm(session, cid)
+    ctrl.rotate_armed(90)
+    # One [R] step = 45°: pin 2 lands on the diagonal, pin 1 anchored.
+    assert _pin_dir(session, cid) == (1, -1)
+    pose = _pose(session, cid)
+    assert pose.rotation == 0
+    assert set(pose.pin_offsets) == {2}
+    assert pose.position == Point(2.5, 2.5)
+    ctrl.accept_transform()
+    live = session.layout.placements[cid]
+    assert set(live.pin_offsets) == {2}
+    assert _pin_dir(session, cid) == (1, -1)
+    # Undo restores the straight pose.
+    session.stack.undo(session)
+    assert session.layout.placements[cid].pin_offsets == {}
+
+
+def test_rotate_armed_smd_two_steps_are_a_pure_cardinal() -> None:
+    session = _session()
+    cid = _place_smd(session, 2.5, 2.5)
+    ctrl = session.edit_controller
+    _arm(session, cid)
+    ctrl.rotate_armed(90)
+    ctrl.rotate_armed(90)
+    pose = _pose(session, cid)
+    assert pose.rotation == 90
+    assert pose.pin_offsets == {}
+    assert _pin_dir(session, cid) == (0, -1)
+
+
+def test_rotate_armed_smd_ccw_reaches_the_mirror_diagonal() -> None:
+    session = _session()
+    cid = _place_smd(session, 2.5, 2.5)
+    ctrl = session.edit_controller
+    _arm(session, cid)
+    ctrl.rotate_armed(-90)
+    assert _pin_dir(session, cid) == (1, 1)
+
+
+def test_rotate_armed_multi_selection_keeps_90() -> None:
+    session = _session()
+    smd = _place_smd(session, 2.5, 2.5)
+    other = _place(session, 5.5, 5.5, "R1")
+    ctrl = session.edit_controller
+    session.edit_controller.begin_transform(
+        frozenset({smd, other}), None,
+        active_group_id=ROOT_GROUP_ID, mode="rotate",
+    )
+    ctrl.rotate_armed(90)
+    # The 45° step is defined only about a lone part's pin-1 anchor; a
+    # multi-selection steps every member 90° as before.
+    pose = _pose(session, smd)
+    assert pose.rotation == 90
+    assert pose.pin_offsets == {}

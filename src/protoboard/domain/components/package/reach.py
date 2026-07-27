@@ -223,6 +223,101 @@ def effective_bend_specs(
 
 
 # ---------------------------------------------------------------------------
+# SMD orientation — the 45° step of a rigid 2-pin chip about its pin-1 anchor.
+# ---------------------------------------------------------------------------
+
+
+def is_two_pin_smd(
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
+    families: dict[str, PackageFamily] | None,
+) -> bool:
+    """Whether a placed component is a rigid 2-pin surface-mount chip.
+
+    Such a part's only degree of freedom is the orientation of pin 2 about the
+    pin-1 anchor — reoriented by the armed rotate's 45° steps
+    (:func:`smd_orientation_step`), never by re-drag.  Resolution is
+    variant-aware (the placed instance's package wins over the definition
+    default).
+    """
+    pkg = resolve_component_package(defn, instance, families or {})
+    return (
+        pkg is not None
+        and getattr(pkg, "mount", None) is MountStyle.SURFACE
+        and pkg.pin_count() == 2
+    )
+
+
+def smd_orientation_step(
+    footprint: Footprint,
+    placement: ComponentPlacement,
+    steps: int,
+) -> ComponentPlacement | None:
+    """One 45° orientation step of a 2-pin surface-mount part about pin 1.
+
+    A rigid SMD chip's only degree of freedom is which of the 8 neighbour pads
+    of its pin-1 anchor carries pin 2.  45° is NOT a grid isometry (the span
+    alternates 1 ↔ √2, and its matrix is not integer), so the step is a cyclic
+    walk over the 8 direction vectors, not a ``Transform2D``.  ``steps > 0``
+    walks in the same sense as a ``rotation += 90`` step; pin 1 never moves.
+
+    The result is canonical — one orientation, one representation: a cardinal
+    direction is a pure ``rotation`` with no pin offsets; a diagonal stores the
+    CW-floor cardinal in ``rotation`` plus a unit residual in
+    ``pin_offsets[2]``.  Returns ``None`` when the state has no orientation
+    index (non-unit pitch, or a legacy stretched / same-pad pose) — the caller
+    falls back to the plain 90° rotation.
+    """
+    from protoboard.domain.layout.placement import pin_world_position
+
+    if footprint.pin_count() != 2:
+        return None
+    p1 = pin_world_position(footprint, placement, 1)
+    p2 = pin_world_position(footprint, placement, 2)
+    cur = (round(p2.x - p1.x), round(p2.y - p1.y))
+    if (p2.x - p1.x, p2.y - p1.y) != (float(cur[0]), float(cur[1])):
+        return None  # off-grid pose
+
+    # The four cardinal poses, probed through the real placement pipeline so
+    # side-flip and rotation conventions are inherited, never re-derived.
+    cardinals: list[tuple[tuple[int, int], ComponentPlacement]] = []
+    for i in range(4):
+        trial = placement.copy()
+        trial.position = p1
+        trial.rotation = (placement.rotation + 90 * i) % 360
+        trial.pin_offsets = {}
+        d = pin_world_position(footprint, trial, 2) - p1
+        cd = (round(d.dx), round(d.dy))
+        if (abs(cd[0]), abs(cd[1])) not in ((0, 1), (1, 0)):
+            return None  # non-unit pitch — the [1, √2] ring does not apply
+        if (d.dx, d.dy) != (float(cd[0]), float(cd[1])):
+            return None
+        cardinals.append((cd, trial))
+
+    # 8-cycle: cardinal, then the diagonal to the next cardinal (their sum).
+    # Each entry carries the floor-cardinal pose the canonical form builds on.
+    cycle: list[tuple[tuple[int, int], tuple[int, int], ComponentPlacement]] = []
+    for i in range(4):
+        c, trial = cardinals[i]
+        n, _ = cardinals[(i + 1) % 4]
+        cycle.append((c, c, trial))
+        cycle.append(((c[0] + n[0], c[1] + n[1]), c, trial))
+
+    directions = [d for d, _, _ in cycle]
+    if cur not in directions:
+        return None  # legacy stretched / same-pad state
+    k = (directions.index(cur) + steps) % 8
+    target, base, trial = cycle[k]
+    new_pl = trial.copy()
+    if target != base:
+        residual = Vector(float(target[0] - base[0]), float(target[1] - base[1]))
+        new_pl.pin_offsets = {
+            2: _world_delta_to_local_offset(residual, new_pl, footprint)
+        }
+    return new_pl
+
+
+# ---------------------------------------------------------------------------
 # Re-drag feasibility — the single predicate shared by overlay and commit.
 # ---------------------------------------------------------------------------
 

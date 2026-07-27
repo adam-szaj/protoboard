@@ -9,6 +9,19 @@ noted in [todo.md](todo.md): clicking the rigid anchor of an SMD chip
 body-translates (the single-movable convenience now applies only to a body
 click). Deferred items in §5 remain open.
 
+**2026-07-27 — 2-pin SMD carved out of re-drag.** The per-pin disc re-centring
+was wrong for a rigid surface-mount chip: its "reach" is a rigid-body span
+constraint `|p2 − p1| ∈ [1, √2]` about the pin-1 anchor, not a lead bend about
+pin 2's own default (the disc allowed same-pad and stretched chips and missed
+the mirrored side). A 2-pin SMD's one degree of freedom — orientation about
+pin 1 — now belongs to the armed rotate: `[R]` steps 45° through the 8
+neighbour pads (`smd_orientation_step` in
+`domain/components/package/reach.py`; canonical form = floor cardinal in
+`rotation` + unit residual in `pin_offsets[2]` on diagonals). `begin_redrag`
+refuses such parts with a hint; the place tool's second-pad pick (already
+pin-1-relative) is unchanged. This section's re-drag model remains canonical
+for through-hole bendable leads only.
+
 The gap this closes: the reach model and the re-drag UI both effectively assume
 **one movable lead per part**. They work for axial 2-pin parts and the SMD 2-pin
 free-neighbour case, but a part with N > 2 bendable leads (e.g. TO-92) cannot

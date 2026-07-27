@@ -760,36 +760,40 @@ class TestRedrag:
         )
         return cid
 
-    def test_redrag_arms_for_smd_grabs_clicked_terminal(
+    def test_redrag_disabled_for_smd(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        # SMD pin 1 (1.5,1.5) is the rigid body anchor; pin 2 (2.5,1.5) is the
-        # free terminal.  Clicking the free terminal grabs it; clicking the rigid
-        # anchor grabs the anchor (a body-translate).  Either way a pick arms.
+        # A rigid 2-pin SMD chip has no bendable lead — its only degree of
+        # freedom is the orientation about pin 1, owned by [R] rotate (45°
+        # steps).  Re-drag therefore refuses to arm (2026-07-27).
         cid = self._place_smd(session, 1.5, 1.5)
         tool = _v2(board_view)
         _press(tool, 2.5, 1.5)  # click the free terminal (pin 2)
         tool.begin_redrag(cid)
-        assert tool._selection.active_pick is not None
-        assert tool._redrag_pin == 2
+        assert tool._selection.active_pick is None
+        assert tool._redrag_pin is None
 
-    def test_redrag_smd_free_terminal_to_diagonal_pad(
+    def test_smd_diagonal_via_armed_rotate(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
+        # Parity of the retired SMD re-drag: the diagonal placement between
+        # pads is now one [R] step of the armed rotate (45° about pin 1).
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.layout.placement import pin_world_position
         cid = self._place_smd(session, 1.5, 1.5)
-        tool = _v2(board_view)
-        _press(tool, 2.5, 1.5)  # grab the free terminal (pin 2)
-        tool.begin_redrag(cid)
-        assert tool._redrag_pin == 2
-        # Click the SE-of-pin1 diagonal pad (2.5, 2.5) → pin 2 bends onto it.
-        _click(tool, 2.5, 2.5)
+        ctrl = session.edit_controller
+        ctrl.begin_transform(
+            frozenset({cid}), None,
+            active_group_id=ROOT_GROUP_ID, mode="rotate",
+        )
+        ctrl.rotate_armed(-90)  # one CCW step = the SE diagonal (y grows down)
+        ctrl.accept_transform()
         pl = session.layout.placements[cid]
         defn = session.components["R_SMD_T"]
         p1 = pin_world_position(defn.default_footprint(), pl, 1)
         p2 = pin_world_position(defn.default_footprint(), pl, 2)
         assert (round(p2.x - p1.x), round(p2.y - p1.y)) == (1, 1)  # SE diagonal
-        assert tool._selection.active_pick is None
+        assert pl.position == Point(1.5, 1.5)  # pin-1 anchor untouched
 
     def test_redrag_targets_clicked_pin(
         self, board_view: BoardView, session: EditorSession

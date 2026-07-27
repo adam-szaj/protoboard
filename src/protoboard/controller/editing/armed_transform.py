@@ -396,11 +396,54 @@ class ArmedTransform:
                 pl = self._layout.placements.get(cid)
                 if not isinstance(pl, ComponentPlacement):
                     continue
+                stepped = self._smd_diagonal_step(cid, pl, delta)
+                if stepped is not None:
+                    self._layout.placements[cid] = stepped
+                    continue
                 op = _rotation_about(pl.position, delta)
                 self._write_world_op(cid, op)
                 self._transform_wires(op)
         self._layout.invalidate_interior_vertex_index()
         self._emit_preview()
+
+    def _smd_diagonal_step(
+        self, cid: uuid.UUID, pl: ComponentPlacement, delta: int
+    ) -> ComponentPlacement | None:
+        """The 45° orientation step for a lone 2-pin SMD chip, or ``None``.
+
+        The 45° step is defined solely about the part's own pin-1 anchor
+        (decided 2026-07-27), so it applies only in per-object mode on a
+        single-component selection.  Group members are excluded: they store
+        group-relative locals, which the canonical world-frame rewrite would
+        corrupt — they keep the plain 90° step.  ``None`` → caller falls back
+        to the 90° rotation op.
+        """
+        from protoboard.domain.components.package.reach import (
+            is_two_pin_smd,
+            smd_orientation_step,
+        )
+        from protoboard.domain.layout.group_tree import GroupTree
+        from protoboard.domain.layout.pad_conflict import (
+            resolved_footprint_or_default,
+        )
+        from protoboard.geometry import Transform2D
+
+        if len(self._comp_ids) != 1:
+            return None
+        tree = GroupTree(getattr(self._layout, "groups", {}))
+        if tree.world_transform(cid) != Transform2D.identity():
+            return None
+        inst = self._ctx.instances.get(cid)
+        if inst is None:
+            return None
+        defn = self._ctx.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        families = getattr(self._ctx, "package_families", None)
+        if not is_two_pin_smd(defn, inst, families):
+            return None
+        fp = resolved_footprint_or_default(defn, inst)
+        return smd_orientation_step(fp, pl, 1 if delta > 0 else -1)
 
     def _move(self, dx: float, dy: float) -> None:
         from protoboard.geometry import Transform2D
@@ -473,6 +516,8 @@ class ArmedTransform:
                 or cur.rotation != orig.rotation
                 or cur.side != orig.side
                 or cur.vertical_flipped != orig.vertical_flipped
+                # A 2-pin SMD 45° step changes only the pin-2 offset.
+                or cur.pin_offsets != orig.pin_offsets
             ):
                 return True
         return False
