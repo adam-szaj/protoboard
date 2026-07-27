@@ -509,9 +509,12 @@ class TestRouteToolExitParity:
 
 
 class TestRouteConflictGate:
-    """Task 6: a route whose endpoint lands on an alien-net pad refuses to
-    commit and stays armed (points intact) instead of silently wiring two
-    different nets together."""
+    """Task 6 (recalibrated): the gate blocks a route whose *body* crosses an
+    alien pad mid-path, but the two terminal endpoints are intended contacts —
+    their net implications (silent extension, merge dialog) belong to
+    ``resolve_wire_nets``, not to the geometric gate.  Routing from an
+    unconnected pin to a netted pin is the fundamental net-extension gesture
+    and MUST commit."""
 
     def _routing(self, session: EditorSession) -> tuple[HeadlessBoardView, RouteTool]:
         view = _headless(session)
@@ -520,14 +523,13 @@ class TestRouteConflictGate:
         assert isinstance(tool, RouteTool)
         return view, tool
 
-    def test_route_ending_on_alien_net_pad_refuses(
-        self, session: EditorSession
-    ) -> None:
-        view = _headless(session)
+    def _netted_comp1_plus_unconnected_comp2(
+        self, view: HeadlessBoardView
+    ) -> tuple[ComponentInstance, ComponentInstance, RouteTool]:
         # comp1: net-A pad pair, wired together (netted).
-        _place(view, 0.5, 0.5)
+        comp1 = _place(view, 0.5, 0.5)
         # comp2: pad pair left UNCONNECTED (no wire) — its pins carry no net.
-        _place(view, 2.5, 0.5)
+        comp2 = _place(view, 2.5, 0.5)
 
         view.tools.set_tool(RouteTool())
         tool = view.active_tool
@@ -535,10 +537,46 @@ class TestRouteConflictGate:
         tool.on_press(pointer(0.5, 0.5))
         tool.on_press(pointer(0.5, 1.5))
         tool._commit()  # net A now lives on comp1's two pins
+        return comp1, comp2, tool
+
+    def test_route_from_unconnected_to_netted_pad_commits(
+        self, session: EditorSession
+    ) -> None:
+        # The bug this pins: the ONE_UNCONNECTED net-extension route (no-net
+        # pin → netted pin) was hard-blocked by the endpoint conflict gate,
+        # leaving cancel as the only way out.
+        view = _headless(session)
+        _comp1, comp2, tool = self._netted_comp1_plus_unconnected_comp2(view)
 
         # Route from comp2's (unconnected) pad to comp1's (netted) pad.
         tool.on_press(pointer(2.5, 0.5))
         tool.on_press(pointer(0.5, 0.5))
+
+        assert tool.can_commit() is True
+
+        added_before = len(session.layout.wires)
+        assert tool.commit_op() is True
+        assert len(session.layout.wires) == added_before + 1
+        assert not tool.has_pending_op()  # committed, stays armed-empty
+        # Net A was silently extended onto comp2's pin.
+        assert any(
+            ref.component_id == comp2.id
+            for net in session.schematic.nets.values()
+            for ref in net.pins
+        )
+
+    def test_bare_route_crossing_alien_pad_midpath_refuses(
+        self, session: EditorSession
+    ) -> None:
+        # What the gate is actually for: a bare wire whose BODY passes over a
+        # pad of another net (here: net-A wire over comp2's unconnected pad).
+        view = _headless(session)
+        _comp1, _comp2, tool = self._netted_comp1_plus_unconnected_comp2(view)
+
+        # Straight bare route from comp1's netted pad across comp2's
+        # unconnected pad at (2.5, 0.5) to an empty hole at (4.5, 0.5).
+        tool.on_press(pointer(0.5, 0.5))
+        tool.on_press(pointer(4.5, 0.5))
 
         assert tool.can_commit() is False
 
@@ -559,27 +597,36 @@ class TestRouteConflictGate:
         assert tool.commit_op() is True
         assert len(session.layout.wires) == added_before + 1
 
-    def test_alien_route_refuses_via_enter_key(self, session: EditorSession) -> None:
-        # Same alien-net scenario as test_route_ending_on_alien_net_pad_refuses,
-        # but driven through the REAL key path (on_key -> command_table ->
-        # _key_commit) instead of calling commit_op() directly -- this is the
-        # coverage gap that let the Task 6 gate ship inert on the Enter key.
+    def test_net_extension_route_commits_via_enter_key(
+        self, session: EditorSession
+    ) -> None:
+        # The net-extension route (unconnected → netted pin) driven through the
+        # REAL key path (on_key -> command_table -> _key_commit) instead of
+        # calling commit_op() directly -- this is the coverage gap that let the
+        # Task 6 gate ship inert on the Enter key.
         view = _headless(session)
-        # comp1: net-A pad pair, wired together (netted).
-        _place(view, 0.5, 0.5)
-        # comp2: pad pair left UNCONNECTED (no wire) -- its pins carry no net.
-        _place(view, 2.5, 0.5)
-
-        view.tools.set_tool(RouteTool())
-        tool = view.active_tool
-        assert isinstance(tool, RouteTool)
-        tool.on_press(pointer(0.5, 0.5))
-        tool.on_press(pointer(0.5, 1.5))
-        tool._commit()  # net A now lives on comp1's two pins
+        _comp1, _comp2, tool = self._netted_comp1_plus_unconnected_comp2(view)
 
         # Route from comp2's (unconnected) pad to comp1's (netted) pad.
         tool.on_press(pointer(2.5, 0.5))
         tool.on_press(pointer(0.5, 0.5))
+
+        added_before = len(session.layout.wires)
+        tool.on_key(key_inp(Qt.Key.Key_Return))  # real Enter dispatch
+
+        assert len(session.layout.wires) == added_before + 1  # committed
+        assert not tool.has_pending_op()
+        assert view.active_tool is tool
+
+    def test_midpath_crossing_refuses_via_enter_key(
+        self, session: EditorSession
+    ) -> None:
+        # The mid-path gate through the real Enter dispatch.
+        view = _headless(session)
+        _comp1, _comp2, tool = self._netted_comp1_plus_unconnected_comp2(view)
+
+        tool.on_press(pointer(0.5, 0.5))
+        tool.on_press(pointer(4.5, 0.5))  # body crosses comp2's pad at (2.5, 0.5)
 
         added_before = len(session.layout.wires)
         tool.on_key(key_inp(Qt.Key.Key_Return))  # real Enter dispatch

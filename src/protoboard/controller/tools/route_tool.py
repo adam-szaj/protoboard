@@ -218,12 +218,17 @@ class RouteTool(ControllerTool):
     def _route_conflict(self) -> DragCommitDecision | None:
         """Classify the candidate route (``self._points``) for a HARD conflict.
 
-        Scoped to endpoint/segment-on-alien-pad this round (wire-vs-wire
+        Scoped to mid-path segment-on-alien-pad this round (wire-vs-wire
         same-side crossing is deferred — see docs/todo.md). Wraps the
         candidate points as a temp ``Wire`` (this tool's side + insulation)
         and reuses ``find_wires_crossing_pads``'s pad/net geometry; a
         different-net pad hit maps to a HARD ``DragCommitDecision`` driving
         the commit park.
+
+        The two *terminal endpoints* are exempt: they are the intended contact
+        points of the route, and their net implications — silent net creation /
+        extension, or the NetMergeDialog for two distinct nets — are resolved
+        by ``resolve_wire_nets`` inside ``add_wire``, not by this gate.
         """
         from typing import cast
 
@@ -233,6 +238,7 @@ class RouteTool(ControllerTool):
         )
         from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
         from protoboard.domain.layout.wire import Wire
+        from protoboard.geometry import round_coord
         from protoboard.types import Side
 
         if len(self._points) < 2:
@@ -243,6 +249,10 @@ class RouteTool(ControllerTool):
             insulated=self._insulated,
             side=cast("Side", self._side),
         )
+        endpoints = {
+            (round_coord(p.x), round_coord(p.y))
+            for p in (self._points[0], self._points[-1])
+        }
         hits = find_wires_crossing_pads(
             wires=[candidate],
             moved_comp_ids=set(),
@@ -250,12 +260,13 @@ class RouteTool(ControllerTool):
             instances=self._session.instances,
             components=self._session.components,
             schematic=self._session.schematic,
+            ignored_pad_keys=endpoints,
         )
         if not hits:
             return None
         return DragCommitDecision(
             severity=DragSeverity.HARD,
-            description="Cannot route: endpoint lands on a pad of another net",
+            description="Cannot route: wire crosses a pad of another net",
         )
 
     def _key_toggle_insulated(self) -> bool:

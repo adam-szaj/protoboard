@@ -513,6 +513,7 @@ def find_wires_crossing_pads(
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
     pad_index: PadIndex | None = None,
+    ignored_pad_keys: set[tuple[float, float]] | None = None,
 ) -> list[uuid.UUID]:
     """Return IDs of wires whose path passes within _CROSS_EPS of an alien pad.
 
@@ -528,6 +529,11 @@ def find_wires_crossing_pads(
     `moved_wire_ids`: wire IDs that were translated together with the moved
     components.  These are skipped — they are internal to the moved group and
     their new positions are already consistent with the new pad positions.
+
+    `ignored_pad_keys`: rounded ``(x, y)`` pad positions exempt from the
+    alien-pad check (they still participate in wire-net inference).  RouteTool
+    passes its candidate route's two terminal endpoints — intended contacts
+    whose net implications are resolved later by ``resolve_wire_nets``.
 
     Returns a list of wire IDs that should be removed.
     """
@@ -628,6 +634,8 @@ def find_wires_crossing_pads(
             if wire.insulated and not is_endpoint_seg:
                 continue
             for px, py, p_net in _pads_near_segment(ax, ay, bx, by):
+                if ignored_pad_keys and (px, py) in ignored_pad_keys:
+                    continue
                 if _seg_point_dist(px, py, ax, ay, bx, by) < _CROSS_EPS:
                     # Same net on both sides → OK (intentional contact).
                     if w_net is not None and p_net is not None and w_net == p_net:
