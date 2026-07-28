@@ -60,7 +60,7 @@ class TO220Renderer(PrismRenderer):
             p1, p2 = positions[1], positions[0]
         else:
             p1, p2 = positions[0], positions[1]
-        if (p2 - p1).length() < 1e-9:
+        if (p2 - p1).norm() < 1e-9:
             return items
 
         # (along, across) the lead axis — the same split the base radial

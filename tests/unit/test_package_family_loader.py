@@ -73,7 +73,7 @@ class TestBuiltinCatalogue:
         assert isinstance(pkg, Cylinder)
         assert pkg.pin_count() == 3
         assert pkg.flat_radius_mm == 1.175  # D-shaped cross-section
-        assert pkg.flat_normal.y == 1.0     # flat faces the lead row
+        assert pkg.flat_normal.dy == 1.0     # flat faces the lead row
 
     def test_to92_two_offset_domains(self) -> None:
         # The leads exit the plastic at the 1.25 mm body pitch but spread to land

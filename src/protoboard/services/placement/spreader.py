@@ -238,7 +238,7 @@ def _assign_grid_cells(
             gravity = current_positions[cid]
 
         # Claim the free cell nearest the gravity point.
-        best = min(free_set, key=lambda p: (p - gravity).length())
+        best = min(free_set, key=lambda p: (p - gravity).norm())
         assigned_cell[cid] = best
         free_set.remove(best)
 
@@ -299,7 +299,7 @@ def _snap_to_grid(
         target = ideal_positions[cid]
 
         board_pads = pads_top if orig_pl.side == "top" else pads_bottom
-        sorted_pads = sorted(board_pads, key=lambda p: (p - target).length())
+        sorted_pads = sorted(board_pads, key=lambda p: (p - target).norm())
 
         pl = _find_free_slot(
             cid, defn, inst, sorted_pads, [orig_pl.rotation], orig_pl.side,

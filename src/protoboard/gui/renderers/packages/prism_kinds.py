@@ -76,7 +76,7 @@ class SmdChipRenderer(PrismRenderer):
                 or len(positions) < 2):
             return items
         p1, p2 = positions[0], positions[1]
-        if (p2 - p1).length() < 1e-9:
+        if (p2 - p1).norm() < 1e-9:
             return items
 
         extents = lead_axis_extents_or_none(pkg)

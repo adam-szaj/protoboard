@@ -553,12 +553,12 @@ class SceneComposer:
                 continue
             # Delta from the position when items were baked into the scene.
             delta = pl.position - orig
-            grp.setPos(delta.x, delta.y)
+            grp.setPos(delta.dx, delta.dy)
             # Move the matching label group by the same delta so labels track
             # the drag (they live in a separate group at Z_LABELS_TOP).
             lbl = self._comp_label_groups.get(comp_id)
             if isinstance(lbl, QGraphicsItemGroup):
-                lbl.setPos(delta.x, delta.y)
+                lbl.setPos(delta.dx, delta.dy)
 
         # Recompute outline rect for each group from the live pin positions
         # of its members.  Outline overlay items live outside _comp_groups
@@ -579,7 +579,7 @@ class SceneComposer:
             if orig is None:
                 continue
             delta = wire.path[0] - orig
-            grp.setPos(delta.x, delta.y)
+            grp.setPos(delta.dx, delta.dy)
 
         self._update_group_outlines_on_drag()
 

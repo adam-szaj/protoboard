@@ -79,6 +79,6 @@ def axial_board_offset_range(
     if orientation is MountOrientation.HORIZONTAL:
         r_min = length_mm + 6.0 * lead_r_mm
     else:
-        r_min = r_body_mm - body_eccentricity_mm.x + 3.0 * lead_r_mm
+        r_min = r_body_mm - body_eccentricity_mm.dx + 3.0 * lead_r_mm
     r_min = max(r_min, 0.0)
     return OffsetRange(r_min, r_min + 2.0 * lead_length_mm)

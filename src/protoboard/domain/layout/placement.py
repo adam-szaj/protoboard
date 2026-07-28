@@ -270,7 +270,7 @@ def _rotate(p: Point | Vector, rotation: int) -> Point | Vector:
     domain.
     """
     cls = type(p)
-    x, y = p.x, p.y
+    x, y = (p.x, p.y) if isinstance(p, Point) else (p.dx, p.dy)
     if rotation == 0:
         return p
     if rotation == 90:

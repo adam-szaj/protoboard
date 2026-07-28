@@ -411,7 +411,7 @@ def redrag_feasibility(
         )
         new_pl = placement.copy()
         new_offsets = dict(placement.pin_offsets)
-        if local_off.x == 0.0 and local_off.y == 0.0:
+        if local_off.dx == 0.0 and local_off.dy == 0.0:
             new_offsets.pop(grabbed_pin, None)
         else:
             new_offsets[grabbed_pin] = local_off
@@ -442,7 +442,7 @@ def redrag_feasibility(
             local_off = _world_delta_to_local_offset(
                 old_world - baseline_new, new_pl, footprint
             )
-            if local_off.x == 0.0 and local_off.y == 0.0:
+            if local_off.dx == 0.0 and local_off.dy == 0.0:
                 new_offsets.pop(other, None)
             else:
                 new_offsets[other] = local_off

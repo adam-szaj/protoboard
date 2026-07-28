@@ -314,13 +314,13 @@ def _layout_to_yaml(layout: Layout) -> str:
                 "rotation": pl.rotation,
                 "side": pl.side,
                 **(
-                    {"label_offset": {"x": pl.label_offset.x, "y": pl.label_offset.y}}
+                    {"label_offset": {"x": pl.label_offset.dx, "y": pl.label_offset.dy}}
                     if pl.label_offset != Vector(0.05, 0.05)
                     else {}
                 ),
                 **(
                     {"pin_offsets": {
-                        str(pin): {"x": off.x, "y": off.y}
+                        str(pin): {"x": off.dx, "y": off.dy}
                         for pin, off in pl.pin_offsets.items()
                     }}
                     if pl.pin_offsets
@@ -937,7 +937,7 @@ def load_project(
                 # leave alone.  Sub-pad mismatch (>= 0.4) is what the
                 # group-ownership sanity check already rejects — exactly the
                 # bug we're repairing.  Snap aggressively.
-                if dv.length() < 0.1:
+                if dv.norm() < 0.1:
                     continue
                 # Translate the WHOLE wire by dv so the other endpoint and
                 # intermediate vertices move together — otherwise a
@@ -951,7 +951,7 @@ def load_project(
                     "endpoint": endpoint_label,
                     "comp": str(comp_id)[:8],
                     "pin": k.pin.pin_number,
-                    "delta": (round(dv.x, 3), round(dv.y, 3)),
+                    "delta": (round(dv.dx, 3), round(dv.dy, 3)),
                 })
         if snapped_endpoints:
             _log.info(

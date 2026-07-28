@@ -368,8 +368,8 @@ class TestBodyAxisPos:
                        "body_axis_pos": [0, 1]}},
         ])
         ecc = pkgs["Tri"].leads.body_eccentricity_mm
-        assert ecc.x == pytest.approx(-5.0 / 6.0)
-        assert ecc.y == pytest.approx(0.0)
+        assert ecc.dx == pytest.approx(-5.0 / 6.0)
+        assert ecc.dy == pytest.approx(0.0)
 
     def test_axis_pos_uses_board_unit_not_body(self) -> None:
         # TO-92-like: body unit 1.25, board default. geo_mid must be computed in
@@ -385,8 +385,8 @@ class TestBodyAxisPos:
                        "body_axis_pos": [0.5, 0]}},
         ])
         ecc = pkgs["T"].leads.body_eccentricity_mm
-        assert ecc.x == pytest.approx(0.0)
-        assert ecc.y == pytest.approx(0.0)
+        assert ecc.dx == pytest.approx(0.0)
+        assert ecc.dy == pytest.approx(0.0)
 
     def test_both_forms_raises(self) -> None:
         with pytest.raises(PackageDefError):

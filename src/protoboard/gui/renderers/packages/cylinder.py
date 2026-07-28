@@ -87,7 +87,7 @@ class CylinderRenderer(PackageRenderer):
         if len(local) < 2:
             return None
         axis = local[-1] - local[0]  # Point − Point → Vector
-        if axis.length() < 1e-9:
+        if axis.norm() < 1e-9:
             return None
         local_axis_deg = axis.angle_deg()
         rot = math.radians(world_axis_deg - local_axis_deg)
@@ -98,8 +98,8 @@ class CylinderRenderer(PackageRenderer):
         # side.  Applied as a direction (the linear part; translation ignored).
         if self._side == "bottom":
             n = pkg.flip_transform().apply(n)
-        nx = n.x * math.cos(rot) - n.y * math.sin(rot)
-        ny = n.x * math.sin(rot) + n.y * math.cos(rot)
+        nx = n.dx * math.cos(rot) - n.dy * math.sin(rot)
+        ny = n.dx * math.sin(rot) + n.dy * math.cos(rot)
         normal_deg = Vector(nx, ny).angle_deg()
         return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
 
@@ -244,7 +244,7 @@ class CylinderRenderer(PackageRenderer):
         p1, p2 = self._anchor_ordered(positions)
         axis = p2 - p1  # Point − Point → Vector
         dx, dy = axis.dx, axis.dy
-        dist = axis.length()
+        dist = axis.norm()
         if dist < 1e-9:
             return self._draw_bbox(positions)
 

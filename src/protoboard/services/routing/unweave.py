@@ -109,7 +109,7 @@ def _pt_equal(a: Point, b: Point) -> bool:
 
 
 def _dist(a: Point, b: Point) -> float:
-    return (b - a).length()
+    return (b - a).norm()
 
 
 # ---------------------------------------------------------------------------

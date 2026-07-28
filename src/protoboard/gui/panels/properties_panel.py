@@ -314,8 +314,8 @@ class PropertiesPanel(QWidget):
         if placement is not None:
             idx = placement.rotation // 90
             self._rotation_combo.setCurrentIndex(idx)
-            self._label_x_spin.setValue(placement.label_offset.x)
-            self._label_y_spin.setValue(placement.label_offset.y)
+            self._label_x_spin.setValue(placement.label_offset.dx)
+            self._label_y_spin.setValue(placement.label_offset.dy)
 
     def clear_component(self) -> None:
         self._current_id = None
@@ -521,8 +521,8 @@ class PropertiesPanel(QWidget):
                 off = placement.pin_offsets.get(pin_num, Vector(0.0, 0.0))
                 world = pin_world_position(fp, placement, pin_num)
                 rows.append((f"── pin {pin_num} fp_pos", f"({fp_pos.x:g}, {fp_pos.y:g})"))
-                if off.x != 0.0 or off.y != 0.0:
-                    rows.append((f"   pin {pin_num} offset", f"({off.x:g}, {off.y:g})"))
+                if off.dx != 0.0 or off.dy != 0.0:
+                    rows.append((f"   pin {pin_num} offset", f"({off.dx:g}, {off.dy:g})"))
                 rows.append((f"   pin {pin_num} world", f"({world.x:.3f}, {world.y:.3f})"))
 
         self._geo_table.setRowCount(len(rows))
@@ -551,7 +551,7 @@ class PropertiesPanel(QWidget):
         result: dict[int, Vector] = {}
         for pin_num, widget in self._pin_bend_widgets.items():
             pt = widget.current_value()
-            if pt.x != 0.0 or pt.y != 0.0:
+            if pt.dx != 0.0 or pt.dy != 0.0:
                 result[pin_num] = pt
         # Also collect legacy spin-box values (harmless if dict is empty)
         for pin_num, (sx, sy) in self._pin_offset_spins.items():
@@ -812,5 +812,5 @@ class _FreeBendWidget(_BendWidget):
     @staticmethod
     def _fmt(pt: Vector) -> str:
         import math as _math
-        d = _math.hypot(pt.x, pt.y)
-        return f"dx={pt.x:g}  dy={pt.y:g}  |d|={d:.2f}"
+        d = _math.hypot(pt.dx, pt.dy)
+        return f"dx={pt.dx:g}  dy={pt.dy:g}  |d|={d:.2f}"

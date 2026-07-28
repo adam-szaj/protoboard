@@ -24,7 +24,7 @@ VectorList = list[Vector]
 def _two_pin_prism(steps_holes: list[Vector]) -> Prism:
     leads = Leads(
         direction=(Vector3D(0, 0, -1),) * (len(steps_holes) + 1),
-        body_offset_mm=tuple(Vector(s.x * 2.5, s.y * 2.5) for s in steps_holes),
+        body_offset_mm=tuple(Vector(s.dx * 2.5, s.dy * 2.5) for s in steps_holes),
         board_offset=BOARD_DEFAULT,
     )
     return Prism(leads=leads, width_mm=2.5, length_mm=2.5, height_mm=2.5)

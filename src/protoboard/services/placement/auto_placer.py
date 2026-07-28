@@ -288,7 +288,7 @@ def _sort_by_gravity(
 def _sort_candidates(candidates: list[Point], center: Point | None) -> list[Point]:
     if center is None:
         return candidates  # already in column-major order
-    return sorted(candidates, key=lambda p: (p - center).length())
+    return sorted(candidates, key=lambda p: (p - center).norm())
 
 
 def _extended_candidates(

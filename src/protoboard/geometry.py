@@ -65,21 +65,16 @@ class Point:
         if isinstance(o, Point):
             return Vector(self.x - o.x, self.y - o.y)
         else:
-            return Point(self.x - o.x, self.y - o.y)
+            return Point(self.x - o.dx, self.y - o.dy)
 
 
 @dataclass(frozen=True, slots=True)
 class Vector:
+    """A 2D displacement [dx, dy]. A vector is not a point — there are
+    deliberately no ``.x``/``.y`` aliases."""
+
     dx: float = 0.0
     dy: float = 0.0
-
-    @property
-    def x(self) -> float:
-        return self.dx
-
-    @property
-    def y(self) -> float:
-        return self.dy
 
     def __neg__(self) -> Vector:
         return Vector(-self.dx, -self.dy)
@@ -115,7 +110,8 @@ class Vector:
         """
         return self.dx * other.dy - self.dy * other.dx
 
-    def length(self) -> float:
+    def norm(self) -> float:
+        """Euclidean magnitude of the displacement."""
         return norm(self.dx, self.dy, 0.0)
 
     def angle(self) -> float:
@@ -157,7 +153,7 @@ class Point3D:
         if isinstance(o, Point3D):
             return Vector3D(self.x - o.x, self.y - o.y, self.z - o.z)
         else:
-            return Point3D(self.x - o.x, self.y - o.y, self.z - o.z)
+            return Point3D(self.x - o.dx, self.y - o.dy, self.z - o.dz)
 
 
 ROTATE2D_TRANSFORM: list = [
@@ -368,21 +364,12 @@ def transform_points(rotate: Rotate2D, pivot: Point,
 
 @dataclass(frozen=True, slots=True)
 class Vector3D:
+    """A 3D displacement [dx, dy, dz]. No ``.x``/``.y``/``.z`` aliases —
+    a vector is not a point."""
+
     dx: float = 0.0
     dy: float = 0.0
     dz: float = 0.0
-
-    @property
-    def x(self) -> float:
-        return self.dx
-
-    @property
-    def y(self) -> float:
-        return self.dy
-
-    @property
-    def z(self) -> float:
-        return self.dz
 
     def __add__(self, o: Vector3D) -> Vector3D:
         return Vector3D(self.dx + o.dx, self.dy + o.dy, self.dz + o.dz)
@@ -414,7 +401,8 @@ class Vector3D:
             self.dx * other.dy - self.dy * other.dx,
         )
 
-    def length(self) -> float:
+    def norm(self) -> float:
+        """Euclidean magnitude of the displacement."""
         return norm(self.dx, self.dy, self.dz)
 
 

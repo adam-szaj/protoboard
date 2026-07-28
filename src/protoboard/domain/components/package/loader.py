@@ -180,7 +180,7 @@ def _board_steps_in_holes(board_offset: tuple[Vector, ...] | str,
     rejects ``body_axis_pos`` for that case before reaching here.
     """
     if board_offset == BOARD_DEFAULT:
-        return [Vector(v.x / RASTER_MM, v.y / RASTER_MM) for v in body_mm]
+        return [Vector(v.dx / RASTER_MM, v.dy / RASTER_MM) for v in body_mm]
     if isinstance(board_offset, str):  # BOARD_SOLVE
         raise PackageDefError("board_offset 'solve' has no default layout")
     return list(board_offset)
@@ -239,8 +239,8 @@ def _resolve_eccentricity(
         axis_pos = _as_vector(axis_raw, "body_axis_pos", pkg)
         geo_mid = _geo_mid_holes(board_offset, body_mm)
         return Vector(
-            (axis_pos.x - geo_mid.x) * RASTER_MM,
-            (axis_pos.y - geo_mid.y) * RASTER_MM,
+            (axis_pos.dx - geo_mid.x) * RASTER_MM,
+            (axis_pos.dy - geo_mid.y) * RASTER_MM,
         )
     if ecc_raw is not None:
         return _as_vector(ecc_raw, "body_eccentricity", pkg)
@@ -362,7 +362,7 @@ def _mount_points(raw: object, pkg: str) -> tuple[Point, ...]:
         return ()
     try:
         return tuple(
-            Point(v.x, v.y)
+            Point(v.dx, v.dy)
             for v in expand_offsets(raw))  # type: ignore[arg-type]
     except (TypeError, ValueError) as exc:
         raise PackageDefError(f"{pkg}: invalid mount_points: {exc}") from exc
@@ -391,7 +391,7 @@ def _normalise_body_offset(filled: PackageDict, pkg: str) -> None:
     if not isinstance(body_raw, dict):
         return
     body_mm = _body_offset_to_mm(body_raw, pkg)
-    leads["body_offset"] = [[v.x, v.y] for v in body_mm]
+    leads["body_offset"] = [[v.dx, v.dy] for v in body_mm]
 
 
 def _check_no_auto(tree: PackageDict, pkg: str) -> None:

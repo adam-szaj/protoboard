@@ -228,7 +228,7 @@ class Cylinder:
                 r_min = self.r_body_mm - self.leads.body_eccentricity_mm + 3.0 * lr
             return OffsetRange(r_min, r_min + 2.0 * lead)
         # radial / bend → dolny clamp na body_offset (szkic, 1-para)
-        base = abs(self.leads.body_offset_mm[0].x) if self.leads.body_offset_mm else 0.0
+        base = abs(self.leads.body_offset_mm[0].dx) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base, base + self.bend_holes * RASTER_MM)
 
     def pin_positions(

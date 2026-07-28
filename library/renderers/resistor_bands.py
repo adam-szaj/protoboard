@@ -162,7 +162,7 @@ class DinColorBandRenderer(CylinderRenderer):
         # Same anchor-end order as the base body, so the code group mirrors
         # with the part exactly like the cathode stripe does.
         p1, p2 = self._anchor_ordered(positions)
-        dist = (p2 - p1).length()
+        dist = (p2 - p1).norm()
         # Bands are visible only on the HORIZONTAL body (the side view). An
         # upright part draws its top-view disc, and a degenerate spacing draws
         # the bbox — neither shows a code.
