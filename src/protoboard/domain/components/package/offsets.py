@@ -143,7 +143,7 @@ def expand_direction(raw: object, pin_count: int) -> list[Vector3D]:
 
 def scale_offsets(vectors: Sequence[Vector], unit: float) -> list[Vector]:
     """Multiply each offset vector by ``unit`` (raster step → mm)."""
-    return [Vector(v.x * unit, v.y * unit) for v in vectors]
+    return [Vector(v.dx * unit, v.dy * unit) for v in vectors]
 
 
 def cumulative_positions(steps: Sequence[Vector]) -> list[Point]:

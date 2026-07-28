@@ -269,7 +269,7 @@ def _path_length(path: list[Point]) -> float:
     """Geometric length of a polyline (sum of Euclidean segment lengths)."""
     total = 0.0
     for p, q in zip(path, path[1:]):
-        total += (q - p).length()
+        total += (q - p).norm()
     return total
 
 
@@ -291,8 +291,8 @@ def _count_total_corners(path: list[Point]) -> int:
         a, b, c = path[k - 1], path[k], path[k + 1]
         d1 = b - a
         d2 = c - b
-        l1 = d1.length()
-        l2 = d2.length()
+        l1 = d1.norm()
+        l2 = d2.norm()
         if l1 < _EPS or l2 < _EPS:
             continue  # zero-length segment, skip
         # Same direction? Normalised dot ≈ 1 → collinear.
@@ -506,15 +506,15 @@ def _segs_overlap_collinear(
     """
     # Collinearity: both b1 and b2 must lie on the infinite line through a1-a2.
     ab = a2 - a1
-    if abs(ab.x) < eps and abs(ab.y) < eps:
+    if abs(ab.dx) < eps and abs(ab.dy) < eps:
         return False  # degenerate
     cross1 = ab.cross(b1 - a1)
     cross2 = ab.cross(b2 - a1)
-    ab_len = ab.length()
+    ab_len = ab.norm()
     if abs(cross1) > eps * ab_len or abs(cross2) > eps * ab_len:
         return False
     # Project both segments to the dominant axis to measure interval overlap.
-    if abs(ab.x) >= abs(ab.y):
+    if abs(ab.dx) >= abs(ab.dy):
         ta1, ta2 = a1.x, a2.x
         tb1, tb2 = b1.x, b2.x
     else:

@@ -150,7 +150,7 @@ class PrismRenderer(PackageRenderer):
 
         p1, p2 = positions[0], positions[1]
         axis = p2 - p1  # Point − Point → Vector
-        dist = axis.length()
+        dist = axis.norm()
         if dist < 1e-9:
             return self._draw_bbox(positions)
 

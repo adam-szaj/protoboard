@@ -303,7 +303,7 @@ class TestRedragOffsetInverse:
         delta = target_world - baseline_world
         off = unrotate(delta, rotation)
         if side == "bottom":
-            off = Vector(-off.x, off.y)
+            off = Vector(-off.dx, off.dy)
         return off
 
     def test_top_rotation0(self) -> None:
@@ -359,7 +359,7 @@ class TestRedragOffsetInverse:
         pl2 = self._make_pl(Point(3.0, 3.0), rotation=0, side="top", pin_offsets={2: off})
         assert _approx_point(pin_world_position(fp, pl2, 2), target)
         # off should be (0, -1) to cancel the (0,1) footprint position of pin2
-        assert _approx(off.x, 0.0) and _approx(off.y, -1.0)
+        assert _approx(off.dx, 0.0) and _approx(off.dy, -1.0)
 
 
 class TestWireSegment:

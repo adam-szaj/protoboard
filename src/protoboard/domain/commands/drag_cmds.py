@@ -137,7 +137,7 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         #    by component_id+pin_number against the new placement).
         from protoboard.domain.layout.wire import transform_wire_geometry
 
-        dx, dy = self.delta.x, self.delta.y
+        dx, dy = self.delta.dx, self.delta.dy
         for wid in self.internal_wire_ids:
             wire = state.layout.wires.get(wid)
             if wire is None:

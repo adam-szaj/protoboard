@@ -842,8 +842,8 @@ def _component_from_dict(
                     min_pt = _parse_point(spec_raw["min"], ctx + ".min")
                     max_pt = _parse_point(spec_raw["max"], ctx + ".max")
                     bendable_pins[pin_num] = PinBendSpec(
-                        min_reach=_math.hypot(min_pt.x, min_pt.y),
-                        max_reach=_math.hypot(max_pt.x, max_pt.y),
+                        min_reach=_math.hypot(min_pt.dx, min_pt.dy),
+                        max_reach=_math.hypot(max_pt.dx, max_pt.dy),
                         default_offset=_parse_vector(spec_raw["default"], ctx +
                                                      ".default")
                         if "default" in spec_raw else _Vector(0.0, 0.0),

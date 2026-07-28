@@ -195,7 +195,7 @@ def _body_offset_in_holes(leads: Leads) -> list[Vector]:
     radial/DIP this is the canonical case where one vector serves both domains.
     """
     return [
-        Vector(v.x / RASTER_MM, v.y / RASTER_MM) for v in leads.body_offset_mm
+        Vector(v.dx / RASTER_MM, v.dy / RASTER_MM) for v in leads.body_offset_mm
     ]
 
 
@@ -290,8 +290,8 @@ def _body_centre_holes(pins: list[Point], eccentricity_mm: Vector) -> Point:
     """
     n = len(pins)
     return Point(
-        sum(p.x for p in pins) / n + eccentricity_mm.x / RASTER_MM,
-        sum(p.y for p in pins) / n + eccentricity_mm.y / RASTER_MM,
+        sum(p.x for p in pins) / n + eccentricity_mm.dx / RASTER_MM,
+        sum(p.y for p in pins) / n + eccentricity_mm.dy / RASTER_MM,
     )
 
 
@@ -305,7 +305,7 @@ def _oriented_rect_aabb(
     the local axes: ``half = (along·|u| + across·|v|) / 2`` per component,
     where ``u`` is the unit axis and ``v`` its perpendicular.
     """
-    length = axis.length()
+    length = axis.norm()
     ux, uy = axis.dx / length, axis.dy / length
     half_x = (along * abs(ux) + across * abs(uy)) / 2.0
     half_y = (along * abs(uy) + across * abs(ux)) / 2.0
@@ -358,7 +358,7 @@ class Cylinder(Package):
                     "flat_radius_mm must satisfy 0 < r < diameter/2 "
                     f"(got r={self.flat_radius_mm}, diameter={self.diameter_mm})"
                 )
-            if self.flat_normal.x == 0.0 and self.flat_normal.y == 0.0:
+            if self.flat_normal.dx == 0.0 and self.flat_normal.dy == 0.0:
                 raise ValueError(
                     "flat_normal must be non-zero when flat_radius_mm is set")
 
@@ -405,7 +405,7 @@ class Cylinder(Package):
                 orientation=orientation,
             )
         # bend: symmetric radius, lower-clamped at body_offset (spec).
-        base_mm = abs(self.leads.body_offset_mm[0].x
+        base_mm = abs(self.leads.body_offset_mm[0].dx
                       ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
@@ -447,7 +447,7 @@ class Cylinder(Package):
         if (self.arrangement is LeadArrangement.RADIAL or len(pins) < 2):
             return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         axis = pins[-1] - pins[0]
-        if axis.length() < 1e-9:
+        if axis.norm() < 1e-9:
             return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         return _oriented_rect_aabb(
             centre, self.length_mm / RASTER_MM, d, axis)
@@ -526,7 +526,7 @@ class Prism(Package):
         if self.leads.board_offset == BOARD_SOLVE:
             raise ValueError(
                 "prism does not support the axial solver (body=0)")
-        base_mm = abs(self.leads.body_offset_mm[0].x
+        base_mm = abs(self.leads.body_offset_mm[0].dx
                       ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
@@ -552,8 +552,8 @@ class Prism(Package):
         centre = pb.center
         off = self.body_offset_mm
         return Rect(
-            centre.x + off.x / RASTER_MM - w / 2.0,
-            centre.y + off.y / RASTER_MM - h / 2.0,
+            centre.x + off.dx / RASTER_MM - w / 2.0,
+            centre.y + off.dy / RASTER_MM - h / 2.0,
             w,
             h,
         )
@@ -620,7 +620,7 @@ class Disc(Package):
     ) -> OffsetRange:
         if self.leads.board_offset == BOARD_SOLVE:
             raise ValueError("disc does not support the axial solver (body=0)")
-        base_mm = abs(self.leads.body_offset_mm[0].x
+        base_mm = abs(self.leads.body_offset_mm[0].dx
                       ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
@@ -637,7 +637,7 @@ class Disc(Package):
         if len(pins) < 2:
             return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         axis = pins[-1] - pins[0]
-        if axis.length() < 1e-9:
+        if axis.norm() < 1e-9:
             return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         return _oriented_rect_aabb(
             centre, d, self.thickness_mm / RASTER_MM, axis)

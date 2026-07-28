@@ -93,7 +93,7 @@ def _pt_to(p: Point) -> dict[str, float]:
 
 
 def _vec_to(v: Vector) -> dict[str, float]:
-    return {"x": float(v.x), "y": float(v.y)}
+    return {"x": float(v.dx), "y": float(v.dy)}
 
 
 def _pt_from(d: dict[str, Any]) -> Point:

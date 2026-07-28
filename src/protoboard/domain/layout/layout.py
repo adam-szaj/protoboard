@@ -719,7 +719,7 @@ def _endpoint_mismatch_error(
         other_knot_pos=(
             (other_cur.x, other_cur.y) if other_cur is not None else None
         ),
-        delta=(delta.x, delta.y),
+        delta=(delta.dx, delta.dy),
         skip_pin_knot_validation=skip_pin_knot_validation,
     )
     return ValueError(

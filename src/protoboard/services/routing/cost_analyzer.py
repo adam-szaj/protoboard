@@ -119,7 +119,7 @@ def _segment_unit_steps(a: Point, b: Point) -> list[tuple[Point, Point]]:
     if kind is None:
         return [(a, b)]
     span = b - a  # Point − Point → Vector
-    n_steps = int(round(max(abs(span.x), abs(span.y))))
+    n_steps = int(round(max(abs(span.dx), abs(span.dy))))
     if n_steps <= 1:
         return [(a, b)]
     step = span / n_steps  # per-unit displacement
@@ -164,10 +164,10 @@ def _bend_kind(prev: tuple[float, float], cur: tuple[float, float]) -> str | Non
 
 def _unit_direction(a: Point, b: Point) -> tuple[float, float]:
     span = b - a  # Point − Point → Vector
-    n = span.length()
+    n = span.norm()
     if n == 0:
         return (0.0, 0.0)
-    return (round(span.x / n), round(span.y / n))
+    return (round(span.dx / n), round(span.dy / n))
 
 
 def _under_component_pads(
