@@ -45,6 +45,7 @@ from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import BOARD_GHOST_ALPHA, Z_BOARD, LayerState
 from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.gui.qt_geometry import to_qrectf
 
 # Per-pad colour mapping passed to ``build_board_display_list``.
 # Key is the pad centre (cx, cy) rounded to 3 decimals; value is either
@@ -253,9 +254,7 @@ def _build_frames(
     from protoboard.domain.board.boxes import BoardGrid, HBox, VBox
 
     if is_root or isinstance(node.box, (HBox, VBox, BoardGrid)):
-        half_w = node.size.lx / 2.0
-        half_h = node.size.ly / 2.0
-        rect = QRectF(node.center.x - half_w, node.center.y - half_h, node.size.lx, node.size.ly)
+        rect = to_qrectf(node.bounds)
         if is_root:
             c = QColor(theme.board_frame_color)
             c.setAlphaF(c.alphaF() * alpha)

@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.services.debug_trace import traced
+from protoboard.geometry import Insets
+from protoboard.gui.qt_geometry import to_qrectf
 
 if TYPE_CHECKING:
     from protoboard.geometry import Point
@@ -634,7 +636,7 @@ class HighlightRenderer:
             return
         m = 0.06
         rect = QGraphicsRectItem(
-            QRectF(bbox.x - m, bbox.y - m, bbox.lx + 2 * m, bbox.ly + 2 * m)
+            to_qrectf(bbox.inflate(Insets.all(m)))
         )
         rect.setPen(self._selection_bbox_pen())
         rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -652,10 +654,7 @@ class HighlightRenderer:
             return
         m = 0.06
         try:
-            rect.setRect(
-                QRectF(bbox.x - m, bbox.y - m,
-                       bbox.lx + 2 * m, bbox.ly + 2 * m)
-            )
+            rect.setRect(to_qrectf(bbox.inflate(Insets.all(m))))
             rect.setPen(self._selection_bbox_pen())
         except RuntimeError:
             self._selection_bbox_overlays.pop(comp_id, None)

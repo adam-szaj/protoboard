@@ -32,6 +32,7 @@ from PySide6.QtGui import QPainterPath
 from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
 from protoboard.controller.theme import Theme
+from protoboard.gui.qt_geometry import to_qrectf
 
 # Pins within this many holes of one another share a column.  DIP rows sit
 # whole holes apart (rows_spacing >= 2), so a generous tolerance still separates
@@ -218,7 +219,7 @@ class SilSilhouette(PrismSilhouette):
     ) -> PrismDrawing:
         box = prism.bbox()
         body = rounded_rect_path(
-            QRectF(box.x, box.y, box.lx, box.ly),
+            to_qrectf(box),
             _expand_corner_r(corner_r, theme),
         )
         return PrismDrawing(body=body, marker=_pin1_marker_path(0.08))

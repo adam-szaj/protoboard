@@ -32,6 +32,8 @@ from protoboard.gui.renderers.wire_renderer import (
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.services.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
+from protoboard.geometry import Insets
+from protoboard.gui.qt_geometry import to_qrectf
 
 if TYPE_CHECKING:
     from protoboard.controller.theme import Theme
@@ -203,10 +205,9 @@ class SceneComposer:
 
         # ── Scene rect ───────────────────────────────────────────────────────
         b = session.board.bounds
-        mx, my = b.lx * 0.5, b.ly * 0.5
-        scene.setSceneRect(
-            QRectF(b.x - mx, b.y - my, b.lx + 2 * mx, b.ly + 2 * my)
-        )
+        margin = Insets(top=b.ly * 0.5, right=b.lx * 0.5,
+                        bottom=b.ly * 0.5, left=b.lx * 0.5)
+        scene.setSceneRect(to_qrectf(b.inflate(margin)))
 
         # ── Label visibility (hide text that would be too small to read) ────────
         view.apply_label_visibility()
