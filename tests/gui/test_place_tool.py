@@ -88,7 +88,7 @@ class TestPlaceToolSmdMount:
         pkg = build_package(
             {
                 "shape": "prism",
-                "dims": {"length": 2.0, "width": 1.25},
+                "dims": {"lx": 2.0, "ly": 1.25},
                 "arrangement": "axial", "mount": "surface", "bend": 0,
                 "leads": {
                     "direction": [[0, 0, -1], [0, 0, -1]],

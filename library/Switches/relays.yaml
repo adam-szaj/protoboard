@@ -6,7 +6,7 @@ components:
       style: "color: #222"
       package:
           shape: prism
-          dims: {width: 10, length: 20, height: 10.6}
+          dims: {ly: 10, lx: 20, lz: 10.6}
           leads:
               direction: [0,0,-1]
               body_offset:
@@ -22,7 +22,7 @@ components:
       style: "color: #222"
       package:
           shape: prism
-          dims: {width: 10, length: 20, height: 10.6}
+          dims: {ly: 10, lx: 20, lz: 10.6}
           leads:
               direction: [0,0,-1]
               body_offset:
@@ -38,7 +38,7 @@ components:
       style: "color: #eee"
       package:
           shape: prism
-          dims: {width: 12.7, length: 29, height: 15.7}
+          dims: {ly: 12.7, lx: 29, lz: 15.7}
           leads:
               direction: [0,0,-1]
               body_offset:
@@ -54,7 +54,7 @@ components:
       style: "color: #eee"
       package:
           shape: prism
-          dims: {width: 12.7, length: 29, height: 15.7}
+          dims: {ly: 12.7, lx: 29, lz: 15.7}
           leads:
               direction: [0,0,-1]
               body_offset:
@@ -70,7 +70,7 @@ components:
       style: "color: #eee"
       package:
           shape: prism
-          dims: {width: 12.7, length: 29, height: 15.7}
+          dims: {ly: 12.7, lx: 29, lz: 15.7}
           leads:
               direction: [0,0,-1]
               body_offset:
@@ -86,7 +86,7 @@ components:
       style: "color: #eee"
       package:
           shape: prism
-          dims: {width: 12.7, length: 29, height: 15.7}
+          dims: {ly: 12.7, lx: 29, lz: 15.7}
           leads:
               direction: [0,0,-1]
               body_offset:

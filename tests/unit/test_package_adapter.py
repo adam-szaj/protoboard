@@ -25,7 +25,7 @@ _CATALOGUE: list[dict] = [
      "dims": {"diameter": 2.5, "length": 6.3},
      "leads": {"lead_r": 0.27, "lead_length": 32.0}},
     {"name": "DIP-8", "extends": "prism_dil",
-     "dims": {"width": 6.25, "length": 9.20, "height": 4.0},
+     "dims": {"ly": 6.25, "lx": 9.20, "lz": 4.0},
      "leads": {"body_offset": {"unit": 2.5,
                "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
 ]

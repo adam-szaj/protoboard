@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Package-family catalogue — radial brick / can bodies (HC-49 crystal, ceramic
 # bricks).  Ported from assets/body_types/radial_brick.yaml.  Prisms map their
-# length -> length_mm (along the lead axis) and width -> width_mm; the package
-# Prism bbox uses width x length.
+# Local-frame dims: lx along the lead axis, ly across it, lz off-board
+# elevation (the Prism bbox orients lx/ly by the pin-row axis).
 families:
   - family: HC-49
     extends: prism_radial
@@ -12,7 +12,7 @@ families:
     variants:
       - id: typ
         label: "Typical (11 x 4.5 x 3.5 mm)"
-        dims: {length: 11.0, width: 4.5, height: 3.5}
+        dims: {lx: 11.0, ly: 4.5, lz: 3.5}
         leads: {lead_r: 0.25}
 
   - family: Ceramic-Brick-Small
@@ -23,7 +23,7 @@ families:
     variants:
       - id: typ
         label: "Typical"
-        dims: {length: 22.0, width: 9.5, height: 9.0}
+        dims: {lx: 22.0, ly: 9.5, lz: 9.0}
         leads: {lead_r: 0.4}
 
   - family: Ceramic-Brick-Medium
@@ -34,7 +34,7 @@ families:
     variants:
       - id: typ
         label: "Typical"
-        dims: {length: 25.0, width: 10.0, height: 10.0}
+        dims: {lx: 25.0, ly: 10.0, lz: 10.0}
         leads: {lead_r: 0.4}
 
   - family: Ceramic-Brick-Large
@@ -45,5 +45,5 @@ families:
     variants:
       - id: typ
         label: "Typical"
-        dims: {length: 48.0, width: 13.0, height: 13.0}
+        dims: {lx: 48.0, ly: 13.0, lz: 13.0}
         leads: {lead_r: 0.5}

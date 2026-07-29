@@ -139,14 +139,14 @@ class PrismRenderer(PackageRenderer):
         No leads and no pin-1 marker — a chip carries neither.
         """
         from protoboard.domain.components.package.shapes import (
-            lead_axis_extents_or_none,
+            local_size_holes_or_none,
         )
-        extents = lead_axis_extents_or_none(pkg)  # (along, across) the pads
-        if extents is None:
+        s = local_size_holes_or_none(pkg)  # local frame: lx along the pads
+        if s is None:
             # No explicit dims/margin to size the chip — degrade to the bbox
             # fallback, which handles the same case with a generic body.
             return self._draw_bbox(positions)
-        body_len, body_w = extents
+        body_len, body_w = s.lx, s.ly
 
         p1, p2 = positions[0], positions[1]
         axis = p2 - p1  # Point − Point → Vector

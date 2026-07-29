@@ -25,6 +25,7 @@ from protoboard.domain.components.package.loader import (
 )
 from protoboard.domain.components.package.schema import AUTO
 from protoboard.domain.components.package.shapes import Prism
+from protoboard.geometry import Size3D
 
 
 @pytest.fixture()
@@ -51,8 +52,8 @@ def _base_registry() -> dict[str, dict]:
             "shape": "prism",
             "schema": {
                 "dims": {
-                    "width": {"type": "float"},
-                    "length": {"type": "float"},
+                    "ly": {"type": "float"},
+                    "lx": {"type": "float"},
                 },
             },
             "leads": {"direction": [0, 0, -1], "board_offset": "default"},
@@ -63,7 +64,7 @@ def _base_registry() -> dict[str, dict]:
             "kind": "_t_nodekind",
             "extends": "prismish",
             "color": "#123456",
-            "dims": {"width": "auto", "length": "auto"},
+            "dims": {"ly": "auto", "lx": "auto"},
             "leads": {"body_offset": "auto"},
         },
     }
@@ -76,10 +77,10 @@ class _NodeGen(PackageGenerator):
         values = dict(ctx.values)
         dims = dict(values.get("dims") or {})
         leads = dict(values.get("leads") or {})
-        if dims.get("width") == AUTO:
-            dims["width"] = 5.0
-        if dims.get("length") == AUTO:
-            dims["length"] = float(ctx.pin_count) * 2.5
+        if dims.get("ly") == AUTO:
+            dims["ly"] = 5.0
+        if dims.get("lx") == AUTO:
+            dims["lx"] = float(ctx.pin_count) * 2.5
         if leads.get("body_offset") == AUTO:
             leads["body_offset"] = [[2.5, 0.0]] * (ctx.pin_count - 1)
         values["dims"] = dims
@@ -102,7 +103,7 @@ class TestRegistration:
         # name/kind stripped; extends resolved (parent schema merged in).
         assert "name" not in node.merged and "kind" not in node.merged
         assert node.merged["shape"] == "prism"
-        assert node.merged["dims"]["width"] == "auto"
+        assert node.merged["dims"]["ly"] == "auto"
 
     def test_register_kind_nodes_walks_only_kind_bearing_entries(
         self, scratch_registries
@@ -123,7 +124,7 @@ class TestRegistration:
             "kind": "_t_schemakind",
             "extends": "prismish",
             "schema": {"rows": {"type": "int", "default": 1}},
-            "dims": {"width": 1.0, "length": 1.0},
+            "dims": {"ly": 1.0, "lx": 1.0},
             "leads": {"body_offset": [[2.5, 0.0]]},
         }
         register_kind_node("_t_schemakind", registry)
@@ -169,12 +170,11 @@ class TestNodeBuild:
         # not already pass through it (the real kinds.yaml chain does).
         assert pkg.lineage == ("prism", "prismish", "_t_nodekind")
         assert pkg.color == "#123456"          # node's declared colour
-        assert pkg.width_mm == 5.0
-        assert pkg.length_mm == 7.5
+        assert pkg.size_mm == Size3D(7.5, 5.0)
         assert len(pkg.leads.body_offset_mm) == 2
         # raw_values keep the authored ``auto`` for the UI.
         assert pkg.raw_values is not None
-        assert pkg.raw_values["dims"]["width"] == "auto"
+        assert pkg.raw_values["dims"]["ly"] == "auto"
 
     def test_generator_color_is_only_a_fallback(
         self, scratch_registries
@@ -200,7 +200,7 @@ class TestNodeBuild:
                 raise AssertionError("must not fall back to generate()")
 
         register_kind_node("_t_nodekind", _base_registry())
-        with pytest.raises(PackageDefError, match="auto.*dims.width"):
+        with pytest.raises(PackageDefError, match="auto.*dims.(ly|lx)"):
             build_kind_package("_t_nodekind", GeneratorContext(pin_count=2))
 
     def test_explicit_value_beats_auto(self, scratch_registries) -> None:
@@ -210,11 +210,12 @@ class TestNodeBuild:
         register_kind_node("_t_nodekind", _base_registry())
         pkg = build_kind_package(
             "_t_nodekind",
-            GeneratorContext(pin_count=3, values={"dims": {"width": 9.0}}),
+            GeneratorContext(pin_count=3, values={"dims": {"ly": 9.0}}),
         ).package
         assert isinstance(pkg, Prism)
-        assert pkg.width_mm == 9.0             # explicit override
-        assert pkg.length_mm == 7.5            # auto still filled
+        assert pkg.size_mm is not None
+        assert pkg.size_mm.ly == 9.0           # explicit override
+        assert pkg.size_mm.lx == 7.5           # auto still filled
 
 
 class TestLibraryPackagesSection:
@@ -232,7 +233,7 @@ class TestLibraryPackagesSection:
             "    kind: _t_libnode\n"
             "    extends: prism_dil\n"
             "    color: '#654321'\n"
-            "    dims: {width: auto, length: auto}\n"
+            "    dims: {ly: auto, lx: auto}\n"
             "    leads: {body_offset: auto}\n"
             "components:\n"
             "  - name: PART_NODE\n"

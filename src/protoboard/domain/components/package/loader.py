@@ -44,7 +44,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import RASTER_MM
-from protoboard.geometry import Insets, Point, Vector
+from protoboard.geometry import Insets, Point, Size3D, Vector
 from protoboard.services.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
@@ -488,7 +488,15 @@ _KNOWN_DIMS_KEYS: dict[str, frozenset[str]] = {
         "flat_normal",
     }),
     "disc": frozenset({"diameter", "thickness"}),
-    "prism": frozenset({"width", "length", "height", "corner_radius"}),
+    "prism": frozenset({"lx", "ly", "lz", "corner_radius"}),
+}
+
+#: Legacy prism dims keys → their axis-name replacements (the local frame:
+#: lx along the lead axis, ly across it, lz off-board elevation).
+_LEGACY_PRISM_DIMS: dict[str, str] = {
+    "length": "lx",
+    "width": "ly",
+    "height": "lz",
 }
 
 
@@ -502,13 +510,25 @@ def _validate_dims(
 
     An unknown key WARNS (dims is an open data bag — never a gate; a family
     schema may declare extra ``dims.*`` fields, those count as known). A
-    prism giving exactly ONE of width/length ERRORS: the half pair can never
+    prism giving exactly ONE of lx/ly ERRORS: the half pair can never
     derive a body, so the part would silently degrade to the pin-hug
     rectangle at render — the ``langth``-typo class of bug, better refused
     loudly at load (the component is skipped with this message as the hint).
-    A dims-less prism stays legal: no dims at all (or an empty block) means
-    "derive from pins/margin" — the generators build exactly that.
+    The legacy prism keys width/length/height ERROR with the axis-name
+    mapping (the error message is the migration guide). A dims-less prism
+    stays legal: no dims at all (or an empty block) means "derive from
+    pins/margin" — the generators build exactly that.
     """
+    if shape == "prism":
+        legacy = [k for k in _LEGACY_PRISM_DIMS if k in dims]
+        if legacy:
+            mapping = ", ".join(
+                f"{old} -> {_LEGACY_PRISM_DIMS[old]}" for old in legacy)
+            raise PackageDefError(
+                f"{pkg}: prism dims uses legacy datasheet keys "
+                f"({', '.join(legacy)}) — rename to the local-frame axis "
+                f"names: {mapping} (lx runs along the lead axis, ly across "
+                f"it, lz is the off-board elevation)")
     known = _KNOWN_DIMS_KEYS.get(shape, frozenset())
     if schema is not None:
         known = known | {
@@ -526,14 +546,18 @@ def _validate_dims(
                 known=sorted(known),
             )
     if shape == "prism":
-        has_width = dims.get("width") is not None
-        has_length = dims.get("length") is not None
-        if has_width != has_length:
-            missing = "length" if has_width else "width"
+        has_ly = dims.get("ly") is not None
+        has_lx = dims.get("lx") is not None
+        if has_ly != has_lx:
+            missing = "lx" if has_ly else "ly"
             raise PackageDefError(
                 f"{pkg}: prism dims gives only one extent — missing "
                 f"dims.{missing} (a half pair cannot derive the body and "
                 f"would silently degrade to the pin-hug rectangle)")
+        if dims.get("lz") is not None and not has_lx:
+            raise PackageDefError(
+                f"{pkg}: prism dims gives lz without lx/ly — the elevation "
+                f"alone cannot derive a body")
 
 
 @traced()
@@ -605,11 +629,14 @@ def build_package(
         )
     # prism
     margin = _margin_insets(merged.get("margin"))
+    lx = _opt_float(dims.get("lx"))
+    ly = _opt_float(dims.get("ly"))
+    lz = _opt_float(dims.get("lz"))
+    size_mm = (Size3D(lx, ly, lz if lz is not None else 0.0)
+               if lx is not None and ly is not None else None)
     return Prism(
         leads=leads,
-        width_mm=_opt_float(dims.get("width")),
-        length_mm=_opt_float(dims.get("length")),
-        height_mm=_opt_float(dims.get("height")),
+        size_mm=size_mm,
         bend_holes=bend,
         corner_radius_mm=float(dims.get("corner_radius", 0.0)),
         margin_mm=margin,

@@ -35,6 +35,8 @@ from protoboard.geometry import (
     Insets,
     Point,
     Rect,
+    Size,
+    Size3D,
     Transform2D,
     Vector,
     Vector3D,
@@ -162,8 +164,34 @@ class Package(ABC):
         return self.board_offset_range()
 
     @abstractmethod
-    def bbox(self) -> Rect:
+    def local_size_mm(self) -> Size3D:
+        """Body AABB extents in the package-local frame (mm).
+
+        The local frame law: local +x runs ALONG the lead axis (pin 1 → pin
+        N), local +y across it in the board plane, local +z off-board.
+        Raises ``ValueError`` when no body extent is derivable (the degrade
+        contract shared with :func:`bbox_or_none`).
+        """
         ...
+
+    @abstractmethod
+    def body_frame(self) -> Transform2D:
+        """Transform from the package-local frame to the footprint grid
+        (holes): the rotation that lays local +x onto the lead axis composed
+        with the translation to the body centre."""
+        ...
+
+    def bbox(self) -> Rect:
+        """Axis-aligned body extent (holes) over the default pin layout.
+
+        The local-frame body rectangle pushed through :meth:`body_frame` —
+        the along/across orientation falls out of the rotation matrix
+        instead of per-shape conditional swaps.
+        """
+        s = self.local_size_mm()
+        local = Rect.from_center(
+            Point(), Size(s.lx / RASTER_MM, s.ly / RASTER_MM))
+        return local.transformed_aabb(self.body_frame())
 
     def flip_transform(self) -> Transform2D:
         """Reflection (local frame) for a physical board-side flip.
@@ -234,20 +262,17 @@ def _require(value: float | None, name: str) -> float:
     return value
 
 
-def lead_axis_extents(package: Package) -> tuple[float, float]:
-    """Body bbox extents in holes, split ``(along, across)`` the pin-row axis.
+def local_size_holes(package: Package) -> Size3D:
+    """Body extents in the package-local frame, in holes.
 
-    "Along" is the DOMINANT axis of the pin cloud in the package-local frame
-    (a tie keeps the historical along=y convention). The one rule shared by
-    the radial / SMD renderers and any consumer that needs body length vs
-    width *relative to the leads* — ``Prism.bbox`` orients its explicit dims
-    by the same rule, so geometry and mask stay consistent.
+    ``lx`` runs along the lead axis, ``ly`` across it (board plane), ``lz``
+    off-board. The one rule shared by the radial / SMD renderers and any
+    consumer that needs body extents *relative to the leads* — the same
+    ``local_size_mm`` the shared ``Package.bbox`` projects through
+    ``body_frame``, so geometry and mask stay consistent.
     """
-    bb = package.bbox()
-    pb = _pins_bbox(package.pin_positions())
-    if pb.lx > pb.ly:
-        return bb.lx, bb.ly
-    return bb.ly, bb.lx
+    s = package.local_size_mm()
+    return Size3D(s.lx / RASTER_MM, s.ly / RASTER_MM, s.lz / RASTER_MM)
 
 
 def bbox_or_none(package: Package) -> Rect | None:
@@ -263,14 +288,14 @@ def bbox_or_none(package: Package) -> Rect | None:
         return None
 
 
-def lead_axis_extents_or_none(package: Package) -> tuple[float, float] | None:
-    """:func:`lead_axis_extents`, or ``None`` when no dims are derivable.
+def local_size_holes_or_none(package: Package) -> Size3D | None:
+    """:func:`local_size_holes`, or ``None`` when no dims are derivable.
 
-    Same degrade contract as :func:`bbox_or_none`, split along/across the
-    pin-row axis.
+    Same degrade contract as :func:`bbox_or_none`, in the package-local
+    frame.
     """
     try:
-        return lead_axis_extents(package)
+        return local_size_holes(package)
     except ValueError:
         return None
 
@@ -293,23 +318,6 @@ def _body_centre_holes(pins: list[Point], eccentricity_mm: Vector) -> Point:
         sum(p.x for p in pins) / n + eccentricity_mm.dx / RASTER_MM,
         sum(p.y for p in pins) / n + eccentricity_mm.dy / RASTER_MM,
     )
-
-
-def _oriented_rect_aabb(
-    centre: Point, along: float, across: float, axis: Vector,
-) -> Rect:
-    """AABB (local frame) of a rectangle ``along × across`` oriented on *axis*.
-
-    The rectangle is centred on *centre* with its ``along`` extent parallel to
-    the (non-zero) *axis*; the AABB projects the oriented half-extents onto
-    the local axes: ``half = (along·|u| + across·|v|) / 2`` per component,
-    where ``u`` is the unit axis and ``v`` its perpendicular.
-    """
-    length = axis.norm()
-    ux, uy = axis.dx / length, axis.dy / length
-    half_x = (along * abs(ux) + across * abs(uy)) / 2.0
-    half_y = (along * abs(uy) + across * abs(ux)) / 2.0
-    return Rect.of(centre.x - half_x, centre.y - half_y, 2 * half_x, 2 * half_y)
 
 
 def _lead_diameter_mm(leads: Leads) -> float:
@@ -431,26 +439,38 @@ class Cylinder(Package):
             max(horiz.r_max_mm, vert.r_max_mm),
         )
 
-    def bbox(self) -> Rect:
-        """Local-frame body extent over the default pin layout.
-
-        Centred on the pin centroid + lead eccentricity — the same place the
-        renderer puts the body — NOT anchored at pin 1 (the old pin-1-anchored
-        square claimed a phantom row of holes in the collision mask, flagging
-        adjacent radial parts as BODY_OVERLAP).  RADIAL: the top view is a
-        disc → a d×d square around the centre.  AXIAL: an L×d capsule along
-        the pin axis, projected to an AABB.
-        """
-        d = self.diameter_mm / RASTER_MM
+    def _lead_axis(self) -> Vector | None:
+        """The in-plane lead axis, or ``None`` for a radial / degenerate
+        layout (body seen face-on: a d×d footprint)."""
         pins = self.pin_positions()
-        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
-        if (self.arrangement is LeadArrangement.RADIAL or len(pins) < 2):
-            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+        if self.arrangement is LeadArrangement.RADIAL or len(pins) < 2:
+            return None
         axis = pins[-1] - pins[0]
         if axis.norm() < 1e-9:
-            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
-        return _oriented_rect_aabb(
-            centre, self.length_mm / RASTER_MM, d, axis)
+            return None
+        return axis
+
+    def local_size_mm(self) -> Size3D:
+        """AXIAL (lying flat): length along the leads, diameter across and
+        up. RADIAL (standing): the top view is a disc → d×d in the board
+        plane, the body length rising off-board (lz)."""
+        d = self.diameter_mm
+        if self._lead_axis() is None:
+            return Size3D(d, d, self.length_mm)
+        return Size3D(self.length_mm, d, d)
+
+    def body_frame(self) -> Transform2D:
+        """Centred on the pin centroid + lead eccentricity — the same place
+        the renderer puts the body — NOT anchored at pin 1 (the old
+        pin-1-anchored square claimed a phantom row of holes in the collision
+        mask, flagging adjacent radial parts as BODY_OVERLAP)."""
+        pins = self.pin_positions()
+        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
+        t = Transform2D.translation(Vector(centre.x, centre.y))
+        axis = self._lead_axis()
+        if axis is None:
+            return t
+        return t.compose(Transform2D.rotation_to(axis))
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,9 +478,9 @@ class Prism(Package):
     """shape: prism — DIP, TO-92, devboard (optional margin)."""
 
     leads: Leads
-    width_mm: float | None = None  # None → bbox from pins + margin
-    length_mm: float | None = None
-    height_mm: float | None = None
+    # Body extents in the package-local frame (lx along the lead axis, ly
+    # across it, lz off-board elevation); None → bbox from pins + margin.
+    size_mm: Size3D | None = None
     bend_holes: float = 0.0
     corner_radius_mm: float = 0.0
     margin_mm: Insets | None = None
@@ -476,7 +496,7 @@ class Prism(Package):
     mount_points: tuple[Point, ...] = ()
     # Shift (mm) of the body centre off the pin-cloud centre, for parts whose
     # body is not symmetric about its pins.  Default (0, 0) → centred on the
-    # pin cloud.  Only used with explicit width_mm/length_mm.
+    # pin cloud.  Only used with explicit size_mm.
     body_offset_mm: Vector = Vector(0.0, 0.0)
     # Declared body kind (``dip_ic`` / ``dip_switch`` / …) set when this prism was
     # built from a package ``kind:`` field. The renderer reads it to draw the
@@ -494,14 +514,14 @@ class Prism(Package):
         return self.leads.pin_count
 
     def min_radial_pitch_mm(self) -> float:
-        # Width perpendicular to the lead axis bounds two same-face leads;
-        # fall back to the body bbox width when width is margin-derived.
-        w = self.width_mm if self.width_mm is not None else self.bbox(
+        # The across-leads extent (ly) bounds two same-face leads; the
+        # margin-derived fallback keeps its historical WORLD-x read.
+        w = self.size_mm.ly if self.size_mm is not None else self.bbox(
         ).lx * RASTER_MM
         return (w + _lead_diameter_mm(self.leads)) / 2.0
 
     def min_axial_pitch_mm(self) -> float:
-        ln = self.length_mm if self.length_mm is not None else self.bbox(
+        ln = self.size_mm.lx if self.size_mm is not None else self.bbox(
         ).ly * RASTER_MM
         return ln + _lead_diameter_mm(self.leads)
 
@@ -530,33 +550,54 @@ class Prism(Package):
                       ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
-    def bbox(self) -> Rect:
-        if self.margin_mm is not None and self.width_mm is None:
-            return self._bbox_from_pins(self.margin_mm)
-        if self.width_mm is None or self.length_mm is None:
-            raise ValueError(
-                "prism needs explicit dims or a margin to derive bbox")
-        # An explicit body is W (across the rows) × L (along the pin axis),
-        # centred on the pin cloud — so a DIP body sits between the rows with
-        # the legs showing, rather than anchored at pin 1 and overlapping them.
-        # "Along the pin axis" is the DOMINANT axis of the pin cloud in the
-        # local frame (a devboard's rows run along y, a TO-220's / SMD chip's
-        # single row along x) — L goes on that axis, W across it. A square or
-        # empty cloud keeps the historical W×L = x×y mapping.
-        # ``body_offset_mm`` shifts the centre for asymmetric parts.
-        w = self.width_mm / RASTER_MM
-        h = self.length_mm / RASTER_MM
+    def _dominant_axis(self) -> Vector:
+        """The pin cloud's dominant axis — the prism's quantised lead axis.
+
+        A devboard's rows run along y, a TO-220's / SMD chip's single row
+        along x; a square or empty cloud keeps the historical along=y
+        convention (`lx` lands on world y).
+        """
         pb = _pins_bbox(self.pin_positions())
-        if pb.lx > pb.ly:
-            w, h = h, w  # pin row runs along x → length on x, width on y
-        centre = pb.center
+        return Vector(1.0, 0.0) if pb.lx > pb.ly else Vector(0.0, 1.0)
+
+    def local_size_mm(self) -> Size3D:
+        if self.size_mm is not None:
+            return self.size_mm
+        if self.margin_mm is not None:
+            # Margin-derived body: world-aligned by construction; split the
+            # world bbox on the dominant pin axis to express it locally.
+            bb = self._bbox_from_pins(self.margin_mm)
+            axis = self._dominant_axis()
+            along, across = ((bb.lx, bb.ly) if axis.dx != 0.0
+                             else (bb.ly, bb.lx))
+            return Size3D(along * RASTER_MM, across * RASTER_MM, 0.0)
+        raise ValueError(
+            "prism needs explicit dims or a margin to derive bbox")
+
+    def body_frame(self) -> Transform2D:
+        """Body centred on the pin cloud — so a DIP body sits between the
+        rows with the legs showing, rather than anchored at pin 1 and
+        overlapping them. ``body_offset_mm`` shifts the centre (world axes)
+        for asymmetric parts; the margin-derived body centres on its own
+        world bbox instead.
+        """
+        if self.size_mm is None and self.margin_mm is not None:
+            centre = self._bbox_from_pins(self.margin_mm).center
+            return Transform2D.translation(
+                Vector(centre.x, centre.y)).compose(
+                    Transform2D.rotation_to(self._dominant_axis()))
+        centre = _pins_bbox(self.pin_positions()).center
         off = self.body_offset_mm
-        return Rect.of(
-            centre.x + off.dx / RASTER_MM - w / 2.0,
-            centre.y + off.dy / RASTER_MM - h / 2.0,
-            w,
-            h,
-        )
+        t = Transform2D.translation(Vector(
+            centre.x + off.dx / RASTER_MM, centre.y + off.dy / RASTER_MM))
+        return t.compose(Transform2D.rotation_to(self._dominant_axis()))
+
+    def bbox(self) -> Rect:
+        if self.margin_mm is not None and self.size_mm is None:
+            # World-aligned by definition — bypass the frame round-trip so
+            # margin arithmetic stays exact.
+            return self._bbox_from_pins(self.margin_mm)
+        return super().bbox()
 
     def _bbox_from_pins(self, margin: Insets) -> Rect:
         pins = self.pin_positions()
@@ -624,23 +665,35 @@ class Disc(Package):
                       ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
-    def bbox(self) -> Rect:
-        """Local-frame body extent over the default pin layout.
-
-        An edge-mounted disc seen from above is a lens ``diameter`` long along
-        the lead axis and ``thickness`` across it, centred on the pin centroid
-        + lead eccentricity (mirrors the renderer's ``_radial_disc_side``).
-        """
-        d = self.diameter_mm / RASTER_MM
+    def _lead_axis(self) -> Vector | None:
+        """The in-plane lead axis, or ``None`` when degenerate (face-on)."""
         pins = self.pin_positions()
-        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
         if len(pins) < 2:
-            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+            return None
         axis = pins[-1] - pins[0]
         if axis.norm() < 1e-9:
-            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
-        return _oriented_rect_aabb(
-            centre, d, self.thickness_mm / RASTER_MM, axis)
+            return None
+        return axis
+
+    def local_size_mm(self) -> Size3D:
+        """An edge-mounted disc seen from above is a lens ``diameter`` long
+        along the lead axis and ``thickness`` across it; the face rises
+        ``diameter`` off-board. Degenerate (face-on): d×d in plane."""
+        d = self.diameter_mm
+        if self._lead_axis() is None:
+            return Size3D(d, d, self.thickness_mm)
+        return Size3D(d, self.thickness_mm, d)
+
+    def body_frame(self) -> Transform2D:
+        """Centred on the pin centroid + lead eccentricity (mirrors the
+        renderer's ``_radial_disc_side``)."""
+        pins = self.pin_positions()
+        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
+        t = Transform2D.translation(Vector(centre.x, centre.y))
+        axis = self._lead_axis()
+        if axis is None:
+            return t
+        return t.compose(Transform2D.rotation_to(axis))
 
     def min_radial_pitch_mm(self) -> float:
         return (self.diameter_mm + _lead_diameter_mm(self.leads)) / 2.0

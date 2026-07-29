@@ -111,10 +111,10 @@ def _draw_rotated(library, families, rotation: int):
 def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> None:
     """A DIP's pin row runs along local +y (the long axis), so the
     along-text fit budget passed to ``make_body_label`` must track the long
-    (along) extent from ``lead_axis_extents`` — NOT the axis-aligned
-    ``box.width`` (the short extent for a DIP). Regression test for the
+    (along) extent from ``local_size_holes`` — NOT the axis-aligned
+    ``box.lx`` (the short extent for a DIP). Regression test for the
     transposed avail_len/avail_w bug."""
-    from protoboard.domain.components.package.shapes import lead_axis_extents
+    from protoboard.domain.components.package.shapes import local_size_holes
     import protoboard.gui.renderers.packages.base as base_mod
 
     defn = library.get("NE555")
@@ -125,7 +125,8 @@ def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> Non
     fp = resolved_footprint(defn, inst, families)
     pkg = inst.resolved_package()
     assert pkg is not None
-    along, across = lead_axis_extents(pkg)
+    s = local_size_holes(pkg)
+    along, across = s.lx, s.ly
     assert along > across  # sanity: DIP-8 is long along the pin-row axis
 
     captured: dict[str, float] = {}

@@ -589,8 +589,7 @@ class TestDeclarativeNodes:
             GeneratorContext(pin_count=pins)).package
         assert isinstance(node_pkg, Prism) and isinstance(legacy_pkg, Prism)
         assert node_pkg.pin_positions() == legacy_pkg.pin_positions()
-        assert node_pkg.width_mm == legacy_pkg.width_mm
-        assert node_pkg.length_mm == legacy_pkg.length_mm
+        assert node_pkg.size_mm == legacy_pkg.size_mm
         assert node_pkg.leads == legacy_pkg.leads
         assert is_rigid_package(node_pkg) == is_rigid_package(legacy_pkg)
 
@@ -612,12 +611,12 @@ class TestDeclarativeNodes:
             "dip_ic", GeneratorContext(pin_count=8)).package
         assert isinstance(pkg, Prism)
         assert pkg.raw_values is not None
-        assert pkg.raw_values["dims"]["width"] == "auto"
-        assert pkg.raw_values["dims"]["length"] == "auto"
+        assert pkg.raw_values["dims"]["ly"] == "auto"
+        assert pkg.raw_values["dims"]["lx"] == "auto"
         assert pkg.schema is not None
-        assert "dims.width" in pkg.schema.fields  # inherited prism schema
+        assert "dims.ly" in pkg.schema.fields  # inherited prism schema
         # ...and the geometry itself is concrete.
-        assert isinstance(pkg.width_mm, float)
+        assert pkg.size_mm is not None
 
     def test_component_override_beats_auto_and_merges(
         self, builtin_kind_nodes
@@ -626,12 +625,13 @@ class TestDeclarativeNodes:
             "dip_ic",
             GeneratorContext(
                 pin_count=16,
-                values={"dims": {"width": 7.0, "height": 4.0}}),
+                values={"dims": {"ly": 7.0, "lz": 4.0}}),
         ).package
         assert isinstance(pkg, Prism)
-        assert pkg.width_mm == 7.0          # explicit beats auto
-        assert pkg.height_mm == 4.0         # sibling key deep-merges
-        assert pkg.length_mm is not None and pkg.length_mm > 0  # auto filled
+        assert pkg.size_mm is not None
+        assert pkg.size_mm.ly == 7.0        # explicit beats auto
+        assert pkg.size_mm.lz == 4.0        # sibling key deep-merges
+        assert pkg.size_mm.lx > 0           # auto filled
 
     def test_odd_pin_count_raises_through_the_node_path(
         self, builtin_kind_nodes

@@ -97,9 +97,9 @@ components:
     package:
       shape: prism
       dims:
-        width: 10
-        length: 25.4
-        height: 8
+        ly: 10
+        lx: 25.4
+        lz: 8
       leads:
         direction: [0, 0, -1]
         # 20 pins: down the anode column (9 steps), jump across, back up the

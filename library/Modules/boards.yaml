@@ -9,7 +9,7 @@ components:
     # 2×15 header: 14 steps down the left column, jump 7 across, 14 up the right.
     package:
       shape: prism
-      dims: {width: 18.0, length: 38.1, height: 1.6}
+      dims: {ly: 18.0, lx: 38.1, lz: 1.6}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[14, [0, 1]], [7, 0], [14, [0, -1]]]}
@@ -60,7 +60,7 @@ components:
     # 2×20 header: 19 steps down the left column, jump 6 across, 19 up the right.
     package:
       shape: prism
-      dims: {width: 22.86, length: 53.0, height: 1.6}
+      dims: {ly: 22.86, lx: 53.0, lz: 1.6}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
@@ -122,7 +122,7 @@ components:
     # 2×20 header: 19 steps down the left column, jump 6 across, 19 up the right.
     package:
       shape: prism
-      dims: {width: 20.8, length: 52.8, height: 1.6}
+      dims: {ly: 20.8, lx: 52.8, lz: 1.6}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
@@ -187,7 +187,7 @@ components:
     # runs are 19 steps; the three [Δx, Δy] vectors are the column jumps.
     package:
       shape: prism
-      dims: {width: 28.0, length: 53.0, height: 1.6}
+      dims: {ly: 28.0, lx: 53.0, lz: 1.6}
       leads:
         direction: [0, 0, -1]
         body_offset:

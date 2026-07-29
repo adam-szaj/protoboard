@@ -19,7 +19,7 @@ from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.domain.components.package.shapes import (
-    lead_axis_extents_or_none,
+    local_size_holes_or_none,
 )
 from protoboard.domain.components.value_text import body_print_text
 from protoboard.geometry import Point
@@ -79,10 +79,10 @@ class SmdChipRenderer(PrismRenderer):
         if (p2 - p1).norm() < 1e-9:
             return items
 
-        extents = lead_axis_extents_or_none(pkg)
-        if extents is None:
+        s = local_size_holes_or_none(pkg)
+        if s is None:
             return items  # no dims to size the caps — keep the base drawing
-        body_len, body_w = extents
+        body_len, body_w = s.lx, s.ly
         cap = body_len * self.CAP_FRAC
         canvas = self.axis_canvas(positions[:2], p1, p2)
         canvas.track(items)

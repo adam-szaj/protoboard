@@ -40,7 +40,8 @@ class TestBuiltinCatalogue:
             # (it lies on the pads, occupying space but not an opening).
             xs = sorted({round(p.x, 1) for p in pkg.pin_positions()})
             assert xs == [0.0, 1.0]
-            assert pkg.length_mm == length_mm
+            assert pkg.size_mm is not None
+            assert pkg.size_mm.lx == length_mm
 
     def test_every_variant_builds(self) -> None:
         for fam in load_package_families().values():

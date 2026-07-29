@@ -19,9 +19,9 @@ families:
       - id: std
         label: "TO-220 (10 x 4.5 mm body)"
         # The ~10 mm body face spans ALONG the 3-lead row (``length``, along the
-        # pin axis); the ~4.0 mm thickness is across it (``width``).  ``height``
+        # pin axis, ``lx``); the ~4.0 mm thickness is across it (``ly``).  ``lz``
         # is the body depth (unused by the flat top-view rectangle).
-        dims: {width: 4.0, length: 10.0, height: 9.5}
+        dims: {ly: 4.0, lx: 10.0, lz: 9.5}
         leads:
           direction:   [0, 0, -1]
           body_offset:  {unit: 2.5, value: [[2, [1, 0]]]}  # leads at body: 2.5 mm
