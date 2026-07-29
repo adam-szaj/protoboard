@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Axis-based geometric vocabulary.** The core model now names everything
+  after the coordinate axes: `Point(x, y)`/`Point3D`, `Vector(dx, dy)`/
+  `Vector3D` (the `.x/.y` aliases are gone — a vector is not a point;
+  `length()` is now `norm()`), `Size(lx, ly)`, new `Size3D(lx, ly, lz)`, and
+  `Rect` as a composition `origin: Point + size: Size`. `LayoutNode` carries
+  an explicit `center: Point + size: Size`. Package bodies moved to a fixed
+  local frame (lx along the lead axis, ly across, lz off-board):
+  `Package.local_size_mm()` + `body_frame()` replace the per-shape
+  along/across swaps, and the previously dead `Prism.height_mm` became a
+  live `lz`. Screen `[x, y, w, h]` now exists only in `gui/qt_geometry.py`.
+- **BREAKING (library YAML):** prism `dims:` keys renamed to local-frame
+  axis names — `length → lx`, `width → ly`, `height → lz`. The loader
+  rejects the legacy keys with the mapping in the error message.
+  `diameter`/`thickness`/cylinder-`length` are unchanged.
+- Consumers of the old `lead_axis_extents` on diagonally placed parts now
+  receive the true local body dims instead of rotation-inflated world-AABB
+  extents (renderer-visible only for diagonal SMD/axial placements).
+
 ### Added
 
 - 2-pin SMD chips now rotate in 45° steps: the armed rotate (`[R]`) walks the
