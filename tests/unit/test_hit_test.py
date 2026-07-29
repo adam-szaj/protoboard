@@ -159,7 +159,7 @@ class TestHitGroup:
         ctx.layout.groups[gid] = ComponentGroup(
             id=gid, name="G", component_ids=frozenset({cid})
         )
-        ctx._bboxes[cid] = Rect(x=0.0, y=0.0, width=4.0, height=4.0)
+        ctx._bboxes[cid] = Rect.of(x=0.0, y=0.0, lx=4.0, ly=4.0)
         # No pins/wires near (2,2) → group is the hit.
         sel = _tester(ctx).hit(2.0, 2.0)
         assert isinstance(sel, GroupSelectable)
@@ -175,8 +175,8 @@ class TestHitGroup:
         ctx.layout.groups[g_small] = ComponentGroup(
             id=g_small, name="small", component_ids=frozenset({c_small})
         )
-        ctx._bboxes[c_big] = Rect(x=0.0, y=0.0, width=10.0, height=10.0)
-        ctx._bboxes[c_small] = Rect(x=1.0, y=1.0, width=3.0, height=3.0)
+        ctx._bboxes[c_big] = Rect.of(x=0.0, y=0.0, lx=10.0, ly=10.0)
+        ctx._bboxes[c_small] = Rect.of(x=1.0, y=1.0, lx=3.0, ly=3.0)
         sel = _tester(ctx).hit(2.0, 2.0)  # inside both, small is tighter
         assert isinstance(sel, GroupSelectable)
         assert sel.group.id == g_small

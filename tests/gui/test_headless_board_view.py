@@ -148,8 +148,8 @@ class TestCameraMathHeadless:
         view.camera.zoom_by(1e-6)  # slam into the zoom-out floor
         b = session.board.bounds
         centre = view.viewport_port.map_view_to_scene(Point(320.0, 240.0))
-        assert abs(centre.x - (b.x + b.width / 2)) < 0.51
-        assert abs(centre.y - (b.y + b.height / 2)) < 0.51
+        assert abs(centre.x - (b.x + b.lx / 2)) < 0.51
+        assert abs(centre.y - (b.y + b.ly / 2)) < 0.51
 
     def test_fit_board_frames_bounds(self, session: EditorSession) -> None:
         view = _headless(session)
@@ -158,7 +158,7 @@ class TestCameraMathHeadless:
         b = session.board.bounds
         assert visible.contains(Point(b.x + 0.1, b.y + 0.1))
         assert visible.contains(
-            Point(b.x + b.width - 0.1, b.y + b.height - 0.1)
+            Point(b.x + b.lx - 0.1, b.y + b.ly - 0.1)
         )
 
     def test_mirror_toggle_flips_sign(self, session: EditorSession) -> None:

@@ -191,15 +191,15 @@ def _assign_grid_cells(
     n = len(mobile_ids)
 
     # Compute grid dimensions matching board aspect ratio.
-    aspect = board_bounds.width / max(board_bounds.height, 1e-6)
+    aspect = board_bounds.lx / max(board_bounds.ly, 1e-6)
     cols = max(1, round(math.sqrt(n * aspect)))
     rows = max(1, math.ceil(n / cols))
     # Ensure we have at least n cells.
     while rows * cols < n:
         cols += 1
 
-    cell_w = board_bounds.width / cols
-    cell_h = board_bounds.height / rows
+    cell_w = board_bounds.lx / cols
+    cell_h = board_bounds.ly / rows
 
     # Pre-compute all cell centres (row-major).
     all_cells: list[Point] = []

@@ -90,9 +90,9 @@ def _all_atom_nodes(node: LayoutNode) -> list[LayoutNode]:
 
 def _bbox(node: LayoutNode) -> tuple[float, float, float, float]:
     """(x_min, y_min, x_max, y_max) — node.x/y are centers."""
-    half_w = node.width / 2.0
-    half_h = node.height / 2.0
-    return (node.x - half_w, node.y - half_h, node.x + half_w, node.y + half_h)
+    half_w = node.size.lx / 2.0
+    half_h = node.size.ly / 2.0
+    return (node.center.x - half_w, node.center.y - half_h, node.center.x + half_w, node.center.y + half_h)
 
 
 def _rects_overlap(
@@ -109,9 +109,9 @@ def _rects_overlap(
 
 
 def _layouts_equal(a: LayoutNode, b: LayoutNode, tol: float = 1e-9) -> bool:
-    if abs(a.x - b.x) > tol or abs(a.y - b.y) > tol:
+    if abs(a.center.x - b.center.x) > tol or abs(a.center.y - b.center.y) > tol:
         return False
-    if abs(a.width - b.width) > tol or abs(a.height - b.height) > tol:
+    if abs(a.size.lx - b.size.lx) > tol or abs(a.size.ly - b.size.ly) > tol:
         return False
     if len(a.children) != len(b.children):
         return False
@@ -195,5 +195,5 @@ class TestFixedFitsChildren:
         )
         result = layout(hbox)
         # Sum of child widths + gaps does not exceed parent width.
-        total = sum(c.width for c in result.children) + (children - 1) * gap
-        assert total <= result.width + 1e-9
+        total = sum(c.size.lx for c in result.children) + (children - 1) * gap
+        assert total <= result.size.lx + 1e-9

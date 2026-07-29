@@ -14,8 +14,8 @@ forbidden).
 Public API: `layout(box, available=None) -> LayoutNode` and
 `intrinsic_size(box) -> Size`. Errors raise `LayoutError`.
 
-A `LayoutNode`'s (x, y) are the *center* of the box's bounding rectangle,
-in raster units. `width`/`height` are the box's resolved size.
+A `LayoutNode` carries the *center* of the box's bounding rectangle and its
+resolved `Size`, in raster units; `bounds` derives the top-left `Rect`.
 """
 
 from __future__ import annotations
@@ -33,23 +33,26 @@ from protoboard.domain.board.boxes import (
     VBox,
 )
 from protoboard.errors import LayoutError
-from protoboard.geometry import Size
+from protoboard.geometry import Point, Rect, Size
 
 
 @dataclass(frozen=True, slots=True)
 class LayoutNode:
     """One node of the resolved layout tree.
 
-    `x` and `y` are the *center* of the node's bounding box, in world
-    (root) coordinates.
+    ``center`` is the middle of the node's bounding box in world (root)
+    coordinates — named so the centre-vs-corner convention is impossible
+    to misread; ``bounds`` gives the top-left-origin rectangle.
     """
 
     box: Box
-    x: float
-    y: float
-    width: float
-    height: float
+    center: Point
+    size: Size
     children: list[LayoutNode] = field(default_factory=list)
+
+    @property
+    def bounds(self) -> Rect:
+        return Rect.from_center(self.center, self.size)
 
 
 # ---------------------------------------------------------------------------
@@ -114,8 +117,8 @@ def _child_intrinsic_with_margin(child: Box) -> Size:
     these terms when summing children)."""
     inner = _intrinsic(child)
     return Size(
-        inner.width + child.margin.horizontal,
-        inner.height + child.margin.vertical,
+        inner.lx + child.margin.horizontal,
+        inner.ly + child.margin.vertical,
     )
 
 
@@ -123,8 +126,8 @@ def _hbox_intrinsic_content(box: HBox) -> tuple[float, float]:
     if not box.children:
         return 0.0, 0.0
     sizes = [_child_intrinsic_with_margin(c) for c in box.children]
-    width = sum(s.width for s in sizes) + box.gap * (len(box.children) - 1)
-    height = max((s.height for s in sizes), default=0.0)
+    width = sum(s.lx for s in sizes) + box.gap * (len(box.children) - 1)
+    height = max((s.ly for s in sizes), default=0.0)
     return width, height
 
 
@@ -132,16 +135,16 @@ def _vbox_intrinsic_content(box: VBox) -> tuple[float, float]:
     if not box.children:
         return 0.0, 0.0
     sizes = [_child_intrinsic_with_margin(c) for c in box.children]
-    width = max((s.width for s in sizes), default=0.0)
-    height = sum(s.height for s in sizes) + box.gap * (len(box.children) - 1)
+    width = max((s.lx for s in sizes), default=0.0)
+    height = sum(s.ly for s in sizes) + box.gap * (len(box.children) - 1)
     return width, height
 
 
 def _grid_intrinsic_content(box: BoardGrid) -> tuple[float, float]:
     assert box.cell is not None
     cell = _child_intrinsic_with_margin(box.cell)
-    width = cell.width * box.cols + box.col_gap * (box.cols - 1)
-    height = cell.height * box.rows + box.row_gap * (box.rows - 1)
+    width = cell.lx * box.cols + box.col_gap * (box.cols - 1)
+    height = cell.ly * box.rows + box.row_gap * (box.rows - 1)
     return width, height
 
 
@@ -166,8 +169,8 @@ def _resolve_size(box: Box, available: Size | None) -> Size:
     """Resolve the box's actual size given its policy and available space."""
     del available  # the root cannot be FILL, so available is unused for now
     intrinsic = _intrinsic(box)
-    width = _resolve_axis_actual(box.width_policy, box.width, intrinsic.width)
-    height = _resolve_axis_actual(box.height_policy, box.height, intrinsic.height)
+    width = _resolve_axis_actual(box.width_policy, box.width, intrinsic.lx)
+    height = _resolve_axis_actual(box.height_policy, box.height, intrinsic.ly)
     return Size(width, height)
 
 
@@ -201,16 +204,10 @@ def _place(box: Box, origin_x: float, origin_y: float, resolved: Size) -> Layout
 def _atom_node(
     box: Box, origin_x: float, origin_y: float, resolved: Size
 ) -> LayoutNode:
-    cx = origin_x + resolved.width / 2.0
-    cy = origin_y + resolved.height / 2.0
-    return LayoutNode(
-        box=box,
-        x=cx,
-        y=cy,
-        width=resolved.width,
-        height=resolved.height,
-        children=[],
-    )
+    cx = origin_x + resolved.lx / 2.0
+    cy = origin_y + resolved.ly / 2.0
+    return LayoutNode(box=box, center=Point(cx, cy), size=resolved,
+                      children=[])
 
 
 # ---------------------------------------------------------------------------
@@ -226,13 +223,13 @@ def _bounded_outer_size(box: Box, resolved: Size, axis: str) -> float | None:
             assert box.width is not None
             return box.width
         if box.width_policy is SizePolicy.FILL:
-            return resolved.width
+            return resolved.lx
         return None
     if box.height_policy is SizePolicy.FIXED:
         assert box.height is not None
         return box.height
     if box.height_policy is SizePolicy.FILL:
-        return resolved.height
+        return resolved.ly
     return None
 
 
@@ -263,12 +260,12 @@ def _resolve_container_inner_size(
             )
         outer_w = box.width
     elif box.width_policy is SizePolicy.FILL:
-        if resolved.width + 1e-9 < content_w:
+        if resolved.lx + 1e-9 < content_w:
             raise LayoutError(
-                f"FILL width={resolved.width} too small for content "
+                f"FILL width={resolved.lx} too small for content "
                 f"(needs {content_w})"
             )
-        outer_w = resolved.width
+        outer_w = resolved.lx
     else:
         outer_w = content_w
     if box.height_policy is SizePolicy.FIXED:
@@ -279,12 +276,12 @@ def _resolve_container_inner_size(
             )
         outer_h = box.height
     elif box.height_policy is SizePolicy.FILL:
-        if resolved.height + 1e-9 < content_h:
+        if resolved.ly + 1e-9 < content_h:
             raise LayoutError(
-                f"FILL height={resolved.height} too small for content "
+                f"FILL height={resolved.ly} too small for content "
                 f"(needs {content_h})"
             )
-        outer_h = resolved.height
+        outer_h = resolved.ly
     else:
         outer_h = content_h
     return outer_w, outer_h
@@ -309,7 +306,7 @@ def _layout_hbox(
             fill_index = i
             non_fill_widths.append(0.0)  # placeholder
         else:
-            non_fill_widths.append(intrinsics[i].width + margins_w[i])
+            non_fill_widths.append(intrinsics[i].lx + margins_w[i])
     n = len(children)
     gaps_total = box.gap * max(0, n - 1)
 
@@ -342,13 +339,13 @@ def _layout_hbox(
             inner_widths.append(max(0.0, fill_inner_width))
             outer_widths.append(fill_width)
         else:
-            inner_widths.append(intrinsics[i].width)
-            outer_widths.append(intrinsics[i].width + margins_w[i])
+            inner_widths.append(intrinsics[i].lx)
+            outer_widths.append(intrinsics[i].lx + margins_w[i])
 
     # Heights: FIXED parent uses declared height; otherwise use content height
     # (max of children outer heights). Also handle FILL height for children.
     content_h = max(
-        (intrinsics[i].height + margins_h[i] for i in range(n)),
+        (intrinsics[i].ly + margins_h[i] for i in range(n)),
         default=0.0,
     )
     content_w = sum(outer_widths) + gaps_total
@@ -365,7 +362,7 @@ def _layout_hbox(
             assert child.height is not None
             inner_heights.append(child.height)
         else:
-            inner_heights.append(intrinsics[i].height)
+            inner_heights.append(intrinsics[i].ly)
 
     # Place children left-to-right.
     child_nodes: list[LayoutNode] = []
@@ -387,10 +384,8 @@ def _layout_hbox(
 
     return LayoutNode(
         box=box,
-        x=origin_x + outer_w / 2.0,
-        y=origin_y + outer_h / 2.0,
-        width=outer_w,
-        height=outer_h,
+        center=Point(origin_x + outer_w / 2.0, origin_y + outer_h / 2.0),
+        size=Size(outer_w, outer_h),
         children=child_nodes,
     )
 
@@ -412,7 +407,7 @@ def _layout_vbox(
             fill_index = i
             non_fill_heights.append(0.0)
         else:
-            non_fill_heights.append(intrinsics[i].height + margins_h[i])
+            non_fill_heights.append(intrinsics[i].ly + margins_h[i])
     n = len(children)
     gaps_total = box.gap * max(0, n - 1)
 
@@ -442,10 +437,10 @@ def _layout_vbox(
             inner_heights.append(max(0.0, fill_inner_height))
             outer_heights.append(fill_height)
         else:
-            inner_heights.append(intrinsics[i].height)
-            outer_heights.append(intrinsics[i].height + margins_h[i])
+            inner_heights.append(intrinsics[i].ly)
+            outer_heights.append(intrinsics[i].ly + margins_h[i])
 
-    content_w = max((intrinsics[i].width + margins_w[i] for i in range(n)), default=0.0)
+    content_w = max((intrinsics[i].lx + margins_w[i] for i in range(n)), default=0.0)
     content_h = sum(outer_heights) + gaps_total
     outer_w, outer_h = _resolve_container_inner_size(
         box, content_w, content_h, resolved
@@ -459,7 +454,7 @@ def _layout_vbox(
             assert child.width is not None
             inner_widths.append(child.width)
         else:
-            inner_widths.append(intrinsics[i].width)
+            inner_widths.append(intrinsics[i].lx)
 
     child_nodes: list[LayoutNode] = []
     cursor = origin_y
@@ -479,10 +474,8 @@ def _layout_vbox(
 
     return LayoutNode(
         box=box,
-        x=origin_x + outer_w / 2.0,
-        y=origin_y + outer_h / 2.0,
-        width=outer_w,
-        height=outer_h,
+        center=Point(origin_x + outer_w / 2.0, origin_y + outer_h / 2.0),
+        size=Size(outer_w, outer_h),
         children=child_nodes,
     )
 
@@ -511,7 +504,7 @@ def _layout_grid(
         cell_inner_w = cell.width
         cell_outer_w = cell_inner_w + margin_w
     else:
-        cell_inner_w = cell_intrinsic.width
+        cell_inner_w = cell_intrinsic.lx
         cell_outer_w = cell_inner_w + margin_w
 
     # Resolve cell height.
@@ -529,7 +522,7 @@ def _layout_grid(
         cell_inner_h = cell.height
         cell_outer_h = cell_inner_h + margin_h
     else:
-        cell_inner_h = cell_intrinsic.height
+        cell_inner_h = cell_intrinsic.ly
         cell_outer_h = cell_inner_h + margin_h
 
     content_w = cell_outer_w * box.cols + box.col_gap * (box.cols - 1)
@@ -557,10 +550,8 @@ def _layout_grid(
 
     return LayoutNode(
         box=box,
-        x=origin_x + outer_w / 2.0,
-        y=origin_y + outer_h / 2.0,
-        width=outer_w,
-        height=outer_h,
+        center=Point(origin_x + outer_w / 2.0, origin_y + outer_h / 2.0),
+        size=Size(outer_w, outer_h),
         children=child_nodes,
     )
 

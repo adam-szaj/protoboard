@@ -253,9 +253,9 @@ def _build_frames(
     from protoboard.domain.board.boxes import BoardGrid, HBox, VBox
 
     if is_root or isinstance(node.box, (HBox, VBox, BoardGrid)):
-        half_w = node.width / 2.0
-        half_h = node.height / 2.0
-        rect = QRectF(node.x - half_w, node.y - half_h, node.width, node.height)
+        half_w = node.size.lx / 2.0
+        half_h = node.size.ly / 2.0
+        rect = QRectF(node.center.x - half_w, node.center.y - half_h, node.size.lx, node.size.ly)
         if is_root:
             c = QColor(theme.board_frame_color)
             c.setAlphaF(c.alphaF() * alpha)

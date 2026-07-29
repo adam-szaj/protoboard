@@ -410,8 +410,8 @@ class HitTester:
                     continue
                 x0 = min(x0, bbox.x)
                 y0 = min(y0, bbox.y)
-                x1 = max(x1, bbox.x + bbox.width)
-                y1 = max(y1, bbox.y + bbox.height)
+                x1 = max(x1, bbox.x + bbox.lx)
+                y1 = max(y1, bbox.y + bbox.ly)
             if x0 > x1 or y0 > y1:
                 continue  # no resolvable members
             if x0 <= px <= x1 and y0 <= py <= y1:

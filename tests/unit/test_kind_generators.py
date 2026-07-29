@@ -135,7 +135,7 @@ class TestBuiltinDispatch:
         assert narrow.lineage[-1] == "dip_ic"
         assert "prism" in narrow.lineage
         # Wide rows are further apart → a wider bbox across the rows.
-        assert wide.bbox().width > narrow.bbox().width
+        assert wide.bbox().lx > narrow.bbox().lx
 
     def test_dip_rejects_odd_pin_count(self) -> None:
         with pytest.raises(PackageDefError):
@@ -155,7 +155,7 @@ class TestBuiltinDispatch:
         assert isinstance(single, Prism) and isinstance(dual, Prism)
         assert single.color == "#222222"
         # 2×N rows sit side by side → shorter along the row than 1×N.
-        assert dual.bbox().height < single.bbox().height
+        assert dual.bbox().ly < single.bbox().ly
         # The declared params schema rides on the body for the picker.
         assert dual.schema is not None and "rows" in dual.schema.fields
 

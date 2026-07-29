@@ -44,9 +44,9 @@ class TestPositiveMargin:
         )
         result = layout(hbox)
         # Pad center: 0.5 + 0.5 = 1.0
-        assert _approx_equal(result.children[0].x, 1.0)
+        assert _approx_equal(result.children[0].center.x, 1.0)
         # Parent intrinsic width: 1 (pad) + 0.5 (left) = 1.5.
-        assert _approx_equal(result.width, 1.5)
+        assert _approx_equal(result.size.lx, 1.5)
 
     def test_top_margin_shifts_down(self) -> None:
         pad = _pad(margin=Insets(top=0.5, right=0.0, bottom=0.0, left=0.0))
@@ -56,8 +56,8 @@ class TestPositiveMargin:
             children=[pad],
         )
         result = layout(vbox)
-        assert _approx_equal(result.children[0].y, 1.0)
-        assert _approx_equal(result.height, 1.5)
+        assert _approx_equal(result.children[0].center.y, 1.0)
+        assert _approx_equal(result.size.ly, 1.5)
 
 
 class TestNegativeMargin:
@@ -86,10 +86,10 @@ class TestNegativeMargin:
         )
         result = layout(vbox)
         # First strip center: y = 0.5.
-        assert _approx_equal(result.children[0].y, 0.5)
+        assert _approx_equal(result.children[0].center.y, 0.5)
         # Second strip top-left would be at y=1; margin.top=-0.5 shifts to 0.5;
         # height=1 gives center y = 1.0 (overlapping the first strip by 0.5).
-        assert _approx_equal(result.children[1].y, 1.0)
+        assert _approx_equal(result.children[1].center.y, 1.0)
 
 
 class TestBreadboardRailExample:
@@ -122,8 +122,8 @@ class TestBreadboardRailExample:
         result = layout(vbox)
         # Rail 1 center y = 0.5; rail 2 normally at y=1, but margin pulls to 0.5,
         # so center y = 1.0.
-        assert _approx_equal(result.children[0].y, 0.5)
-        assert _approx_equal(result.children[1].y, 1.0)
+        assert _approx_equal(result.children[0].center.y, 0.5)
+        assert _approx_equal(result.children[1].center.y, 1.0)
 
 
 class TestMarginsInAllFourDirections:
@@ -137,9 +137,9 @@ class TestMarginsInAllFourDirections:
         result = layout(hbox)
         # Pad center x = 1.0(left) + 0.5(half-pad) = 1.5
         # Pad center y = 0.25(top) + 0.5(half-pad) = 0.75
-        assert _approx_equal(result.children[0].x, 1.5)
-        assert _approx_equal(result.children[0].y, 0.75)
+        assert _approx_equal(result.children[0].center.x, 1.5)
+        assert _approx_equal(result.children[0].center.y, 0.75)
         # Parent intrinsic width = 1 + 1.0(left) + 0.5(right) = 2.5
         # Parent intrinsic height = 1 + 0.25(top) + 0.75(bottom) = 2.0
-        assert _approx_equal(result.width, 2.5)
-        assert _approx_equal(result.height, 2.0)
+        assert _approx_equal(result.size.lx, 2.5)
+        assert _approx_equal(result.size.ly, 2.0)

@@ -43,18 +43,18 @@ class Board:
     @property
     def bounds(self) -> Rect:
         node = self.layout
-        return Rect(
-            x=node.x - node.width / 2.0,
-            y=node.y - node.height / 2.0,
-            width=node.width,
-            height=node.height,
+        return Rect.of(
+            x=node.center.x - node.size.lx / 2.0,
+            y=node.center.y - node.size.ly / 2.0,
+            lx=node.size.lx,
+            ly=node.size.ly,
         )
 
     @property
     def size_mm(self) -> Size:
         size = Size(
-            self.bounds.width * self.raster_pitch_mm,
-            self.bounds.height * self.raster_pitch_mm,
+            self.bounds.lx * self.raster_pitch_mm,
+            self.bounds.ly * self.raster_pitch_mm,
         )
         # Mark the unused import for typing inspectors that the conversion
         # ultimately produces millimeter-typed values.
@@ -154,7 +154,7 @@ class Board:
 
 def _walk_atoms(node: LayoutNode) -> Iterator[tuple[Box, Point]]:
     if isinstance(node.box, (PadAtom, StripAtom, GapAtom)):
-        yield node.box, Point(node.x, node.y)
+        yield node.box, Point(node.center.x, node.center.y)
         return
     if isinstance(node.box, (HBox, VBox, BoardGrid)):
         for child in node.children:

@@ -55,7 +55,7 @@ class CameraMath:
 
         Mirror transforms flip corner order, so normalise with min/max.
         """
-        w, h = self.viewport_size.width, self.viewport_size.height
+        w, h = self.viewport_size.lx, self.viewport_size.ly
         corners = [
             self.map_view_to_scene(Point(0.0, 0.0)),
             self.map_view_to_scene(Point(w, 0.0)),
@@ -64,7 +64,7 @@ class CameraMath:
         ]
         xs = [c.x for c in corners]
         ys = [c.y for c in corners]
-        return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+        return Rect.of(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
 
     def pan_by(self, view_delta: Vector) -> None:
         self.scroll = Vector(
@@ -75,15 +75,15 @@ class CameraMath:
         """Set scroll so *scene_pt* lands in the viewport centre."""
         mapped = self.transform.apply(scene_pt)
         self.scroll = Vector(
-            mapped.x - self.viewport_size.width / 2.0,
-            mapped.y - self.viewport_size.height / 2.0,
+            mapped.x - self.viewport_size.lx / 2.0,
+            mapped.y - self.viewport_size.ly / 2.0,
         )
 
     def fit_in_view(self, scene_rect: Rect) -> None:
         """Frame *scene_rect* keeping aspect ratio and mirror signs."""
-        w = max(scene_rect.width, 1e-9)
-        h = max(scene_rect.height, 1e-9)
-        mag = min(self.viewport_size.width / w, self.viewport_size.height / h)
+        w = max(scene_rect.lx, 1e-9)
+        h = max(scene_rect.ly, 1e-9)
+        mag = min(self.viewport_size.lx / w, self.viewport_size.ly / h)
         sx = -1.0 if self.transform.a < 0 else 1.0
         sy = -1.0 if self.transform.d < 0 else 1.0
         self.transform = Transform2D(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0)

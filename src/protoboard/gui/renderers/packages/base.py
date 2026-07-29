@@ -579,7 +579,7 @@ class PackageRenderer(BodyShape):
         box = bbox_or_none(self._pkg)
         if box is None:
             return []
-        if box.width <= 0.0 or box.height <= 0.0:
+        if box.lx <= 0.0 or box.ly <= 0.0:
             return []
         from protoboard.domain.components.package.shapes import (
             lead_axis_extents,
@@ -841,7 +841,7 @@ class PackageRenderer(BodyShape):
         tl, tr, br, bl = self._effective_corner_radii_mm()
         canvas.addRect(
             (box.x, box.y),
-            (box.x + box.width, box.y + box.height),
+            (box.x + box.lx, box.y + box.ly),
             round=(canvas.mm(tl), canvas.mm(tr), canvas.mm(br), canvas.mm(bl)),
         )
         items: list[QGraphicsItem] = canvas.items

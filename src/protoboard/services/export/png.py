@@ -71,10 +71,10 @@ def export_png_from_snapshot(
     """Snapshot-driven PNG export."""
     b = snapshot.board.bounds
     # Board + 1-raster margin on each side.
-    img_w = int(round((b.width + 2) * pixels_per_raster))
-    img_h = int(round((b.height + 2) * pixels_per_raster))
+    img_w = int(round((b.lx + 2) * pixels_per_raster))
+    img_h = int(round((b.ly + 2) * pixels_per_raster))
     if img_w <= 0 or img_h <= 0:
-        raise ValueError(f"degenerate board bounds: {b.width}×{b.height}")
+        raise ValueError(f"degenerate board bounds: {b.lx}×{b.ly}")
     img = QImage(QSize(img_w, img_h), QImage.Format.Format_ARGB32)
     img.fill(0)  # transparent canvas
     painter = QPainter(img)

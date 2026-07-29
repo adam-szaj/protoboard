@@ -32,7 +32,7 @@ def _approx_equal(a: float, b: float, tol: float = 1e-9) -> bool:
 
 
 def _pos_equal(node: LayoutNode, x: float, y: float, tol: float = 1e-9) -> bool:
-    return _approx_equal(node.x, x, tol) and _approx_equal(node.y, y, tol)
+    return _approx_equal(node.center.x, x, tol) and _approx_equal(node.center.y, y, tol)
 
 
 class TestSinglePadLayout:
@@ -40,8 +40,8 @@ class TestSinglePadLayout:
         result = layout(_pad())
         # Center of a 1×1 pad placed at origin is (0.5, 0.5).
         assert _pos_equal(result, 0.5, 0.5)
-        assert result.width == 1.0
-        assert result.height == 1.0
+        assert result.size.lx == 1.0
+        assert result.size.ly == 1.0
 
 
 class TestHBoxLayout:
@@ -53,8 +53,8 @@ class TestHBoxLayout:
             gap=1.0,
         )
         result = layout(hbox)
-        assert result.width == 5.0
-        assert result.height == 1.0
+        assert result.size.lx == 5.0
+        assert result.size.ly == 1.0
         assert len(result.children) == 3
         # Centers along x: 0.5, 2.5, 4.5
         assert _pos_equal(result.children[0], 0.5, 0.5)
@@ -106,8 +106,8 @@ class TestVBoxLayout:
             gap=1.0,
         )
         result = layout(vbox)
-        assert result.width == 1.0
-        assert result.height == 5.0
+        assert result.size.lx == 1.0
+        assert result.size.ly == 5.0
         assert _pos_equal(result.children[0], 0.5, 0.5)
         assert _pos_equal(result.children[1], 0.5, 2.5)
         assert _pos_equal(result.children[2], 0.5, 4.5)
@@ -128,7 +128,7 @@ class TestBoardGridLayout:
         # Grid has 9 children (one per cell), arranged row-major.
         assert len(result.children) == 9
         expected_centers = [(x + 0.5, y + 0.5) for y in (0, 2, 4) for x in (0, 2, 4)]
-        actual_centers = [(c.x, c.y) for c in result.children]
+        actual_centers = [(c.center.x, c.center.y) for c in result.children]
         for expected, actual in zip(expected_centers, actual_centers, strict=True):
             assert _approx_equal(expected[0], actual[0])
             assert _approx_equal(expected[1], actual[1])
@@ -174,8 +174,8 @@ class TestStripboardLayout:
             gap=1.0,
         )
         result = layout(vbox)
-        assert result.width == 10.0
-        assert result.height == 19.0  # 10 + 9 gaps
+        assert result.size.lx == 10.0
+        assert result.size.ly == 19.0  # 10 + 9 gaps
         # First strip center: x = 5 (mid of 10), y = 0.5
         assert _pos_equal(result.children[0], 5.0, 0.5)
         # Last strip center: y = 18.5
@@ -245,7 +245,7 @@ class TestGapAtomInLayout:
         )
         result = layout(hbox)
         # widths: 1 + 2 + 1 = 4
-        assert result.width == 4.0
+        assert result.size.lx == 4.0
         # Pad center 0.5, gap center 2.0, pad center 3.5
         assert _pos_equal(result.children[0], 0.5, 0.5)
         assert _pos_equal(result.children[1], 2.0, 0.5)
@@ -266,10 +266,10 @@ class TestDeterminism:
         b = layout(make())
         # Compare positions of all children pairwise.
         for child_a, child_b in zip(a.children, b.children, strict=True):
-            assert child_a.x == child_b.x
-            assert child_a.y == child_b.y
-            assert child_a.width == child_b.width
-            assert child_a.height == child_b.height
+            assert child_a.center.x == child_b.center.x
+            assert child_a.center.y == child_b.center.y
+            assert child_a.size.lx == child_b.size.lx
+            assert child_a.size.ly == child_b.size.ly
 
 
 class TestFixedRootDimensions:
@@ -284,8 +284,8 @@ class TestFixedRootDimensions:
         )
         result = layout(hbox)
         # Root reports the FIXED size, even though children only need 5×1.
-        assert result.width == 20.0
-        assert result.height == 10.0
+        assert result.size.lx == 20.0
+        assert result.size.ly == 10.0
 
 
 class TestVerticalAlignmentInHBox:

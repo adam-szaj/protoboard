@@ -266,7 +266,7 @@ class TestProviderKindParams:
         assert isinstance(variant.package, Prism)
         assert variant.package.kind == "pin_header"
         # 2×6 header: dual-row geometry (shorter along the row than 1×6).
-        assert variant.package.bbox().height < 6
+        assert variant.package.bbox().ly < 6
 
     def test_build_variant_invalid_values_returns_none(self, tmp_path) -> None:
         defn = self._defn_with_hole(tmp_path)

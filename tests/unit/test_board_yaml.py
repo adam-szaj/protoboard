@@ -48,7 +48,7 @@ class TestPerfboardFixture:
 
     def test_perfboard_bounds(self) -> None:
         board = load_board(FIXTURES / "perfboard_10x10.yaml")
-        assert board.bounds == Rect(x=0.0, y=0.0, width=10.0, height=10.0)
+        assert board.bounds == Rect.of(x=0.0, y=0.0, lx=10.0, ly=10.0)
 
     def test_perfboard_pads_are_plated(self) -> None:
         board = load_board(FIXTURES / "perfboard_10x10.yaml")

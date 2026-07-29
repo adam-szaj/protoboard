@@ -186,7 +186,7 @@ class RubberBandController:
             if bb is None:
                 continue
             bx0, by0 = bb.x, bb.y
-            bx1, by1 = bb.x + bb.width, bb.y + bb.height
+            bx1, by1 = bb.x + bb.lx, bb.y + bb.ly
             inside = bx0 >= rx0 and by0 >= ry0 and bx1 <= rx1 and by1 <= ry1
             intersects = bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0
             if inside if ltr else intersects:

@@ -151,8 +151,8 @@ class TestLoadWorkedExamples:
         w = pkgs["WeAct"]
         assert isinstance(w, Prism)
         bb = w.bbox()
-        assert bb.height == pytest.approx(4.0)   # 0 vertical margin
-        assert bb.width == pytest.approx(2.0)    # 1+1 hole horizontal margin
+        assert bb.ly == pytest.approx(4.0)   # 0 vertical margin
+        assert bb.lx == pytest.approx(2.0)    # 1+1 hole horizontal margin
 
     def test_abstract_not_built(self) -> None:
         pkgs = self._load([])

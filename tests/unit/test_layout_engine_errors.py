@@ -130,8 +130,8 @@ class TestEmptyContainersAreLegal:
             children=[],
         )
         result = layout(hbox)
-        assert result.width == 0.0
-        assert result.height == 0.0
+        assert result.size.lx == 0.0
+        assert result.size.ly == 0.0
 
     def test_empty_vbox_layout_is_zero_size(self) -> None:
         vbox = VBox(
@@ -140,8 +140,8 @@ class TestEmptyContainersAreLegal:
             children=[],
         )
         result = layout(vbox)
-        assert result.width == 0.0
-        assert result.height == 0.0
+        assert result.size.lx == 0.0
+        assert result.size.ly == 0.0
 
 
 class TestErrorMessages:

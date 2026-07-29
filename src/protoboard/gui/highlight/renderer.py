@@ -634,7 +634,7 @@ class HighlightRenderer:
             return
         m = 0.06
         rect = QGraphicsRectItem(
-            QRectF(bbox.x - m, bbox.y - m, bbox.width + 2 * m, bbox.height + 2 * m)
+            QRectF(bbox.x - m, bbox.y - m, bbox.lx + 2 * m, bbox.ly + 2 * m)
         )
         rect.setPen(self._selection_bbox_pen())
         rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -654,7 +654,7 @@ class HighlightRenderer:
         try:
             rect.setRect(
                 QRectF(bbox.x - m, bbox.y - m,
-                       bbox.width + 2 * m, bbox.height + 2 * m)
+                       bbox.lx + 2 * m, bbox.ly + 2 * m)
             )
             rect.setPen(self._selection_bbox_pen())
         except RuntimeError:

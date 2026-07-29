@@ -73,7 +73,7 @@ class FakeViewport:
 
     def viewport_rect(self) -> Rect:
         size = self.math.viewport_size
-        return Rect(0.0, 0.0, size.width, size.height)
+        return Rect.of(0.0, 0.0, size.lx, size.ly)
 
     def visible_scene_rect(self) -> Rect:
         return self.math.visible_scene_rect()

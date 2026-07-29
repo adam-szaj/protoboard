@@ -32,11 +32,11 @@ class TestPointBridge:
 
 class TestRectBridge:
     def test_round_trip(self) -> None:
-        r = Rect(1.0, 2.0, 3.0, 4.0)
+        r = Rect.of(1.0, 2.0, 3.0, 4.0)
         assert from_qrectf(to_qrectf(r)) == r
 
     def test_from_qrectf(self) -> None:
-        assert from_qrectf(QRectF(0.5, 1.5, 2.0, 3.0)) == Rect(0.5, 1.5, 2.0, 3.0)
+        assert from_qrectf(QRectF(0.5, 1.5, 2.0, 3.0)) == Rect.of(0.5, 1.5, 2.0, 3.0)
 
 
 class TestTransformBridge:

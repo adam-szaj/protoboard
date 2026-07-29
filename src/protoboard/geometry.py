@@ -67,6 +67,10 @@ class Point:
         else:
             return Point(self.x - o.dx, self.y - o.dy)
 
+    def with_z(self, z: float = 0.0) -> Point3D:
+        """Lift to 3D at the given elevation."""
+        return Point3D(self.x, self.y, z)
+
 
 @dataclass(frozen=True, slots=True)
 class Vector:
@@ -129,6 +133,10 @@ class Vector:
         from math import degrees
         return degrees(self.angle())
 
+    def with_dz(self, dz: float = 0.0) -> Vector3D:
+        """Lift to a 3D displacement."""
+        return Vector3D(self.dx, self.dy, dz)
+
 
 @dataclass(frozen=True, slots=True)
 class Point3D:
@@ -154,6 +162,11 @@ class Point3D:
             return Vector3D(self.x - o.x, self.y - o.y, self.z - o.z)
         else:
             return Point3D(self.x - o.dx, self.y - o.dy, self.z - o.dz)
+
+    @property
+    def xy(self) -> Point:
+        """Board-plane projection (drops z)."""
+        return Point(self.x, self.y)
 
 
 ROTATE2D_TRANSFORM: list = [
@@ -217,6 +230,22 @@ class Transform2D:
                       (-1.0, 0.0, 0.0, -1.0),
                       (0.0, -1.0, 1.0, 0.0))[steps % 4]
         return Transform2D(a, b, c, d, 0.0, 0.0)
+
+    @staticmethod
+    def rotation_to(axis: Vector) -> Transform2D:
+        """Rotation (det = +1) mapping the +x unit vector onto *axis*'s
+        direction: linear part ``[[ux, -uy], [uy, ux]]`` with ``(ux, uy) =
+        axis / |axis|``.
+
+        The continuous generalisation of :meth:`rotation`: for an
+        axis-parallel input the entries are exact ``{-1, 0, 1}``. Raises
+        ``ValueError`` on a (near-)zero axis — a frame needs a direction.
+        """
+        n = axis.norm()
+        if n < 1e-12:
+            raise ValueError("rotation_to needs a non-zero axis")
+        ux, uy = axis.dx / n, axis.dy / n
+        return Transform2D(ux, -uy, uy, ux, 0.0, 0.0)
 
     @staticmethod
     def reflection() -> Transform2D:
@@ -405,6 +434,11 @@ class Vector3D:
         """Euclidean magnitude of the displacement."""
         return norm(self.dx, self.dy, self.dz)
 
+    @property
+    def dxdy(self) -> Vector:
+        """Board-plane projection (drops dz)."""
+        return Vector(self.dx, self.dy)
+
 
 PointList = list[Point]
 VectorList = list[Vector]
@@ -472,15 +506,21 @@ def make_offsets_from_points(points) -> VectorList | Vector3DList:
 
 @dataclass(frozen=True, slots=True)
 class Size:
+    """Axis-aligned extents [lx, ly] (non-negative): lx along +x, ly along +y.
 
-    width: float
-    height: float
+    The vocabulary law: sizes are named after the axis they extend along —
+    never ``width``/``height``, which read differently in world, body-local
+    and screen contexts.
+    """
+
+    lx: float
+    ly: float
 
     def __post_init__(self) -> None:
-        if self.width < 0:
-            raise ValueError(f"width must be non-negative; got {self.width}")
-        if self.height < 0:
-            raise ValueError(f"height must be non-negative; got {self.height}")
+        if self.lx < 0:
+            raise ValueError(f"lx must be non-negative; got {self.lx}")
+        if self.ly < 0:
+            raise ValueError(f"ly must be non-negative; got {self.ly}")
 
     @staticmethod
     def from_vector(v: Vector) -> Size:
@@ -493,6 +533,40 @@ class Size:
     @staticmethod
     def zero() -> Size:
         return Size(0.0, 0.0)
+
+    def with_lz(self, lz: float = 0.0) -> Size3D:
+        """Lift to 3D extents with the given off-plane extent."""
+        return Size3D(self.lx, self.ly, lz)
+
+
+@dataclass(frozen=True, slots=True)
+class Size3D:
+    """Axis-aligned extents [lx, ly, lz] (non-negative).
+
+    In a package-local frame ``lz`` is the off-board elevation; the board
+    plane only ever consumes the :attr:`footprint` projection.
+    """
+
+    lx: float
+    ly: float
+    lz: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.lx < 0:
+            raise ValueError(f"lx must be non-negative; got {self.lx}")
+        if self.ly < 0:
+            raise ValueError(f"ly must be non-negative; got {self.ly}")
+        if self.lz < 0:
+            raise ValueError(f"lz must be non-negative; got {self.lz}")
+
+    @property
+    def footprint(self) -> Size:
+        """Board-plane projection [lx, ly] (drops lz)."""
+        return Size(self.lx, self.ly)
+
+    @staticmethod
+    def zero() -> Size3D:
+        return Size3D(0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -523,48 +597,91 @@ class Insets:
 
 @dataclass(frozen=True, slots=True)
 class Rect:
-    """Axis-aligned rectangle. (x, y) = top-left corner."""
+    """Axis-aligned rectangle: a min corner (top-left in the y-down world
+    frame) composed with axis-aligned extents.
 
-    x: float
-    y: float
-    width: float
-    height: float
+    One concept per class: the corner is a :class:`Point`, the extents a
+    :class:`Size`; scalar views (``x``/``y``/``lx``/``ly``) are derived.
+    Screen-vocabulary ``[x, y, w, h]`` exists only at the Qt boundary
+    (``gui/qt_geometry.py``).
+    """
 
-    def __post_init__(self) -> None:
-        if self.width < 0:
-            raise ValueError(f"width must be non-negative; got {self.width}")
-        if self.height < 0:
-            raise ValueError(f"height must be non-negative; got {self.height}")
+    origin: Point
+    size: Size
+
+    @staticmethod
+    def of(x: float, y: float, lx: float, ly: float) -> Rect:
+        """Scalar factory: min corner (x, y), extents (lx, ly)."""
+        return Rect(Point(x, y), Size(lx, ly))
+
+    @staticmethod
+    def from_center(center: Point, size: Size) -> Rect:
+        return Rect(
+            Point(center.x - size.lx / 2.0, center.y - size.ly / 2.0), size)
 
     @property
-    def top_left(self) -> Point:
-        return Point(self.x, self.y)
+    def x(self) -> float:
+        return self.origin.x
+
+    @property
+    def y(self) -> float:
+        return self.origin.y
+
+    @property
+    def lx(self) -> float:
+        return self.size.lx
+
+    @property
+    def ly(self) -> float:
+        return self.size.ly
 
     @property
     def bottom_right(self) -> Point:
-        return Point(self.x + self.width, self.y + self.height)
+        return Point(self.origin.x + self.size.lx,
+                     self.origin.y + self.size.ly)
 
     @property
     def center(self) -> Point:
-        return Point(self.x + self.width / 2.0, self.y + self.height / 2.0)
+        return Point(self.origin.x + self.size.lx / 2.0,
+                     self.origin.y + self.size.ly / 2.0)
+
+    def corners(self) -> tuple[Point, Point, Point, Point]:
+        """The four corners, starting at ``origin``, in ring order."""
+        x0, y0 = self.origin.x, self.origin.y
+        x1, y1 = x0 + self.size.lx, y0 + self.size.ly
+        return (Point(x0, y0), Point(x1, y0), Point(x1, y1), Point(x0, y1))
 
     def contains(self, point: Point) -> bool:
         """Half-open containment: top/left inclusive, bottom/right exclusive."""
-        return (self.x <= point.x < self.x + self.width
-                and self.y <= point.y < self.y + self.height)
+        return (self.origin.x <= point.x < self.origin.x + self.size.lx
+                and self.origin.y <= point.y < self.origin.y + self.size.ly)
 
     def intersects(self, other: Rect) -> bool:
         """Strict overlap; touching edges do not count as intersection."""
-        return (self.x < other.x + other.width
-                and other.x < self.x + self.width
-                and self.y < other.y + other.height
-                and other.y < self.y + self.height)
+        return (self.origin.x < other.origin.x + other.size.lx
+                and other.origin.x < self.origin.x + self.size.lx
+                and self.origin.y < other.origin.y + other.size.ly
+                and other.origin.y < self.origin.y + self.size.ly)
 
     def inflate(self, insets: Insets) -> Rect:
         """Grow the rect by the insets. Negative insets shrink it."""
-        return Rect(
-            x=self.x - insets.left,
-            y=self.y - insets.top,
-            width=self.width + insets.horizontal,
-            height=self.height + insets.vertical,
+        return Rect.of(
+            self.origin.x - insets.left,
+            self.origin.y - insets.top,
+            self.size.lx + insets.horizontal,
+            self.size.ly + insets.vertical,
         )
+
+    def transformed_aabb(self, t: Transform2D) -> Rect:
+        """AABB of the four corners mapped through *t*.
+
+        The general oriented-rectangle projection: rotating a body-local rect
+        into the world and taking its axis-aligned bounds. For axis-parallel
+        transforms this is exact (entries in {-1, 0, 1}); the along/across
+        swaps the old body code hand-rolled fall out of the matrix.
+        """
+        pts = [t.apply(p) for p in self.corners()]
+        xs = [p.x for p in pts]
+        ys = [p.y for p in pts]
+        x0, y0 = min(xs), min(ys)
+        return Rect.of(x0, y0, max(xs) - x0, max(ys) - y0)

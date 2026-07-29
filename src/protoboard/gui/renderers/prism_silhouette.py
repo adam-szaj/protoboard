@@ -196,7 +196,7 @@ class DipSilhouette(PrismSilhouette):
     ) -> PrismDrawing:
         box = prism.bbox()
         body = _notched_rect_path(
-            box.x, box.y, box.x + box.width, box.y + box.height,
+            box.x, box.y, box.x + box.lx, box.y + box.ly,
             radii=_expand_corner_r(corner_r, theme),
             notch_r=theme.dip_notch_radius,
             notch_cx=self.notch_cx,
@@ -218,7 +218,7 @@ class SilSilhouette(PrismSilhouette):
     ) -> PrismDrawing:
         box = prism.bbox()
         body = rounded_rect_path(
-            QRectF(box.x, box.y, box.width, box.height),
+            QRectF(box.x, box.y, box.lx, box.ly),
             _expand_corner_r(corner_r, theme),
         )
         return PrismDrawing(body=body, marker=_pin1_marker_path(0.08))

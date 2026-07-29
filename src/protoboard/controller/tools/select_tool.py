@@ -1155,8 +1155,8 @@ class SelectTool(ControllerTool):
                 continue
             x0 = min(b.x for b in bbs)
             y0 = min(b.y for b in bbs)
-            x1 = max(b.x + b.width for b in bbs)
-            y1 = max(b.y + b.height for b in bbs)
+            x1 = max(b.x + b.lx for b in bbs)
+            y1 = max(b.y + b.ly for b in bbs)
             if x0 <= px <= x1 and y0 <= py <= y1:
                 # Prefer the tightest (smallest) enclosing group when nested.
                 area = (x1 - x0) * (y1 - y0)
@@ -1241,13 +1241,13 @@ class SelectTool(ControllerTool):
             if ltr:
                 hit = all(
                     b.x >= rx0 and b.y >= ry0
-                    and b.x + b.width <= rx1 and b.y + b.height <= ry1
+                    and b.x + b.lx <= rx1 and b.y + b.ly <= ry1
                     for b in bbs
                 )
             else:
                 hit = any(
-                    b.x < rx1 and b.x + b.width > rx0
-                    and b.y < ry1 and b.y + b.height > ry0
+                    b.x < rx1 and b.x + b.lx > rx0
+                    and b.y < ry1 and b.y + b.ly > ry0
                     for b in bbs
                 )
             if hit:
