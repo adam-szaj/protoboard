@@ -201,8 +201,8 @@ class TestAssignGridCells:
         net_graph = {c: {} for c in ids}
         result = _assign_grid_cells(ids, net_graph, positions, bounds)
         for pt in result.values():
-            assert bounds.x <= pt.x <= bounds.x + bounds.width
-            assert bounds.y <= pt.y <= bounds.y + bounds.height
+            assert bounds.x <= pt.x <= bounds.x + bounds.lx
+            assert bounds.y <= pt.y <= bounds.y + bounds.ly
 
     def test_connected_pair_gets_closer_cells_than_unconnected(self) -> None:
         # a and b are connected; c and d are unconnected to each other and to a/b.
@@ -218,8 +218,8 @@ class TestAssignGridCells:
         # Connected pair should land in adjacent cells (distance ≈ cell_size).
         # Unconnected pair has no attraction — should be no closer on average.
         # We assert a/b are within 2 cell-diagonals of each other.
-        cell_w = bounds.width / 2
-        cell_h = bounds.height / 2
+        cell_w = bounds.lx / 2
+        cell_h = bounds.ly / 2
         cell_diag = math.hypot(cell_w, cell_h)
         assert dist_ab <= 2 * cell_diag, (
             f"Connected pair too far apart: {dist_ab:.2f} > 2×{cell_diag:.2f}"

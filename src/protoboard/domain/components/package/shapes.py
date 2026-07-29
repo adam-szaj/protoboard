@@ -245,9 +245,9 @@ def lead_axis_extents(package: Package) -> tuple[float, float]:
     """
     bb = package.bbox()
     pb = _pins_bbox(package.pin_positions())
-    if pb.width > pb.height:
-        return bb.width, bb.height
-    return bb.height, bb.width
+    if pb.lx > pb.ly:
+        return bb.lx, bb.ly
+    return bb.ly, bb.lx
 
 
 def bbox_or_none(package: Package) -> Rect | None:
@@ -279,7 +279,7 @@ def _pins_bbox(positions: list[Point]) -> Rect:
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
     x0, y0 = min(xs), min(ys)
-    return Rect(x0, y0, max(xs) - x0, max(ys) - y0)
+    return Rect.of(x0, y0, max(xs) - x0, max(ys) - y0)
 
 
 def _body_centre_holes(pins: list[Point], eccentricity_mm: Vector) -> Point:
@@ -309,7 +309,7 @@ def _oriented_rect_aabb(
     ux, uy = axis.dx / length, axis.dy / length
     half_x = (along * abs(ux) + across * abs(uy)) / 2.0
     half_y = (along * abs(uy) + across * abs(ux)) / 2.0
-    return Rect(centre.x - half_x, centre.y - half_y, 2 * half_x, 2 * half_y)
+    return Rect.of(centre.x - half_x, centre.y - half_y, 2 * half_x, 2 * half_y)
 
 
 def _lead_diameter_mm(leads: Leads) -> float:
@@ -445,10 +445,10 @@ class Cylinder(Package):
         pins = self.pin_positions()
         centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
         if (self.arrangement is LeadArrangement.RADIAL or len(pins) < 2):
-            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         axis = pins[-1] - pins[0]
         if axis.norm() < 1e-9:
-            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         return _oriented_rect_aabb(
             centre, self.length_mm / RASTER_MM, d, axis)
 
@@ -497,12 +497,12 @@ class Prism(Package):
         # Width perpendicular to the lead axis bounds two same-face leads;
         # fall back to the body bbox width when width is margin-derived.
         w = self.width_mm if self.width_mm is not None else self.bbox(
-        ).width * RASTER_MM
+        ).lx * RASTER_MM
         return (w + _lead_diameter_mm(self.leads)) / 2.0
 
     def min_axial_pitch_mm(self) -> float:
         ln = self.length_mm if self.length_mm is not None else self.bbox(
-        ).height * RASTER_MM
+        ).ly * RASTER_MM
         return ln + _lead_diameter_mm(self.leads)
 
     @traced()
@@ -547,11 +547,11 @@ class Prism(Package):
         w = self.width_mm / RASTER_MM
         h = self.length_mm / RASTER_MM
         pb = _pins_bbox(self.pin_positions())
-        if pb.width > pb.height:
+        if pb.lx > pb.ly:
             w, h = h, w  # pin row runs along x → length on x, width on y
         centre = pb.center
         off = self.body_offset_mm
-        return Rect(
+        return Rect.of(
             centre.x + off.dx / RASTER_MM - w / 2.0,
             centre.y + off.dy / RASTER_MM - h / 2.0,
             w,
@@ -566,11 +566,11 @@ class Prism(Package):
         m_r = margin.right / RASTER_MM
         m_t = margin.top / RASTER_MM
         m_b = margin.bottom / RASTER_MM
-        return Rect(
+        return Rect.of(
             pb.x - m_l,
             pb.y - m_t,
-            pb.width + m_l + m_r,
-            pb.height + m_t + m_b,
+            pb.lx + m_l + m_r,
+            pb.ly + m_t + m_b,
         )
 
 
@@ -635,10 +635,10 @@ class Disc(Package):
         pins = self.pin_positions()
         centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
         if len(pins) < 2:
-            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         axis = pins[-1] - pins[0]
         if axis.norm() < 1e-9:
-            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+            return Rect.of(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
         return _oriented_rect_aabb(
             centre, d, self.thickness_mm / RASTER_MM, axis)
 

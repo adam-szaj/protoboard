@@ -165,7 +165,7 @@ class TestRadialCylinderMask:
 
     def test_bbox_centred_between_pads(self) -> None:
         bb = self._led25().bbox()
-        assert (bb.x, bb.y, bb.width, bb.height) == (0.0, -0.5, 1.0, 1.0)
+        assert (bb.x, bb.y, bb.lx, bb.ly) == (0.0, -0.5, 1.0, 1.0)
 
     def test_mask_claims_only_pin_holes(self) -> None:
         mask = build_pad_mask(self._led25())

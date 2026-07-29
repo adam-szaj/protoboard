@@ -201,7 +201,7 @@ def _preferred_rotations(
     fp_width = max(xs) - min(xs)   # extent in local X (rotation=0)
     fp_height = max(ys) - min(ys)  # extent in local Y (rotation=0)
 
-    board_landscape = board_bounds.width >= board_bounds.height
+    board_landscape = board_bounds.lx >= board_bounds.ly
 
     if fp_width == fp_height:
         # Symmetric (e.g. single-pin, square DIP) — all rotations equivalent
@@ -295,12 +295,12 @@ def _extended_candidates(
     board_pads: set[Point], board_bounds: Rect
 ) -> list[Point]:
     """Generate a virtual grid outside board boundaries (same 1.0 RU step)."""
-    margin_x = max(10, int(board_bounds.width * 0.5))
-    margin_y = max(10, int(board_bounds.height * 0.5))
+    margin_x = max(10, int(board_bounds.lx * 0.5))
+    margin_y = max(10, int(board_bounds.ly * 0.5))
     x_min = int(board_bounds.x) - margin_x
-    x_max = int(board_bounds.x + board_bounds.width) + margin_x
+    x_max = int(board_bounds.x + board_bounds.lx) + margin_x
     y_min = int(board_bounds.y) - margin_y
-    y_max = int(board_bounds.y + board_bounds.height) + margin_y
+    y_max = int(board_bounds.y + board_bounds.ly) + margin_y
     extra: list[Point] = []
     for col in range(x_min, x_max + 1):
         for row in range(y_min, y_max + 1):
@@ -336,11 +336,11 @@ def _has_collision(
     raw_new = component_bbox(
         footprint_of(new_defn, new_inst), new_pl, new_defn.component_class
     )
-    new_bbox = Rect(
+    new_bbox = Rect.of(
         x=raw_new.x - extra_gap,
         y=raw_new.y - extra_gap,
-        width=raw_new.width + 2 * extra_gap,
-        height=raw_new.height + 2 * extra_gap,
+        lx=raw_new.lx + 2 * extra_gap,
+        ly=raw_new.ly + 2 * extra_gap,
     )
     for other_pl, other_defn, other_inst in existing.values():
         other_bbox = component_bbox(

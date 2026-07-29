@@ -23,11 +23,11 @@ def from_qpointf(qp: QPointF) -> Point:
 
 
 def to_qrectf(r: Rect) -> QRectF:
-    return QRectF(r.x, r.y, r.width, r.height)
+    return QRectF(r.x, r.y, r.lx, r.ly)
 
 
 def from_qrectf(qr: QRectF) -> Rect:
-    return Rect(qr.x(), qr.y(), qr.width(), qr.height())
+    return Rect.of(qr.x(), qr.y(), qr.width(), qr.height())
 
 
 def to_qtransform(t: Transform2D) -> QTransform:

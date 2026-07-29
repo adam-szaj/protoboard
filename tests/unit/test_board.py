@@ -78,7 +78,7 @@ class TestBoardAtoms:
 class TestBoardBounds:
     def test_perfboard_10x10_bounds(self) -> None:
         board = _make_perfboard_10x10()
-        assert board.bounds == Rect(x=0.0, y=0.0, width=10.0, height=10.0)
+        assert board.bounds == Rect.of(x=0.0, y=0.0, lx=10.0, ly=10.0)
 
 
 class TestBoardSizeMm:
@@ -86,8 +86,8 @@ class TestBoardSizeMm:
         board = _make_perfboard_10x10()
         size = board.size_mm
         # 10 raster × 2.54 mm/raster = 25.4 mm
-        assert abs(float(size.width) - 25.4) < 1e-9
-        assert abs(float(size.height) - 25.4) < 1e-9
+        assert abs(float(size.lx) - 25.4) < 1e-9
+        assert abs(float(size.ly) - 25.4) < 1e-9
 
     def test_size_mm_with_custom_pitch(self) -> None:
         grid = BoardGrid(
@@ -101,4 +101,4 @@ class TestBoardSizeMm:
         )
         board = Board(root=grid, raster_pitch_mm=2.0)
         size = board.size_mm
-        assert abs(float(size.width) - 20.0) < 1e-9
+        assert abs(float(size.lx) - 20.0) < 1e-9

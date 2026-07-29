@@ -203,9 +203,9 @@ class SceneComposer:
 
         # ── Scene rect ───────────────────────────────────────────────────────
         b = session.board.bounds
-        mx, my = b.width * 0.5, b.height * 0.5
+        mx, my = b.lx * 0.5, b.ly * 0.5
         scene.setSceneRect(
-            QRectF(b.x - mx, b.y - my, b.width + 2 * mx, b.height + 2 * my)
+            QRectF(b.x - mx, b.y - my, b.lx + 2 * mx, b.ly + 2 * my)
         )
 
         # ── Label visibility (hide text that would be too small to read) ────────

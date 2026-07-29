@@ -311,8 +311,8 @@ class TestRubberBand:
         assert all(bb is not None for bb in bxs)
         x0 = min(bb.x for bb in bxs) - 0.5  # type: ignore[union-attr]
         y0 = min(bb.y for bb in bxs) - 0.5  # type: ignore[union-attr]
-        x1 = max(bb.x + bb.width for bb in bxs) + 0.5  # type: ignore[union-attr]
-        y1 = max(bb.y + bb.height for bb in bxs) + 0.5  # type: ignore[union-attr]
+        x1 = max(bb.x + bb.lx for bb in bxs) + 0.5  # type: ignore[union-attr]
+        y1 = max(bb.y + bb.ly for bb in bxs) + 0.5  # type: ignore[union-attr]
         _press(tool, x0, y0)
         _move(tool, x1, y1)
         _release(tool, x1, y1)
@@ -328,7 +328,7 @@ class TestRubberBand:
         bb = session.component_bbox(a.id)
         assert bb is not None
         # Right-to-left band (end.x < start.x) that merely clips the bbox.
-        cx, cy = bb.x + bb.width / 2, bb.y + bb.height / 2
+        cx, cy = bb.x + bb.lx / 2, bb.y + bb.ly / 2
         _press(tool, cx + 5.0, cy + 5.0)
         _move(tool, cx, cy)
         _release(tool, cx, cy)
@@ -392,7 +392,7 @@ class TestRubberBand:
         bb = session.component_bbox(b.id)
         assert bb is not None
         x0, y0 = bb.x - 0.5, bb.y - 0.5   # empty corner near b (a is far away)
-        x1, y1 = bb.x + bb.width + 0.5, bb.y + bb.height + 0.5
+        x1, y1 = bb.x + bb.lx + 0.5, bb.y + bb.ly + 0.5
         _press(tool, x0, y0, Qt.KeyboardModifier.ControlModifier)
         _move(tool, x1, y1)
         self._release_mods(tool, x1, y1, Qt.KeyboardModifier.ControlModifier)
@@ -500,8 +500,8 @@ def _band_select(tool: SelectTool, session: EditorSession, ids: list) -> None:
     assert all(bb is not None for bb in bxs)
     x0 = min(bb.x for bb in bxs) - 0.5  # type: ignore[union-attr]
     y0 = min(bb.y for bb in bxs) - 0.5  # type: ignore[union-attr]
-    x1 = max(bb.x + bb.width for bb in bxs) + 0.5  # type: ignore[union-attr]
-    y1 = max(bb.y + bb.height for bb in bxs) + 0.5  # type: ignore[union-attr]
+    x1 = max(bb.x + bb.lx for bb in bxs) + 0.5  # type: ignore[union-attr]
+    y1 = max(bb.y + bb.ly for bb in bxs) + 0.5  # type: ignore[union-attr]
     _press(tool, x0, y0)
     _move(tool, x1, y1)
     _release(tool, x1, y1)

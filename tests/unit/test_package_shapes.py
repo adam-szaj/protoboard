@@ -166,8 +166,8 @@ class TestDevboardMargin:
     def test_bbox_from_pins_plus_margin(self) -> None:
         bb = self._prism().bbox()
         # pins span y 0..4 holes (height 4), x 0; margin top/bottom 0, l/r 1 hole.
-        assert bb.height == pytest.approx(4.0)        # 0 margin vertical
-        assert bb.width == pytest.approx(0.0 + 1.0 + 1.0)  # l+r margin in holes
+        assert bb.ly == pytest.approx(4.0)        # 0 margin vertical
+        assert bb.lx == pytest.approx(0.0 + 1.0 + 1.0)  # l+r margin in holes
         assert bb.x == pytest.approx(-1.0)            # shifted left by margin
         assert bb.y == pytest.approx(0.0)             # 0 margin on pin side
 
@@ -198,7 +198,7 @@ class TestDisc:
         # Edge-mounted lens: diameter ALONG the pad axis (x here), thickness
         # across it, centred on the pin centroid — not a d×d square at pin 1.
         bb = d.bbox()
-        assert (bb.width, bb.height) == (5.0 / 2.5, 2.0 / 2.5)
+        assert (bb.lx, bb.ly) == (5.0 / 2.5, 2.0 / 2.5)
         assert (bb.x, bb.y) == pytest.approx((0.5 - 1.0, -0.4))
 
     def test_disc_rejects_solver(self) -> None:

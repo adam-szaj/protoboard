@@ -68,7 +68,7 @@ def _detect_dimensions(board: Board) -> tuple[int, int]:
             return strip_rows, cols
         # Breadboard — approximate from board bounds.
         b = board.bounds
-        return int(round(b.height)), int(round(b.width))
+        return int(round(b.ly)), int(round(b.lx))
     return 20, 30
 
 
@@ -92,8 +92,8 @@ def components_outside_bounds(
         fp = resolved_footprint(defn, inst, inst.families if inst else None)
         for pin_num in range(1, fp.pin_count() + 1):
             pt = pin_world_position(fp, placement, pin_num)
-            if not (bounds.x <= pt.x <= bounds.x + bounds.width and
-                    bounds.y <= pt.y <= bounds.y + bounds.height):
+            if not (bounds.x <= pt.x <= bounds.x + bounds.lx and
+                    bounds.y <= pt.y <= bounds.y + bounds.ly):
                 refdes = inst.refdes if inst else str(comp_id)[:8]
                 outside.append((refdes, pt.x, pt.y))
                 break  # one violation per component is enough

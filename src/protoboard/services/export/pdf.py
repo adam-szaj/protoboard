@@ -67,8 +67,8 @@ def export_pdf_from_snapshot(
     """Snapshot-driven PDF export (single page, 1:1 mm scale)."""
     b = snapshot.board.bounds
     # Board + 1-raster margin on each side.
-    page_w_mm = (b.width + 2) * raster_pitch_mm
-    page_h_mm = (b.height + 2) * raster_pitch_mm
+    page_w_mm = (b.lx + 2) * raster_pitch_mm
+    page_h_mm = (b.ly + 2) * raster_pitch_mm
 
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)

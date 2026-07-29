@@ -196,7 +196,7 @@ class ViewCamera:
         """Scale and center the view to fit the board bounds."""
         view = self._view
         b = view.session.board.bounds
-        self._port.fit_in_view(Rect(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
+        self._port.fit_in_view(Rect.of(b.x - 1, b.y - 1, b.lx + 2, b.ly + 2))
         # fit_* / mirror: transform jumps but the pixmap content is still
         # valid — keep the anchor so the next paint can stretch-blit it
         # while the fresh rebuild happens.
@@ -226,15 +226,15 @@ class ViewCamera:
             bbox = session.component_bbox(cid)
             if bbox is None:
                 continue
-            xs += [bbox.x, bbox.x + bbox.width]
-            ys += [bbox.y, bbox.y + bbox.height]
+            xs += [bbox.x, bbox.x + bbox.lx]
+            ys += [bbox.y, bbox.y + bbox.ly]
 
         if not xs:
             self.fit_board()
             return
 
         margin = 1.0
-        self._port.fit_in_view(Rect(
+        self._port.fit_in_view(Rect.of(
             min(xs) - margin, min(ys) - margin,
             max(xs) - min(xs) + 2 * margin,
             max(ys) - min(ys) + 2 * margin,
@@ -265,8 +265,8 @@ class ViewCamera:
             bbox = session.component_bbox(cid)
             if bbox is None:
                 continue
-            xs += [bbox.x, bbox.x + bbox.width]
-            ys += [bbox.y, bbox.y + bbox.height]
+            xs += [bbox.x, bbox.x + bbox.lx]
+            ys += [bbox.y, bbox.y + bbox.ly]
 
         for wid in sel_wire_ids:
             wire = next((w for w in session.layout.wires if w.id == wid), None)
@@ -281,7 +281,7 @@ class ViewCamera:
             return
 
         margin = 1.0
-        self._port.fit_in_view(Rect(
+        self._port.fit_in_view(Rect.of(
             min(xs) - margin, min(ys) - margin,
             max(xs) - min(xs) + 2 * margin,
             max(ys) - min(ys) + 2 * margin,
@@ -352,7 +352,7 @@ class ViewCamera:
             # Snap to the board's centre on the zoom-out floor so the
             # user doesn't end up parked over canvas margin.
             b = view.session.board.bounds
-            port.center_on(Point(b.x + b.width / 2.0, b.y + b.height / 2.0))
+            port.center_on(Point(b.x + b.lx / 2.0, b.y + b.ly / 2.0))
         else:
             new_scene = port.map_view_to_scene(pivot)
             new_scale = port.view_transform().a
@@ -421,11 +421,11 @@ class ViewCamera:
         # ``min(vp_w/board_w, vp_h/board_h)`` matches Qt's own KeepAspectRatio
         # logic, so the floor and ``fit_board()`` agree visually.
         b = view.session.board.bounds
-        board_w = max(float(b.width), 1.0)
-        board_h = max(float(b.height), 1.0)
+        board_w = max(float(b.lx), 1.0)
+        board_h = max(float(b.ly), 1.0)
         vp = self._port.viewport_rect()
-        vp_w = max(vp.width, 1.0)
-        vp_h = max(vp.height, 1.0)
+        vp_w = max(vp.lx, 1.0)
+        vp_h = max(vp.ly, 1.0)
         m11_fit = min(vp_w / board_w, vp_h / board_h)
         m11_half = 0.5 * m11_fit
 
@@ -489,7 +489,7 @@ class ViewCamera:
         if hit_floor:
             # Snap to board centre when hitting the zoom-out floor.
             b = view.session.board.bounds
-            port.center_on(Point(b.x + b.width / 2.0, b.y + b.height / 2.0))
+            port.center_on(Point(b.x + b.lx / 2.0, b.y + b.ly / 2.0))
         else:
             new_scene = port.map_view_to_scene(pivot_vp)
             new_scale = port.view_transform().a

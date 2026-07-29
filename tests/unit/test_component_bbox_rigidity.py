@@ -21,7 +21,7 @@ from protoboard.domain.layout.placement import (
     ComponentPlacement,
     component_bbox,
 )
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Rect, Vector
 
 
 def _catalogue():  # type: ignore[no-untyped-def]
@@ -44,9 +44,9 @@ def _pl() -> ComponentPlacement:
     )
 
 
-def _margin_of(bbox, pin_span_x: float) -> float:
+def _margin_of(bbox: Rect, pin_span_x: float) -> float:
     """Recover the symmetric margin baked into a bbox from a known pin span."""
-    return (bbox.width - pin_span_x) / 2.0
+    return (bbox.lx - pin_span_x) / 2.0
 
 
 class TestComponentBboxRigidity:
@@ -78,7 +78,7 @@ class TestComponentBboxRigidity:
         span_x = max(p.x for p in pins) - min(p.x for p in pins)
         # axial pins run along one axis; the symmetric body margin is recoverable
         # from the x extent regardless of which axis the leads span.
-        m = (bbox.width - span_x) / 2.0
+        m = (bbox.lx - span_x) / 2.0
         assert m == pytest.approx(_PAD_MARGIN)
 
     def test_dip_ic_gets_body_margin(self) -> None:
@@ -106,5 +106,5 @@ class TestComponentBboxRigidity:
         flexible = component_bbox(fp, pl, "resistor")
         rigid = component_bbox(fp, pl, "ic")
 
-        assert flexible.width / 2.0 == pytest.approx(_PAD_MARGIN)
-        assert rigid.width / 2.0 == pytest.approx(_BODY_MARGIN)
+        assert flexible.lx / 2.0 == pytest.approx(_PAD_MARGIN)
+        assert rigid.lx / 2.0 == pytest.approx(_BODY_MARGIN)

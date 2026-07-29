@@ -34,7 +34,7 @@ class TestDipFamily:
         assert n_cols == [0.0, 3.0]   # 0.3" narrow
         assert w_cols == [0.0, 6.0]   # 0.6" wide
         # The wide body is physically wider.
-        assert w_pkg.bbox().width > n_pkg.bbox().width
+        assert w_pkg.bbox().lx > n_pkg.bbox().lx
 
     def test_body_width_matches_measured_mm(self) -> None:
         # Moulded-body width is a linear fit of the row spacing R (in 2.54 mm
@@ -45,8 +45,8 @@ class TestDipFamily:
         narrow = dip_family(16, wide=False)
         wide = dip_family(16, wide=True)
         assert narrow is not None and wide is not None
-        n_mm = narrow.variants[0].package.bbox().width * raster
-        w_mm = wide.variants[0].package.bbox().width * raster
+        n_mm = narrow.variants[0].package.bbox().lx * raster
+        w_mm = wide.variants[0].package.bbox().lx * raster
         assert round(n_mm, 2) == round(2.54 * 3 - 1.35, 2)   # 6.27
         assert round(w_mm, 2) == round(2.54 * 6 - 1.35, 2)   # 13.89
 
@@ -68,9 +68,9 @@ class TestDipFamily:
             bb = pkg.bbox()
             # Body strictly inside the two pin columns (across the rows)…
             assert bb.x > cols[0] + 1e-6
-            assert bb.x + bb.width < cols[-1] - 1e-6
+            assert bb.x + bb.lx < cols[-1] - 1e-6
             # …and centred on the pin cloud across the rows.
-            assert round(bb.x + bb.width / 2.0, 3) == round(
+            assert round(bb.x + bb.lx / 2.0, 3) == round(
                 (cols[0] + cols[-1]) / 2.0, 3
             )
 
@@ -82,7 +82,7 @@ class TestDipFamily:
         ys = sorted({round(p.y, 3) for p in pkg.pin_positions()})
         bb = pkg.bbox()
         assert bb.y < ys[0]                 # past the first pin
-        assert bb.y + bb.height > ys[-1]    # past the last pin
+        assert bb.y + bb.ly > ys[-1]    # past the last pin
 
     @pytest.mark.parametrize("pins", [0, 2, 3, 15, -4])
     def test_odd_or_too_small_returns_none(self, pins: int) -> None:

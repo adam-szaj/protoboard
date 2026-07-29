@@ -101,7 +101,7 @@ def body_holes(package: Package) -> list[Point]:
     if bb is None:
         return []
     x0, y0 = round(bb.x), round(bb.y)
-    x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)
+    x1, y1 = round(bb.x + bb.lx), round(bb.y + bb.ly)
     out: list[Point] = []
     for hx in range(x0, x1 + 1):
         for hy in range(y0, y1 + 1):
@@ -144,7 +144,7 @@ def build_pad_mask(
     if bb is None:
         return mask
     x0, y0 = round(bb.x), round(bb.y)
-    x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)
+    x1, y1 = round(bb.x + bb.lx), round(bb.y + bb.ly)
     for hx in range(x0, x1 + 1):
         for hy in range(y0, y1 + 1):
             hole = Point(float(hx), float(hy))

@@ -990,7 +990,7 @@ class TestAppearanceOverride:
                             _Z))).path()
         box = prism.bbox()
         x0, y0 = box.x, box.y
-        x1, y1 = box.x + box.width, box.y + box.height
+        x1, y1 = box.x + box.lx, box.y + box.ly
         eps = 0.08  # holes; well inside the 2 mm (≈0.79-hole) corner cut
         assert path.contains(QPointF(x0 + eps, y0 + eps))      # TL sharp
         assert path.contains(QPointF(x1 - eps, y0 + eps))      # TR sharp
@@ -1011,7 +1011,7 @@ class TestAppearanceOverride:
             _flat(body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))).path()
         box = prism.bbox()
         x0, y0 = box.x, box.y
-        x1, y1 = box.x + box.width, box.y + box.height
+        x1, y1 = box.x + box.lx, box.y + box.ly
         eps = 0.08
         assert not path.contains(QPointF(1.5, -0.4))            # notch carved
         assert path.contains(QPointF(x0 + eps, y1 - eps))       # BL sharp

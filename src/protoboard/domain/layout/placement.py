@@ -335,11 +335,11 @@ def component_bbox(
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
     m = _PAD_MARGIN if _is_flexible_body(footprint, component_class) else _BODY_MARGIN
-    return Rect(
+    return Rect.of(
         x=min_x - m,
         y=min_y - m,
-        width=(max_x - min_x) + 2 * m,
-        height=(max_y - min_y) + 2 * m,
+        lx=(max_x - min_x) + 2 * m,
+        ly=(max_y - min_y) + 2 * m,
     )
 
 

@@ -130,8 +130,8 @@ def _draw_template_page(
 
     # Board native size in mm (used to decide 1:1 vs auto-scale).
     b = snapshot.board.bounds
-    board_w_mm = (b.width + 2) * raster_pitch_mm
-    board_h_mm = (b.height + 2) * raster_pitch_mm
+    board_w_mm = (b.lx + 2) * raster_pitch_mm
+    board_h_mm = (b.ly + 2) * raster_pitch_mm
 
     for idx, (label, camera, transform) in enumerate(panels):
         col = idx % 2

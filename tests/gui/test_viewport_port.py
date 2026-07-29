@@ -30,7 +30,7 @@ class TestCameraMathMapping:
         cam.pan_by(Vector(50.0, 0.0))
         after = cam.visible_scene_rect()
         assert abs(after.x - (before.x + 5.0)) < 1e-12  # 50 px / scale 10
-        assert after.width == before.width
+        assert after.lx == before.lx
 
     def test_center_on_puts_point_at_centre(self) -> None:
         cam = CameraMath(Transform2D(20.0, 0.0, 0.0, -20.0), Vector(0.0, 0.0),
@@ -43,7 +43,7 @@ class TestCameraMathMapping:
     def test_fit_in_view_frames_rect(self) -> None:
         cam = CameraMath(Transform2D(-5.0, 0.0, 0.0, 5.0),  # mirrored-h
                          Vector(0.0, 0.0), Size(400.0, 200.0))
-        cam.fit_in_view(Rect(0.0, 0.0, 10.0, 10.0))
+        cam.fit_in_view(Rect.of(0.0, 0.0, 10.0, 10.0))
         # Constrained axis: height (200 px / 10 units = 20 px/unit).
         assert abs(cam.view_scale() - 20.0) < 1e-12
         assert cam.transform.a < 0  # mirror sign preserved
@@ -96,7 +96,7 @@ class TestQtVsFakeProperty:
             fake = CameraMath(
                 transform=port.view_transform(),
                 viewport_size=Size(
-                    port.viewport_rect().width, port.viewport_rect().height
+                    port.viewport_rect().lx, port.viewport_rect().ly
                 ),
             )
             scene0 = port.map_view_to_scene(Point(0.0, 0.0))

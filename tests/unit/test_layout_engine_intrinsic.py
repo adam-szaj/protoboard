@@ -64,8 +64,8 @@ class TestAtomIntrinsicSize:
             layers=PadLayers(),
         )
         size = intrinsic_size(strip)
-        assert size.width == 0.0
-        assert size.height == 1.0
+        assert size.lx == 0.0
+        assert size.ly == 1.0
 
     def test_strip_fill_vertical_has_zero_height(self) -> None:
         strip = StripAtom(
@@ -76,8 +76,8 @@ class TestAtomIntrinsicSize:
             layers=PadLayers(),
         )
         size = intrinsic_size(strip)
-        assert size.width == 1.0
-        assert size.height == 0.0
+        assert size.lx == 1.0
+        assert size.ly == 0.0
 
     def test_gap_no_dims_is_zero(self) -> None:
         gap = GapAtom(

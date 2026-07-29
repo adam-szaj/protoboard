@@ -62,8 +62,8 @@ def render_axis_labels(
         view_scale = 1.0
 
     bounds = board.bounds
-    n_cols = int(round(bounds.width))
-    n_rows = int(round(bounds.height))
+    n_cols = int(round(bounds.lx))
+    n_rows = int(round(bounds.ly))
 
     font: QFont = _get_refdes_font(theme.overlay_font_size)
     metrics = QFontMetricsF(font)
@@ -93,7 +93,7 @@ def render_axis_labels(
         # Vertical offsets in scene units.  Above: subtract label height
         # plus margin so the bottom of the label sits at bounds.y - margin.
         y_above = bounds.y - _EDGE_MARGIN - line_height_scene
-        y_below = bounds.y + bounds.height + _EDGE_MARGIN
+        y_below = bounds.y + bounds.ly + _EDGE_MARGIN
         for i in range(n_cols):
             text = format_index(settings.columns, i)
             if not text:
@@ -122,7 +122,7 @@ def render_axis_labels(
             y_topleft = bounds.y + j + 0.5 - line_height_scene / 2.0
             half_w = _half_w(text) * 2.0  # full width
             x_left  = bounds.x - _EDGE_MARGIN - half_w
-            x_right = bounds.x + bounds.width + _EDGE_MARGIN
+            x_right = bounds.x + bounds.lx + _EDGE_MARGIN
             items.extend(_make_overlay_label(
                 text, font, text_color, bg_color,
                 x_left, y_topleft, Z_OVERLAY,

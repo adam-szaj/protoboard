@@ -63,12 +63,12 @@ class QtViewport:
 
     def viewport_rect(self) -> Rect:
         vp = self._view.viewport().rect()
-        return Rect(0.0, 0.0, float(vp.width()), float(vp.height()))
+        return Rect.of(0.0, 0.0, float(vp.width()), float(vp.height()))
 
     def visible_scene_rect(self) -> Rect:
         polygon = self._view.mapToScene(self._view.viewport().rect())
         r = polygon.boundingRect()
-        return Rect(r.x(), r.y(), r.width(), r.height())
+        return Rect.of(r.x(), r.y(), r.width(), r.height())
 
     def scroll_position(self) -> Vector:
         return Vector(

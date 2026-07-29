@@ -47,7 +47,7 @@ class _FakeSel:
         return Hit("component", uuid.uuid4())
 
     def bbox(self) -> Rect:
-        return Rect(0.0, 0.0, 0.0, 0.0)
+        return Rect.of(0.0, 0.0, 0.0, 0.0)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         return frozenset()

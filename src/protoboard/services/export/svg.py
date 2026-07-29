@@ -89,8 +89,8 @@ def export_svg_from_snapshot(
     b = snapshot.board.bounds
     # ViewBox covers board + 1-raster margin (matches legacy SVG export
     # so callers relying on exact dimensions still work).
-    vb_w = (b.width + 2) * scale
-    vb_h = (b.height + 2) * scale
+    vb_w = (b.lx + 2) * scale
+    vb_h = (b.ly + 2) * scale
 
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)

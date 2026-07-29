@@ -55,8 +55,8 @@ def assert_rect(r: Rect, x: float, y: float, lx: float, ly: float) -> None:
     y-extent). Single seam updated when Rect's fields are renamed."""
     assert r.x == pytest.approx(x, abs=_TOL)
     assert r.y == pytest.approx(y, abs=_TOL)
-    assert r.width == pytest.approx(lx, abs=_TOL)
-    assert r.height == pytest.approx(ly, abs=_TOL)
+    assert r.lx == pytest.approx(lx, abs=_TOL)
+    assert r.ly == pytest.approx(ly, abs=_TOL)
 
 
 def along_across(package: Package) -> tuple[float, float]:
@@ -263,5 +263,5 @@ class TestBoardBounds:
     def test_size_mm(self) -> None:
         board = self._board_4x7()
         s = board.size_mm
-        assert s.width == pytest.approx(17.78, abs=_TOL)
-        assert s.height == pytest.approx(10.16, abs=_TOL)
+        assert s.lx == pytest.approx(17.78, abs=_TOL)
+        assert s.ly == pytest.approx(10.16, abs=_TOL)

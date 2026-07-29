@@ -54,10 +54,10 @@ class TestSingleFillWidth:
         result = layout(hbox)
         pad_node = result.children[0]
         strip_node = result.children[1]
-        assert _approx_equal(pad_node.x, 0.5)
+        assert _approx_equal(pad_node.center.x, 0.5)
         # Strip top-left at x=2 (after pad@1 + gap@1), width=8, center x=6.
-        assert _approx_equal(strip_node.width, 8.0)
-        assert _approx_equal(strip_node.x, 6.0)
+        assert _approx_equal(strip_node.size.lx, 8.0)
+        assert _approx_equal(strip_node.center.x, 6.0)
 
     def test_fill_strip_between_pads(self) -> None:
         # HBox FIXED 12: [Pad, FILL strip, Pad], gap=1
@@ -78,9 +78,9 @@ class TestSingleFillWidth:
         )
         result = layout(hbox)
         strip_node = result.children[1]
-        assert _approx_equal(strip_node.width, 8.0)
+        assert _approx_equal(strip_node.size.lx, 8.0)
         # Strip top-left at x=2 (pad@1 + gap@1), so center at 2 + 4 = 6.
-        assert _approx_equal(strip_node.x, 6.0)
+        assert _approx_equal(strip_node.center.x, 6.0)
 
 
 class TestMultipleFillSameDimensionForbidden:
@@ -164,7 +164,7 @@ class TestPerpendicularFillIsAllowed:
         )
         result = layout(hbox)
         for child in result.children:
-            assert _approx_equal(child.height, 5.0)
+            assert _approx_equal(child.size.ly, 5.0)
 
 
 class TestFillBothDimensions:
@@ -191,8 +191,8 @@ class TestFillBothDimensions:
         )
         result = layout(outer)
         grid_node = result.children[0]
-        assert _approx_equal(grid_node.width, 30.0)
-        assert _approx_equal(grid_node.height, 20.0)
+        assert _approx_equal(grid_node.size.lx, 30.0)
+        assert _approx_equal(grid_node.size.ly, 20.0)
 
 
 class TestFillWithoutBoundedParent:
@@ -246,4 +246,4 @@ class TestBoardGridCellFill:
         )
         result = layout(grid)
         for child in result.children:
-            assert _approx_equal(child.width, 1.75)
+            assert _approx_equal(child.size.lx, 1.75)
