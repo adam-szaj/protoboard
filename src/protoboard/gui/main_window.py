@@ -66,6 +66,7 @@ from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImport
 from protoboard.services.placement.auto_placer import AutoPlaceResult, auto_place
 from protoboard.services.placement.spreader import spread_components
 from protoboard.services.persistence import git_repo
+from protoboard.gui.qt_geometry import to_qpointf
 from protoboard.services.persistence.project_yaml import (
     load_project,
     pop_last_normalize_report,
@@ -2998,7 +2999,7 @@ class MainWindow(QMainWindow):
         # View reconstructs the on-screen anchor here rather than trusting a
         # pre-mapped view_pos, so the menu is positioned correctly regardless
         # of how the context was raised.
-        anchor = view.mapFromScene(QPointF(ctx.scene_pos.x, ctx.scene_pos.y))
+        anchor = view.mapFromScene(to_qpointf(ctx.scene_pos))
         chosen = menu.exec(view.mapToGlobal(anchor))
         if chosen is None:
             return

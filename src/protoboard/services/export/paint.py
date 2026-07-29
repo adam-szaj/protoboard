@@ -45,6 +45,8 @@ from protoboard.gui.renderers.wire_renderer import (
 )
 from protoboard.services.export.snapshot import BoardSnapshot
 from protoboard.services.routing.net_status import routed_net_ids
+from protoboard.gui.qt_geometry import to_qrectf
+from protoboard.geometry import Insets
 
 if TYPE_CHECKING:
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
@@ -106,7 +108,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     if alpha_back_filter > 0.0:
         b = snapshot.board.bounds
         filter_rect = QGraphicsRectItem(
-            QRectF(b.x - 1, b.y - 1, b.lx + 2, b.ly + 2),
+            to_qrectf(b.inflate(Insets.all(1.0))),
         )
         filter_color = QColor(theme.back_filter_color)
         filter_color.setAlphaF(alpha_back_filter)
@@ -207,7 +209,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     # Scene rect: board bounds + 1-raster margin (matches SVG export
     # convention so file dimensions stay predictable across formats).
     b = snapshot.board.bounds
-    source_rect = QRectF(b.x - 1, b.y - 1, b.lx + 2, b.ly + 2)
+    source_rect = to_qrectf(b.inflate(Insets.all(1.0)))
     scene.setSceneRect(source_rect)
     return scene, source_rect
 

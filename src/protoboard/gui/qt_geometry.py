@@ -8,10 +8,10 @@ adapters convert at the seam edge; code behind the seam speaks
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF, QSizeF
 from PySide6.QtGui import QTransform
 
-from protoboard.geometry import Point, Rect, Transform2D
+from protoboard.geometry import Point, Rect, Size, Transform2D
 
 
 def to_qpointf(p: Point) -> QPointF:
@@ -20,6 +20,10 @@ def to_qpointf(p: Point) -> QPointF:
 
 def from_qpointf(qp: QPointF) -> Point:
     return Point(qp.x(), qp.y())
+
+
+def to_qsizef(s: Size) -> QSizeF:
+    return QSizeF(s.lx, s.ly)
 
 
 def to_qrectf(r: Rect) -> QRectF:
