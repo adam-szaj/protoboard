@@ -414,14 +414,14 @@ class TestPaintState:
                 extra.addRect((-0.5, -0.5), (0.5, 0.5))
                 return items + extra.items
 
-        items = Overrider(do_test_package).draw(
+        body_items, label_items = Overrider(do_test_package).draw(
             [Point(0.0, 0.0), Point(4.0, 0.0)],
             QColor("#888888"), QColor("#222222"), 1.0, 5.0, DEFAULT_THEME,
         )
         from PySide6.QtWidgets import QAbstractGraphicsShapeItem
         fills = [
             cast(QAbstractGraphicsShapeItem, it).brush().color().name()
-            for it in items
+            for it in body_items + label_items
             if hasattr(it, "brush")
         ]
         assert "#000000" in fills   # the base body took the override

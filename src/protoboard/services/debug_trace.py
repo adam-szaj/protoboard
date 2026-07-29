@@ -23,8 +23,8 @@ attribute load + branch per call. ::
         solve(3)
         # → traced solve args=(3,) kwargs={} → 5
 
-Output goes through structlog at DEBUG (event ``"trace.call"`` /
-``"trace.return"`` / ``"trace.raise"``). Long values are truncated to keep the
+Output goes through structlog at DEBUG (event ``"trace.call[<label>]"`` /
+``"trace.return[<label>]"`` / ``"trace.raise[<label>]"``). Long values are truncated to keep the
 log readable; override the cap with ``PROTOBOARD_TRACE_MAXLEN``.
 """
 

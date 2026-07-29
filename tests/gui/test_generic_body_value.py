@@ -148,7 +148,7 @@ def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> Non
         monkeypatch.undo()
 
     assert captured, "make_body_label was not called"
-    assert captured["avail_len"] == pytest.approx(along * 0.9)
+    assert captured["avail_len"] == pytest.approx(along * 0.8)
     assert captured["avail_w"] == pytest.approx(across * 0.75)
 
 

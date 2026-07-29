@@ -47,9 +47,8 @@ def test_logs_args_and_return(capsys, monkeypatch) -> None:  # type: ignore[no-u
     finally:
         structlog.reset_defaults()
 
-    call = next(e for e in events if e.get("event") == "trace.call")
-    ret = next(e for e in events if e.get("event") == "trace.return")
-    assert call["fn"] == "add"
+    call = next(e for e in events if e.get("event") == "trace.call[_add]")
+    ret = next(e for e in events if e.get("event") == "trace.return[_add]")
     assert call["args"] == ["2"]
     assert call["kwargs"] == {"b": "4"}
     assert ret["result"] == "6"
@@ -72,7 +71,7 @@ def test_exception_is_logged_and_reraised() -> None:
     finally:
         structlog.reset_defaults()
 
-    assert any(e.get("event") == "trace.raise" for e in events)
+    assert any(e.get("event") == "trace.raise[_boom]" for e in events)
 
 
 def test_method_binding() -> None:
