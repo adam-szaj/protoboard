@@ -24,12 +24,13 @@ from protoboard.domain.components.package.shapes import (
     Leads,
     Package,
     Prism,
-    lead_axis_extents,
+    local_size_holes,
 )
 from protoboard.geometry import (
     Insets,
     Point,
     Rect,
+    Size3D,
     Vector,
     Vector3D,
     flip_reflection_from_pins,
@@ -60,9 +61,10 @@ def assert_rect(r: Rect, x: float, y: float, lx: float, ly: float) -> None:
 
 
 def along_across(package: Package) -> tuple[float, float]:
-    """Body extents (along, across) the lead axis, in holes. Single seam:
-    Phase 3 re-points this at ``local_size_holes``."""
-    return lead_axis_extents(package)
+    """Body extents (along, across) the lead axis, in holes. Phase 3
+    re-pointed this seam from ``lead_axis_extents`` at ``local_size_holes``."""
+    s = local_size_holes(package)
+    return s.lx, s.ly
 
 
 # ---------------------------------------------------------------------------
@@ -73,21 +75,20 @@ def along_across(package: Package) -> tuple[float, float]:
 class TestPrismBbox:
     def test_pin_row_along_x(self) -> None:
         # length (10 mm → 4.0 holes) lands on x, width (6 mm → 2.4) on y.
-        p = Prism(leads=_leads((3.0, 0.0)), width_mm=6.0, length_mm=10.0)
+        p = Prism(leads=_leads((3.0, 0.0)), size_mm=Size3D(10.0, 6.0))
         assert_rect(p.bbox(), -0.5, -1.2, 4.0, 2.4)
         assert along_across(p) == pytest.approx((4.0, 2.4), abs=_TOL)
 
     def test_pin_row_along_y(self) -> None:
         # Same part rotated: length on y, width on x.
-        p = Prism(leads=_leads((0.0, 3.0)), width_mm=6.0, length_mm=10.0)
+        p = Prism(leads=_leads((0.0, 3.0)), size_mm=Size3D(10.0, 6.0))
         assert_rect(p.bbox(), -1.2, -0.5, 2.4, 4.0)
         assert along_across(p) == pytest.approx((4.0, 2.4), abs=_TOL)
 
     def test_square_pin_cloud_tie_keeps_along_y(self) -> None:
         p = Prism(
             leads=_leads((3.0, 0.0), (-3.0, 3.0), (3.0, 0.0)),
-            width_mm=6.0,
-            length_mm=10.0,
+            size_mm=Size3D(10.0, 6.0),
         )
         assert_rect(p.bbox(), 0.3, -0.5, 2.4, 4.0)
         assert along_across(p) == pytest.approx((4.0, 2.4), abs=_TOL)
@@ -95,8 +96,7 @@ class TestPrismBbox:
     def test_body_offset_shifts_centre(self) -> None:
         p = Prism(
             leads=_leads((3.0, 0.0)),
-            width_mm=6.0,
-            length_mm=10.0,
+            size_mm=Size3D(10.0, 6.0),
             body_offset_mm=Vector(1.0, 2.0),
         )
         assert_rect(p.bbox(), -0.1, -0.4, 4.0, 2.4)
@@ -111,7 +111,7 @@ class TestPrismBbox:
 
     def test_pitch_fallbacks(self) -> None:
         explicit = Prism(
-            leads=_leads((3.0, 0.0)), width_mm=6.0, length_mm=10.0)
+            leads=_leads((3.0, 0.0)), size_mm=Size3D(10.0, 6.0))
         assert explicit.min_radial_pitch_mm() == pytest.approx(3.25, abs=_TOL)
         assert explicit.min_axial_pitch_mm() == pytest.approx(10.5, abs=_TOL)
         margin = Prism(
@@ -189,20 +189,19 @@ class TestDiscBbox:
 
 
 class TestDiagonalAlongAcross:
-    """`lead_axis_extents` on a DIAGONAL axis returns world-AABB extents
-    (rotation-inflated), not true local dims — pinned here as the OLD
-    behaviour. Phase 3 replaces it with true local dims (cylinder: (3.2, 1.0),
-    disc: (2.0, 0.8)); these assertions are then updated deliberately, with
-    the old values kept in the comment.
+    """DELIBERATE Phase-3 change: on a DIAGONAL axis the old
+    ``lead_axis_extents`` returned world-AABB extents (rotation-inflated:
+    cylinder (3.16, 2.72), disc (2.08, 1.84)); ``local_size_holes`` returns
+    the TRUE local body dims regardless of placement angle.
     """
 
-    def test_cylinder_diagonal_old_world_aabb_split(self) -> None:
+    def test_cylinder_diagonal_true_local_dims(self) -> None:
         c = Cylinder(diameter_mm=2.5, length_mm=8.0, leads=_leads((3.0, 4.0)))
-        assert along_across(c) == pytest.approx((3.16, 2.72), abs=_TOL)
+        assert along_across(c) == pytest.approx((3.2, 1.0), abs=_TOL)
 
-    def test_disc_diagonal_old_world_aabb_split(self) -> None:
+    def test_disc_diagonal_true_local_dims(self) -> None:
         d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_leads((3.0, 4.0)))
-        assert along_across(d) == pytest.approx((2.08, 1.84), abs=_TOL)
+        assert along_across(d) == pytest.approx((2.0, 0.8), abs=_TOL)
 
 
 # ---------------------------------------------------------------------------

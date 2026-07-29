@@ -57,13 +57,14 @@ packages:
     abstract: true
     extends: package
     shape: prism
-    # width/length/height are OPTIONAL: a prism with a `margin` derives its bbox
-    # from the pin cloud, so these stay un-required (declared for type only).
+    # lx/ly/lz are OPTIONAL: a prism with a `margin` derives its bbox from
+    # the pin cloud, so these stay un-required (declared for type only).
+    # Local-frame axes: lx along the lead axis, ly across it, lz off-board.
     schema:
       dims:
-        width:  {type: float}
-        length: {type: float}
-        height: {type: float}
+        lx: {type: float}
+        ly: {type: float}
+        lz: {type: float}
 
   - name: disc
     abstract: true

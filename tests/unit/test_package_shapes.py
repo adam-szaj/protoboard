@@ -28,7 +28,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Insets, Point, Vector, Vector3D
+from protoboard.geometry import Size3D, Insets, Point, Vector, Vector3D
 
 from geometry_utils import _pt
 
@@ -112,7 +112,7 @@ class TestBoardOffsetDefaultMechanism:
             body_offset_mm=_steps_mm([[1, 0], [1, 0]], 1.25),  # 1.25mm steps
             board_offset=BOARD_DEFAULT,
         )
-        return Prism(leads=leads, width_mm=4.5, length_mm=4.5, height_mm=5.2,
+        return Prism(leads=leads, size_mm=Size3D(4.5, 4.5, 5.2),
                      bend_holes=1.4142 * 2.5 / 2.5)
 
     def test_three_pins(self) -> None:
@@ -136,7 +136,7 @@ class TestDIP8:
             body_offset_mm=body,
             board_offset=BOARD_DEFAULT,
         )
-        return Prism(leads=leads, width_mm=9.8, length_mm=10.2, height_mm=4.0)
+        return Prism(leads=leads, size_mm=Size3D(10.2, 9.8, 4.0))
 
     def test_pin_positions_dip_topology(self) -> None:
         pins = self._prism().pin_positions()
@@ -241,7 +241,7 @@ class TestMinPitch:
             board_offset=BOARD_DEFAULT,
             lead_r_mm=0.25,
         )
-        p = Prism(leads=leads, width_mm=7.62, length_mm=10.0)
+        p = Prism(leads=leads, size_mm=Size3D(10.0, 7.62))
         assert p.min_radial_pitch_mm() == (7.62 + 0.5) / 2.0
         assert p.min_axial_pitch_mm() == 10.0 + 0.5
 
@@ -335,7 +335,7 @@ class TestFlipTransform:
             body_offset_mm=body,
             board_offset=BOARD_DEFAULT,
         )
-        return Prism(leads=leads, width_mm=9.8, length_mm=10.2, height_mm=4.0)
+        return Prism(leads=leads, size_mm=Size3D(10.2, 9.8, 4.0))
 
     def _sil5(self) -> Prism:
         # 5 leads down +y at (0,0),(0,1)…(0,4).

@@ -16,19 +16,19 @@ packages:
     kind: dip_ic
     extends: prism_dil
     color: "#2b2b30"        # dark moulded epoxy
-    dims: {width: auto, length: auto}
+    dims: {ly: auto, lx: auto}
     leads: {body_offset: auto}
 
   - name: wdip_ic
     kind: wdip_ic
     extends: prism_dil
     color: "#2b2b30"
-    dims: {width: auto, length: auto}
+    dims: {ly: auto, lx: auto}
     leads: {body_offset: auto}
 
   - name: dip_switch
     kind: dip_switch
     extends: prism_dil
     color: "#c8433c"        # red switch housing
-    dims: {width: auto, length: auto}
+    dims: {ly: auto, lx: auto}
     leads: {body_offset: auto}

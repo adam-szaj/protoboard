@@ -26,8 +26,8 @@ def _smd_package(mount_points: list | None = None) -> Prism:
     node: dict = {
         "shape": "prism",
         "dims": {
-            "length": 2.0,
-            "width": 1.25
+            "lx": 2.0,
+            "ly": 1.25
         },
         "arrangement": "axial",
         "mount": "surface",
@@ -53,8 +53,8 @@ def _through_hole_prism() -> Prism:
         {
             "shape": "prism",
             "dims": {
-                "width": 7.62,
-                "length": 10.0
+                "ly": 7.62,
+                "lx": 10.0
             },
             "bend": 0,
             "leads": {

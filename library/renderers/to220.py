@@ -31,7 +31,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.package.shapes import (
     Prism,
-    lead_axis_extents,
+    local_size_holes,
 )
 from protoboard.geometry import Point
 from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
@@ -63,13 +63,15 @@ class TO220Renderer(PrismRenderer):
         if (p2 - p1).norm() < 1e-9:
             return items
 
-        # (along, across) the lead axis — the same split the base radial
-        # rectangle draws with, so the tab hugs the body exactly.  Raw
-        # ``bbox().width/height`` must NOT be read as across/along: the bbox
-        # is oriented by the dominant pin-cloud axis, which for TO-220's
-        # x-running pin row is the transpose of the historical along=y
-        # convention (the tab used to float outside the body, half its length).
-        body_len, body_w = lead_axis_extents(pkg)
+        # Local-frame extents (lx along the lead axis, ly across) — the
+        # same split the base radial rectangle draws with, so the tab hugs
+        # the body exactly.  Raw ``bbox().lx/ly`` must NOT be read as
+        # along/across: the bbox is world-oriented by the dominant pin-cloud
+        # axis, which for TO-220's x-running pin row is the transpose of the
+        # historical along=y convention (the tab used to float outside the
+        # body, half its length).
+        s = local_size_holes(pkg)
+        body_len, body_w = s.lx, s.ly
 
         theme = self.paint.theme
         canvas = self.axis_canvas(positions, p1, p2)

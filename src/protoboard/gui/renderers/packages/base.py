@@ -582,9 +582,10 @@ class PackageRenderer(BodyShape):
         if box.lx <= 0.0 or box.ly <= 0.0:
             return []
         from protoboard.domain.components.package.shapes import (
-            lead_axis_extents,
+            local_size_holes,
         )
-        along, across = lead_axis_extents(self._pkg)
+        s = local_size_holes(self._pkg)
+        along, across = s.lx, s.ly
         if along <= 0.0 or across <= 0.0:
             return []
         return make_body_label(
@@ -671,9 +672,9 @@ class PackageRenderer(BodyShape):
         """
         del mm  # used by the round-shape overrides (mm → holes conversion)
         from protoboard.domain.components.package.shapes import (
-            lead_axis_extents,
+            local_size_holes,
         )
-        along, _across = lead_axis_extents(self._pkg)
+        along = local_size_holes(self._pkg).lx
         return along / 2.0
 
     def _body_placement(self, positions: list[Point]) -> QTransform:
@@ -793,10 +794,11 @@ class PackageRenderer(BodyShape):
         """
         del neg_pin  # only round polar silhouettes mark the negative lead
         from protoboard.domain.components.package.shapes import (
-            lead_axis_extents,
+            local_size_holes,
         )
         paint = self.paint
-        length_r, width_r = lead_axis_extents(self._pkg)
+        s = local_size_holes(self._pkg)
+        length_r, width_r = s.lx, s.ly
         t = QTransform()
         t.translate(mid.x, mid.y)
         t.rotate((p2 - p1).angle_deg())

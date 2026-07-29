@@ -117,7 +117,7 @@ class TestLoadWorkedExamples:
         # uses an explicit board_offset instead — see the family-loader test.)
         pkgs = self._load([
             {"name": "PRISM3", "extends": "prism",
-             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
              "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
                        "body_offset": {"unit": 1.25, "value": [[1, 0], [1, 0]]},
                        "board_offset": "default"},
@@ -132,7 +132,7 @@ class TestLoadWorkedExamples:
     def test_dip8_runlength_and_topology(self) -> None:
         pkgs = self._load([
             {"name": "DIP-8", "extends": "prism_dil",
-             "dims": {"width": 9.8, "length": 10.2, "height": 4.0},
+             "dims": {"ly": 9.8, "lx": 10.2, "lz": 4.0},
              "leads": {"body_offset": {"unit": 2.5,
                        "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
         ])
@@ -361,7 +361,7 @@ class TestBodyAxisPos:
         # midway between pin1 and pin3. ecc = ([0,1]-[1/3,1])*2.5 = [-5/6, 0].
         pkgs = self._load([
             {"name": "Tri", "extends": "prism",
-             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
              "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
                        "body_offset": {"unit": 2.5, "value": [[1, 1], [-1, 1]]},
                        "board_offset": "default",
@@ -378,7 +378,7 @@ class TestBodyAxisPos:
         # → ecc 0. Confirms board unit (2.5), not body unit (1.25), drives it.
         pkgs = self._load([
             {"name": "T", "extends": "prism",
-             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
              "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
                        "body_offset": {"unit": 1.25, "value": [[1, 0], [1, 0]]},
                        "board_offset": "default",
@@ -448,7 +448,7 @@ class TestSchemaBodyOffsetUnwrap:
         # validation (unwrapped first) and produce the same pin geometry.
         pkgs = self._load([
             {"name": "DIP8s", "extends": "prism_sch",
-             "dims": {"width": 9.8, "length": 10.2, "height": 4.0},
+             "dims": {"ly": 9.8, "lx": 10.2, "lz": 4.0},
              "leads": {"direction": [0, 0, -1],
                        "body_offset": {"unit": 2.5,
                            "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]},
@@ -465,7 +465,7 @@ class TestSchemaBodyOffsetUnwrap:
         leads = {"direction": [0, 0, -1],
                  "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
                  "board_offset": "default"}
-        dims = {"width": 4.5, "length": 4.5, "height": 5.2}
+        dims = {"ly": 4.5, "lx": 4.5, "lz": 5.2}
         with_schema = self._load([
             {"name": "P", "extends": "prism_sch", "dims": dims,
              "leads": dict(leads)}])["P"]
@@ -481,7 +481,7 @@ class TestSchemaBodyOffsetUnwrap:
         # The unwrapped (bare-list) form needs no normalisation.
         pkgs = self._load([
             {"name": "Pb", "extends": "prism_sch",
-             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
              "leads": {"direction": [0, 0, -1],
                        "body_offset": [[1, 0], [1, 0]],
                        "board_offset": "default"}},
@@ -493,7 +493,7 @@ class TestSchemaBodyOffsetUnwrap:
         with pytest.raises(PackageDefError):
             self._load([
                 {"name": "Pbad", "extends": "prism_sch",
-                 "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+                 "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
                  "leads": {"direction": [0, 0, -1],
                            "body_offset": "nonsense",
                            "board_offset": "default"}},
@@ -504,7 +504,7 @@ class TestSchemaBodyOffsetUnwrap:
         # form, not the normalised mm list.
         pkgs = self._load([
             {"name": "Pr", "extends": "prism_sch",
-             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
              "leads": {"direction": [0, 0, -1],
                        "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                        "board_offset": "default"}},
@@ -529,9 +529,10 @@ class TestDimsValidation:
         from structlog.testing import capture_logs
         with capture_logs() as logs:
             pkgs = load_packages(self._prism(
-                {"width": 3.5, "length": 8.5, "heigth": 10}))
+                {"ly": 3.5, "lx": 8.5, "heigth": 10}))
         p1 = pkgs["P1"]
-        assert isinstance(p1, Prism) and p1.width_mm == 3.5
+        assert isinstance(p1, Prism)
+        assert p1.size_mm is not None and p1.size_mm.ly == 3.5
         assert any(e["event"] == "package.unknown_dims_key"
                    and e.get("key") == "heigth" for e in logs)
 
@@ -539,20 +540,29 @@ class TestDimsValidation:
         from structlog.testing import capture_logs
         with capture_logs() as logs:
             load_packages(self._prism(
-                {"width": 3.5, "length": 8.5, "height": 10}))
+                {"ly": 3.5, "lx": 8.5, "lz": 10}))
         assert not any(
             e["event"] == "package.unknown_dims_key" for e in logs)
 
     def test_prism_half_pair_raises(self) -> None:
         # The langth-typo class of bug: one extent present, the other absent
         # would silently degrade to the pin-hug body at render — refuse loud.
-        with pytest.raises(PackageDefError, match="missing dims.length"):
-            load_packages(self._prism({"width": 3.5, "height": 10}))
-        with pytest.raises(PackageDefError, match="missing dims.width"):
-            load_packages(self._prism({"length": 8.5}))
+        with pytest.raises(PackageDefError, match="missing dims.lx"):
+            load_packages(self._prism({"ly": 3.5, "lz": 10}))
+        with pytest.raises(PackageDefError, match="missing dims.ly"):
+            load_packages(self._prism({"lx": 8.5}))
+
+    def test_prism_legacy_keys_raise_with_mapping(self) -> None:
+        # Legacy datasheet keys hard-error; the message is the migration
+        # guide (width -> ly, length -> lx, height -> lz).
+        with pytest.raises(PackageDefError, match="legacy datasheet keys"):
+            load_packages(self._prism(
+                {"width": 3.5, "length": 8.5, "height": 10}))
+        with pytest.raises(PackageDefError, match="width -> ly"):
+            load_packages(self._prism({"width": 3.5}))
 
     def test_dims_less_prism_stays_legal(self) -> None:
         # No dims at all = "derive from pins/margin" — the generator path.
         pkgs = load_packages(self._prism({}))
         p1 = pkgs["P1"]
-        assert isinstance(p1, Prism) and p1.width_mm is None
+        assert isinstance(p1, Prism) and p1.size_mm is None

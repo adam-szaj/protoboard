@@ -16,7 +16,7 @@ from protoboard.domain.components.package.shapes import (
     Leads,
     Prism,
 )
-from protoboard.geometry import Vector, Vector3D
+from protoboard.geometry import Size3D, Vector, Vector3D
 
 from ..geometry_utils import _pt
 
@@ -27,7 +27,7 @@ def _two_pin_prism(steps_holes: list[Vector]) -> Prism:
         body_offset_mm=tuple(Vector(s.dx * 2.5, s.dy * 2.5) for s in steps_holes),
         board_offset=BOARD_DEFAULT,
     )
-    return Prism(leads=leads, width_mm=2.5, length_mm=2.5, height_mm=2.5)
+    return Prism(leads=leads, size_mm=Size3D(2.5, 2.5, 2.5))
 
 
 class TestHasCollision:

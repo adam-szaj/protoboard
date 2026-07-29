@@ -376,7 +376,7 @@ def _prism_defn() -> ComponentDefinition:
     pkg = build_package(
         {
             "shape": "prism",
-            "dims": {"width": 5.0, "length": 5.0},
+            "dims": {"ly": 5.0, "lx": 5.0},
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],
@@ -1553,8 +1553,8 @@ class TestDRCBodyOverlapResolvedVariant:
             PackageFootprint,
             PackageVariant,
         )
-        axial = self._build([[4, 0]], {"width": 2.5, "length": 7.5}, "AXIAL")
-        smd = self._build([[1, 0]], {"width": 1.25, "length": 2.0}, "SMD")
+        axial = self._build([[4, 0]], {"ly": 2.5, "lx": 7.5}, "AXIAL")
+        smd = self._build([[1, 0]], {"ly": 1.25, "lx": 2.0}, "SMD")
         families = {
             "smd-0805": PackageFamily(
                 family_id="smd-0805", label="SMD 0805",
@@ -1607,7 +1607,7 @@ class TestDRCBodyOverlapResolvedVariant:
         claim them along the row."""
         from protoboard.domain.components.package import PackageFootprint
         to220ish = self._build([[1, 0], [1, 0]],
-                               {"width": 4.5, "length": 10.0}, "TO220ISH")
+                               {"ly": 4.5, "lx": 10.0}, "TO220ISH")
         defn_t = ComponentDefinition(
             name="Q",
             # type: ignore[arg-type]

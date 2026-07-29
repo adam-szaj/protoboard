@@ -8,8 +8,8 @@
 # ortho (along a row/column) or diag (45°) — that is a placement rotation, the
 # package geometry is the same.
 #
-# Prisms map length -> length_mm (along the terminal axis) and width -> width_mm
-# (across it); the Prism bbox is width x length.  Terminals sit one hole apart
+# Local-frame dims: lx along the terminal axis, ly across it, lz off-board
+# elevation.  Terminals sit one hole apart
 # (the closest a protoboard allows); the body is rendered centred on the pad
 # pair.
 families:
@@ -21,7 +21,7 @@ families:
     variants:
       - id: typ
         label: "Typical (2.0 x 1.25 x 0.55 mm)"
-        dims: {length: 2.0, width: 1.25, height: 0.55, corner_radius: 0.0}
+        dims: {lx: 2.0, ly: 1.25, lz: 0.55, corner_radius: 0.0}
 
   - family: SMD-0603
     extends: prism_smd
@@ -31,4 +31,4 @@ families:
     variants:
       - id: typ
         label: "Typical (1.6 x 0.8 x 0.45 mm)"
-        dims: {length: 1.6, width: 0.8, height: 0.45, corner_radius: 0.0}
+        dims: {lx: 1.6, ly: 0.8, lz: 0.45, corner_radius: 0.0}

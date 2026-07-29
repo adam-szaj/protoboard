@@ -83,16 +83,16 @@ class DipGenerator(PackageGenerator):
         values = dict(ctx.values)
         dims = dict(values.get("dims") or {})
         leads = dict(values.get("leads") or {})
-        needs_dims = AUTO in (dims.get("width"), dims.get("length"))
+        needs_dims = AUTO in (dims.get("ly"), dims.get("lx"))
         needs_steps = leads.get("body_offset") == AUTO
         if not (needs_dims or needs_steps):
             return ctx
         _check_dip_pin_count(ctx.pin_count)
         width, length = dip_body_dims_mm(ctx.pin_count, self.rows_spacing)
-        if dims.get("width") == AUTO:
-            dims["width"] = width
-        if dims.get("length") == AUTO:
-            dims["length"] = length
+        if dims.get("ly") == AUTO:
+            dims["ly"] = width      # across the pin rows
+        if dims.get("lx") == AUTO:
+            dims["lx"] = length     # along the pin rows
         if needs_steps:
             leads["body_offset"] = dil_steps_mm(
                 ctx.pin_count, self.rows_spacing)

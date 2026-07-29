@@ -367,7 +367,7 @@ def prism_from_footprint(
     }
     if dims_mm is not None:
         width_mm, length_mm = dims_mm
-        spec["dims"] = {"width": width_mm, "length": length_mm}
+        spec["dims"] = {"ly": width_mm, "lx": length_mm}
         del spec["margin"]
     try:
         return build_package(spec, "synth/kind")

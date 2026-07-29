@@ -32,7 +32,7 @@ components:
     component_class: devboard
     package:
       shape: prism
-      dims: {width: 12.5, length: 12.5, height: 1.6}
+      dims: {ly: 12.5, lx: 12.5, lz: 1.6}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}
@@ -171,7 +171,7 @@ class TestLibraryFilePackagesAndFamilies:
     — same file or same directory. Builtins win on a name clash."""
 
     _PRISM_BODY = (
-        "    dims: {width: 12.5, length: 12.5, height: 1.6}\n"
+        "    dims: {ly: 12.5, lx: 12.5, lz: 1.6}\n"
         "    leads:\n"
         "      direction: [0, 0, -1]\n"
         "      body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}\n"

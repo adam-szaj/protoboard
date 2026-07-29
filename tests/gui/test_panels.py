@@ -755,11 +755,11 @@ class TestPropertiesParameters:
             "shape": "prism",
             "schema": {
                 "dims": {
-                    "width": {"type": "float", "required": True},
-                    "length": {"type": "float", "required": True},
+                    "ly": {"type": "float", "required": True},
+                    "lx": {"type": "float", "required": True},
                 },
             },
-            "dims": {"width": 7.62, "length": 9.4},
+            "dims": {"ly": 7.62, "lx": 9.4},
             "leads": {
                 "direction": [0, 0, -1],
                 "body_offset": {"unit": 2.5, "value": [[1, 0]]},
@@ -784,7 +784,7 @@ class TestPropertiesParameters:
         # reports the group not-visible regardless of our setVisible(True);
         # isHidden tests our own show/hide call, not parent-tree visibility.
         assert panel._params_grp.isHidden() is False
-        assert set(panel._param_widgets) == {"dims.width", "dims.length"}
+        assert set(panel._param_widgets) == {"dims.ly", "dims.lx"}
 
     def test_set_field_is_readonly_with_value(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
@@ -794,7 +794,7 @@ class TestPropertiesParameters:
         defn = self._defn_with_schema_package()
         inst = ComponentInstance.new(definition_ref="P", refdes="P1", value="")
         panel.show_component(inst, defn=defn, package_families={})
-        w = panel._param_widgets["dims.length"]
+        w = panel._param_widgets["dims.lx"]
         assert w.isReadOnly() is True  # a placed part's fields are set -> RO
         assert w.text() == "9.4"
 

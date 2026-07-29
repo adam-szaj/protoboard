@@ -544,7 +544,7 @@ def _prism_package():  # noqa: ANN202  (Package protocol)
     return build_package(
         {
             "shape": "prism",
-            "dims": {"width": 5.0, "length": 5.0},
+            "dims": {"ly": 5.0, "lx": 5.0},
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],

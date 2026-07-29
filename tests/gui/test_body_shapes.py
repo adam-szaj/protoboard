@@ -177,8 +177,8 @@ def _prism_package() -> Package:
         {
             "shape": "prism",
             "dims": {
-                "width": 7.62,
-                "length": 10.0
+                "ly": 7.62,
+                "lx": 10.0
             },
             "bend": 0,
             "leads": {
@@ -202,8 +202,8 @@ def _smd_chip_package() -> Package:
         {
             "shape": "prism",
             "dims": {
-                "length": 2.0,
-                "width": 1.25,
+                "lx": 2.0,
+                "ly": 1.25,
                 "corner_radius": 0.12
             },
             "color": "#cdd2d6",
@@ -255,8 +255,8 @@ def _colored_prism_package(color: str = "#d6c08c",
         {
             "shape": "prism",
             "dims": {
-                "width": 7.62,
-                "length": 10.0,
+                "ly": 7.62,
+                "lx": 10.0,
                 "corner_radius": 1.0
             },
             "bend": 0,
@@ -288,8 +288,8 @@ def _bbox_prism_package(color: str = "#d6c08c",
         {
             "shape": "prism",
             "dims": {
-                "width": 7.62,
-                "length": 7.62,
+                "ly": 7.62,
+                "lx": 7.62,
                 "corner_radius": 1.0
             },
             "bend": 0,
@@ -862,9 +862,9 @@ def _colored_prism(color: str) -> Package:
         {
             "shape": "prism",
             "dims": {
-                "length": 2.0,
-                "width": 1.25,
-                "height": 0.55
+                "lx": 2.0,
+                "ly": 1.25,
+                "lz": 0.55
             },
             "color": color,
             "edge": "sharp",
@@ -1210,9 +1210,9 @@ class TestBodyShapeFor:
             {
                 "shape": "prism",
                 "dims": {
-                    "width": 18.0,
-                    "length": 38.1,
-                    "height": 1.6
+                    "ly": 18.0,
+                    "lx": 38.1,
+                    "lz": 1.6
                 },
                 "bend": 0,
                 "leads": {
@@ -1724,9 +1724,9 @@ def _radial_prism_package() -> Package:
         {
             "shape": "prism",
             "dims": {
-                "width": 4.5,
-                "length": 11.0,
-                "height": 3.5
+                "ly": 4.5,
+                "lx": 11.0,
+                "lz": 3.5
             },
             "arrangement": "radial",
             "bend": 0,

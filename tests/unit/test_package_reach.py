@@ -42,12 +42,12 @@ _CATALOGUE: list[dict] = [
      "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}, "bend": 4.0},
     # DIP-8: rigid, two rows of 4 at 0.3in.
     {"name": "DIP-8", "extends": "prism_dil",
-     "dims": {"width": 6.25, "length": 9.20, "height": 4.0},
+     "dims": {"ly": 6.25, "lx": 9.20, "lz": 4.0},
      "leads": {"body_offset": {"unit": 2.5,
                "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
     # A 3-pin bendable prism (TO-92-like): each lead bends about its own home.
     {"name": "BEND3", "extends": "prism",
-     "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+     "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
      "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
                "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
                "board_offset": "default"}, "bend": 3.54},
