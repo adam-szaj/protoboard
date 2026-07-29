@@ -104,7 +104,7 @@ description.
 | `shape` | `dims` keys (mm) | Typical use |
 |---|---|---|
 | `cylinder` | `diameter`, `length`, `edge_radius` | axial resistor/diode bodies, radial electrolytics |
-| `prism` | `width`, `length`, `height`, `corner_radius` | DIP, TO-92, SMD chips, dev-board PCBs |
+| `prism` | `lx`, `ly`, `lz`, `corner_radius` | DIP, TO-92, SMD chips, dev-board PCBs |
 | `disc` | `diameter`, `thickness` | disc capacitors, LEDs |
 
 Common fields on a package:
@@ -114,7 +114,7 @@ Common fields on a package:
 | `shape` | `cylinder` \| `prism` \| `disc`. |
 | `extends` | Name of a package to inherit from and close (deep-merge, §4). |
 | `abstract: true` | A base meant only for `extends`, never used directly. |
-| `dims` | Body dimensions in **mm** (datasheet numbers). |
+| `dims` | Body dimensions in **mm**. Prism keys are LOCAL-FRAME axis names: `lx` along the lead axis, `ly` across it, `lz` off-board elevation — translate the datasheet's length/width/height once, at authoring time. `diameter`/`thickness`/cylinder-`length` keep their datasheet words (rotational anatomy has no single-axis spelling). |
 | `color` | Body fill, `#rrggbb` or `#rrggbbaa` (CSS order, alpha last; see §8). |
 | `edge` | `sharp` \| `rounded`. |
 | `margin` | (prism) PCB margin in mm from outer pin centres — when present, `dims` may be derived from the pin bbox. |
@@ -230,7 +230,7 @@ choose one (label `symbol_name`, e.g. `R_DIN-0207`).
     - {name: DIN-0207, ref: "DIN-0207/typ"}   # a catalogue family/variant
     - {name: SMD-0805, ref: "SMD-0805/typ"}
     - name: custom               # …or an inline package per entry
-      package: {shape: prism, dims: {width: 5, length: 2, height: 1}, leads: {...}}
+      package: {shape: prism, dims: {ly: 5, lx: 2, lz: 1}, leads: {...}}
       style: "color: #333"       # optional per-entry style override
   footprint_style: "color: #228" # default style for every entry (overridable)
 ```
@@ -412,7 +412,7 @@ components:
     component_class: devboard
     package:
       shape: prism
-      dims: {width: 22.86, length: 53.0, height: 1.6}   # real PCB, mm
+      dims: {ly: 22.86, lx: 53.0, lz: 1.6}   # real PCB, mm (ly across / lx along the pin rows)
       leads:
         direction: [0, 0, -1]
         # 2×20 header: 19 down the left column, jump 6 across, 19 up the right

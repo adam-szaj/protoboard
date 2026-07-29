@@ -1,6 +1,20 @@
 # SPDX-License-Identifier: MIT
 """Geometric primitives in raster-unit coordinates.
 
+The vocabulary law — every name derives from the coordinate axes:
+
+- position: ``Point(x, y)`` / ``Point3D(x, y, z)``
+- displacement: ``Vector(dx, dy)`` / ``Vector3D(dx, dy, dz)``
+- extents: ``Size(lx, ly)`` / ``Size3D(lx, ly, lz)``
+- rectangle: ``Rect(origin: Point, size: Size)``
+
+The words width/height/length are banned from this model: they read
+differently in world, body-local and screen contexts (the old
+``Prism.height_mm`` was a z-elevation while ``Rect.height`` was a
+y-extent). Screen vocabulary ``[x, y, w, h]`` exists only at the Qt
+boundary (``gui/qt_geometry.py``); ``length`` survives only as prose —
+a magnitude is ``norm()``.
+
 All values are floats; negative coordinates are legal (boxes may have
 negative margins). Sizes are non-negative; rectangles use a top-left
 origin with half-open right/bottom edges (consistent with most 2D

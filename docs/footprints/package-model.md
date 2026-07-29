@@ -157,8 +157,20 @@ Offset numbers are written **without a unit in the name** (`offset`, not
   `1.25`, `2.5`); `[1,0]` is multiplied by `unit` and kept in mm. These are the
   natural steps of a given body (TO-92: `unit: 1.25`).
 
-**Body dimensions** (diameter, length, height) and `lead_length` are always
-given in **mm** — datasheet data, not raster.
+**Body dimensions** and `lead_length` are always given in **mm**. Prism
+dims use the **package-local frame** — `lx` along the lead axis (pin 1 → pin
+N), `ly` across it in the board plane, `lz` off-board elevation; a datasheet's
+width/length/height are translated once, at authoring time:
+
+| datasheet word | local axis | meaning |
+|---|---|---|
+| length (along the pins) | `lx` | extent along the lead axis |
+| width (across the rows) | `ly` | extent across the lead axis |
+| height (off the board) | `lz` | off-board elevation |
+
+`diameter` / `thickness` / cylinder `length` stay as datasheet words —
+rotational-symmetry anatomy has no single-axis spelling (an axial cylinder
+has `ly = lz = diameter`).
 
 **Canonical raster = 2.5 mm.** Internally the 0.1" / 2.54 mm raster is
 represented as **2.5 mm** (2.54 truncated). 2.5 mm and 0.1" are treated as the

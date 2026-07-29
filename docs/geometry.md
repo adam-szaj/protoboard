@@ -1,5 +1,27 @@
 # Geometry of Components — Placement, Rotation, Flip
 
+## 0. The vocabulary law (`geometry.py`)
+
+Every geometric name derives from the coordinate axes — one law across
+dimensions:
+
+| concept | 2D | 3D |
+|---|---|---|
+| position | `Point(x, y)` | `Point3D(x, y, z)` |
+| displacement | `Vector(dx, dy)` | `Vector3D(dx, dy, dz)` |
+| extents | `Size(lx, ly)` | `Size3D(lx, ly, lz)` |
+| rectangle | `Rect(origin: Point, size: Size)` | — |
+
+The words width/height/length are banned from the core model (they meant
+x/y-extent in `Rect` but across-rows/z-elevation in package dims); a vector
+magnitude is `norm()`. Screen vocabulary `[x, y, w, h]` exists only at the Qt
+boundary, `gui/qt_geometry.py`. Package bodies carry a `Size3D` in a fixed
+**package-local frame** (local +x along the lead axis, +y across it, +z
+off-board — see `docs/footprints/package-model.md`) and project into the
+world through `Package.body_frame()` (a `Transform2D`) — the along/across
+orientation of a body falls out of the rotation matrix, never a conditional
+swap.
+
 ## 1. Coordinate systems
 
 ### RasterUnit
