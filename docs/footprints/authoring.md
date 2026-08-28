@@ -28,7 +28,7 @@ component  ──references──▶  package        ──gives──▶  body 
   outline/colour.
 - A component gets its package one of three ways (precedence, highest first):
   1. the placed **instance's** `package_variant` (`"family/variant"`),
-  2. the definition's **`package_family_ref`** (`"family/variant"`),
+  2. the definition's first **`footprints`** option (`"family/variant"`),
   3. an **inline `package:`** block on the component.
 
   Resolved in `resolve_component_package`
@@ -54,13 +54,13 @@ A `components:` entry. Fields (from `_component_from_dict`, `loader.py:226`, and
 | Field | Req. | Meaning |
 |---|---|---|
 | `name` | yes | Part identifier (`"BC547"`, `"R"`, `"NE555"`). |
-| `footprint` | — | **REMOVED (2026-07-04).** Declare geometry via `package:` (inline or `kind:`), `footprints:` (catalogue refs), or a resolvable `package_family_ref` (the referenced variant is then the default geometry). A part still using `footprint:` is skipped at load with a migration hint. |
+| `footprint` | — | **REMOVED (2026-07-04).** Declare geometry via `package:` (inline or `kind:`) or `footprints:` (catalogue refs). A part still using it is skipped at load with a migration hint. |
 | `pins` | — | `pins: {count: N}` (or bare `pins: N`) — the logical pin count a `kind:` package is parameterized by. |
 | `pin_names` | — | `{1: "C", 2: "B", 3: "E"}` — pin number → signal label. Belong to the component, not the package. |
 | `component_class` | — | Open classification tag. Known values (§7) drive the refdes prefix and a few rendering specifics (polarity marker, devboard body); **any other string also loads** (warned as `library.unknown_component_class`, behaves like `other`, the label survives in BOM/panels). Default `other`. |
 | `description` | — | Human text. |
 | `package` | — | Inline parametric package (§3) — body + pin geometry. |
-| `package_family_ref` | — | `"family/variant"` into the family catalogue (§5). |
+| `footprints` | — | Picker choices; each entry carries a catalogue `ref` or an inline `package` (§5b). The first is the default. |
 | `variants` | — | Alternative `pin_names` mappings (same footprint, different labelling) — each `{id, label, pin_names}`. |
 | `aliases` | — | Extra names the part is also found under. |
 | `default_value` | — | Value shown when placed (`"?"` for a generic template, `""` for a concrete part). |
@@ -73,10 +73,11 @@ Minimal examples:
 ```yaml
 components:
   # A) component that points at a catalogue family (preferred for real parts).
-  #    The referenced variant IS the default geometry — nothing else needed.
+  #    The first option is the default geometry.
   - name: R_SMD_0805
     component_class: resistor
-    package_family_ref: SMD-0805/typ
+    footprints:
+      - {name: SMD-0805, ref: SMD-0805/typ}
     pin_names: {}
 
   # B) component with a parametric kind (a 4-pin single-row header)
@@ -216,9 +217,9 @@ Resolution: `resolve_variant(families, "DIN-0207/typ")` → that variant; a bare
 ## 5b. Offering several footprints — `footprints:`, `symbol:`, `kind:`
 
 A component's **logical identity** (name / pins / class) is separate from the
-**footprints** it can be placed in. Instead of a single `package_family_ref`, a
-component may list the bodies it offers; the place-time picker forces the user to
-choose one (label `symbol_name`, e.g. `R_DIN-0207`).
+**footprints** it can be placed in. A component lists the bodies it offers; the
+first is its default and the place-time picker can choose another (label
+`symbol_name`, e.g. `R_DIN-0207`).
 
 ```yaml
 - name: R
@@ -279,7 +280,7 @@ still using it is skipped at load with the hint in the log. Migration map:
 |---|---|
 | `footprint: {type: DIP, pins: N}` | `pins: {count: N}` + `package: {kind: dip_ic}` (IC look) or `{kind: dip_switch}` (plain) |
 | `footprint: {type: SIL, pins: N}` | `pins: {count: N}` + `package: {kind: sil}` (or `pin_header`) |
-| `footprint: {type: TwoPin}` + `package_family_ref` | drop the footprint — the family variant is the default geometry |
+| `footprint: {type: TwoPin}` + catalogue body | drop the footprint; declare `footprints: [{name: ..., ref: "family/variant"}]` |
 | `footprint: {type: TwoPin}` (no ref) | `pins: {count: 2}` + `package: {kind: generic}` — or an explicit prism |
 | `footprint: {type: TO92}` | `footprints: [{name: TO92, ref: "TO-92"}]` |
 | non-raster pitch (`pitch: 2.0`) | an explicit inline `package:` prism whose `body_offset` spells the pitch out |
@@ -320,7 +321,8 @@ the package / footprint).
 > **Yes.** A component definition *and* a placed instance can carry a visual-only
 > **`style:`** string that overrides the body's fill colour and corner radius
 > without touching geometry. Both parts keep the shared
-> `package_family_ref: SMD-0805/typ`; each just adds a `style:` colour.
+> `footprints: [{name: SMD-0805, ref: SMD-0805/typ}]`; each just adds a
+> `style:` colour.
 
 `style:` is a single CSS-like string of `;`-separated declarations, each
 `property: value` (the first `:` splits the property from its value). Two
@@ -347,12 +349,14 @@ components:
   # Two parts share the SMD-0805 body; only the colour differs.
   - name: R_0805
     component_class: resistor
-    package_family_ref: SMD-0805/typ
+    footprints:
+      - {name: SMD-0805, ref: SMD-0805/typ}
     style: "color: #1a1a1a"                       # black-ish
     pin_names: {}
   - name: C_0805
     component_class: capacitor_nonpolar
-    package_family_ref: SMD-0805/typ
+    footprints:
+      - {name: SMD-0805, ref: SMD-0805/typ}
     style: "color: #d9c7a3; corner-radius: 0.3"   # beige, slightly rounded
     pin_names: {}
 ```
@@ -439,8 +443,8 @@ the catalogue, so you do not write YAML for every pin count:
 | `wdip-N` | even N ∈ [4, 64], 0.6" rows | wide DIP |
 | `sil-N` | N ∈ [3, 40] | single-row header housing |
 
-A component opts in by referencing the address (`package_family_ref: dip-16/std`)
-or, when picking a body in the UI, the picker offers the families matching the
+A component opts in with `footprints: [{name: DIP-16, ref: dip-16/std}]` or,
+when picking a body in the UI, the picker offers the families matching the
 footprint's pin count (`offered_body_families`). Each generated family has a single
 variant `std`.
 
@@ -499,12 +503,12 @@ Components then declare `package: {kind: relay_dpdt}`. Rules of the game:
 
 ## 11. Quick recipes
 
-- **Real part on a standard body** → `footprint:` + `package_family_ref` into a
-  catalogue family, set `pin_names`. (Resistor → `TwoPin` + `SMD-0805/typ`.)
-- **Same body, two colours per part** → keep the shared `package_family_ref` and
-  add a `style: "color: #…"` string to each component (or instance) (§8).
+- **Real part on a standard body** → a `footprints` catalogue reference plus
+  `pin_names`. (Resistor → `{name: SMD-0805, ref: SMD-0805/typ}`.)
+- **Same body, two colours per part** → keep the shared `footprints` reference
+  and add a `style: "color: #…"` string to each component (or instance) (§8).
 - **A new body size** → add a `variant` to an existing family, or a new named
   package with `extends:` a generic base + `dims`.
 - **A module / dev board** → `component_class: devboard` + inline prism with real
   `dims` and run-length `body_offset` (§9).
-- **Just need pins, generic body** → bare `footprint:` block (§6).
+- **Just need pins, generic body** → `pins: {count: N}` + `package: {kind: generic}` (§6).

@@ -313,7 +313,7 @@ class ComponentDefinition:
         return cls(name=name, package=pkg, pin_names=pin_names, **kwargs)
 
     def default_footprint(self) -> Footprint:
-        """The DEFAULT-variant footprint — ``PackageFootprint`` over ``package``.
+        """The DEFAULT-variant footprint — the definition's ``Package``.
 
         For anything *placed*, use the instance-resolved geometry
         (``footprint_of`` / ``ComponentInstance.resolved_footprint``); reading

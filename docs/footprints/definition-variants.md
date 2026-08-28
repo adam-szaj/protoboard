@@ -123,21 +123,22 @@ family declared in a `families:` section of a library file** (§4). Inline
 options are auto-registered as one-variant families under `@name/option`
 addresses, so the picker offers them like any catalogue body.
 
-### 2f. `package_family_ref:` — definition-level catalogue binding
+### 2f. One default catalogue option
 
 ```yaml
 components:
   - name: LED_5mm
     component_class: diode
     symbol: D
-    package_family_ref: "LED/led50"
+    footprints:
+      - {name: LED-5mm, ref: "LED/led50"}
     pin_names: {1: A, 2: K}
 ```
 
-The referenced variant is the default geometry when nothing else declares
-one; a **rigid** body (SMD chip, DIP) additionally drops the bendable leads,
-while a bendable body (axial R/D) keeps its bend. Resolution precedence at render/DRC time: instance `package_variant` →
-definition `package_family_ref` → inline `package:`.
+The first referenced option is the default geometry; a **rigid** body (SMD
+chip, DIP) additionally drops the bendable leads, while a bendable body (axial
+R/D) keeps its bend. Resolution precedence at render/DRC time: instance
+`package_variant` → definition's first `footprints` option → inline `package:`.
 
 ### Component reuse: `extends:` and `aliases:`
 

@@ -6,7 +6,8 @@ components:
   - name: _D_DO35_Z
     component_class: diode_zener
     pin_names: {1: A, 2: K}
-    package_family_ref: "DO-35/typ"
+    footprints:
+      - {name: DO-35, ref: "DO-35/typ"}
     bendable_pins:
       2:
         min_reach: 1
@@ -16,7 +17,8 @@ components:
   - name: _D_DO41_Z
     component_class: diode_zener
     pin_names: {1: A, 2: K}
-    package_family_ref: "DO-41/typ"
+    footprints:
+      - {name: DO-41, ref: "DO-41/typ"}
     bendable_pins:
       2:
         min_reach: 1
@@ -46,6 +48,5 @@ components:
   - name: 1N4733A
     extends: _D_DO41_Z
     description: "Zener 5.1V 1W"
-
 
 

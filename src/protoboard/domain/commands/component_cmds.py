@@ -1220,9 +1220,9 @@ class SetComponentPackageVariantCommand(Command[ComponentState]):
 
     ``new_variant`` is a ``"family/variant_id"`` string referencing the
     package-family catalogue, or ``None`` to clear the per-instance override
-    (falling back to the definition's ``package_family_ref`` / inline package).
-    Validation is intentionally minimal — an unresolvable address simply falls
-    through to the next package source for that instance, which is recoverable.
+    (falling back to the definition's default ``PackageOption`` / inline package).
+    Validation is intentionally minimal; resolution raises when a selected
+    address is not present in the package-family catalogue.
     """
 
     component_id: uuid.UUID

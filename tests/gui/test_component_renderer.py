@@ -522,7 +522,6 @@ class TestGhostHonoursPackageVariant:
         from protoboard.domain.components.package import (
             resolve_component_package,
         )
-        from protoboard.domain.components.package.adapter import PackageFootprint
         from protoboard.domain.layout.placement import (
             ComponentPlacement,
             pin_world_position,
@@ -536,7 +535,7 @@ class TestGhostHonoursPackageVariant:
             package_variant="SMD-0805/typ")
         pkg = resolve_component_package(defn, inst, theme.package_families)
         assert pkg is not None
-        fp = PackageFootprint(pkg)
+        fp = pkg
 
         def _body_bbox(rotation: int):
             pl = ComponentPlacement(

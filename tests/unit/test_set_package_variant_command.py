@@ -15,6 +15,7 @@ from protoboard.domain.commands.component_cmds import (
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
+    PackageOption,
 )
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
@@ -51,7 +52,9 @@ def _make_state(package_variant: str | None = None) -> tuple[_State, uuid.UUID]:
     defn = ComponentDefinition.from_footprint(
         name="R", footprint=SIL(n=2),
         pin_names={}, component_class=ComponentClass.RESISTOR,
-        package_family_ref="DIN-0207/typ",
+        footprints=(
+            PackageOption(name="DIN-0207/typ", ref="DIN-0207/typ"),
+        ),
     )
     state.components["R"] = defn
     inst = ComponentInstance(

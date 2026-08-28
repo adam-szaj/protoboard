@@ -649,8 +649,8 @@ class TestMigratedICs:
         assert lib.get("7805").default_footprint().pin_count() == 3
 
 
-class TestRigidPackageFamilyRef:
-    """A rigid package_family_ref (SMD) drives the footprint and drops bend;
+class TestRigidPackageOption:
+    """A rigid package reference (SMD) drives the footprint and drops bend;
     a bendable axial ref leaves the footprint and bend intact."""
 
     _LIB = """\
@@ -659,14 +659,16 @@ components:
     component_class: resistor
     pins: {count: 2}
     pin_names: {}
-    package_family_ref: "SMD-0805/typ"
+    footprints:
+      - {name: SMD-0805, ref: "SMD-0805/typ"}
     bendable_pins:
       2: {min_reach: 1, max_reach: 23, default: {x: 0, y: 4}}
   - name: R_AXIAL
     component_class: resistor
     pins: {count: 2}
     pin_names: {}
-    package_family_ref: "DIN-0207/typ"
+    footprints:
+      - {name: DIN-0207, ref: "DIN-0207/typ"}
     bendable_pins:
       2: {min_reach: 1, max_reach: 23, default: {x: 0, y: 4}}
 """
@@ -810,9 +812,9 @@ components:
 
 class TestAliasInheritance:
     """An alias is the parent definition under a different name — it inherits
-    every field, including package_family_ref / default_value."""
+    every field, including footprints / default_value."""
 
-    def test_alias_inherits_package_family_ref_and_value(
+    def test_alias_inherits_package_ref_and_value(
         self, tmp_path: Path,
     ) -> None:
         d = tmp_path / "lib"
@@ -825,7 +827,8 @@ components:
     pins: {count: 2}
     package: {kind: sil}
     pin_names: {}
-    package_family_ref: "DIN-0207/typ"
+    footprints:
+      - {name: DIN-0207, ref: "DIN-0207/typ"}
     default_value: "?"
     aliases:
       - R_Axial_DIN0207

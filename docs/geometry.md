@@ -263,7 +263,7 @@ Pin 5 lands at world position (6.5, 1.5), which is the centre of the hole at col
 **Body-shape dispatch.** A component's body comes first from its **parametric
 package** (see [footprints/package-model.md](footprints/package-model.md)):
 `resolve_component_package` picks the package from the instance's
-`package_variant`, the definition's `package_family_ref` (both against the
+`package_variant`, the definition's default `PackageOption` (both against the
 `package_families` catalogue), or an inline `defn.package`. When a package
 resolves it renders through `PackageBody`; otherwise the dispatch falls back to
 the **footprint type** (generic bbox, or the dedicated `TO92Body` / `TO220Body`

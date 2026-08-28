@@ -7,7 +7,8 @@ components:
     description: "Fuse (axial, glass tube, PCB holder)"
     component_class: fuse
     pin_names: {1: A, 2: B}
-    package_family_ref: "DIN-0617/typ"
+    footprints:
+      - {name: DIN-0617, ref: "DIN-0617/typ"}
     default_value: "?"
     bendable_pins:
       2:

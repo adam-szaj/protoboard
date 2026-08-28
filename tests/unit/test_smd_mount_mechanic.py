@@ -117,9 +117,6 @@ class TestEffectiveBendSpecs:
             ComponentClass,
             ComponentDefinition,
         )
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
-        )
         pkg = _smd_package()
         defn = ComponentDefinition(
             name="R_SMD",

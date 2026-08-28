@@ -21,7 +21,7 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import ComponentDefinition, PackageOption
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import PinKnot
@@ -266,10 +266,8 @@ class TestVariantFootprintOnLoad:
     def _variant_with_offset_spacing(self, fam):
         # Find a family with >=2 variants whose two-pin spacing differs, so the
         # default footprint and the chosen variant disagree (the bug's trigger).
-        from protoboard.domain.components.package.adapter import PackageFootprint
-
         def spacing(variant) -> float:
-            pins = PackageFootprint(variant.package).pin_positions()
+            pins = variant.package.pin_positions()
             return pins[1].x - pins[0].x if len(pins) >= 2 else 0.0
 
         for fid, family in fam.items():
@@ -305,7 +303,10 @@ class TestVariantFootprintOnLoad:
         # variant with different pin spacing.
         defn = ComponentDefinition.from_footprint(
             name="P", footprint=SIL(2), pin_names={1: "A", 2: "B"},
-            package_family_ref=f"{family_id}/{default_vid}",
+            footprints=(PackageOption(
+                name=f"{family_id}/{default_vid}",
+                ref=f"{family_id}/{default_vid}",
+            ),),
         )
         lib = _MiniLibrary()
         lib._by_name["P"] = defn
@@ -368,9 +369,6 @@ class TestPadIndexUsesVariantFootprint:
     def test_pin_item_lands_on_variant_pad(self) -> None:
         from protoboard.domain.board.pad_state import PadIndex, PinItem
         from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
-        )
         from protoboard.domain.components.package.family import resolve_variant
         from protoboard.domain.layout.placement import pin_world_position
 
@@ -399,7 +397,7 @@ class TestPadIndexUsesVariantFootprint:
         # Where the variant says pin-2 is, vs the (wrong) default footprint.
         variant = resolve_variant(families, "SMD-0805/typ")
         assert variant is not None
-        variant_fp = PackageFootprint(variant.package)
+        variant_fp = variant.package
         variant_pin2 = pin_world_position(variant_fp, placement, 2)
         default_pin2 = pin_world_position(defn.default_footprint(), placement, 2)
         # The variant and default must actually disagree, else the test proves

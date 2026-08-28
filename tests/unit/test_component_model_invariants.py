@@ -81,7 +81,8 @@ def test_instance_package_variant_overrides_definition_default(tmp_path: Path) -
         "  - name: U_DIP16\n"
         "    component_class: ic\n"
         "    symbol: U\n"
-        "    package_family_ref: dip-16/std\n"
+        "    footprints:\n"
+        "      - {name: DIP-16, ref: dip-16/std}\n"
         "    package: {kind: dip_ic}\n"
         "    pin_names: {}\n"
     )
@@ -128,7 +129,7 @@ def test_package_is_its_own_footprint() -> None:
     assert package_to_footprint(package) is package
 
 
-def test_legacy_family_ref_is_normalized_to_package_option(tmp_path: Path) -> None:
+def test_legacy_family_ref_component_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "r.yaml").write_text(
         "components:\n"
         "  - name: R\n"
@@ -138,8 +139,7 @@ def test_legacy_family_ref_is_normalized_to_package_option(tmp_path: Path) -> No
         "    pin_names: {}\n"
     )
 
-    defn = load_library(
-        [tmp_path], package_families=generate_inline_families()).get("R")
+    library = load_library(
+        [tmp_path], package_families=generate_inline_families())
 
-    assert defn.default_package_ref() == "dip-16/std"
-    assert not hasattr(defn, "package_family_ref")
+    assert "R" not in library

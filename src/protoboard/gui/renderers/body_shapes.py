@@ -113,8 +113,9 @@ def body_shape_for(
 
     # A parametric package (new spec model) is the source of truth for the
     # body geometry when one resolves: the instance's package_variant, the
-    # definition's package_family_ref (both against the package-family
-    # catalogue), or an inline defn.package — see resolve_component_package.
+    # definition's default PackageOption reference (both against the
+    # package-family catalogue), or an inline defn.package — see
+    # resolve_component_package.
     # Polarity / anchor come from the class and placement, not the
     # (class-agnostic) package.
     from protoboard.domain.components.package import resolve_component_package
@@ -129,7 +130,7 @@ def body_shape_for(
     # No explicit package resolved: a footprint is only a pin cloud (pin count
     # + spacing) and does not determine a body — the same footprint fits many
     # bodies (a SIL-3 is a TO-92, a header, a trimmer…). A part that wants a
-    # specific silhouette declares it via ``package`` / ``package_family_ref``
+    # specific silhouette declares it via ``package`` / ``PackageOption``
     # (resolved above). Without one, draw the generic bbox body (which still
     # honours the visual style override).
     return GenericBody(appearance=eff_appearance)

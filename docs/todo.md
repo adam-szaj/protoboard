@@ -159,8 +159,8 @@ nodes — package-model.md §5.4 and §6; an unresolved `auto` is now a loud
 
 ## Multi-pin default body + SMD mount labels (added 2026-06-20)
 
-- Library YAML could set a multi-pin part's `package_family_ref` (e.g. an
-  ATmega328P defaulting to `wdip-28`) so the picker's "Default" entry resolves
+- Library YAML could set a multi-pin part's first `footprints` reference (e.g.
+  an ATmega328P defaulting to `wdip-28`) so the picker's "Default" entry resolves
   to a specific width; today an unset default falls through to the synthesized
   narrow body.
 - Friendlier SMD mount-combo labels (compass arrows) — kept `(dx, dy)` because

@@ -4,7 +4,7 @@
 Bug: an SMD resistor (class ``resistor`` ∈ ``_FLEXIBLE_LEAD_CLASSES``) was given
 the flexible-lead ``_PAD_MARGIN`` as if its body floated with bendable leads,
 even though its body is a rigid chip lying flat on the pads.  The fix reads
-``is_rigid_package(fp.package)`` when the footprint is a ``PackageFootprint``,
+``fp.is_rigid()`` when the footprint is a ``Package``,
 falling back to the class test only for bare footprints with no package.
 """
 
@@ -13,7 +13,6 @@ from __future__ import annotations
 import pytest
 
 from protoboard.domain.components.footprints import GenericFootprint
-from protoboard.domain.components.package.adapter import PackageFootprint
 from protoboard.domain.components.package.family import resolve_variant
 from protoboard.domain.layout.placement import (
     _BODY_MARGIN,
@@ -56,7 +55,7 @@ class TestComponentBboxRigidity:
         defn = lib.get("R")
         variant = resolve_variant(families, "SMD-0805/typ")
         assert variant is not None
-        fp = PackageFootprint(variant.package)
+        fp = variant.package
         pl = _pl()
 
         bbox = component_bbox(fp, pl, defn.component_class)
@@ -69,7 +68,7 @@ class TestComponentBboxRigidity:
         """The default axial R uses the BOARD_SOLVE solver → non-rigid → _PAD_MARGIN."""
         lib, _families = _catalogue()
         defn = lib.get("R")
-        fp = defn.default_footprint()  # PackageFootprint over the axial DIN package
+        fp = defn.default_footprint()  # Package over the axial DIN package
         pl = _pl()
 
         bbox = component_bbox(fp, pl, defn.component_class)

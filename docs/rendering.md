@@ -172,7 +172,7 @@ deliberately a **two-branch** dispatch:
 ```
 body_shape_for:
   pkg = resolve_component_package(defn, instance, package_families)
-        # precedence: instance.package_variant → defn.package_family_ref
+        # precedence: instance.package_variant → defn.footprints[0]
         #             → defn.package (default body — always set)
   if pkg is not None:  return PackageBody(pkg, component_class, vertical_flipped, appearance)
   else:                return GenericBody()          # unreachable for loaded parts (package required)
@@ -180,8 +180,8 @@ body_shape_for:
 
 A footprint alone is only a pin cloud (a SIL-3 fits a TO-92, a header, a
 trimmer…), so without a resolved package the body is a plain bbox. A part that
-wants a specific silhouette declares it via `package` / `package_family_ref` /
-`kind`. See [data-model.md](data-model.md) §4.1 for the resolution precedence and
+wants a specific silhouette declares it via `package` / `footprints` / `kind`.
+See [data-model.md](data-model.md) §4.1 for the resolution precedence and
 the source-of-truth rule.
 
 > **Note:** `TO92Body` / `TO220Body` still exist as classes but are **not** in

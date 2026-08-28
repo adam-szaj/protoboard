@@ -14,7 +14,7 @@ uv run python tools/render_footprints.py
 
 ## How footprints map to body shapes
 
-`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher — a **two-branch** decision (see [../rendering.md](../rendering.md) §4 for the full chain). A component's body comes from its **parametric package** (`docs/footprints/package-model.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's `package_family_ref`, or an inline `defn.package` (DIP / SIL parts get a *generated* `dip-N` / `sil-N` family variant). When a package resolves it renders through `PackageBody`; otherwise a bare footprint is only a pin cloud and draws a `GenericBody` plain bbox.
+`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher — a **two-branch** decision (see [../rendering.md](../rendering.md) §4 for the full chain). A component's body comes from its **parametric package** (`docs/footprints/package-model.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's default `PackageOption`, or an inline `defn.package` (DIP / SIL parts get a *generated* `dip-N` / `sil-N` family variant). When a package resolves it renders through `PackageBody`; otherwise a bare footprint is only a pin cloud and draws a `GenericBody` plain bbox.
 
 | Source | Body shape |
 |---|---|

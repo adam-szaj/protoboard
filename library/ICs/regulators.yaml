@@ -83,4 +83,5 @@ components:
     description: "Programable Zener Diode IC"
     component_class: ic
     pin_names: {1: Ref, 2: A, 3: K}
-    package_family_ref: "TO-92/std"
+    footprints:
+      - {name: TO92, ref: "TO-92/std"}

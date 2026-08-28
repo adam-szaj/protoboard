@@ -83,7 +83,6 @@ class TestPlaceToolSmdMount:
             ComponentClass,
             ComponentDefinition,
         )
-        from protoboard.domain.components.package.adapter import PackageFootprint
         from protoboard.domain.components.package.loader import build_package
         pkg = build_package(
             {

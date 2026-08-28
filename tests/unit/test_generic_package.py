@@ -67,7 +67,7 @@ class TestPackageInvariant:
     def test_family_ref_part_defaults_to_its_variant(self) -> None:
         families = load_full_package_catalogue()
         lib = load_library([BUILTIN_LIBRARY_DIR], families)
-        # A diode declares only a package_family_ref — since the 'footprint:'
+        # A diode declares only a package reference — since the 'footprint:'
         # field removal, the referenced variant IS its default geometry
         # (a real bendable axial body, not the synthetic generic).
         from protoboard.domain.components.package import is_rigid_package

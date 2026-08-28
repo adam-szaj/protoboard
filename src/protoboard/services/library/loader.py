@@ -419,21 +419,18 @@ def load_library(
 
     Besides ``components:``, a library file may carry ``packages:`` (reusable
     generics that inline ``package:`` blocks and ``families:`` entries may
-    ``extends``) and ``families:`` (catalogue families for ``ref:`` /
-    ``package_family_ref``) — see docs/footprints/definition-variants.md.
+    ``extends``) and ``families:`` (catalogue families for ``ref:``) — see
+    docs/footprints/definition-variants.md.
     Builtins win on a name clash. The library-contributed families ride on
     the returned ``ComponentLibrary.package_families``.
 
-    *package_families* is the package-family catalogue; when a component's
-    ``package_family_ref`` names a **rigid** package (an SMD chip, a DIP — fixed
-    pin geometry), its footprint is derived from that package and its bendable
-    leads are dropped, so the body fixes the pad spacing.  It is also where a
-    ``footprints:`` *reference* resolves (e.g. a transistor's ``[TO-92]``), so a
-    component declaring its body purely by reference needs the catalogue to
-    build.  When ``None`` (the default), the full shipped catalogue is loaded —
-    matching the production path — so "load the real library" works out of the
-    box.  Pass an explicit ``{}`` for the legacy footprint-only behaviour
-    (fixture libraries that resolve no references).
+    *package_families* is the package-family catalogue. A ``footprints:``
+    reference to a rigid package (an SMD chip, a DIP — fixed pin geometry)
+    derives its footprint from that package and drops bendable leads, so the
+    body fixes the pad spacing. When ``None`` (the default), the full shipped
+    catalogue is loaded — matching the production path — so "load the real
+    library" works out of the box. Pass an explicit ``{}`` for fixture
+    libraries that resolve no references.
     """
     if package_families is None:
         from protoboard.services.library.package_family_loader import (
@@ -446,8 +443,8 @@ def load_library(
     # files, keyed by name, with first-wins (earlier directory/file keeps the
     # name). The global index lets ``extends`` reference a base in another file.
     # Library files may also carry ``packages:`` (reusable generics for
-    # ``extends``) and ``families:`` (catalogue entries for ``ref:`` /
-    # ``package_family_ref``) sections — collected here, merged below.
+    # ``extends``) and ``families:`` (catalogue entries for ``ref:``) sections
+    # — collected here, merged below.
     raw_by_name: dict[str, Any] = {}
     raw_source: dict[str, Path] = {}
     lib_packages: dict[str, dict[str, Any]] = {}
@@ -659,7 +656,7 @@ def _component_from_dict(
         raise SerializationError(f"{source}: component requires string 'name'")
 
     # Parametric package (docs/footprints/package-model.md). When present, it
-    # is the source of geometry (the footprint is derived via PackageFootprint).
+    # is the source of geometry (it implements the Footprint protocol directly).
     # A malformed package raises PackageDefError, which the caller turns into a
     # skipped component (the user re-places it with a fresh definition) rather
     # than failing the whole load.
@@ -698,24 +695,11 @@ def _component_from_dict(
     footprints = _parse_footprints(data, comp_pin_count, source, families
                                    or {}, generics)
 
-    # ``package_family_ref`` — references the package-family catalogue as
-    # ``"family/variant_id"``. Parsed before the geometry chain: when nothing
-    # else declares geometry, the referenced variant IS the default geometry.
-    package_family_ref_raw = data.get("package_family_ref")
-    package_family_ref: str | None = None
-    if package_family_ref_raw is not None:
-        if not isinstance(package_family_ref_raw, str):
-            raise SerializationError(
-                f"{source}: package_family_ref for {data['name']!r} must be a "
-                f"string 'family/variant_id'; got {package_family_ref_raw!r}")
-        package_family_ref = package_family_ref_raw
-        if not footprints:
-            footprints = (
-                PackageOption(
-                    name=package_family_ref,
-                    ref=package_family_ref,
-                ),
-            )
+    if "package_family_ref" in data:
+        raise PackageDefError(
+            f"{data['name']}: 'package_family_ref:' was removed — declare "
+            "catalogue geometry with 'footprints: [{name: ..., ref: "
+            "family/variant}]'")
 
     # The removed legacy field. A loud, actionable error — raised as
     # PackageDefError so ONE legacy part is skipped (with the migration hint
@@ -724,11 +708,10 @@ def _component_from_dict(
         raise PackageDefError(
             f"{data['name']}: the 'footprint:' field was removed — declare "
             f"geometry via 'package:' (inline or kind:), 'footprints:' "
-            f"(catalogue refs), or a resolvable 'package_family_ref'")
+            "(catalogue refs)")
 
     # Geometry chain — the definition's DEFAULT body. Precedence: inline
-    # ``package:`` → first ``footprints:`` option (including normalized legacy
-    # ``package_family_ref``) → the pending-kind placeholder.
+    # ``package:`` → first ``footprints:`` option → the pending-kind placeholder.
     drop_bend_from_default = False
     if package_obj is not None:
         footprint: Footprint = package_to_footprint(package_obj)
@@ -748,7 +731,7 @@ def _component_from_dict(
     else:
         raise SerializationError(
             f"{source}: component {data.get('name')!r} requires 'package', "
-            f"'footprints', or a resolvable 'package_family_ref'")
+            "'footprints'")
 
     pin_names_raw = data.get("pin_names") or {}
     if not isinstance(pin_names_raw, dict):
@@ -900,7 +883,7 @@ def _component_from_dict(
         symbol = symbol_raw
 
     # A rigid default footprint (resolved above) fixes the pad spacing, so its
-    # per-pin bend is dropped — the same rule applied to package_family_ref.
+    # per-pin bend is dropped.
     if drop_bend_from_default:
         bendable_pins = {}
 

@@ -16,7 +16,6 @@ Public API::
     )
 """
 
-from protoboard.domain.components.package.adapter import PackageFootprint
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
@@ -90,7 +89,6 @@ __all__ = [
     "Package",
     "PackageDefError",
     "PackageFamily",
-    "PackageFootprint",
     "PackageVariant",
     "package_to_footprint",
     "PadCell",

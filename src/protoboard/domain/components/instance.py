@@ -44,7 +44,7 @@ class ComponentInstance:
     type: str = ""          # optional per-instance category override
     # Per-instance override of the package-family variant as
     # ``"{family}/{variant_id}"``; None → use the definition's
-    # ``package_family_ref`` (or inline ``package``).
+    # default ``PackageOption`` (or inline ``package``).
     package_variant: str | None = None
     pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
     # Manufacturing tolerance of ``value`` (e.g. "5%", "1%") — free text like

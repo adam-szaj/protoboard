@@ -63,10 +63,10 @@ def _families() -> dict[str, PackageFamily]:
 
 
 def _defn(**kw: object) -> ComponentDefinition:
-    package_family_ref = kw.pop("package_family_ref", None)
-    if package_family_ref is not None and "footprints" not in kw:
+    package_ref = kw.pop("package_ref", None)
+    if package_ref is not None and "footprints" not in kw:
         kw["footprints"] = (
-            PackageOption(name=str(package_family_ref), ref=str(package_family_ref)),
+            PackageOption(name=str(package_ref), ref=str(package_ref)),
         )
     if "package" in kw:
         return ComponentDefinition(name="X", pin_names={}, **kw)  # type: ignore[arg-type]
@@ -77,18 +77,18 @@ def _defn(**kw: object) -> ComponentDefinition:
 
 class TestResolvePrecedence:
     def test_family_ref_resolves(self) -> None:
-        d = _defn(package_family_ref="DO-35/S")
+        d = _defn(package_ref="DO-35/S")
         pkg = resolve_component_package(d, None, _families())
         assert isinstance(pkg, Cylinder)
         assert pkg.length_mm == 3.0
 
     def test_bare_family_ref_uses_default(self) -> None:
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         pkg = resolve_component_package(d, None, _families())
         assert pkg.length_mm == 3.7  # type: ignore[union-attr]
 
     def test_instance_override_beats_family_ref(self) -> None:
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
         )
@@ -100,16 +100,16 @@ class TestResolvePrecedence:
         assert isinstance(resolve_component_package(d, None, _families()), Prism)
 
     def test_family_ref_beats_inline(self) -> None:
-        d = _defn(package=_inline_prism(), package_family_ref="DO-35/S")
+        d = _defn(package=_inline_prism(), package_ref="DO-35/S")
         assert isinstance(resolve_component_package(d, None, _families()), Cylinder)
 
     def test_unresolved_definition_ref_raises(self) -> None:
-        d = _defn(package=_inline_prism(), package_family_ref="NOPE/x")
+        d = _defn(package=_inline_prism(), package_ref="NOPE/x")
         with pytest.raises(ValueError, match="NOPE/x"):
             resolve_component_package(d, None, _families())
 
     def test_unresolved_instance_override_raises(self) -> None:
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="NOPE/x",
         )
@@ -133,7 +133,7 @@ class TestFieldValidation:
             PackageOption(name="bad", ref="")
 
     def test_good_family_ref_ok(self) -> None:
-        assert _defn(package_family_ref="a/b").default_package_ref() == "a/b"
+        assert _defn(package_ref="a/b").default_package_ref() == "a/b"
 
 
 class TestResolvedFootprint:
@@ -143,7 +143,7 @@ class TestResolvedFootprint:
     def test_variant_footprint_is_resolved_package(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
 
-        d = _defn(package_family_ref="DO-35/S")
+        d = _defn(package_ref="DO-35/S")
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="",
         ).bind(d, _families())
@@ -154,7 +154,7 @@ class TestResolvedFootprint:
         # DO-35/S vs DO-35/typ have different lengths → different pin spacing.
         from protoboard.domain.components.package import resolved_footprint
 
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         # Instance overrides to DO-35/S; both bound to the same catalogue.
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
@@ -183,14 +183,14 @@ class TestResolvedFootprint:
         from protoboard.domain.components.package import resolved_footprint
         from protoboard.errors import UnboundInstanceError
 
-        d = _defn(package_family_ref="DO-35/S")
+        d = _defn(package_ref="DO-35/S")
         # No instance reaching a geometry path is the silent-wrong-body bug this
         # model removes: it must raise rather than fall back to defn.default_footprint().
         with pytest.raises(UnboundInstanceError):
             resolved_footprint(d, None, None)
 
     def test_preplacement_variant_footprint_uses_selected_variant(self) -> None:
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         chosen = resolve_package_variant_footprint(
             d,
             "DO-35/S",
@@ -200,7 +200,7 @@ class TestResolvedFootprint:
         assert chosen.pin_positions() != default.pin_positions()
 
     def test_preplacement_unresolved_variant_raises(self) -> None:
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         with pytest.raises(ValueError, match="NOPE/x"):
             resolve_package_variant_footprint(d, "NOPE/x", _families())
 
@@ -220,7 +220,7 @@ class TestResolvePinWorldPositionVariant:
         )
         from protoboard.geometry import Point
 
-        d = _defn(package_family_ref="DO-35/typ")
+        d = _defn(package_ref="DO-35/typ")
         # Bound WITH the catalogue → the instance resolves its DO-35/S variant.
         inst_with = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",

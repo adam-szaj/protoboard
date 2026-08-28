@@ -370,7 +370,6 @@ class TestDRCOverlap:
 
 def _prism_defn() -> ComponentDefinition:
     """A 4-pin prism (2×1 box) whose body covers interior holes."""
-    from protoboard.domain.components.package import PackageFootprint
     from protoboard.domain.components.package.loader import build_package
 
     pkg = build_package(
@@ -1548,11 +1547,7 @@ class TestDRCBodyOverlapResolvedVariant:
 
     def _smd_resistor_defn_and_families(self):
         """A part whose DEFAULT body is a long axial, offering an SMD variant."""
-        from protoboard.domain.components.package import (
-            PackageFamily,
-            PackageFootprint,
-            PackageVariant,
-        )
+        from protoboard.domain.components.package import PackageFamily, PackageVariant
         axial = self._build([[4, 0]], {"ly": 2.5, "lx": 7.5}, "AXIAL")
         smd = self._build([[1, 0]], {"ly": 1.25, "lx": 2.0}, "SMD")
         families = {
@@ -1605,7 +1600,6 @@ class TestDRCBodyOverlapResolvedVariant:
         """A TO-220-style body (10 mm ALONG its 3-pin row, 4.5 mm across) must
         not claim holes two rows away perpendicular to the row — and must
         claim them along the row."""
-        from protoboard.domain.components.package import PackageFootprint
         to220ish = self._build([[1, 0], [1, 0]],
                                {"ly": 4.5, "lx": 10.0}, "TO220ISH")
         defn_t = ComponentDefinition(

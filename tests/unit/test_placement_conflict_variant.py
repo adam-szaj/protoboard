@@ -14,7 +14,6 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.adapter import PackageFootprint
 from protoboard.domain.components.package.family import resolve_variant
 from protoboard.domain.layout.pad_conflict import find_conflicts
 from protoboard.domain.layout.placement import (
@@ -65,7 +64,7 @@ class TestIncomingVariantNotBlocked:
         variant = resolve_variant(families, "SMD-0805/typ")
         assert variant is not None
         variant_pin2 = pin_world_position(
-            PackageFootprint(variant.package), incoming_pl, 2)
+            variant.package, incoming_pl, 2)
         # The variant and default pin-2 must differ, else the test is vacuous.
         assert (default_pin2.x, default_pin2.y) != (
             variant_pin2.x, variant_pin2.y)

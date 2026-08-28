@@ -6,7 +6,8 @@ components:
   - name: _XTAL_HC49
     component_class: crystal
     pin_names: {1: "1", 2: "2"}
-    package_family_ref: "HC-49/typ"
+    footprints:
+      - {name: HC-49, ref: "HC-49/typ"}
 
   # -----------------------------------------------------------------------
   # Crystals (HC-49/U through-hole)

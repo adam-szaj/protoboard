@@ -318,7 +318,7 @@ from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import PackageFootprint, body_holes
+from protoboard.domain.components.package import body_holes
 from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement

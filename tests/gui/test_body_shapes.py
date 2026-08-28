@@ -21,6 +21,7 @@ from pytestqt.qtbot import QtBot
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
+    PackageOption,
 )
 from protoboard.domain.components.footprints import (
     DIL,
@@ -1161,7 +1162,7 @@ class TestFootprintOptionStyle:
 class TestBodyShapeFor:
 
     def test_two_pin_without_package_falls_back_to_generic(self) -> None:
-        # No package_family_ref, no instance variant, no inline package.
+        # No package option, no instance variant, no inline package.
         defn = ComponentDefinition.from_footprint(
             name="X",
             component_class=ComponentClass.RESISTOR,
@@ -1202,9 +1203,6 @@ class TestBodyShapeFor:
         # A devboard module carries an inline prism package, so it takes the
         # first (parametric package) dispatch arm and renders via PackageBody —
         # which, for the DEVBOARD class, draws a plain rect (no notch).
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
-        )
         from protoboard.domain.components.package.loader import build_package
         pkg = build_package(
             {
@@ -1355,7 +1353,7 @@ class TestPackageBodyDispatch:
             component_class=ComponentClass.DIODE,
             footprint=SIL(n=2),
             pin_names={},
-            package_family_ref="DO-35/typ",
+            footprints=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
         )
         shape = body_shape_for(defn, package_families=self._families())
         assert isinstance(shape, PackageBody)
@@ -1386,7 +1384,7 @@ class TestPackageBodyDispatch:
             component_class=ComponentClass.DIODE,
             footprint=SIL(n=2),
             pin_names={},
-            package_family_ref="NOPE/x",
+            footprints=(PackageOption(name="NOPE/x", ref="NOPE/x"),),
         )
         with pytest.raises(ValueError, match="NOPE/x"):
             body_shape_for(defn, package_families=self._families())

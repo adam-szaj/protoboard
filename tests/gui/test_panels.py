@@ -585,14 +585,15 @@ class TestBodyVariantDropdown:
 
     def _make_defn_with_default(self) -> object:
         from protoboard.domain.components.definition import (
-            ComponentClass,
-            ComponentDefinition,
+            ComponentClass, ComponentDefinition, PackageOption,
         )
         from protoboard.domain.components.footprints import SIL
         return ComponentDefinition.from_footprint(
             name="R", footprint=SIL(n=2),
             pin_names={}, component_class=ComponentClass.RESISTOR,
-            package_family_ref="DIN-0207/typ",
+            footprints=(
+                PackageOption(name="DIN-0207/typ", ref="DIN-0207/typ"),
+            ),
         )
 
     def _families(self) -> dict:
@@ -683,13 +684,21 @@ class TestBodyVariantDropdown:
         assert panel._body_variant_addresses == []
 
     def test_dropdown_hidden_when_no_catalogue(self, qtbot: object) -> None:
+        from protoboard.domain.components.definition import (
+            ComponentClass, ComponentDefinition,
+        )
+        from protoboard.domain.components.footprints import SIL
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        defn = ComponentDefinition.from_footprint(
+            name="R", footprint=SIL(n=2), pin_names={},
+            component_class=ComponentClass.RESISTOR,
+        )
         panel.show_component(
-            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            inst, defn=defn,
             package_families={},
         )
         assert panel._body_variant_addresses == []

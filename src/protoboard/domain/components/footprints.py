@@ -57,7 +57,7 @@ class Footprint(ABC):
 
         The default derives it from this footprint's pins; a package-backed
         footprint overrides to use the package's axis (which may be declared
-        explicitly) — see ``PackageFootprint``.
+        explicitly) — package-backed footprints provide that axis directly.
         """
         return flip_reflection_from_pins(self.pin_positions())
 

@@ -164,7 +164,7 @@ def main() -> None:
     )
     load_renderer_plugins(library_dirs)
     load_generator_plugins(library_dirs)
-    # The body catalogue lets the loader resolve a rigid package_family_ref
+    # The body catalogue lets the loader resolve a rigid PackageOption reference
     # (SMD / DIP) into a fixed footprint; the session rebuilds the same
     # catalogue for the picker.
     library = load_library(library_dirs, load_full_package_catalogue())

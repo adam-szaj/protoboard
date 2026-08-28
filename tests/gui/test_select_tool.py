@@ -730,7 +730,6 @@ class TestRedrag:
             ComponentClass, ComponentDefinition,
         )
         from protoboard.domain.components.instance import ComponentInstance
-        from protoboard.domain.components.package.adapter import PackageFootprint
         from protoboard.domain.components.package.loader import build_package
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.geometry import Point
