@@ -148,11 +148,11 @@ class ComponentInstance:
         """
         pkg = self.resolved_package()
         if pkg is not None:
-            from protoboard.domain.components.package.adapter import (
-                PackageFootprint,
+            from protoboard.domain.components.package.component_package import (
+                package_to_footprint,
             )
 
-            return PackageFootprint(pkg)
+            return package_to_footprint(pkg)
         # Bound, but nothing resolved — the definition's own package IS the
         # part's real default geometry, not a silent fallback.
         assert self.definition is not None  # resolved_package raised otherwise

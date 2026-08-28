@@ -681,11 +681,11 @@ components:
     def test_rigid_smd_ref_overrides_footprint_and_clears_bend(
         self, tmp_path: Path,
     ) -> None:
-        from protoboard.domain.components.package import PackageFootprint
+        from protoboard.domain.components.package import Package
         defn = self._lib(tmp_path).get("R_SMD")
-        # The SMD body fixes the geometry: a PackageFootprint with rigid
-        # 1-hole pin spacing, and no bendable leads.
-        assert isinstance(defn.default_footprint(), PackageFootprint)
+        # The SMD body itself implements the footprint API: rigid 1-hole pin
+        # spacing and no bendable leads.
+        assert isinstance(defn.default_footprint(), Package)
         xs = sorted({round(p.x, 1) for p in defn.default_footprint().pin_positions()})
         assert xs == [0.0, 1.0]
         assert defn.bendable_pins == {}
@@ -835,7 +835,7 @@ components:
         parent = lib.get("R")
         for alias_name in ("R_Axial_DIN0207", "R_0603_1608Metric"):
             a = lib.get(alias_name)
-            assert a.package_family_ref == parent.package_family_ref == "DIN-0207/typ"
+            assert a.default_package_ref() == parent.default_package_ref() == "DIN-0207/typ"
             assert a.default_value == parent.default_value == "?"
             assert a.component_class == parent.component_class
 

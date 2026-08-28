@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import pytest
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import ComponentDefinition, PackageOption
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
     PackageFamily,
     PackageVariant,
     resolve_component_package,
+    resolve_package_variant_footprint,
 )
 from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.components.package.shapes import Cylinder, Prism
@@ -62,6 +63,11 @@ def _families() -> dict[str, PackageFamily]:
 
 
 def _defn(**kw: object) -> ComponentDefinition:
+    package_family_ref = kw.pop("package_family_ref", None)
+    if package_family_ref is not None and "footprints" not in kw:
+        kw["footprints"] = (
+            PackageOption(name=str(package_family_ref), ref=str(package_family_ref)),
+        )
     if "package" in kw:
         return ComponentDefinition(name="X", pin_names={}, **kw)  # type: ignore[arg-type]
     return ComponentDefinition.from_footprint(
@@ -97,17 +103,18 @@ class TestResolvePrecedence:
         d = _defn(package=_inline_prism(), package_family_ref="DO-35/S")
         assert isinstance(resolve_component_package(d, None, _families()), Cylinder)
 
-    def test_stale_ref_falls_through_to_inline(self) -> None:
+    def test_unresolved_definition_ref_raises(self) -> None:
         d = _defn(package=_inline_prism(), package_family_ref="NOPE/x")
-        assert isinstance(resolve_component_package(d, None, _families()), Prism)
+        with pytest.raises(ValueError, match="NOPE/x"):
+            resolve_component_package(d, None, _families())
 
-    def test_stale_instance_override_falls_through(self) -> None:
+    def test_unresolved_instance_override_raises(self) -> None:
         d = _defn(package_family_ref="DO-35/typ")
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="NOPE/x",
         )
-        # Instance ref unresolvable → falls to the definition default.
-        assert resolve_component_package(d, inst, _families()).length_mm == 3.7  # type: ignore[union-attr]
+        with pytest.raises(ValueError, match="NOPE/x"):
+            resolve_component_package(d, inst, _families())
 
     def test_nothing_resolves_to_definition_default(self) -> None:
         # ``package`` is required on the definition (the loader synthesizes a
@@ -123,26 +130,25 @@ class TestResolvePrecedence:
 class TestFieldValidation:
     def test_bad_family_ref_shape_raises(self) -> None:
         with pytest.raises(ValueError):
-            _defn(package_family_ref="no-slash")
+            PackageOption(name="bad", ref="")
 
     def test_good_family_ref_ok(self) -> None:
-        assert _defn(package_family_ref="a/b").package_family_ref == "a/b"
+        assert _defn(package_family_ref="a/b").default_package_ref() == "a/b"
 
 
 class TestResolvedFootprint:
     """resolved_footprint gives the chosen variant's pin geometry, falling back
     to defn.default_footprint() when no package resolves."""
 
-    def test_variant_footprint_is_package_footprint(self) -> None:
+    def test_variant_footprint_is_resolved_package(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.components.package.adapter import PackageFootprint
 
         d = _defn(package_family_ref="DO-35/S")
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="",
         ).bind(d, _families())
         fp = resolved_footprint(d, inst, _families())
-        assert isinstance(fp, PackageFootprint)
+        assert isinstance(fp, Cylinder)
 
     def test_variant_differs_from_default_footprint(self) -> None:
         # DO-35/S vs DO-35/typ have different lengths → different pin spacing.
@@ -171,11 +177,7 @@ class TestResolvedFootprint:
             definition_ref="X", refdes="X1", value="",
         ).bind(d, {})
         fp = resolved_footprint(d, inst, _families())
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
-        )
-        assert isinstance(fp, PackageFootprint)
-        assert fp.package is d.package  # the definition default, no variant
+        assert fp is d.package  # the definition default, no variant
 
     def test_none_instance_raises(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
@@ -186,6 +188,21 @@ class TestResolvedFootprint:
         # model removes: it must raise rather than fall back to defn.default_footprint().
         with pytest.raises(UnboundInstanceError):
             resolved_footprint(d, None, None)
+
+    def test_preplacement_variant_footprint_uses_selected_variant(self) -> None:
+        d = _defn(package_family_ref="DO-35/typ")
+        chosen = resolve_package_variant_footprint(
+            d,
+            "DO-35/S",
+            _families(),
+        )
+        default = d.default_footprint()
+        assert chosen.pin_positions() != default.pin_positions()
+
+    def test_preplacement_unresolved_variant_raises(self) -> None:
+        d = _defn(package_family_ref="DO-35/typ")
+        with pytest.raises(ValueError, match="NOPE/x"):
+            resolve_package_variant_footprint(d, "NOPE/x", _families())
 
 
 class TestResolvePinWorldPositionVariant:
@@ -208,8 +225,7 @@ class TestResolvePinWorldPositionVariant:
         inst_with = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
         ).bind(d, _families())
-        # Bound WITHOUT a catalogue → the variant ref can't resolve, so the
-        # instance falls back to the definition's default SIL footprint.
+        # Bound WITHOUT a catalogue → the selected variant cannot resolve.
         inst_without = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
         ).bind(d, {})
@@ -223,7 +239,5 @@ class TestResolvePinWorldPositionVariant:
         with_fam = resolve_pin_world_position(
             cid, 2, placements={cid: pl}, instances={cid: inst_with},
             components={"X": d})
-        assert without is not None and with_fam is not None
-        # The catalogue resolves the variant → a different pin-2 spacing than
-        # the default SIL footprint the no-catalogue binding uses.
-        assert (with_fam.x, with_fam.y) != (without.x, without.y)
+        assert without is None
+        assert with_fam is not None

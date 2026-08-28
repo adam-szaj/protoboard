@@ -1,20 +1,17 @@
 # SPDX-License-Identifier: MIT
 """Resolve a placed component's concrete :class:`Package` from the catalogue.
 
-A component can reference a package three ways, in precedence order:
+A component resolves its package along one axis:
 
 1. ``ComponentInstance.package_variant`` — a per-instance ``"family/variant"``
    override (the user picked a specific body for this part).
-2. ``ComponentDefinition.package_family_ref`` — the library default ``"family/
-   variant"`` for parts placed from this definition.
-3. ``ComponentDefinition.package`` — an inline package built directly from the
-   component's own ``package:`` block (geometry that is not a catalogue body,
-   e.g. a DIP).
+2. ``ComponentDefinition.default_package_ref()`` — the definition's default
+   package choice, normalised from the first declared option.
+3. ``ComponentDefinition.package`` — the definition's baked default body.
 
-A ``"family/variant"`` address that does not resolve in *families* falls
-through to the next rung, so a stale reference degrades to the inline package
-or ``None`` rather than raising. ``None`` means the component has no package and
-the legacy footprint/renderer path applies.
+An explicitly selected ``"family/variant"`` address must resolve in
+*families*; otherwise resolution raises ``ValueError``. ``None`` means the
+component has no package and the legacy footprint/renderer path applies.
 
 Pure domain: the caller supplies the catalogue (``families``); this module does
 no I/O.
@@ -36,6 +33,23 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
 
 
+def package_to_footprint(package: Package) -> "Footprint":
+    """Return the package through its directly implemented footprint API."""
+    return package
+
+
+def _resolve_variant_package(
+    families: dict[str, PackageFamily],
+    address: str | None,
+) -> Package | None:
+    if not address:
+        return None
+    variant = resolve_variant(families, address)
+    if variant is None:
+        raise ValueError(f"unresolved package variant {address!r}")
+    return variant.package
+
+
 def resolve_component_package(
     defn: "ComponentDefinition",
     instance: "ComponentInstance | None",
@@ -43,18 +57,34 @@ def resolve_component_package(
 ) -> Package | None:
     """The concrete package for a placed component, by precedence.
 
-    instance.package_variant → defn.package_family_ref → defn.package → None.
-    An address that does not resolve in *families* is skipped (falls through).
+    instance.package_variant → defn.default_package_ref() → defn.package → None.
+    An explicitly selected address that does not resolve raises ``ValueError``.
     """
-    if instance is not None and instance.package_variant:
-        variant = resolve_variant(families, instance.package_variant)
-        if variant is not None:
-            return variant.package
-    if defn.package_family_ref:
-        variant = resolve_variant(families, defn.package_family_ref)
-        if variant is not None:
-            return variant.package
+    chosen = _resolve_variant_package(
+        families,
+        instance.package_variant if instance is not None else None,
+    )
+    if chosen is not None:
+        return chosen
+    chosen = _resolve_variant_package(families, defn.default_package_ref())
+    if chosen is not None:
+        return chosen
     return defn.package
+
+
+def resolve_package_variant_footprint(
+    defn: "ComponentDefinition",
+    package_variant: str | None,
+    families: dict[str, PackageFamily],
+) -> "Footprint":
+    """Resolve the footprint for a pre-placement package choice.
+
+    This is the ghost/picker path: there is no bound instance yet, but the UI
+    may still need the geometry of a user-picked ``package_variant``. An
+    explicitly selected variant must resolve.
+    """
+    chosen = _resolve_variant_package(families, package_variant)
+    return package_to_footprint(chosen) if chosen is not None else defn.default_footprint()
 
 
 def resolved_footprint(

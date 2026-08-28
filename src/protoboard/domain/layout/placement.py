@@ -301,16 +301,14 @@ def _is_flexible_body(footprint: Footprint, component_class: str) -> bool:
 
     Rigidity is a property of the **package**, not the electrical class: an SMD
     resistor is class ``resistor`` but its chip body lies flat on the pads, so it
-    is *not* flexible.  When the footprint resolves to a concrete package (a
-    ``PackageFootprint``) decide from ``is_rigid_package``; otherwise fall back to
-    the class test for bare footprints that carry no package (the ``drag_detector``
-    / ``auto_placer`` call sites, which never resolve the chosen variant).
+    is *not* flexible. A concrete package reports rigidity through the shared
+    footprint API; bare footprints fall back to the component class (the
+    ``drag_detector`` / ``auto_placer`` call sites, which never resolve the
+    chosen variant).
     """
-    from protoboard.domain.components.package.adapter import PackageFootprint
-    from protoboard.domain.components.package.shapes import is_rigid_package
-
-    if isinstance(footprint, PackageFootprint):
-        return not is_rigid_package(footprint.package)
+    rigid = footprint.is_rigid()
+    if rigid is not None:
+        return not rigid
     return component_class in _FLEXIBLE_LEAD_CLASSES
 
 

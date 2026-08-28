@@ -22,7 +22,7 @@ from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
-    FootprintOption,
+    PackageOption,
     PinBendSpec,
     PinVariant,
 )
@@ -34,8 +34,8 @@ from protoboard.domain.components.package import (
     Package,
     PackageDefError,
     PackageFamily,
-    PackageFootprint,
     PackageVariant,
+    package_to_footprint,
     Prism,
     build_package,
     is_rigid_package,
@@ -101,7 +101,7 @@ def _component_pin_count(data: dict[str, Any]) -> int | None:
 
 
 def _geometry_from_option(
-    option: FootprintOption,
+    option: PackageOption,
     families: dict[str, PackageFamily],
 ) -> tuple[Package | None, Footprint | None, bool]:
     """Resolve a footprint option to ``(package, footprint, drop_bendable)``.
@@ -112,13 +112,13 @@ def _geometry_from_option(
     False)`` when a reference does not resolve (a stale ref degrades gracefully).
     """
     if option.package is not None:
-        return option.package, PackageFootprint(option.package), False
+        return option.package, package_to_footprint(option.package), False
     if option.ref is not None:
         variant = resolve_variant(families, option.ref)
         if variant is not None:
             return (
                 variant.package,
-                PackageFootprint(variant.package),
+                package_to_footprint(variant.package),
                 is_rigid_package(variant.package),
             )
     return None, None, False
@@ -130,8 +130,8 @@ def _parse_footprints(
     source: Path,
     families: dict[str, PackageFamily],
     generics: dict[str, dict[str, Any]] | None = None,
-) -> tuple[FootprintOption, ...]:
-    """Parse a component's ``footprints:`` list into ``FootprintOption``s.
+) -> tuple[PackageOption, ...]:
+    """Parse a component's ``footprints:`` list into ``PackageOption``s.
 
     Each entry is either a reference (``ref: "family/variant"`` — or a bare
     string) or an inline ``package:`` block (built via the kind/extends machinery,
@@ -150,7 +150,7 @@ def _parse_footprints(
     except (TypeError, ValueError) as exc:
         raise SerializationError(f"{source}: {exc}") from exc
 
-    options: list[FootprintOption] = []
+    options: list[PackageOption] = []
     for entry in raw_list:
         ref: str | None = None
         package: Package | None = None
@@ -203,7 +203,7 @@ def _parse_footprints(
         name = str(name_raw) if name_raw is not None else ""
         style = Appearance.resolve(entry_style, list_style)
         options.append(
-            FootprintOption(
+            PackageOption(
                 name=name,
                 ref=ref,
                 package=package,
@@ -709,6 +709,13 @@ def _component_from_dict(
                 f"{source}: package_family_ref for {data['name']!r} must be a "
                 f"string 'family/variant_id'; got {package_family_ref_raw!r}")
         package_family_ref = package_family_ref_raw
+        if not footprints:
+            footprints = (
+                PackageOption(
+                    name=package_family_ref,
+                    ref=package_family_ref,
+                ),
+            )
 
     # The removed legacy field. A loud, actionable error — raised as
     # PackageDefError so ONE legacy part is skipped (with the migration hint
@@ -720,34 +727,19 @@ def _component_from_dict(
             f"(catalogue refs), or a resolvable 'package_family_ref'")
 
     # Geometry chain — the definition's DEFAULT body. Precedence: inline
-    # ``package:`` → first ``footprints:`` option → the ``package_family_ref``
-    # variant → the pending-kind placeholder.
+    # ``package:`` → first ``footprints:`` option (including normalized legacy
+    # ``package_family_ref``) → the pending-kind placeholder.
     drop_bend_from_default = False
     if package_obj is not None:
-        footprint: Footprint = PackageFootprint(package_obj)
+        footprint: Footprint = package_to_footprint(package_obj)
     elif footprints:
         pkg, fp, drop_bend_from_default = _geometry_from_option(
             footprints[0], families or {})
         if pkg is None or fp is None:
-            raise SerializationError(
-                f"{source}: component {data['name']!r} default footprint "
-                f"{footprints[0].name!r} did not resolve to a package")
+                raise PackageDefError(
+                    f"{source}: component {data['name']!r} default footprint "
+                    f"{footprints[0].name!r} did not resolve to a package")
         package_obj, footprint = pkg, fp
-    elif package_family_ref is not None:
-        variant = resolve_variant(families or {}, package_family_ref)
-        if variant is None:
-            raise PackageDefError(
-                f"{data['name']}: package_family_ref "
-                f"{package_family_ref!r} does not resolve and no other "
-                f"geometry is declared")
-        # The referenced variant is the default geometry. A rigid body (SMD
-        # chip, DIP — fixed pin geometry) supersedes the bendable leads, so
-        # the body fixes the pad spacing; a bendable body (axial R / D) keeps
-        # its bend, and its pin positions come from the package (the axial
-        # solver's default span).
-        package_obj = variant.package
-        footprint = PackageFootprint(package_obj)
-        drop_bend_from_default = is_rigid_package(package_obj)
     elif pending_kind is not None and comp_pin_count:
         # A partially-parameterised kind has no geometry yet — a provisional
         # single-row footprint stands in until the picker builds the concrete
@@ -949,7 +941,6 @@ def _component_from_dict(
             variants=tuple(variants),
             default_value=default_value,
             package=package_obj,
-            package_family_ref=package_family_ref,
             appearance=appearance,
             symbol=symbol,
             footprints=footprints,

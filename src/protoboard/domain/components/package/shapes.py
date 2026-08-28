@@ -12,11 +12,12 @@ is in mm (physics). Conversion is the consumer's job.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
@@ -97,7 +98,7 @@ class Leads:
         return len(self.direction)
 
 
-class Package(ABC):
+class Package(Footprint):
     """Geometry of a component derived from package data (see spec).
 
     Abstract base for the concrete shapes (``Cylinder`` / ``Prism`` / ``Disc``).
@@ -206,6 +207,13 @@ class Package(ABC):
         not follow its dominant pin axis may override this.
         """
         return flip_reflection_from_pins(self.pin_positions())
+
+    def rotate(self, cw: int) -> None:
+        """Package pin geometry is immutable; placement owns rotation."""
+        return None
+
+    def is_rigid(self) -> bool:
+        return self.leads.board_offset != BOARD_SOLVE and self.bend_holes == 0
 
     @abstractmethod
     def min_radial_pitch_mm(self) -> float:

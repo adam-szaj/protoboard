@@ -32,8 +32,7 @@ import structlog
 
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.footprints import Footprint
-from protoboard.domain.components.package import resolve_component_package
-from protoboard.domain.components.package.adapter import PackageFootprint
+from protoboard.domain.components.package import resolve_package_variant_footprint
 from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
@@ -554,16 +553,12 @@ class PlaceTool(ControllerTool):
         logic must use that SAME geometry, or the offset is measured against one
         footprint and drawn against another — the body drifts, worse with
         rotation. Falls back to the definition default when no variant resolves."""
-        if self._package_variant is not None:
-            inst = ComponentInstance.new(
-                definition_ref=defn.name, refdes="?", value="",
-                package_variant=self._package_variant,
-            )
-            families = getattr(self._session, "package_families", None) or {}
-            pkg = resolve_component_package(defn, inst, families)
-            if pkg is not None:
-                return PackageFootprint(pkg)
-        return defn.default_footprint()
+        families = getattr(self._session, "package_families", None) or {}
+        return resolve_package_variant_footprint(
+            defn,
+            self._package_variant,
+            families,
+        )
 
     @traced()
     def _pin_baseline_world(self, pin_number: int) -> Point | None:

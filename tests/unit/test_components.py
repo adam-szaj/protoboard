@@ -144,21 +144,21 @@ class TestComponentClass:
 
 class TestFootprintOption:
     def test_ref_only_is_valid(self) -> None:
-        from protoboard.domain.components.definition import FootprintOption
-        opt = FootprintOption(name="DIP-14", ref="dip-14/std")
+        from protoboard.domain.components.definition import PackageOption
+        opt = PackageOption(name="DIP-14", ref="dip-14/std")
         assert opt.ref == "dip-14/std" and opt.package is None
 
     def test_requires_exactly_one_of_ref_package(self) -> None:
-        from protoboard.domain.components.definition import FootprintOption
+        from protoboard.domain.components.definition import PackageOption
         with pytest.raises(ValueError):
-            FootprintOption(name="x")  # neither
+            PackageOption(name="x")  # neither
         with pytest.raises(ValueError):
-            FootprintOption(name="x", ref="a/b", package=DIL(8))  # type: ignore[arg-type]
+            PackageOption(name="x", ref="a/b", package=DIL(8))  # type: ignore[arg-type]
 
     def test_empty_name_rejected(self) -> None:
-        from protoboard.domain.components.definition import FootprintOption
+        from protoboard.domain.components.definition import PackageOption
         with pytest.raises(ValueError):
-            FootprintOption(name="", ref="a/b")
+            PackageOption(name="", ref="a/b")
 
 
 class TestComponentSymbol:
@@ -184,6 +184,35 @@ class TestComponentSymbol:
 
 
 class TestComponentDefinition:
+    def test_package_option_becomes_default_package_ref(self) -> None:
+        from protoboard.domain.components.definition import PackageOption
+
+        defn = ComponentDefinition.from_footprint(
+            name="D",
+            footprint=SIL(2),
+            pin_names={},
+            footprints=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
+        )
+        assert defn.default_package_ref() == "DO-35/typ"
+        assert defn.default_package_option() is not None
+        assert defn.default_package_option().ref == "DO-35/typ"  # type: ignore[union-attr]
+
+    def test_first_footprint_is_the_default_package_option(self) -> None:
+        from protoboard.domain.components.definition import PackageOption
+
+        defn = ComponentDefinition(
+            name="R",
+            package=ComponentDefinition.from_footprint(
+                name="tmp", footprint=SIL(2), pin_names={}
+            ).package,
+            pin_names={},
+            footprints=(
+                PackageOption(name="A", ref="DIN-0207/typ"),
+                PackageOption(name="B", ref="DO-35/typ"),
+            ),
+        )
+        assert defn.default_package_ref() == "DIN-0207/typ"
+
     def test_full_pin_names(self) -> None:
         defn = ComponentDefinition.from_footprint(
             name="LM358",

@@ -195,7 +195,7 @@ def effective_bend_specs(
     select-tool re-drag) or, during placement before any instance exists, from
     the *package_variant* address string (the place tool's picker choice). Both
     resolve through the catalogue by the same precedence
-    (``variant`` → ``defn.package_family_ref`` → ``defn.package``). This is what
+    (``variant`` → ``defn.default_package_ref()`` → ``defn.package``). This is what
     makes a part whose bodies live in a ``footprints:`` list (e.g. ``R`` placed
     as ``SMD-0805``) resolve its rigid / SMD specs even though ``defn.package``
     is ``None``. Omitting *families* keeps the legacy ``defn.package`` →

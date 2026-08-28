@@ -168,8 +168,8 @@ class PinVariant:
 
 
 @dataclass(frozen=True, slots=True)
-class FootprintOption:
-    """One available footprint a component offers (a picker entry).
+class PackageOption:
+    """One available package choice a component offers (a picker entry).
 
     A component's logical identity (name/pins/class) is separate from the
     *footprints* it can be placed in. Each option is either a **reference** into
@@ -187,11 +187,13 @@ class FootprintOption:
 
     def __post_init__(self) -> None:
         if not self.name:
-            raise ValueError("FootprintOption.name must not be empty")
+            raise ValueError("PackageOption.name must not be empty")
         if (self.ref is None) == (self.package is None):
             raise ValueError(
-                "FootprintOption requires exactly one of 'ref' / 'package'"
+                "PackageOption requires exactly one of 'ref' / 'package'"
             )
+        if self.ref == "":
+            raise ValueError("PackageOption.ref must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,13 +246,6 @@ class ComponentDefinition:
     # touches the board.  Autoroute additionally soft-penalises via
     # the ``under_component_top`` cost knob regardless of this flag.
     body_blocks_routing: bool = False
-    # Default package-family variant as ``"{family}/{variant_id}"`` (e.g.
-    # ``"DO-35/typ"``) referencing the package-family catalogue. This is the
-    # package-model successor to ``default_body_variant``; it resolves to a real
-    # Package via the catalogue. ``ComponentInstance.package_variant`` overrides
-    # it per instance. Precedence at resolution: instance override → this ref →
-    # the inline ``package`` above → None (see ``component_package``).
-    package_family_ref: str | None = None
     # Visual-only override (fill colour, corner radius) for every instance of
     # this type, layered on top of the package/theme defaults. A placed
     # ``ComponentInstance.appearance`` overrides this per part. ``None`` = inherit
@@ -265,7 +260,7 @@ class ComponentDefinition:
     # derives the ``package`` above so instance-less consumers see one default
     # geometry. Empty = no choice (the part carries its ``package`` directly).
     # See docs/footprints/authoring.md.
-    footprints: tuple[FootprintOption, ...] = ()
+    footprints: tuple[PackageOption, ...] = ()
     # Parametric (variable-pin-count) entry: the library YAML declared a
     # ``package: {kind: …}`` with NO ``pins:``, so the pin count (and any open
     # generator parameters, e.g. a pin header's ``rows``) are chosen by the
@@ -291,14 +286,6 @@ class ComponentDefinition:
                     f"pin_names references pin {pin_number} which is outside "
                     f"the package's pin range (1..{self.package.pin_count()})"
                 )
-        if self.package_family_ref is not None:
-            parts = self.package_family_ref.split("/", 1)
-            if len(parts) != 2 or not parts[0] or not parts[1]:
-                raise ValueError(
-                    f"package_family_ref must be 'family/variant_id'; got "
-                    f"{self.package_family_ref!r}"
-                )
-
     @classmethod
     def from_footprint(
         cls,
@@ -335,11 +322,20 @@ class ComponentDefinition:
         instance-less contexts only: library preview, pre-placement ghost,
         BOM fallback.
         """
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
+        from protoboard.domain.components.package.component_package import (
+            package_to_footprint,
         )
 
-        return PackageFootprint(self.package)
+        return package_to_footprint(self.package)
+
+    def default_package_option(self) -> PackageOption | None:
+        """The definition's default package choice, if it declares one."""
+        return self.footprints[0] if self.footprints else None
+
+    def default_package_ref(self) -> str | None:
+        """The catalogue ref of the default package choice, if any."""
+        option = self.default_package_option()
+        return None if option is None else option.ref
 
     @property
     def pin_count(self) -> int:

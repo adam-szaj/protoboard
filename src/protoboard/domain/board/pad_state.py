@@ -980,10 +980,9 @@ class PadIndex:
         the marked holes line up with the placed pins.
         """
         from protoboard.domain.components.package import body_holes
-        from protoboard.domain.components.package.adapter import PackageFootprint
         from protoboard.domain.layout.placement import placement_transform
 
-        to_world = placement_transform(PackageFootprint(package), placement)
+        to_world = placement_transform(package, placement)
         out: list[Pad] = []
         for hole in body_holes(package):
             world = to_world.apply(hole)

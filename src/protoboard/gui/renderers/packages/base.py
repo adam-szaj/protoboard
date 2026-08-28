@@ -693,12 +693,9 @@ class PackageRenderer(BodyShape):
         already-oriented bbox.
         """
         if self._placement is not None:
-            from protoboard.domain.components.package.adapter import (
-                PackageFootprint,
-            )
             from protoboard.domain.layout.placement import placement_transform
             return _qtransform(
-                placement_transform(PackageFootprint(self._pkg), self._placement)
+                placement_transform(self._pkg, self._placement)
             )
         p1 = positions[0]
         place = QTransform()

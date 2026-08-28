@@ -46,6 +46,9 @@ class PackageFootprint(Footprint):
         # rotating a flat offset list. Rotation is a no-op here.
         return None
 
+    def is_rigid(self) -> bool:
+        return self.package.is_rigid()
+
     def flip_transform(self) -> Transform2D:
         # Defer to the package: it owns how the part physically flips (a future
         # explicit axis flows through here without the pipeline knowing).

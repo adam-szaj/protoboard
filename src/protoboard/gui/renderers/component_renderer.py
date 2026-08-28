@@ -695,13 +695,10 @@ def make_ghost_item(
         from protoboard.domain.components.package import (
             resolve_component_package,
         )
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
-        )
         pkg = resolve_component_package(
             defn, ghost_inst, theme.package_families or {})
         if pkg is not None:
-            fp = PackageFootprint(pkg)
+            fp = pkg
     positions = [
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
     ]

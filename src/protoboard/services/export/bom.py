@@ -31,10 +31,11 @@ def export_bom_csv(
             continue
         defn = components.get(inst.definition_ref)
         # Prefer the placed variant's address ("DO-35/typ"), then the
-        # definition's family ref; the generic type name is the last resort.
+        # definition's default package ref; the generic type name is the last
+        # resort.
         fp_name = ""
         if defn is not None:
-            fp_name = (inst.package_variant or defn.package_family_ref
+            fp_name = (inst.package_variant or defn.default_package_ref()
                        or type(defn.default_footprint()).__name__)
         desc = defn.description if defn is not None else ""
         rows.append(

@@ -149,14 +149,15 @@ def _explicit_body(
 ) -> object | None:
     """The component's *declared* body package, or ``None``.
 
-    Resolution order mirrors the render path: the definition's
-    ``package_family_ref`` against the catalogue, else the (loader-derived or
-    inline) ``defn.package``. The synthetic ``_generic`` fallback the loader
-    stamps on package-less parts is NOT a declared body and is excluded.
+    Resolution order mirrors the render path: the definition's default package
+    ref against the catalogue, else the (loader-derived or inline)
+    ``defn.package``. The synthetic ``_generic`` fallback the loader stamps on
+    package-less parts is NOT a declared body and is excluded.
     """
-    if defn.package_family_ref:
+    default_ref = defn.default_package_ref()
+    if default_ref:
         from protoboard.domain.components.package.family import resolve_variant
-        variant = resolve_variant(families, defn.package_family_ref)
+        variant = resolve_variant(families, default_ref)
         if variant is not None:
             return variant.package
     from protoboard.domain.components.package.kind import is_generic_package

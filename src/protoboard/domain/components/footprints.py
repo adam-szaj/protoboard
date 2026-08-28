@@ -43,6 +43,10 @@ class Footprint(ABC):
     def rotate(self, cw: int):
         ...
 
+    def is_rigid(self) -> bool | None:
+        """Whether this footprint fixes its pin spacing, if it knows that."""
+        return None
+
     def flip_transform(self) -> Transform2D:
         """Reflection (local frame) for a physical board-side flip.
 

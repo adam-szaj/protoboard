@@ -357,9 +357,8 @@ def _placed_pad_mask(
         mount_side=side,
         body_blocks=getattr(defn, "body_blocks_routing", False),
     )
-    from protoboard.domain.components.package.adapter import PackageFootprint
     from protoboard.domain.layout.placement import placement_transform
-    to_world = placement_transform(PackageFootprint(package), placement)
+    to_world = placement_transform(package, placement)
     out: dict[Point, PadCell] = {}
     for hole, bits in local.items():
         world = to_world.apply(hole)

@@ -627,8 +627,9 @@ class PropertiesPanel(QWidget):
         ``sil-N`` for multi-pin in-line parts) and a catalogue is available.
         The list is:
 
-        * ``Default`` — fall back to ``defn.package_family_ref`` (or the inline
-          package when neither default nor instance override resolves).
+        * ``Default`` — fall back to the definition's default package option
+          (or the inline package when neither default nor instance override
+          resolves).
         * The variants of the **definition's default family** first.
         * The remaining offered families' variants, so the user can swap a
           DIP-16 between narrow / wide (or a resistor's body to a brick)
@@ -660,8 +661,9 @@ class PropertiesPanel(QWidget):
 
         # Definition's default family (if resolvable) sits at the top.
         primary_pkg_id: str | None = None
-        if defn.package_family_ref:
-            parts = defn.package_family_ref.split("/", 1)
+        default_ref = defn.default_package_ref()
+        if default_ref:
+            parts = default_ref.split("/", 1)
             if len(parts) == 2:
                 primary_pkg_id = parts[0]
 

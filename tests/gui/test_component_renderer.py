@@ -499,13 +499,12 @@ class TestGhostHonoursPackageVariant:
         assert g_smd.childItems()
         assert g_default.boundingRect() != g_smd.boundingRect()
 
-    def test_unknown_variant_falls_back_to_default(self, qtbot: QtBot) -> None:
+    def test_unknown_variant_raises(self, qtbot: QtBot) -> None:
         from protoboard.gui.renderers.component_renderer import make_ghost_item
 
         theme, defn = self._theme_and_defn()
-        # A stale/unknown address resolves to nothing → default body, no crash.
-        g = make_ghost_item(defn, theme=theme, package_variant="No-Such/typ")
-        assert g.childItems()
+        with pytest.raises(ValueError, match="No-Such/typ"):
+            make_ghost_item(defn, theme=theme, package_variant="No-Such/typ")
 
     def test_rotation_turns_body_with_the_pins(self, qtbot: QtBot) -> None:
         # The body must rotate WITH the pins: make_ghost_item passes the

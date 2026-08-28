@@ -1090,16 +1090,16 @@ class TestFootprintOptionStyle:
 
     def _defn(self):
         from protoboard.domain.components.appearance import Appearance
-        from protoboard.domain.components.definition import FootprintOption
+        from protoboard.domain.components.definition import PackageOption
         return ComponentDefinition(
             name="R",
             component_class=ComponentClass.RESISTOR,
             pin_names={},
             package=_colored_prism("#cdd2d6"),
             footprints=(
-                FootprintOption(name="DIN-0207", ref="din-0207/typ"),
-                FootprintOption(name="SMD-0805", ref="smd-0805/typ",
-                                style=Appearance(color="#222222")),
+                PackageOption(name="DIN-0207", ref="din-0207/typ"),
+                PackageOption(name="SMD-0805", ref="smd-0805/typ",
+                              style=Appearance(color="#222222")),
             ),
         )
 
@@ -1380,7 +1380,7 @@ class TestPackageBodyDispatch:
         )
         assert isinstance(shape, PackageBody)
 
-    def test_stale_ref_without_inline_falls_to_legacy(self) -> None:
+    def test_unresolved_package_ref_raises(self) -> None:
         defn = ComponentDefinition.from_footprint(
             name="D1",
             component_class=ComponentClass.DIODE,
@@ -1388,14 +1388,8 @@ class TestPackageBodyDispatch:
             pin_names={},
             package_family_ref="NOPE/x",
         )
-        # The stale ref falls through to the definition default — the
-        # synthesized generic bbox body, not a catalogue silhouette.
-        from protoboard.domain.components.package.kind import (
-            is_generic_package,
-        )
-        shape = body_shape_for(defn, package_families=self._families())
-        assert isinstance(shape, PackageBody)
-        assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
+        with pytest.raises(ValueError, match="NOPE/x"):
+            body_shape_for(defn, package_families=self._families())
 
 
 class TestPackageBodyDraw:
