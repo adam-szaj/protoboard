@@ -46,7 +46,6 @@ class ComponentInstance:
     # ``"{family}/{variant_id}"``; None → use the definition's
     # default ``PackageOption`` (or inline ``package``).
     package_variant: str | None = None
-    pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
     # Manufacturing tolerance of ``value`` (e.g. "5%", "1%") — free text like
     # ``value`` itself; renderers decode it (the resistor tolerance band).
     # None = unspecified.
@@ -155,7 +154,6 @@ class ComponentInstance:
     @staticmethod
     def new(
         definition_ref: str, refdes: str, value: str, type: str = "",
-        pin_variant: str | None = None,
         package_variant: str | None = None,
         appearance: Appearance | None = None,
         tolerance: str | None = None,
@@ -167,7 +165,6 @@ class ComponentInstance:
             refdes=refdes,
             value=value,
             type=type,
-            pin_variant=pin_variant,
             package_variant=package_variant,
             appearance=appearance,
             tolerance=tolerance,

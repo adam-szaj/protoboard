@@ -33,11 +33,8 @@ _CANCELLED: object = object()
 
 
 class LibraryPanel(QWidget):
-    # emits (definition_ref, pin_variant_id_or_None, body_variant_id_or_None)
-    # The third element is the address "package_id/variant_id" or None
-    # to inherit the definition's default.  Older slots that accept
-    # only two args still work — Qt unpacks positional signal args.
-    component_selected = Signal(str, object, object)
+    # emits (definition_ref, package_variant_address_or_None)
+    component_selected = Signal(str, object)
 
     def __init__(self, library: ComponentLibrary, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -149,22 +146,11 @@ class LibraryPanel(QWidget):
                     defn = self._library.get(name)
                     desc = defn.description
                     tooltip = f"{name}  —  {desc}" if desc else name
-                    variants = defn.variants
                 except KeyError:
                     tooltip = name
-                    variants = ()
                 child = QTreeWidgetItem(file_item, [name])
                 child.setToolTip(0, tooltip)
-                child.setData(0, Qt.ItemDataRole.UserRole, (name, None))
-                if variants:
-                    child.setFlags(child.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                    font2 = child.font(0)
-                    font2.setItalic(True)
-                    child.setFont(0, font2)
-                    for v in variants:
-                        v_item = QTreeWidgetItem(child, [v.label])
-                        v_item.setToolTip(0, f"{name}  [{v.id}]")
-                        v_item.setData(0, Qt.ItemDataRole.UserRole, (name, v.id))
+                child.setData(0, Qt.ItemDataRole.UserRole, name)
 
         for subdir in all_subdirs:
             file_map = tree[subdir]
@@ -202,7 +188,7 @@ class LibraryPanel(QWidget):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
             return
-        name, pin_variant = data
+        name = str(data)
         try:
             defn = self._library.get(name)
         except KeyError:
@@ -218,7 +204,7 @@ class LibraryPanel(QWidget):
         address: str | None = resolved  # type: ignore[assignment]
         if address is not None:
             self._record_recent(name, address, options, recent)
-        self.component_selected.emit(name, pin_variant, address)
+        self.component_selected.emit(name, address)
 
     def _resolve_address(
         self,

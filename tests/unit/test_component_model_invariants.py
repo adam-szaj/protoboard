@@ -194,6 +194,12 @@ def test_package_is_its_own_footprint() -> None:
     assert package_to_footprint(package) is package
 
 
+def test_component_instance_has_no_pin_variant_state() -> None:
+    instance = ComponentInstance.new("R", "R1", "10k")
+
+    assert not hasattr(instance, "pin_variant")
+
+
 def test_legacy_family_ref_component_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "r.yaml").write_text(
         "components:\n"

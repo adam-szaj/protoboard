@@ -311,7 +311,6 @@ class MainWindow(QMainWindow):
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
-        self._props_panel.pin_variant_changed.connect(self._on_pin_variant_changed)
         self._props_panel.package_variant_changed.connect(
             self._on_package_variant_changed,
         )
@@ -778,7 +777,6 @@ class MainWindow(QMainWindow):
     def _tool_place(
         self,
         definition_ref: str,
-        pin_variant: object = None,
         package_variant: object = None,
     ) -> None:
         # A parametric entry (variable pin count — PinHeader, JST) first
@@ -790,19 +788,15 @@ class MainWindow(QMainWindow):
             if concrete is None:
                 return  # cancelled
             definition_ref = concrete.name
-        variant_str = str(pin_variant) if pin_variant is not None else None
         package_variant_str = (
             str(package_variant) if package_variant is not None else None
         )
         self._board_view.set_tool(PlaceTool(
             definition_ref,
-            pin_variant=variant_str,
             package_variant=package_variant_str,
         ))
         label = definition_ref
         tags = []
-        if variant_str:
-            tags.append(variant_str)
         if package_variant_str:
             tags.append(package_variant_str)
         if tags:
@@ -2556,18 +2550,6 @@ class MainWindow(QMainWindow):
         if pl is None:
             return
         pl.pin_offsets = offsets  # type: ignore[assignment]
-        self._session.mark_dirty()
-        self._board_view.refresh()
-
-    def _on_pin_variant_changed(self, comp_id: uuid.UUID, pin_variant: object) -> None:
-        from typing import cast
-        from protoboard.domain.commands.component_cmds import (
-            ComponentState,
-            SetPinVariantCommand,
-        )
-        variant_str = str(pin_variant) if pin_variant is not None else None
-        cmd = SetPinVariantCommand(component_id=comp_id, new_variant=variant_str)
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.mark_dirty()
         self._board_view.refresh()
 

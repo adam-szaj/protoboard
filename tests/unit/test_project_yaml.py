@@ -329,35 +329,7 @@ class TestPlacementsRoundtrip:
         assert loaded_pl.rotation == 90
 
 
-class TestPinVariantRoundtrip:
-    def test_pin_variant_preserved(self, tmp_path: Path) -> None:
-        board = _perfboard()
-        inst = ComponentInstance.new(
-            definition_ref="PinHeader_1x04",
-            refdes="J1",
-            value="",
-            pin_variant="i2c_vcc_gnd_sda_scl",
-        )
-        instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])), Schematic(nets={}), instances)
-        _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
-        loaded = loaded_instances[inst.id]
-        assert loaded.pin_variant == "i2c_vcc_gnd_sda_scl"
-
-    def test_pin_variant_none_preserved(self, tmp_path: Path) -> None:
-        board = _perfboard()
-        inst = ComponentInstance.new(
-            definition_ref="PinHeader_1x04",
-            refdes="J1",
-            value="",
-            pin_variant=None,
-        )
-        instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])), Schematic(nets={}), instances)
-        _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
-        loaded = loaded_instances[inst.id]
-        assert loaded.pin_variant is None
-
+class TestPackageVariantRoundtrip:
     def test_package_variant_preserved(self, tmp_path: Path) -> None:
         board = _perfboard()
         inst = ComponentInstance.new(

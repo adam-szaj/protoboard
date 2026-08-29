@@ -1187,34 +1187,6 @@ class ConvertWirePinToEndpointCommand(Command[ComponentState]):
 
 
 @dataclass
-class SetPinVariantCommand(Command[ComponentState]):
-    """Change the pin-name variant of a component instance."""
-
-    component_id: uuid.UUID
-    new_variant: str | None
-    _old_variant: str | None = field(default=None, init=False, repr=False)
-
-    @property
-    def description(self) -> str:  # type: ignore[override]
-        return f"Set pin variant to {self.new_variant or 'default'}"
-
-    def apply(self, state: ComponentState) -> None:
-        inst = state.instances[self.component_id]
-        self._old_variant = inst.pin_variant
-        import dataclasses as _dc
-        state.instances[self.component_id] = _dc.replace(inst, pin_variant=self.new_variant)
-        # New instance has empty pin_identities; the new variant may regroup
-        # pin names, so rebuild from the definition.
-        build_pin_identities_for(state, self.component_id)
-
-    def revert(self, state: ComponentState) -> None:
-        inst = state.instances[self.component_id]
-        import dataclasses as _dc
-        state.instances[self.component_id] = _dc.replace(inst, pin_variant=self._old_variant)
-        build_pin_identities_for(state, self.component_id)
-
-
-@dataclass
 class SetComponentPackageVariantCommand(Command[ComponentState]):
     """Change the package-family variant of a component instance.
 

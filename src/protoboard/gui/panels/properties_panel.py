@@ -52,8 +52,6 @@ class PropertiesPanel(QWidget):
     component_changed = Signal(uuid.UUID, str, str, str, int, float, float)
     # id, {pin_number: Vector} — emitted when Apply is clicked and offsets changed
     pin_offsets_changed = Signal(uuid.UUID, object)
-    # id, pin_variant (str or None)
-    pin_variant_changed = Signal(uuid.UUID, object)
     # id, package_variant (str "family/variant_id" or None for default)
     package_variant_changed = Signal(uuid.UUID, object)
     # id, Appearance or None (None = clear the per-instance style override).
@@ -111,10 +109,6 @@ class PropertiesPanel(QWidget):
         self._footprint_label.setWordWrap(True)
         self._footprint_label.setStyleSheet("color: #888; font-size: 10px;")
 
-        self._pin_variant_combo = QComboBox()
-        self._pin_variant_label = QLabel("Pinout:")
-        self._pin_variant_row_visible = False
-
         self._body_variant_combo = QComboBox()
         self._body_variant_combo.setToolTip(
             "Physical body package (e.g. DO-35, DIN-0207).  Picking a "
@@ -146,8 +140,6 @@ class PropertiesPanel(QWidget):
         form.addRow("Label X:", label_x_row)
         form.addRow("Label Y:", self._label_y_spin)
         form.addRow("Footprint:", self._footprint_label)
-        self._pin_variant_form_row_label = QLabel("Pinout:")
-        form.addRow(self._pin_variant_form_row_label, self._pin_variant_combo)
         self._body_variant_form_row_label = QLabel("Body:")
         form.addRow(self._body_variant_form_row_label, self._body_variant_combo)
         form.addRow("Body color:", self._style_color_edit)
@@ -155,15 +147,10 @@ class PropertiesPanel(QWidget):
         form.addRow(self._apply_btn)
         layout.addWidget(grp)
 
-        self._pin_variant_form_row_label.setVisible(False)
-        self._pin_variant_combo.setVisible(False)
         self._body_variant_form_row_label.setVisible(False)
         self._body_variant_combo.setVisible(False)
 
         self._apply_btn.clicked.connect(self._on_apply)
-        self._pin_variant_combo.currentIndexChanged.connect(
-            self._on_pin_variant_changed
-        )
         self._body_variant_combo.currentIndexChanged.connect(
             self._on_package_variant_changed,
         )
@@ -174,8 +161,6 @@ class PropertiesPanel(QWidget):
         # Set via set_session(); the panel fetches inst/placement/defn itself now
         # that it subscribes to selection directly (no MainWindow fan-out).
         self._session: "EditorSession | None" = None
-        self._pin_variant_ids: list[str | None] = []
-        # Parallel to _pin_variant_ids: address strings or None for default.
         self._body_variant_addresses: list[str | None] = []
 
         # Pin offsets group — dynamically populated, hidden when empty.
@@ -304,7 +289,6 @@ class PropertiesPanel(QWidget):
             package_families or {},
         )
         self._update_geometry_table(placement, defn, inst, package_families or {})
-        self._rebuild_pin_variant_combo(defn, inst.pin_variant)
         self._rebuild_body_variant_combo(
             defn,
             inst.package_variant,
@@ -339,7 +323,6 @@ class PropertiesPanel(QWidget):
         self._footprint_label.clear()
         self._populate_appearance_fields(None)
         self._rebuild_pin_offsets(None, {})
-        self._rebuild_pin_variant_combo(None, None)
         self._rebuild_body_variant_combo(None, None, {})
         self._rebuild_parameters(None, None, {})
         self._geo_table.setRowCount(0)
@@ -595,40 +578,6 @@ class PropertiesPanel(QWidget):
         return result
 
     # ------------------------------------------------------------------
-
-    @traced()
-    def _rebuild_pin_variant_combo(
-        self,
-        defn: ComponentDefinition | None,
-        current_variant: str | None,
-    ) -> None:
-        self._pin_variant_combo.blockSignals(True)
-        self._pin_variant_combo.clear()
-        self._pin_variant_ids = []
-        has_variants = defn is not None and bool(defn.variants)
-        self._pin_variant_form_row_label.setVisible(has_variants)
-        self._pin_variant_combo.setVisible(has_variants)
-        if has_variants and defn is not None:
-            self._pin_variant_combo.addItem("Default")
-            self._pin_variant_ids.append(None)
-            for v in defn.variants:
-                self._pin_variant_combo.addItem(v.label)
-                self._pin_variant_ids.append(v.id)
-            # Select the current variant.
-            if current_variant is None:
-                self._pin_variant_combo.setCurrentIndex(0)
-            else:
-                for i, vid in enumerate(self._pin_variant_ids):
-                    if vid == current_variant:
-                        self._pin_variant_combo.setCurrentIndex(i)
-                        break
-        self._pin_variant_combo.blockSignals(False)
-
-    @traced()
-    def _on_pin_variant_changed(self, index: int) -> None:
-        if self._current_id is None or index < 0 or index >= len(self._pin_variant_ids):
-            return
-        self.pin_variant_changed.emit(self._current_id, self._pin_variant_ids[index])
 
     @traced()
     def _rebuild_body_variant_combo(

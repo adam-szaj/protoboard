@@ -90,23 +90,6 @@ class MetaPin:
 
 
 @dataclass(frozen=True, slots=True)
-class PinVariant:
-    """An alternative pin-name mapping for a component.
-
-    A variant overrides a subset (or all) of the base ``pin_names``.
-    The footprint geometry is unchanged — only signal labels differ.
-
-    Example: a 4-pin SIL header shared between I2C and UART applications
-    can have one variant ``{1: VCC, 2: GND, 3: SDA, 4: SCL}`` and another
-    ``{1: VCC, 2: GND, 3: TX, 4: RX}``.
-    """
-
-    id: str
-    label: str
-    pin_names: dict[int, str]
-
-
-@dataclass(frozen=True, slots=True)
 class PackageOption:
     """One available package choice a component offers (a picker entry).
 
@@ -148,8 +131,6 @@ class ComponentDefinition:
     # OTHER, but keep the author's label (BOM / panels / future semantics).
     component_class: str = ComponentClass.OTHER
     metadata: dict[str, Any] = field(default_factory=dict)
-    # Alternative pin-name mappings (same footprint, different signal labelling).
-    variants: tuple[PinVariant, ...] = ()
     # Default ``ComponentInstance.value`` for parts placed from this
     # definition.  Two conventions:
     #
@@ -258,33 +239,3 @@ class ComponentDefinition:
         if pin_number < 1 or pin_number > self.pin_count:
             raise ValueError(f"pin {pin_number} out of range (1..{self.pin_count})")
         return self.pin_names.get(pin_number, f"P{pin_number}")
-
-    def effective_pin_names(self, pin_variant: str | None = None) -> dict[int, str]:
-        """Return pin_names with variant overrides applied."""
-        if pin_variant is None or not self.variants:
-            return self.pin_names
-        for v in self.variants:
-            if v.id == pin_variant:
-                return {**self.pin_names, **v.pin_names}
-        return self.pin_names
-
-    def pins_grouped_by_name(
-        self, pin_variant: str | None = None
-    ) -> dict[str, frozenset[int]]:
-        """Group pins sharing an *explicit* name into one electrical node.
-
-        Returns ``{name: frozenset(pin_numbers)}`` for every name carried by
-        two or more pins — these are the internally-connected pins of the
-        package (e.g. several ``GND``). Only explicitly named pins count:
-        unnamed pins (which fall back to a unique ``P{n}`` label) never group.
-
-        No name is special-cased — ``NC`` and friends group like any other.
-        That is intentional: unconnected pins shorted "in a vacuum" carry no
-        net, so DRC never sees them (see spec, variant B).
-        """
-        by_name: dict[str, list[int]] = {}
-        for pin_num, name in self.effective_pin_names(pin_variant).items():
-            by_name.setdefault(name, []).append(pin_num)
-        return {
-            name: frozenset(pins) for name, pins in by_name.items() if len(pins) > 1
-        }

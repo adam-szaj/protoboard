@@ -975,7 +975,6 @@ class EditController:
         side: str = "top",
         pin_offsets: dict[int, Vector] | None = None,
         package_variant: str | None = None,
-        pin_variant: str | None = None,
         existing_instance: ComponentInstance | None = None,
         value: str | None = None,
         prompts: PlacementPrompts,
@@ -1014,7 +1013,6 @@ class EditController:
                 definition_ref=ref,
                 refdes=self._next_refdes(ref),
                 value=init_value,
-                pin_variant=pin_variant,
                 package_variant=package_variant,
             )
 

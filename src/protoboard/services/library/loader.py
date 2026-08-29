@@ -24,7 +24,6 @@ from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,
     PackageOption,
-    PinVariant,
 )
 from protoboard.domain.components.footprints import (
     SIL,
@@ -975,34 +974,6 @@ def _component_from_dict(
         )
         comp_class = raw_class
 
-    variants_raw = data.get("variants") or []
-    variants: list[PinVariant] = []
-    if isinstance(variants_raw, list):
-        for v in variants_raw:
-            if not isinstance(v, dict):
-                raise SerializationError(
-                    f"{source}: each variant for {data['name']!r} must be a mapping"
-                )
-            if "id" not in v:
-                raise SerializationError(
-                    f"{source}: variant for {data['name']!r} requires 'id'"
-                )
-            v_pins: dict[int, str] = {}
-            for k, val in (v.get("pin_names") or {}).items():
-                try:
-                    v_pins[int(k)] = str(val)
-                except (TypeError, ValueError) as exc:
-                    raise SerializationError(
-                        f"{source}: variant pin_names key {k!r} is not an integer"
-                    ) from exc
-            variants.append(
-                PinVariant(
-                    id=str(v["id"]),
-                    label=str(v.get("label", v["id"])),
-                    pin_names=v_pins,
-                )
-            )
-
     default_value_raw = data.get("default_value")
     default_value: str = ""
     if default_value_raw is not None:
@@ -1034,7 +1005,6 @@ def _component_from_dict(
             description=str(data.get("description", "")),
             component_class=comp_class,
             metadata=dict(metadata_raw),
-            variants=tuple(variants),
             default_value=default_value,
             appearance=appearance,
             symbol=symbol,

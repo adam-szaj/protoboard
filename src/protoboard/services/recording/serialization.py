@@ -40,7 +40,6 @@ from protoboard.domain.commands.component_cmds import (
     ReplaceWireFragmentsCommand,
     SetComponentAppearanceCommand,
     SetComponentPackageVariantCommand,
-    SetPinVariantCommand,
     SetWireInsulatedCommand,
     SetWireSideCommand,
 )
@@ -503,26 +502,6 @@ def _flip_wire_side_from(d: dict[str, Any]) -> FlipWireSideCommand:
 _register(
     FlipWireSideCommand, "flip_wire_side",
     _flip_wire_side_to, _flip_wire_side_from,
-)
-
-
-def _set_pin_variant_to(cmd: SetPinVariantCommand) -> dict[str, Any]:
-    return {
-        "component_id": _uuid_to(cmd.component_id),
-        "new_variant": cmd.new_variant,
-    }
-
-
-def _set_pin_variant_from(d: dict[str, Any]) -> SetPinVariantCommand:
-    return SetPinVariantCommand(
-        component_id=_uuid_from(d["component_id"]),
-        new_variant=d.get("new_variant"),
-    )
-
-
-_register(
-    SetPinVariantCommand, "set_pin_variant",
-    _set_pin_variant_to, _set_pin_variant_from,
 )
 
 

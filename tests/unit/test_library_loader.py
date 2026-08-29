@@ -1133,133 +1133,7 @@ components:
         assert list(lib.names()) == []
 
 
-class TestPinVariants:
-    def _make_lib(self, tmp_path: Path, yaml_text: str) -> ComponentLibrary:
-        (tmp_path / "parts.yaml").write_text(yaml_text)
-        return load_library([tmp_path])
-
-    def test_variants_parsed(self, tmp_path: Path) -> None:
-        lib = self._make_lib(
-            tmp_path,
-            """
-components:
-  - name: Header4
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: sil}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    variants:
-      - id: i2c
-        label: "I2C (VCC/GND/SDA/SCL)"
-        pin_names: {1: VCC, 2: GND, 3: SDA, 4: SCL}
-      - id: uart
-        label: "UART"
-        pin_names: {1: VCC, 2: GND, 3: TX, 4: RX}
-""",
-        )
-        defn = lib.get("Header4")
-        assert len(defn.variants) == 2
-        assert defn.variants[0].id == "i2c"
-        assert defn.variants[0].label == "I2C (VCC/GND/SDA/SCL)"
-        assert defn.variants[1].id == "uart"
-
-    def test_no_variants_default_empty(self, tmp_path: Path) -> None:
-        lib = self._make_lib(
-            tmp_path,
-            """
-components:
-  - name: Header4
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: sil}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-""",
-        )
-        defn = lib.get("Header4")
-        assert defn.variants == ()
-
-    def test_effective_pin_names_default(self, tmp_path: Path) -> None:
-        lib = self._make_lib(
-            tmp_path,
-            """
-components:
-  - name: Header4
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: sil}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    variants:
-      - id: i2c
-        label: "I2C"
-        pin_names: {1: VCC, 2: GND, 3: SDA, 4: SCL}
-""",
-        )
-        defn = lib.get("Header4")
-        assert defn.effective_pin_names(None) == {1: "1", 2: "2", 3: "3", 4: "4"}
-
-    def test_effective_pin_names_with_variant(self, tmp_path: Path) -> None:
-        lib = self._make_lib(
-            tmp_path,
-            """
-components:
-  - name: Header4
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: sil}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    variants:
-      - id: i2c
-        label: "I2C"
-        pin_names: {1: VCC, 2: GND, 3: SDA, 4: SCL}
-""",
-        )
-        defn = lib.get("Header4")
-        names = defn.effective_pin_names("i2c")
-        assert names == {1: "VCC", 2: "GND", 3: "SDA", 4: "SCL"}
-
-    def test_effective_pin_names_partial_override(self, tmp_path: Path) -> None:
-        lib = self._make_lib(
-            tmp_path,
-            """
-components:
-  - name: Header4
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: sil}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    variants:
-      - id: partial
-        label: "Partial"
-        pin_names: {3: SDA, 4: SCL}
-""",
-        )
-        defn = lib.get("Header4")
-        names = defn.effective_pin_names("partial")
-        assert names[1] == "1"
-        assert names[2] == "2"
-        assert names[3] == "SDA"
-        assert names[4] == "SCL"
-
-    def test_effective_pin_names_unknown_variant_fallback(self, tmp_path: Path) -> None:
-        lib = self._make_lib(
-            tmp_path,
-            """
-components:
-  - name: Header4
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: sil}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    variants:
-      - id: i2c
-        label: "I2C"
-        pin_names: {1: VCC, 2: GND, 3: SDA, 4: SCL}
-""",
-        )
-        defn = lib.get("Header4")
-        names = defn.effective_pin_names("nonexistent")
-        assert names == {1: "1", 2: "2", 3: "3", 4: "4"}
-
+class TestParametricConnectors:
     def test_connectors_resolve_parametrically(self) -> None:
         # headers.yaml carries parametric entries (variable pin count); the
         # historical fixed-count names synthesize on lookup.  The pin-name
@@ -1277,7 +1151,7 @@ components:
         defn = lib.get("PinHeader_1x04")
         assert defn.pin_count == 4
         assert not defn.parametric_pins
-        assert defn.variants == ()
+        assert len(defn.meta_pins) == 4
 
 
 class TestPackageInLibrary:

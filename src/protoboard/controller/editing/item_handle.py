@@ -253,7 +253,7 @@ class ComponentHandleBase(HandleKind):
 
     @property
     def pin_names(self) -> dict[int, str]:
-        """Pin-number → name for the instance's chosen pin variant (may be empty)."""
+        """MetaPin ordinal → compact primary label."""
         inst = self._instance
         if inst is None:
             return {}
@@ -262,7 +262,7 @@ class ComponentHandleBase(HandleKind):
         )
         if defn is None:
             return {}
-        return dict(defn.effective_pin_names(getattr(inst, "pin_variant", None)))
+        return dict(defn.pin_names)
 
 
 class ReadOnlyComponentHandle(ComponentHandleBase):

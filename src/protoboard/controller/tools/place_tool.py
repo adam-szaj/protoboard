@@ -100,7 +100,6 @@ class PlaceTool(ControllerTool):
         self,
         definition_ref: str,
         existing_instance: ComponentInstance | None = None,
-        pin_variant: str | None = None,
         package_variant: str | None = None,
         preview: PlacePreview | None = None,
         prompts: PlacementPrompts | None = None,
@@ -109,7 +108,6 @@ class PlaceTool(ControllerTool):
         self._definition_ref = definition_ref
         # When placing a netlist-imported instance, keep its identity.
         self._existing_instance = existing_instance  # ComponentInstance | None
-        self._pin_variant = pin_variant
         self._package_variant = package_variant
         self._rotation = 0
         # Ghost + reach overlay behind the semantic preview seam.  An
@@ -643,7 +641,6 @@ class PlaceTool(ControllerTool):
             side="top",
             pin_offsets=pin_offsets,
             package_variant=self._package_variant,
-            pin_variant=self._pin_variant,
             existing_instance=self._existing_instance,
             prompts=self.prompts,
         )

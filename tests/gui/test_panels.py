@@ -122,6 +122,14 @@ class TestLibraryPanel:
 
 
 class TestPropertiesPanel:
+    def test_has_no_legacy_pin_variant_selector(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        assert not hasattr(panel, "_pin_variant_combo")
+
     def test_show_component_fills_refdes(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
 
@@ -461,10 +469,10 @@ class TestLibraryPanelBodyPicker:
         assert r_item is not None
         received: list[tuple] = []
         panel.component_selected.connect(
-            lambda name, pinv, bodyv: received.append((name, pinv, bodyv))
+            lambda name, package: received.append((name, package))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert received == [("R", None, "DIN-0617/typ")]
+        assert received == [("R", "DIN-0617/typ")]
 
     def test_dismissed_dialog_places_nothing(
         self, qtbot: object, session: EditorSession, monkeypatch: object,
@@ -480,7 +488,7 @@ class TestLibraryPanelBodyPicker:
         assert r_item is not None
         placed: list[tuple] = []
         panel.component_selected.connect(
-            lambda name, pinv, bodyv: placed.append((name, pinv, bodyv))
+            lambda name, package: placed.append((name, package))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
         assert placed == []
@@ -523,10 +531,10 @@ class TestLibraryPanelBodyPicker:
         assert r_item is not None
         placed: list[tuple] = []
         panel.component_selected.connect(
-            lambda name, pinv, bodyv: placed.append((name, pinv, bodyv))
+            lambda name, package: placed.append((name, package))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert placed == [("R", None, "DIN-0207/typ")]
+        assert placed == [("R", "DIN-0207/typ")]
         assert opened == []  # dialog never constructed
 
     def test_footprints_list_labels_are_symbol_name(

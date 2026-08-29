@@ -145,7 +145,7 @@ class CliDriver:
         return f"new {kind} {rows}x{cols}"
 
     def _cmd_place(self, args: list[str]) -> str:
-        # place <REF> at R,C [rot D] [pkg NAME] [pin NAME]
+        # place <REF> at R,C [rot D] [pkg NAME]
         ref = args[0]
         opts = _parse_opts(args[1:])
         row, col = _parse_rc(opts["at"])
@@ -154,7 +154,6 @@ class CliDriver:
             position=Point(float(row), float(col)),
             rotation=int(opts.get("rot", "0")),
             package_variant=opts.get("pkg"),
-            pin_variant=opts.get("pin"),
             prompts=_BATCH_PROMPTS,
         )
         if resolved is None:
