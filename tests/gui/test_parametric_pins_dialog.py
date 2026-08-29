@@ -10,7 +10,7 @@ from protoboard.gui.dialogs.parametric_pins_dialog import ParametricPinsDialog
 from protoboard.services.library.loader import _component_from_dict
 
 
-def _pin_header_base():
+def _pin_header_base(families: dict):
     return _component_from_dict(
         {
             "name": "PinHeader",
@@ -18,12 +18,18 @@ def _pin_header_base():
             "package": {"kind": "pin_header"},
         },
         Path("test.yaml"),
+        families,
+        families,
     )
 
 
 def _dialog(qtbot) -> ParametricPinsDialog:
+    families: dict = {}
     dlg = ParametricPinsDialog(
-        _pin_header_base(), KIND_GENERATORS["pin_header"]())
+        _pin_header_base(families),
+        KIND_GENERATORS["pin_header"](),
+        families,
+    )
     qtbot.addWidget(dlg)
     return dlg
 

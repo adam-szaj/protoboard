@@ -23,7 +23,8 @@ from typing import Any
 
 import structlog
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import ComponentDefinition, PackageOption
+from protoboard.domain.components.package.family import PackageFamily, PackageVariant
 from protoboard.domain.components.package.kind import (
     KIND_GENERATORS,
     GeneratorContext,
@@ -41,14 +42,21 @@ __all__ = [
 ]
 
 
-def parametric_generator_kind(defn: ComponentDefinition) -> str | None:
+def parametric_generator_kind(
+    defn: ComponentDefinition,
+    families: dict[str, PackageFamily],
+) -> str | None:
     """The generator kind a parametric *defn* builds through, or ``None``.
 
     The preview package carries the kind stamped by the build driver; a
     definition without one (or a kind no generator claims) cannot be
     concretized.
     """
-    kind = getattr(defn.package, "kind", None)
+    from protoboard.domain.components.package.component_package import (
+        resolve_component_package,
+    )
+
+    kind = getattr(resolve_component_package(defn, None, families), "kind", None)
     if isinstance(kind, str) and kind in KIND_GENERATORS:
         return kind
     return None
@@ -57,6 +65,7 @@ def parametric_generator_kind(defn: ComponentDefinition) -> str | None:
 def concretize(
     defn: ComponentDefinition,
     pin_count: int,
+    families: dict[str, PackageFamily],
     values: Mapping[str, Any] | None = None,
 ) -> ComponentDefinition:
     """Build the concrete definition of parametric *defn* for *pin_count*.
@@ -68,7 +77,7 @@ def concretize(
     """
     if not defn.parametric_pins:
         raise PackageDefError(f"{defn.name}: not a parametric definition")
-    kind = parametric_generator_kind(defn)
+    kind = parametric_generator_kind(defn, families)
     if kind is None:
         raise PackageDefError(
             f"{defn.name}: parametric definition has no generator kind")
@@ -80,10 +89,18 @@ def concretize(
             f"{defn.name}: kind {kind!r} left parameters unfilled for "
             f"pin_count={pin_count}, values={vals!r}")
     suffix = KIND_GENERATORS[kind](kind).variant_suffix(pin_count, vals)
+    name = f"{defn.name}_{suffix}"
+    family_id = f"{name}-package"
+    families[family_id] = PackageFamily(
+        family_id=family_id,
+        label=name,
+        variants=(PackageVariant("std", name, ctx.package),),
+    )
     return dataclasses.replace(
         defn,
-        name=f"{defn.name}_{suffix}",
-        package=ctx.package,
+        name=name,
+        pin_names={pin: f"P{pin}" for pin in range(1, pin_count + 1)},
+        package_options=(PackageOption(name="default", ref=f"{family_id}/std"),),
         parametric_pins=False,
     )
 
@@ -91,6 +108,7 @@ def concretize(
 def resolve_parametric_name(
     components: Mapping[str, ComponentDefinition],
     name: str,
+    families: dict[str, PackageFamily],
 ) -> ComponentDefinition | None:
     """Synthesize the definition *name* refers to, or ``None``.
 
@@ -106,7 +124,7 @@ def resolve_parametric_name(
         prefix = base_name + "_"
         if not name.startswith(prefix):
             continue
-        kind = parametric_generator_kind(base)
+        kind = parametric_generator_kind(base, families)
         if kind is None:
             continue
         parsed = KIND_GENERATORS[kind](kind).parse_variant_suffix(
@@ -115,7 +133,7 @@ def resolve_parametric_name(
             continue
         pin_count, values = parsed
         try:
-            synth = concretize(base, pin_count, values)
+            synth = concretize(base, pin_count, families, values)
         except PackageDefError:
             _log.warning(
                 "parametric name does not realise", name=name, base=base_name)
@@ -135,8 +153,17 @@ class ComponentCatalog(dict[str, ComponentDefinition]):
     and ``catalog.get(name)``.
     """
 
+    def __init__(
+        self,
+        *args: object,
+        package_families: dict[str, PackageFamily],
+        **kwargs: object,
+    ) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.package_families = package_families
+
     def __missing__(self, name: str) -> ComponentDefinition:
-        synth = resolve_parametric_name(self, name)
+        synth = resolve_parametric_name(self, name, self.package_families)
         if synth is None:
             raise KeyError(name)
         self[synth.name] = synth

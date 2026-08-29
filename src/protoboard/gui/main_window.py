@@ -823,10 +823,15 @@ class MainWindow(QMainWindow):
         from protoboard.services.library.parametric import (
             parametric_generator_kind,
         )
-        kind = parametric_generator_kind(defn)
+        kind = parametric_generator_kind(defn, self._session.package_families)
         if kind is None:
             return None
-        dialog = ParametricPinsDialog(defn, KIND_GENERATORS[kind](kind), self)
+        dialog = ParametricPinsDialog(
+            defn,
+            KIND_GENERATORS[kind](kind),
+            self._session.package_families,
+            self,
+        )
         if dialog.exec() != ParametricPinsDialog.DialogCode.Accepted:
             return None
         concrete = dialog.concrete_definition()
@@ -2943,7 +2948,8 @@ class MainWindow(QMainWindow):
         self._session.library = new_library
         from protoboard.services.library.parametric import ComponentCatalog
         self._session.components = ComponentCatalog(
-            (name, new_library.get(name)) for name in new_library.names()
+            ((name, new_library.get(name)) for name in new_library.names()),
+            package_families=self._session.package_families,
         )
         self._library_panel.set_library(new_library)
         # Re-apply render throttles in case the user adjusted them in

@@ -136,44 +136,19 @@ class DefaultFootprintChoiceProvider:
         self._families = families if families is not None else {}
 
     def options(self, defn: ComponentDefinition) -> list[FootprintOptionView]:
-        from protoboard.services.library.loader import inline_option_address
-
         self._last_defn = defn
         out: list[FootprintOptionView] = []
         root = defn.refdes_prefix
         if defn.package_options:
             for opt in defn.package_options:
-                if opt.ref is not None:
-                    addr = opt.ref
-                    is_kind = self._ref_is_kind(opt.ref)
-                else:
-                    addr = inline_option_address(defn.name, opt.name)
-                    is_kind = self._package_is_kind(opt.package)
                 out.append(
                     FootprintOptionView(
-                        label=f"{root}_{opt.name}", address=addr, is_kind=is_kind
+                        label=f"{root}_{opt.name}",
+                        address=opt.ref,
+                        is_kind=self._ref_is_kind(opt.ref),
                     )
                 )
             return out
-
-        # A component-level ``package: {kind: ...}`` (no footprints list, e.g. a
-        # pin-header / IC) is the part's only body. Surface it as a single option
-        # carrying its kind flag, so the picker can offer to parameterise it; a
-        # plain inline package is not reported here (it places with no choice).
-        # The synthetic ``_generic`` fallback the loader stamps on package-less
-        # parts carries a kind tag but is NOT a declared body — never offer it.
-        from protoboard.domain.components.package.kind import (
-            is_generic_package,
-        )
-        if (self._package_is_kind(defn.package)
-                and not is_generic_package(defn.package)):
-            return [
-                FootprintOptionView(
-                    label=f"{root}_{defn.package.kind}",  # type: ignore[attr-defined]
-                    address="",  # inherits defn.package; no instance variant
-                    is_kind=True,
-                )
-            ]
 
         # Legacy fallback — catalogue families fitting the singular footprint.
         if not self._families:
@@ -376,8 +351,6 @@ class DefaultFootprintChoiceProvider:
             )
             variant = resolve_variant(self._families, address)
             pkg = variant.package if variant is not None else None
-        elif self._last_defn is not None:
-            pkg = self._last_defn.package
         kind = getattr(pkg, "kind", None)
         if pkg is None or not isinstance(kind, str):
             return None

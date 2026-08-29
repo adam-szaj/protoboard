@@ -7,11 +7,8 @@ A component resolves its package along one axis:
    override (the user picked a specific body for this part).
 2. ``ComponentDefinition.default_package_ref()`` — the definition's default
    package choice, normalised from the first declared option.
-3. ``ComponentDefinition.package`` — the definition's baked default body.
-
 An explicitly selected ``"family/variant"`` address must resolve in
-*families*; otherwise resolution raises ``ValueError``. ``None`` means the
-component has no package and the legacy footprint/renderer path applies.
+*families*; otherwise resolution raises ``ValueError``.
 
 Pure domain: the caller supplies the catalogue (``families``); this module does
 no I/O.
@@ -54,10 +51,10 @@ def resolve_component_package(
     defn: "ComponentDefinition",
     instance: "ComponentInstance | None",
     families: dict[str, PackageFamily],
-) -> Package | None:
+) -> Package:
     """The concrete package for a placed component, by precedence.
 
-    instance.package_variant → defn.default_package_ref() → defn.package → None.
+    instance.package_variant → defn.default_package_ref().
     An explicitly selected address that does not resolve raises ``ValueError``.
     """
     chosen = _resolve_variant_package(
@@ -66,10 +63,13 @@ def resolve_component_package(
     )
     if chosen is not None:
         return chosen
-    chosen = _resolve_variant_package(families, defn.default_package_ref())
-    if chosen is not None:
-        return chosen
-    return defn.package
+    default_ref = defn.default_package_ref()
+    if default_ref is None:
+        raise ValueError(f"component {defn.name!r} has no package option")
+    chosen = _resolve_variant_package(families, default_ref)
+    if chosen is None:
+        raise ValueError(f"unresolved default package {default_ref!r}")
+    return chosen
 
 
 def resolve_package_variant_footprint(
@@ -84,7 +84,11 @@ def resolve_package_variant_footprint(
     explicitly selected variant must resolve.
     """
     chosen = _resolve_variant_package(families, package_variant)
-    return package_to_footprint(chosen) if chosen is not None else defn.default_footprint()
+    return (
+        package_to_footprint(chosen)
+        if chosen is not None
+        else defn.default_footprint(families)
+    )
 
 
 def resolved_footprint(

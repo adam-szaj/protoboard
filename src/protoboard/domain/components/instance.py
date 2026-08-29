@@ -102,8 +102,8 @@ class ComponentInstance:
             self, definition=definition, families=families
         )
 
-    def resolved_package(self) -> "Package | None":
-        """The *resolved* package of this placed instance, or ``None``.
+    def resolved_package(self) -> "Package":
+        """The resolved package of this placed instance.
 
         The single source of truth for "the body this placed component
         actually carries": the instance's ``package_variant``, then the
@@ -146,17 +146,11 @@ class ComponentInstance:
         — not a fallback. The distinction is deliberate: unbound = programming
         error (raise); no variant = correct default.
         """
-        pkg = self.resolved_package()
-        if pkg is not None:
-            from protoboard.domain.components.package.component_package import (
-                package_to_footprint,
-            )
+        from protoboard.domain.components.package.component_package import (
+            package_to_footprint,
+        )
 
-            return package_to_footprint(pkg)
-        # Bound, but nothing resolved — the definition's own package IS the
-        # part's real default geometry, not a silent fallback.
-        assert self.definition is not None  # resolved_package raised otherwise
-        return self.definition.default_footprint()
+        return package_to_footprint(self.resolved_package())
 
     @staticmethod
     def new(

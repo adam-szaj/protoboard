@@ -25,6 +25,7 @@ from protoboard.domain.components.package.generators.base import (
     PackageGenerator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
+from protoboard.domain.components.package.family import PackageFamily
 from protoboard.services.library.parametric import concretize
 
 #: Sanity bound for the pin-count spin box (a 2×32 header is 64 pins).
@@ -38,10 +39,12 @@ class ParametricPinsDialog(QDialog):
         self,
         defn: ComponentDefinition,
         generator: PackageGenerator,
+        package_families: dict[str, PackageFamily],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._defn = defn
+        self._package_families = package_families
         self._concrete: ComponentDefinition | None = None
         self.setWindowTitle(f"Place {defn.name}")
 
@@ -94,7 +97,11 @@ class ParametricPinsDialog(QDialog):
     def _try_accept(self) -> None:
         try:
             self._concrete = concretize(
-                self._defn, self._count.value(), self.chosen_values())
+                self._defn,
+                self._count.value(),
+                self._package_families,
+                self.chosen_values(),
+            )
         except PackageDefError as exc:
             self._error.setText(str(exc))
             self._error.setVisible(True)

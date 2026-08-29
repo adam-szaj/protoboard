@@ -871,8 +871,11 @@ class PadIndex:
             footprint_geom = resolved_footprint(defn, instance, families)
             package = resolve_component_package(defn, instance, families)
         else:
-            footprint_geom = defn.default_footprint()
-            package = defn.package
+            from protoboard.errors import UnboundInstanceError
+
+            raise UnboundInstanceError(
+                f"add_component called for {defn.name!r} without an instance"
+            )
         footprint: list[tuple[_PadKey, Side, Item]] = []
         side = placement.side
         # Pin items.

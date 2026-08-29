@@ -6,7 +6,6 @@ from __future__ import annotations
 import pytest
 
 from protoboard.domain.components.definition import ComponentDefinition, PackageOption
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
     PackageFamily,
@@ -15,7 +14,7 @@ from protoboard.domain.components.package import (
     resolve_package_variant_footprint,
 )
 from protoboard.domain.components.package.loader import build_package
-from protoboard.domain.components.package.shapes import Cylinder, Prism
+from protoboard.domain.components.package.shapes import Cylinder
 
 
 def _cyl(diameter: float, length: float) -> object:
@@ -31,22 +30,6 @@ def _cyl(diameter: float, length: float) -> object:
             },
         },
         "C",
-    )
-
-
-def _inline_prism() -> object:
-    return build_package(
-        {
-            "shape": "prism",
-            "dims": {"ly": 5.0, "lx": 5.0},
-            "bend": 0,
-            "leads": {
-                "direction": [0, 0, -1],
-                "body_offset": {"unit": 2.5, "value": [[0, 1], [2, 0], [0, -1]]},
-                "board_offset": "default",
-            },
-        },
-        "U",
     )
 
 
@@ -68,10 +51,8 @@ def _defn(**kw: object) -> ComponentDefinition:
         kw["package_options"] = (
             PackageOption(name=str(package_ref), ref=str(package_ref)),
         )
-    if "package" in kw:
-        return ComponentDefinition(name="X", pin_names={}, **kw)  # type: ignore[arg-type]
-    return ComponentDefinition.from_footprint(
-        name="X", footprint=SIL(n=2), pin_names={}, **kw,  # type: ignore[arg-type]
+    return ComponentDefinition(
+        name="X", pin_names={1: "A", 2: "B"}, **kw,  # type: ignore[arg-type]
     )
 
 
@@ -95,16 +76,8 @@ class TestResolvePrecedence:
         pkg = resolve_component_package(d, inst, _families())
         assert pkg.length_mm == 3.0  # type: ignore[union-attr]
 
-    def test_inline_package_is_last_rung(self) -> None:
-        d = _defn(package=_inline_prism())
-        assert isinstance(resolve_component_package(d, None, _families()), Prism)
-
-    def test_family_ref_beats_inline(self) -> None:
-        d = _defn(package=_inline_prism(), package_ref="DO-35/S")
-        assert isinstance(resolve_component_package(d, None, _families()), Cylinder)
-
     def test_unresolved_definition_ref_raises(self) -> None:
-        d = _defn(package=_inline_prism(), package_ref="NOPE/x")
+        d = _defn(package_ref="NOPE/x")
         with pytest.raises(ValueError, match="NOPE/x"):
             resolve_component_package(d, None, _families())
 
@@ -116,15 +89,9 @@ class TestResolvePrecedence:
         with pytest.raises(ValueError, match="NOPE/x"):
             resolve_component_package(d, inst, _families())
 
-    def test_nothing_resolves_to_definition_default(self) -> None:
-        # ``package`` is required on the definition (the loader synthesizes a
-        # generic one), so the last rung is always the definition default —
-        # resolve never returns None for a real part.
-        from protoboard.domain.components.package.kind import (
-            is_generic_package,
-        )
-        pkg = resolve_component_package(_defn(), None, _families())
-        assert pkg is not None and is_generic_package(pkg)
+    def test_definition_without_package_option_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="package option"):
+            ComponentDefinition(name="X", pin_names={1: "A"})
 
 
 class TestFieldValidation:
@@ -137,8 +104,7 @@ class TestFieldValidation:
 
 
 class TestResolvedFootprint:
-    """resolved_footprint gives the chosen variant's pin geometry, falling back
-    to defn.default_footprint() when no package resolves."""
+    """resolved_footprint gives the chosen variant's pin geometry."""
 
     def test_variant_footprint_is_resolved_package(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
@@ -167,18 +133,6 @@ class TestResolvedFootprint:
         fp_default = resolved_footprint(d, inst_default, _families())
         assert fp_inst.pin_positions() != fp_default.pin_positions()
 
-    def test_no_package_falls_back_to_defn_footprint(self) -> None:
-        from protoboard.domain.components.package import resolved_footprint
-
-        d = _defn()  # no package / family_ref
-        # Bound instance whose part has no package: defn.default_footprint() is its real
-        # default geometry (correct default, not a silent fallback).
-        inst = ComponentInstance.new(
-            definition_ref="X", refdes="X1", value="",
-        ).bind(d, {})
-        fp = resolved_footprint(d, inst, _families())
-        assert fp is d.package  # the definition default, no variant
-
     def test_none_instance_raises(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
         from protoboard.errors import UnboundInstanceError
@@ -196,7 +150,7 @@ class TestResolvedFootprint:
             "DO-35/S",
             _families(),
         )
-        default = d.default_footprint()
+        default = d.default_footprint(_families())
         assert chosen.pin_positions() != default.pin_positions()
 
     def test_preplacement_unresolved_variant_raises(self) -> None:

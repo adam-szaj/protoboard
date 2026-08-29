@@ -51,10 +51,7 @@ from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
-from protoboard.services.library.loader import (
-    ComponentLibrary,
-    inline_option_families,
-)
+from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
@@ -118,22 +115,20 @@ class HeadlessSession:
         # (PinHeader_1x05) on miss, so instance refs from loaded projects and
         # the placement dialog resolve transparently.
         from protoboard.services.library.parametric import ComponentCatalog
-        self.components: dict[str, ComponentDefinition] = ComponentCatalog(
-            (name, library.get(name)) for name in library.names()
-        )
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Package-family body catalogue, keyed by family id: the authored
         # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
         # sil-N), plus families contributed by the library files' own
-        # ``families:`` sections, plus a one-variant family for each component's
-        # inline footprint options (so the picker can offer them and an instance
-        # can record the choice as a normal address).  The builtin catalogue
-        # wins on an id clash (matching the loader's first-wins rule).
+        # ``families:`` sections. The builtin catalogue wins on an id clash
+        # (matching the loader's first-wins rule).
         self.package_families: dict[str, PackageFamily] = {
             **library.package_families,
             **load_full_package_catalogue(),
-            **inline_option_families(library),
         }
+        self.components: dict[str, ComponentDefinition] = ComponentCatalog(
+            ((name, library.get(name)) for name in library.names()),
+            package_families=self.package_families,
+        )
         self.stack: CommandStack[ComponentState] = CommandStack()
         self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
         self._pad_index: PadIndex | None = None

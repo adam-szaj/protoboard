@@ -37,9 +37,12 @@ JST_RAW = {
 }
 
 
-def _parse(raw: dict) -> ComponentDefinition:
+def _parse(raw: dict, families: dict | None = None) -> ComponentDefinition:
     from pathlib import Path
-    return _component_from_dict(dict(raw), Path("test.yaml"))
+    catalogue = families if families is not None else {}
+    return _component_from_dict(
+        dict(raw), Path("test.yaml"), catalogue, catalogue
+    )
 
 
 class TestLoaderParametric:
@@ -58,72 +61,92 @@ class TestLoaderParametric:
 
 class TestConcretize:
     def test_pin_header_single_row_name_and_count(self) -> None:
-        base = _parse(PIN_HEADER_RAW)
-        c = concretize(base, 5, {"rows": 1})
+        families: dict = {}
+        base = _parse(PIN_HEADER_RAW, families)
+        c = concretize(base, 5, families, {"rows": 1})
         assert c.name == "PinHeader_1x05"
         assert c.pin_count == 5
         assert not c.parametric_pins
+        assert c.default_package_ref() == "PinHeader_1x05-package/std"
+        assert "PinHeader_1x05-package" in families
 
     def test_pin_header_dual_row(self) -> None:
-        base = _parse(PIN_HEADER_RAW)
-        c = concretize(base, 16, {"rows": 2})
+        families: dict = {}
+        base = _parse(PIN_HEADER_RAW, families)
+        c = concretize(base, 16, families, {"rows": 2})
         assert c.name == "PinHeader_2x08"
         assert c.pin_count == 16
 
     def test_jst_name(self) -> None:
-        base = _parse(JST_RAW)
-        c = concretize(base, 4, {})
+        families: dict = {}
+        base = _parse(JST_RAW, families)
+        c = concretize(base, 4, families, {})
         assert c.name == "JST_XH_4pin"
         assert c.pin_count == 4
 
     def test_unrealisable_parameters_raise(self) -> None:
-        base = _parse(PIN_HEADER_RAW)
+        families: dict = {}
+        base = _parse(PIN_HEADER_RAW, families)
         with pytest.raises(PackageDefError):
-            concretize(base, 5, {"rows": 2})  # odd count on a 2xN header
+            concretize(base, 5, families, {"rows": 2})
 
     def test_non_parametric_definition_raises(self) -> None:
-        concrete = _parse({**PIN_HEADER_RAW, "pins": {"count": 4}})
+        families: dict = {}
+        concrete = _parse(
+            {**PIN_HEADER_RAW, "pins": {"count": 4}}, families
+        )
         with pytest.raises(PackageDefError):
-            concretize(concrete, 5, {})
+            concretize(concrete, 5, families, {})
 
 
 class TestResolveByName:
     def test_legacy_pin_header_names_resolve(self) -> None:
-        components = {"PinHeader": _parse(PIN_HEADER_RAW)}
+        families: dict = {}
+        components = {"PinHeader": _parse(PIN_HEADER_RAW, families)}
         for name, count in (
             ("PinHeader_1x02", 2),
             ("PinHeader_1x05", 5),
             ("PinHeader_2x05", 10),
             ("PinHeader_2x08", 16),
         ):
-            synth = resolve_parametric_name(components, name)
+            synth = resolve_parametric_name(components, name, families)
             assert synth is not None, name
             assert synth.name == name
             assert synth.pin_count == count
 
     def test_legacy_jst_names_resolve(self) -> None:
-        components = {"JST_XH": _parse(JST_RAW)}
-        synth = resolve_parametric_name(components, "JST_XH_4pin")
+        families: dict = {}
+        components = {"JST_XH": _parse(JST_RAW, families)}
+        synth = resolve_parametric_name(components, "JST_XH_4pin", families)
         assert synth is not None
         assert synth.pin_count == 4
 
     def test_garbage_and_unrealisable_names_do_not(self) -> None:
-        components = {"PinHeader": _parse(PIN_HEADER_RAW)}
-        assert resolve_parametric_name(components, "PinHeader_ABC") is None
-        assert resolve_parametric_name(components, "PinHeader_2x") is None
-        assert resolve_parametric_name(components, "Other_1x05") is None
+        families: dict = {}
+        components = {"PinHeader": _parse(PIN_HEADER_RAW, families)}
+        assert resolve_parametric_name(components, "PinHeader_ABC", families) is None
+        assert resolve_parametric_name(components, "PinHeader_2x", families) is None
+        assert resolve_parametric_name(components, "Other_1x05", families) is None
 
 
 class TestComponentCatalog:
     def test_getitem_synthesizes_and_caches(self) -> None:
-        catalog = ComponentCatalog({"PinHeader": _parse(PIN_HEADER_RAW)})
+        families: dict = {}
+        catalog = ComponentCatalog(
+            {"PinHeader": _parse(PIN_HEADER_RAW, families)},
+            package_families=families,
+        )
         c = catalog["PinHeader_1x06"]
         assert c.pin_count == 6
         assert "PinHeader_1x06" in catalog  # cached
         assert catalog.get("PinHeader_1x06") is c
 
     def test_get_returns_default_on_true_miss(self) -> None:
-        catalog = ComponentCatalog({"PinHeader": _parse(PIN_HEADER_RAW)})
+        families: dict = {}
+        catalog = ComponentCatalog(
+            {"PinHeader": _parse(PIN_HEADER_RAW, families)},
+            package_families=families,
+        )
         assert catalog.get("NoSuchPart") is None
         with pytest.raises(KeyError):
             _ = catalog["NoSuchPart"]

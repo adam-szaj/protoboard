@@ -91,20 +91,16 @@ def resolved_footprint_or_default(
 ) -> Footprint:
     """The variant-aware footprint of a placed component, tolerating unbound.
 
-    Like :func:`footprint_of` but *does not raise* when the instance is missing
-    or unbound — it falls back to ``defn.default_footprint()``. Use this in build paths
-    that can legitimately run before :meth:`ComponentInstance.bind` (e.g.
-    ``ConnectivityGraph`` is constructed from ``load_project`` output, which the
-    session binds only lazily): there is genuinely no variant to resolve yet, so
-    the definition default is the correct geometry for that transient state.
-
-    A *bound* instance always returns its resolved variant footprint — so a
-    placed component that picked a non-default variant gets the right pin world
-    positions, fixing the class of "wrong pads on a variant" bugs. Prefer
-    :func:`footprint_of` (strict) wherever the instance is guaranteed bound.
+    A bound instance returns its resolved variant footprint. Geometry cannot be
+    recovered from a definition alone because definitions contain references,
+    not packages.
     """
     if inst is None or inst.definition is None:
-        return defn.default_footprint()
+        from protoboard.errors import UnboundInstanceError
+
+        raise UnboundInstanceError(
+            f"component {defn.name!r} is not bound to package families"
+        )
     return inst.resolved_footprint()
 
 

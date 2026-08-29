@@ -9,7 +9,7 @@ from typing import Any
 
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.footprints import Footprint
-from protoboard.domain.components.package.shapes import Package
+from protoboard.domain.components.package.family import PackageFamily
 
 
 class ComponentClass(StrEnum):
@@ -98,24 +98,19 @@ class PackageOption:
     """One available package choice a component offers (a picker entry).
 
     A component's logical identity (name/pins/class) is separate from the
-    *footprints* it can be placed in. Each option is either a **reference** into
-    the package-family catalogue (``ref = "family/variant"``) or an **inline**
-    parametric package built from the component's YAML (``package``) — exactly
-    one of the two is set. ``name`` is the picker leaf (joined with the
+    *footprints* it can be placed in. Every option is a reference into the
+    package-family catalogue. ``name`` is the picker leaf (joined with the
     component ``symbol`` as ``symbol_name``); ``style`` overrides the list's
     ``footprint_style`` for this entry only.
     """
 
     name: str
-    ref: str | None = None
-    package: Package | None = None
+    ref: str
     style: Appearance | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("PackageOption.name must not be empty")
-        if (self.ref is None) == (self.package is None):
-            raise ValueError("PackageOption requires exactly one of 'ref' / 'package'")
         if self.ref == "":
             raise ValueError("PackageOption.ref must not be empty")
 
@@ -124,19 +119,11 @@ class PackageOption:
 class ComponentDefinition:
     """Static definition of a component (a "type").
 
-    ``package`` is the single stored geometry source — the definition's
-    DEFAULT body (the loader synthesizes a non-rigid generic bbox package when
-    the YAML declares none, so it is always set). There is deliberately no
-    ``footprint`` field: a placed component's geometry is its **instance's**
-    resolved variant (``footprint_of`` / ``resolved_footprint``), and reading
-    a definition-level footprint in a placement context was a recurring
-    silent-wrong-body bug. Contexts that genuinely need the default (library
-    preview, pre-placement ghost) call :meth:`default_footprint`, which says
-    so in its name.
+    Geometry is referenced only through ``package_options``. Package objects
+    live in the package-family catalogue, never on the component definition.
     """
 
     name: str
-    package: Package
     pin_names: dict[int, str]
     description: str = ""
     # Open classification tag: one of the KNOWN ``ComponentClass`` values (the
@@ -176,68 +163,26 @@ class ComponentDefinition:
     # the footprint-picker label root (``symbol_name``). ``None`` falls back to
     # ``REFDES_PREFIX[component_class]``. Inheritable via library ``extends``.
     symbol: str | None = None
-    # Available footprints this component can be placed in (the picker offers
-    # these; the user must choose one at place time). The default/first entry
-    # derives the ``package`` above so instance-less consumers see one default
-    # geometry. Empty = no choice (the part carries its ``package`` directly).
+    # Available packages this component can be placed in. The first entry is
+    # the default; every entry resolves through the package-family catalogue.
     # See docs/footprints/authoring.md.
     package_options: tuple[PackageOption, ...] = ()
     # Parametric (variable-pin-count) entry: the library YAML declared a
     # ``package: {kind: …}`` with NO ``pins:``, so the pin count (and any open
     # generator parameters, e.g. a pin header's ``rows``) are chosen by the
-    # user at placement time. ``package`` then holds a PREVIEW body built at
-    # the generator's ``preview_pin_count``; placing the part concretizes the
-    # entry into an ordinary definition (services/library/parametric.py).
+    # user at placement time. The default option then points at a PREVIEW body.
     parametric_pins: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("ComponentDefinition.name must not be empty")
-        if not isinstance(self.package, Package):
-            # Loud guard for positional callers that used to pass a Footprint
-            # here (the removed ``footprint`` field's old slot).
-            raise TypeError(
-                f"ComponentDefinition.package must be a Package, got "
-                f"{type(self.package).__name__}; for a bare footprint use "
-                f"ComponentDefinition.from_footprint(...)"
-            )
-        for pin_number in self.pin_names:
-            if pin_number < 1 or pin_number > self.package.pin_count():
-                raise ValueError(
-                    f"pin_names references pin {pin_number} which is outside "
-                    f"the package's pin range (1..{self.package.pin_count()})"
-                )
+        if not self.package_options:
+            raise ValueError("ComponentDefinition requires a package option")
 
-    @classmethod
-    def from_footprint(
-        cls,
-        name: str,
-        footprint: Footprint,
-        pin_names: dict[int, str],
-        **kwargs: Any,
-    ) -> ComponentDefinition:
-        """A definition whose package is synthesized over *footprint*.
-
-        The loader's no-package invariant as a factory: the pin cloud comes
-        from *footprint*, the body is the non-rigid generic bbox package
-        (``kind="_generic"``). For YAML parts declaring only ``footprint:``,
-        and for test fixtures that used to pass ``footprint=`` directly.
-        """
-        from protoboard.domain.components.package.kind import (
-            synth_generic_package,
-        )
-
-        pkg = synth_generic_package(footprint)
-        if pkg is None:
-            raise ValueError(
-                f"{name}: cannot synthesize a package over a footprint with " f"no pins"
-            )
-        if "footprints" in kwargs and "package_options" not in kwargs:
-            kwargs["package_options"] = kwargs.pop("footprints")
-        return cls(name=name, package=pkg, pin_names=pin_names, **kwargs)
-
-    def default_footprint(self) -> Footprint:
-        """The DEFAULT-variant footprint — the definition's ``Package``.
+    def default_footprint(
+        self, families: dict[str, PackageFamily]
+    ) -> Footprint:
+        """Resolve the default package option into footprint geometry.
 
         For anything *placed*, use the instance-resolved geometry
         (``footprint_of`` / ``ComponentInstance.resolved_footprint``); reading
@@ -247,10 +192,10 @@ class ComponentDefinition:
         BOM fallback.
         """
         from protoboard.domain.components.package.component_package import (
-            package_to_footprint,
+            resolve_component_package,
         )
 
-        return package_to_footprint(self.package)
+        return resolve_component_package(self, None, families)
 
     def default_package_option(self) -> PackageOption | None:
         """The definition's default package choice, if it declares one."""
@@ -263,7 +208,7 @@ class ComponentDefinition:
 
     @property
     def pin_count(self) -> int:
-        return self.package.pin_count()
+        return len(self.pin_names)
 
     @property
     def refdes_prefix(self) -> str:

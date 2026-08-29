@@ -106,17 +106,39 @@ def _geometry_from_option(
 ) -> tuple[Package | None, Footprint | None]:
     """Resolve a footprint option to ``(package, footprint)``.
 
-    An inline option carries its package directly; a reference resolves through
-    the family catalogue. Returns ``(None, None)`` when a reference does not
-    resolve (a stale ref degrades gracefully).
+    Every option resolves through the family catalogue. Returns ``(None, None)``
+    when a reference does not resolve.
     """
-    if option.package is not None:
-        return option.package, package_to_footprint(option.package)
-    if option.ref is not None:
-        variant = resolve_variant(families, option.ref)
-        if variant is not None:
-            return variant.package, package_to_footprint(variant.package)
+    variant = resolve_variant(families, option.ref)
+    if variant is not None:
+        return variant.package, package_to_footprint(variant.package)
     return None, None
+
+
+def _register_component_package(
+    package: Package,
+    *,
+    family_id: str,
+    label: str,
+    families: dict[str, PackageFamily],
+    contributed_families: dict[str, PackageFamily],
+) -> str:
+    if family_id in families:
+        raise PackageDefError(f"package family {family_id!r} already exists")
+    family = PackageFamily(
+        family_id=family_id,
+        label=label,
+        variants=(
+            PackageVariant(
+                variant_id=_INLINE_VARIANT,
+                label=label,
+                package=package,
+            ),
+        ),
+    )
+    families[family_id] = family
+    contributed_families[family_id] = family
+    return f"{family_id}/{_INLINE_VARIANT}"
 
 
 def _parse_footprints(
@@ -124,6 +146,7 @@ def _parse_footprints(
     pin_count: int | None,
     source: Path,
     families: dict[str, PackageFamily],
+    contributed_families: dict[str, PackageFamily],
     generics: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[PackageOption, ...]:
     """Parse a component's ``footprints:`` list into ``PackageOption``s.
@@ -202,12 +225,20 @@ def _parse_footprints(
                 f"mapping"
             )
         name = str(name_raw) if name_raw is not None else ""
+        if package is not None:
+            family_id = f"{cname}-{name}-package"
+            ref = _register_component_package(
+                package,
+                family_id=family_id,
+                label=name,
+                families=families,
+                contributed_families=contributed_families,
+            )
         style = Appearance.resolve(entry_style, list_style)
         options.append(
             PackageOption(
                 name=name,
-                ref=ref,
-                package=package,
+                ref=ref or "",
                 style=style if not style.is_empty else None,
             )
         )
@@ -361,7 +392,9 @@ class ComponentLibrary:
             resolve_parametric_name,
         )
 
-        synth = resolve_parametric_name(self._by_name, name)
+        synth = resolve_parametric_name(
+            self._by_name, name, self.package_families
+        )
         if synth is None:
             raise KeyError(name)
         self._by_name[synth.name] = synth
@@ -375,46 +408,7 @@ class ComponentLibrary:
         return isinstance(name, str) and name in self._by_name
 
 
-# Inline footprint options have no catalogue family of their own, so we register
-# each as a one-variant family under this address shape. The picker hands the
-# instance a normal "family/variant" address and ``resolve_component_package``
-# resolves it through the same ``resolve_variant`` path as any catalogue body —
-# no special branch in the hot resolution function.
 _INLINE_VARIANT = "std"
-
-
-def inline_option_address(defn_name: str, option_name: str) -> str:
-    """The catalogue address for an inline footprint option of *defn_name*."""
-    return f"@{defn_name}/{option_name}/{_INLINE_VARIANT}"
-
-
-def inline_option_families(
-    library: ComponentLibrary,
-) -> dict[str, PackageFamily]:
-    """One-variant families for every inline footprint option in *library*.
-
-    Merge these into the package-family catalogue so the picker can offer inline
-    options and an instance can record its choice as a normal address.
-    """
-    out: dict[str, PackageFamily] = {}
-    for name in library.names():
-        defn = library.get(name)
-        for option in defn.package_options:
-            if option.package is None:
-                continue
-            family_id = f"@{name}/{option.name}"
-            out[family_id] = PackageFamily(
-                family_id=family_id,
-                label=option.name,
-                variants=(
-                    PackageVariant(
-                        variant_id=_INLINE_VARIANT,
-                        label=option.name,
-                        package=option.package,
-                    ),
-                ),
-            )
-    return out
 
 
 def load_library(
@@ -542,7 +536,11 @@ def load_library(
         resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
         try:
             defn = _component_from_dict(
-                resolved, source=path, families=families, generics=generics
+                resolved,
+                source=path,
+                families=families,
+                contributed_families=lib_families,
+                generics=generics,
             )
         except PackageDefError as exc:
             # A malformed parametric package must not sink the whole library.
@@ -661,12 +659,17 @@ def _component_from_dict(
     data: Any,
     source: Path,
     families: dict[str, PackageFamily] | None = None,
+    contributed_families: dict[str, PackageFamily] | None = None,
     generics: dict[str, dict[str, Any]] | None = None,
 ) -> ComponentDefinition:
     if not isinstance(data, dict):
         raise SerializationError(f"{source}: each component must be a mapping")
     if "name" not in data or not isinstance(data["name"], str):
         raise SerializationError(f"{source}: component requires string 'name'")
+    family_catalogue = families if families is not None else {}
+    contributed = (
+        contributed_families if contributed_families is not None else {}
+    )
 
     # Parametric package (docs/footprints/package-model.md). When present, it
     # is the source of geometry (it implements the Footprint protocol directly).
@@ -707,7 +710,12 @@ def _component_from_dict(
     # is the singular geometry source when there is no inline ``package``
     # block, so instance-less consumers see one default geometry.
     footprints = _parse_footprints(
-        data, comp_pin_count, source, families or {}, generics
+        data,
+        comp_pin_count,
+        source,
+        family_catalogue,
+        contributed,
+        generics,
     )
 
     if "package_family_ref" in data:
@@ -727,27 +735,63 @@ def _component_from_dict(
             "(catalogue refs)"
         )
 
-    # Geometry chain — the definition's DEFAULT body. Precedence: inline
-    # ``package:`` → first ``footprints:`` option → the pending-kind placeholder.
+    options = list(footprints)
     if package_obj is not None:
-        footprint: Footprint = package_to_footprint(package_obj)
-    elif footprints:
-        pkg, fp = _geometry_from_option(footprints[0], families or {})
-        if pkg is None or fp is None:
-            raise PackageDefError(
-                f"{source}: component {data['name']!r} default footprint "
-                f"{footprints[0].name!r} did not resolve to a package"
-            )
-        package_obj, footprint = pkg, fp
+        ref = _register_component_package(
+            package_obj,
+            family_id=f"{data['name']}-package",
+            label=f"{data['name']}-package",
+            families=family_catalogue,
+            contributed_families=contributed,
+        )
+        options.insert(0, PackageOption(name=f"{data['name']}-package", ref=ref))
     elif pending_kind is not None and comp_pin_count:
-        # A partially-parameterised kind has no geometry yet — a provisional
-        # single-row footprint stands in until the picker builds the concrete
-        # variant (placement resolves geometry from that variant's package).
-        footprint = SIL(n=comp_pin_count)
-    else:
+        placeholder = _pending_kind_placeholder(pending_kind, SIL(n=comp_pin_count))
+        if placeholder is None:
+            raise SerializationError(
+                f"{source}: cannot build pending package for {data['name']!r}"
+            )
+        ref = _register_component_package(
+            placeholder,
+            family_id=f"{data['name']}-package",
+            label=f"{data['name']}-package",
+            families=family_catalogue,
+            contributed_families=contributed,
+        )
+        options.insert(0, PackageOption(name=f"{data['name']}-package", ref=ref))
+    elif not options and comp_pin_count:
+        from protoboard.domain.components.package.kind import synth_generic_package
+
+        fallback = synth_generic_package(SIL(n=comp_pin_count))
+        if fallback is None:
+            raise SerializationError(
+                f"{source}: cannot build fallback package for {data['name']!r}"
+            )
+        ref = _register_component_package(
+            fallback,
+            family_id=f"{data['name']}-package",
+            label=f"{data['name']}-package",
+            families=family_catalogue,
+            contributed_families=contributed,
+        )
+        options.append(PackageOption(name=f"{data['name']}-package", ref=ref))
+
+    if not options:
         raise SerializationError(
-            f"{source}: component {data.get('name')!r} requires 'package', "
-            "'footprints'"
+            f"{source}: component {data.get('name')!r} requires 'pins', "
+            "'package', or 'footprints'"
+        )
+    default_package, _ = _geometry_from_option(options[0], family_catalogue)
+    if default_package is None:
+        raise PackageDefError(
+            f"{source}: component {data['name']!r} default package "
+            f"{options[0].ref!r} did not resolve"
+        )
+    pin_count = comp_pin_count or default_package.pin_count()
+    if default_package.pin_count() != pin_count:
+        raise PackageDefError(
+            f"{source}: component {data['name']!r} declares {pin_count} pins "
+            f"but default package has {default_package.pin_count()}"
         )
 
     pin_names_raw = data.get("pin_names") or {}
@@ -763,6 +807,16 @@ def _component_from_dict(
             raise SerializationError(
                 f"{source}: pin_names key {k!r} is not an integer"
             ) from exc
+    for pin_number in pin_names:
+        if not 1 <= pin_number <= pin_count:
+            raise SerializationError(
+                f"{source}: pin_names references pin {pin_number} outside "
+                f"1..{pin_count}"
+            )
+    pin_names = {
+        pin_number: pin_names.get(pin_number, f"P{pin_number}")
+        for pin_number in range(1, pin_count + 1)
+    }
 
     metadata_raw = data.get("metadata") or {}
     if not isinstance(metadata_raw, dict):
@@ -843,34 +897,6 @@ def _component_from_dict(
             )
         symbol = symbol_raw
 
-    # Invariant: every definition carries a package. When none was declared
-    # (axial diodes / R / C placed as THT, crystals, screw terminals), synthesize
-    # a NON-rigid generic bbox package from the footprint so consumers can always
-    # read ``defn.package`` instead of branching on ``None``. It is tagged
-    # ``kind="_generic"`` and rigid by default: missing package data must not
-    # invent bendability. The explicitly declared ``kind: generic`` follows the
-    # same rule.
-    if package_obj is None and footprint.pin_count() >= 1:
-        if pending_kind is not None:
-            # Pending-kind placeholder — see _pending_kind_placeholder.
-            package_obj = _pending_kind_placeholder(pending_kind, footprint)
-        else:
-            # Local import (mirrors the build_kind_package import above) to
-            # avoid a module-load cycle: package.kind imports this package's
-            # loader.
-            from protoboard.domain.components.package.kind import (
-                synth_generic_package,
-            )
-
-            package_obj = synth_generic_package(footprint)
-    if package_obj is None:
-        # ComponentDefinition.package is required — a part whose geometry
-        # cannot produce even a synthesized generic body is unloadable.
-        raise SerializationError(
-            f"{source}: component {data['name']!r} yields no package "
-            f"(footprint has no pins?)"
-        )
-
     try:
         return ComponentDefinition(
             name=data["name"],
@@ -880,10 +906,9 @@ def _component_from_dict(
             metadata=dict(metadata_raw),
             variants=tuple(variants),
             default_value=default_value,
-            package=package_obj,
             appearance=appearance,
             symbol=symbol,
-            package_options=footprints,
+            package_options=tuple(options),
             parametric_pins=parametric_pins,
         )
     except ValueError as exc:

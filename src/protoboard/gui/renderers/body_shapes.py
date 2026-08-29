@@ -61,20 +61,16 @@ def _active_option_style(
     """The ``style:`` of the footprint option the placed part uses, or None.
 
     With an explicit ``instance.package_variant`` the option is matched by
-    address (a catalogue ``ref`` or the inline-option address). Without one,
-    the first ``footprints:`` entry is the part's geometry source (the loader
-    derived ``defn.package`` from it), so its style applies.
+    catalogue address. Without one, the first ``footprints:`` entry is the
+    part's default geometry source, so its style applies.
     """
     if not defn.package_options:
         return None
     address = instance.package_variant if instance is not None else None
     if not address:
         return defn.package_options[0].style
-    from protoboard.services.library.loader import inline_option_address
     for opt in defn.package_options:
-        opt_address = (opt.ref if opt.ref is not None
-                       else inline_option_address(defn.name, opt.name))
-        if opt_address == address:
+        if opt.ref == address:
             return opt.style
     return None
 

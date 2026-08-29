@@ -43,18 +43,15 @@ class ReplayState:
         board, layout, schematic, instances, *_rest = load_project(project_dir)
         from protoboard.services.library.parametric import ComponentCatalog
         components = ComponentCatalog(
-            (name, library.get(name)) for name in library.names()
+            ((name, library.get(name)) for name in library.names()),
+            package_families=library.package_families,
         )
         # Deserialized instances arrive unbound: bind each to its definition so
-        # replayed commands that touch geometry (move/conflict/render) can
-        # resolve the instance footprint instead of raising
-        # UnboundInstanceError. No package-family catalogue is threaded through
-        # the headless path, so bind with families=None (the resolver tolerates
-        # it; legacy parts fall back to their definition default geometry).
+        # replayed commands that touch geometry can resolve the instance body.
         for comp_id, inst in list(instances.items()):
             defn = components.get(inst.definition_ref)
             if defn is not None:
-                instances[comp_id] = inst.bind(defn, None)
+                instances[comp_id] = inst.bind(defn, library.package_families)
         return cls(
             board=board,
             layout=layout,

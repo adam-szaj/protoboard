@@ -689,7 +689,7 @@ def make_ghost_item(
     # The chosen variant drives both the body shape and the pin spacing: a
     # ghost instance carries the address, resolved against the theme catalogue.
     ghost_inst: ComponentInstance | None = None
-    fp = defn.default_footprint()
+    fp = defn.default_footprint(theme.package_families or {})
     if package_variant is not None:
         ghost_inst = ComponentInstance.new(
             definition_ref=defn.name, refdes="?", value="",
