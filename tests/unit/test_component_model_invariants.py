@@ -69,10 +69,10 @@ def test_first_footprint_option_defines_default_geometry(tmp_path: Path) -> None
 
     defn = load_library([tmp_path]).get("U_DIP14")
 
-    assert len(defn.footprints) == 2
+    assert len(defn.package_options) == 2
     assert defn.default_footprint().pin_count() == 14
     assert defn.default_footprint().pin_positions()[7].x == 3.0
-    assert defn.footprints[1].package is not None
+    assert defn.package_options[1].package is not None
 
 
 def test_instance_package_variant_overrides_definition_default(tmp_path: Path) -> None:

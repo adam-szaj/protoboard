@@ -330,12 +330,21 @@ class ComponentDefinition:
 
     def default_package_option(self) -> PackageOption | None:
         """The definition's default package choice, if it declares one."""
-        return self.footprints[0] if self.footprints else None
+        return self.package_options[0] if self.package_options else None
 
     def default_package_ref(self) -> str | None:
         """The catalogue ref of the default package choice, if any."""
         option = self.default_package_option()
         return None if option is None else option.ref
+
+    @property
+    def package_options(self) -> tuple[PackageOption, ...]:
+        """Package choices offered by this definition.
+
+        ``footprints`` remains the serialized field during the authoring
+        migration; domain callers should use this package-oriented name.
+        """
+        return self.footprints
 
     @property
     def pin_count(self) -> int:
