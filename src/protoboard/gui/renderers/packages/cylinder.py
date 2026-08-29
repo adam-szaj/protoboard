@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
 )
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Rect, Vector
+from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.packages.base import (
     PackageRenderer,
     _lead_pen,
@@ -132,7 +133,7 @@ class CylinderRenderer(PackageRenderer):
             body = self._d_shape(centre, r, flat[0], flat[1])
         else:
             body = QGraphicsEllipseItem(
-                QRectF(centre.x - r, centre.y - r, diam, diam),
+                to_qrectf(Rect.of(centre.x - r, centre.y - r, diam, diam)),
             )
         body.setZValue(paint.z)
         body.setBrush(QBrush(fill_c))
