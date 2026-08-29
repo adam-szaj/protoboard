@@ -36,12 +36,12 @@ from PySide6.QtWidgets import (
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
+from protoboard.gui.keymap import AbstractKeyMap
 from protoboard.controller.theme import Theme, save_theme
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QComboBox, QFormLayout
 
-    from protoboard.gui.keymap import AbstractKeyMap
     from protoboard.services.routing.postprocess import SimplifyMode
 
 
