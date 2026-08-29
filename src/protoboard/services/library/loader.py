@@ -22,6 +22,7 @@ from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
+    MetaPin,
     PackageOption,
     PinVariant,
 )
@@ -900,7 +901,10 @@ def _component_from_dict(
     try:
         return ComponentDefinition(
             name=data["name"],
-            pin_names=pin_names,
+            meta_pins=tuple(
+                MetaPin((pin_names[index],))
+                for index in range(1, len(pin_names) + 1)
+            ),
             description=str(data.get("description", "")),
             component_class=comp_class,
             metadata=dict(metadata_raw),

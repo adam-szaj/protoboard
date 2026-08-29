@@ -77,6 +77,19 @@ REFDES_PREFIX: dict[str, str] = {
 
 
 @dataclass(frozen=True, slots=True)
+class MetaPin:
+    """One logical electrical terminal of a component."""
+
+    labels: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.labels:
+            raise ValueError("MetaPin.labels must not be empty")
+        if any(not isinstance(label, str) or not label for label in self.labels):
+            raise ValueError("MetaPin labels must be non-empty strings")
+
+
+@dataclass(frozen=True, slots=True)
 class PinVariant:
     """An alternative pin-name mapping for a component.
 
@@ -107,12 +120,15 @@ class PackageOption:
     name: str
     ref: str
     style: Appearance | None = None
+    pin_map: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("PackageOption.name must not be empty")
         if self.ref == "":
             raise ValueError("PackageOption.ref must not be empty")
+        if any(index < 1 for index in self.pin_map):
+            raise ValueError("PackageOption MetaPin indices must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +140,7 @@ class ComponentDefinition:
     """
 
     name: str
-    pin_names: dict[int, str]
+    meta_pins: tuple[MetaPin, ...]
     description: str = ""
     # Open classification tag: one of the KNOWN ``ComponentClass`` values (the
     # loader normalizes those to enum members) or any library-authored string
@@ -176,6 +192,8 @@ class ComponentDefinition:
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("ComponentDefinition.name must not be empty")
+        if not self.meta_pins:
+            raise ValueError("ComponentDefinition requires at least one MetaPin")
         if not self.package_options:
             raise ValueError("ComponentDefinition requires a package option")
 
@@ -208,7 +226,24 @@ class ComponentDefinition:
 
     @property
     def pin_count(self) -> int:
-        return len(self.pin_names)
+        """Temporary compatibility projection; use ``len(meta_pins)``."""
+        return len(self.meta_pins)
+
+    @property
+    def pin_names(self) -> dict[int, str]:
+        """Temporary compatibility projection of each MetaPin's first label."""
+        return {
+            index: meta_pin.labels[0]
+            for index, meta_pin in enumerate(self.meta_pins, start=1)
+        }
+
+    def meta_pin(self, index: int) -> MetaPin:
+        """Return the MetaPin at the given 1-based ordinal."""
+        if index < 1 or index > len(self.meta_pins):
+            raise ValueError(
+                f"MetaPin {index} out of range (1..{len(self.meta_pins)})"
+            )
+        return self.meta_pins[index - 1]
 
     @property
     def refdes_prefix(self) -> str:

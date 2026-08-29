@@ -10,6 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package import (
@@ -24,6 +29,46 @@ from protoboard.domain.components.package.generated_families import (
 )
 from protoboard.errors import UnboundInstanceError
 from protoboard.services.library.loader import load_library
+
+
+def test_metapin_requires_at_least_one_non_empty_label() -> None:
+    with pytest.raises(ValueError):
+        MetaPin(())
+    with pytest.raises(ValueError):
+        MetaPin(("B", ""))
+
+
+def test_package_option_maps_one_metapin_to_many_package_pins() -> None:
+    option = PackageOption(
+        name="DIP",
+        ref="dip-8/std",
+        pin_map={1: (1, 8), 2: ()},
+    )
+
+    assert option.pin_map == {1: (1, 8), 2: ()}
+
+
+def test_package_option_rejects_non_positive_metapin_index() -> None:
+    with pytest.raises(ValueError):
+        PackageOption(name="DIP", ref="dip-8/std", pin_map={0: (1,)})
+
+
+def test_definition_exposes_metapins_by_one_based_ordinal() -> None:
+    definition = ComponentDefinition(
+        name="Q",
+        meta_pins=(MetaPin(("B",)), MetaPin(("C",)), MetaPin(("E",))),
+        package_options=(
+            PackageOption(
+                name="TO92",
+                ref="to92/std",
+                pin_map={1: (2,), 2: (1,), 3: (3,)},
+            ),
+        ),
+    )
+
+    assert definition.meta_pin(2).labels == ("C",)
+    with pytest.raises(ValueError):
+        definition.meta_pin(0)
 
 
 def test_inline_package_definition_exposes_default_geometry(tmp_path: Path) -> None:

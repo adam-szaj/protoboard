@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import pytest
 
-from protoboard.domain.components.definition import ComponentDefinition, PackageOption
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
     PackageFamily,
@@ -52,7 +56,9 @@ def _defn(**kw: object) -> ComponentDefinition:
             PackageOption(name=str(package_ref), ref=str(package_ref)),
         )
     return ComponentDefinition(
-        name="X", pin_names={1: "A", 2: "B"}, **kw,  # type: ignore[arg-type]
+        name="X",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        **kw,  # type: ignore[arg-type]
     )
 
 
@@ -91,7 +97,7 @@ class TestResolvePrecedence:
 
     def test_definition_without_package_option_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="package option"):
-            ComponentDefinition(name="X", pin_names={1: "A"})
+            ComponentDefinition(name="X", meta_pins=(MetaPin(("A",)),))
 
 
 class TestFieldValidation:

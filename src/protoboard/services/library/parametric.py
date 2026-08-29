@@ -23,7 +23,11 @@ from typing import Any
 
 import structlog
 
-from protoboard.domain.components.definition import ComponentDefinition, PackageOption
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.package.family import PackageFamily, PackageVariant
 from protoboard.domain.components.package.kind import (
     KIND_GENERATORS,
@@ -99,7 +103,9 @@ def concretize(
     return dataclasses.replace(
         defn,
         name=name,
-        pin_names={pin: f"P{pin}" for pin in range(1, pin_count + 1)},
+        meta_pins=tuple(
+            MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1)
+        ),
         package_options=(PackageOption(name="default", ref=f"{family_id}/std"),),
         parametric_pins=False,
     )
