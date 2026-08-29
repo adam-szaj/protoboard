@@ -47,6 +47,11 @@ from protoboard.domain.components.package.mask import (
     has_collision,
     masks_collide,
 )
+from protoboard.domain.components.package.pin_mapping import (
+    meta_pin_for_package_pin,
+    package_pins_for_meta_pin,
+    resolve_package_option,
+)
 from protoboard.domain.components.package.reach import (
     PinReach,
     RedragResult,
@@ -114,6 +119,9 @@ __all__ = [
     "MountStyle",
     "load_packages",
     "masks_collide",
+    "meta_pin_for_package_pin",
+    "package_pins_for_meta_pin",
     "pin_reaches",
     "resolve_extends",
+    "resolve_package_option",
 ]
