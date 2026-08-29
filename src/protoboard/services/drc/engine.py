@@ -18,6 +18,9 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.layer import LayerId
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.pin_mapping import (
+    meta_pin_for_package_pin,
+)
 from protoboard.domain.components.package.mask import (
     PadCell,
     build_pad_mask,
@@ -297,8 +300,9 @@ def _check_overlap(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        for pin_num in range(1, defn.pin_count + 1):
-            wp = pin_world_position(footprint_of(defn, inst), placement, pin_num)
+        footprint = footprint_of(defn, inst)
+        for pin_num in range(1, footprint.pin_count() + 1):
+            wp = pin_world_position(footprint, placement, pin_num)
             key = (wp.x, wp.y, placement.side)
             pad_occupancy.setdefault(key, []).append((comp_id, pin_num))
 
@@ -336,7 +340,19 @@ def _check_overlap(
 
         if all(_is_bendable(cid, p) for cid, p in unshared):
             continue
-        affected_pins = [PinRef(component_id=cid, pin_number=p) for cid, p in occupants]
+        affected_pins: list[PinRef] = []
+        for cid, package_pin_number in occupants:
+            instance = instances.get(cid)
+            if instance is None:
+                continue
+            definition = components.get(instance.definition_ref)
+            if definition is None:
+                continue
+            meta_pin_index = meta_pin_for_package_pin(
+                definition, instance, package_pin_number
+            )
+            if meta_pin_index is not None:
+                affected_pins.append(PinRef(cid, meta_pin_index))
         affected_components = sorted({cid for cid, _ in occupants}, key=str)
         loc_str = _format_location(Point(x, y), axis_labels)
         pin_list = _format_pin_list(affected_pins, instances, max_items=4)
@@ -440,8 +456,9 @@ def _check_body_overlap(
         inst = instances[cid]
         defn = components[inst.definition_ref]
         pl = layout.placements[cid]
-        for pin_num in range(1, defn.pin_count + 1):
-            wp = pin_world_position(footprint_of(defn, inst), pl, pin_num)
+        footprint = footprint_of(defn, inst)
+        for pin_num in range(1, footprint.pin_count() + 1):
+            wp = pin_world_position(footprint, pl, pin_num)
             if wp.x == hole.x and wp.y == hole.y:
                 return pin_num
         return None
@@ -986,7 +1003,17 @@ def _check_off_board_pins(
             if on_pad:
                 continue
             loc_label = _format_location(wp, axis_labels)
-            pin_name = defn.pin_names.get(pin_num, str(pin_num))
+            meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+            pin_name = (
+                str(pin_num)
+                if meta_pin_index is None
+                else defn.meta_pin(meta_pin_index).labels[0]
+            )
+            affected_pins = (
+                []
+                if meta_pin_index is None
+                else [PinRef(component_id=comp_id, pin_number=meta_pin_index)]
+            )
             issues.append(
                 DRCIssue(
                     severity="error",
@@ -999,7 +1026,7 @@ def _check_off_board_pins(
                     ),
                     locations=[wp],
                     affected_nets=[],
-                    affected_pins=[PinRef(component_id=comp_id, pin_number=pin_num)],
+                    affected_pins=affected_pins,
                     affected_components=[comp_id],
                 )
             )

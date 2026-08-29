@@ -10,16 +10,21 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point, Vector, Vector3D
-from protoboard.services.drc.engine import DRCEngine, DRCIssue
+from protoboard.services.drc.engine import DRCEngine, DRCIssue, _check_overlap
 from tests.instance_utils import bind
 
 
@@ -44,6 +49,42 @@ def _r_defn() -> ComponentDefinition:
     return ComponentDefinition.from_footprint(
         name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"}
     )
+
+
+def test_overlap_uses_physical_pins_but_reports_metapins() -> None:
+    family = sil_family(2)
+    assert family is not None
+    defn_a = ComponentDefinition(
+        name="A",
+        meta_pins=(MetaPin(("A",)),),
+        package_options=(PackageOption("SIL-2", "sil-2/std", pin_map={1: (2,)}),),
+    )
+    defn_b = ComponentDefinition(
+        name="B",
+        meta_pins=(MetaPin(("B",)),),
+        package_options=(PackageOption("SIL-2", "sil-2/std", pin_map={1: (1,)}),),
+    )
+    families = {family.family_id: family}
+    a = ComponentInstance.new("A", "A1", "").bind(defn_a, families)
+    b = ComponentInstance.new("B", "B1", "").bind(defn_b, families)
+    layout = Layout(
+        placements=PlacementCollection(
+            {
+                a.id: ComponentPlacement(a.id, Point(0.5, 0.5), 0, "top"),
+                b.id: ComponentPlacement(b.id, Point(0.5, 1.5), 180, "top"),
+            }
+        ),
+        wires=WireCollection(),
+    )
+
+    issues = _check_overlap(
+        layout,
+        {"A": defn_a, "B": defn_b},
+        {a.id: a, b.id: b},
+    )
+
+    assert issues
+    assert all(ref.pin_number == 1 for issue in issues for ref in issue.affected_pins)
 
 
 class TestDRCClean:
