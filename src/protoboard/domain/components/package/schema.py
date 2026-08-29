@@ -2,8 +2,8 @@
 """Package parameter *schema* — field declarations separated from values.
 
 An abstract base package declares its fields under a top-level ``schema:`` key
-whose inner structure mirrors the value tree (``schema.dims.width`` describes the
-value at ``dims.width``). A field declaration is a leaf dict ``{type, default,
+whose inner structure mirrors the value tree (``schema.dims.lx`` describes the
+value at ``dims.lx``). A field declaration is a leaf dict ``{type, default,
 required}``; anything without a ``type`` key is a *section* (a branch grouping
 more fields).
 
@@ -297,7 +297,7 @@ def _parse_leaf(node: Mapping[str, Any], path: str) -> FieldSpec:
 class ParamSchema:
     """Parsed package schema: a path-mirrored map of field declarations.
 
-    Keys are dotted value-tree paths (``"dims.width"``, ``"leads.direction"``).
+    Keys are dotted value-tree paths (``"dims.lx"``, ``"leads.direction"``).
     Built from a raw ``schema:`` mapping by :func:`parse_schema`. The schema only
     *describes* fields; applying it to a value tree (defaults / required / type)
     is :meth:`apply_to`.

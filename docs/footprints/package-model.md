@@ -342,7 +342,7 @@ and on the board — because the unit differs, not the shape**. 3-in-line at
 packages:
   - name: TO-92
     extends: prism
-    dims: {width: 4.5, length: 4.5, height: 5.2}
+    dims: {lx: 4.5, ly: 4.5, lz: 5.2}
     leads:
       direction:   [[0,0,-1],[0,0,-1],[0,0,-1]]   # radial, 3 pins
       body_offset: {unit: 1.25, value: [[1,0],[1,0]]}   # 3-in-line
@@ -372,7 +372,7 @@ packages:
 
   - name: DIP-8
     extends: prism_dil
-    dims: {width: 9.8, length: 10.2, height: 4.0}
+    dims: {lx: 10.2, ly: 9.8, lz: 4.0}
     leads:
       body_offset:
         unit: 2.5
@@ -487,7 +487,7 @@ packages:
 
   - name: TO-92
     extends: prism
-    dims: {width: 4.5, length: 4.5, height: 5.2}
+    dims: {lx: 4.5, ly: 4.5, lz: 5.2}
     leads:
       direction:   [[0,0,-1],[0,0,-1],[0,0,-1]]
       body_offset:  {unit: 1.25, value: [[1,0],[1,0]]}  # 1.25 mm between neighbours
@@ -540,14 +540,15 @@ count, not a number to type).
 
 **`schema` — field declaration, namespaced and path-mirrored.** A package
 declares its fields under a top-level `schema:` whose **structure mirrors the
-value tree**: a field at `dims.width` is described at `schema.dims.width`,
+value tree**: a field at `dims.lx` is described at `schema.dims.lx`,
 `leads.direction` at `schema.leads.direction`. A leaf is a dict:
 
 ```yaml
 schema:
   dims:
-    width:  {type: float, required: true}
-    length: {type: float, required: true}
+    lx:     {type: float, required: true}
+    ly:     {type: float, required: true}
+    lz:     {type: float, required: true}
     radius: {type: [float, [float, float], [float, [float, float]]], default: 0.0}
 ```
 
@@ -645,7 +646,7 @@ are captured *before* step 4, so the UI keeps seeing the authored `auto`
 
 A declaration lives at the `extends` level that **introduces** the field:
 `package` (root) → `schema.leads.direction`; `prism` →
-`schema.dims.width/length/height`; `cylinder` → `schema.dims.diameter/length`;
+`schema.dims.lx/ly/lz`; `cylinder` → `schema.dims.diameter/length`;
 a `kind` → its own new inputs (`schema.dims.pins_per_row`).
 
 ### 5.5 Lead schema (`leads.*`)
@@ -816,7 +817,7 @@ practice the node name equals the kind, validated with a warning):
   kind: dip_ic          # linkage to the registered generator
   extends: prism_dil    # inherits leads geometry + schema — full validation
   color: "#2b2b30"      # default body colour (dark epoxy)
-  dims: {width: auto, length: auto}
+  dims: {ly: auto, lx: auto}
   leads: {body_offset: auto}
 ```
 
@@ -836,7 +837,7 @@ e.g. `(package, prism, prism_dil, dip_ic)`), the merged value-tree schema,
 `raw_values` with the authored `auto` (read-only in the Properties panel),
 and the node's declared `color` (the generator's `color` is only a fallback).
 An explicit component value always beats `auto`
-(`package: {kind: dip_ic, dims: {width: 7.0}}`).
+(`package: {kind: dip_ic, dims: {lx: 7.0}}`).
 
 A node may declare its own `schema:` block for NEW kind parameters (a
 pin-header's `rows`): it binds into `KIND_DECLARED_SCHEMAS` and is served

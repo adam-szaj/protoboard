@@ -8,7 +8,7 @@ A *kind node* is a package definition carrying a ``kind:`` field
       kind: dip_ic          # linkage to the registered generator
       extends: prism_dil    # ordinary extends — schema + leads inherited
       color: "#2b2b30"
-      dims: {width: auto, length: auto}
+      dims: {ly: auto, lx: auto}
       leads: {body_offset: auto}
 
 The node declares everything parameter-INdependent; every slot whose value

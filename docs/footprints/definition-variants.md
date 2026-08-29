@@ -58,7 +58,7 @@ components:
     component_class: devboard
     package:
       shape: prism
-      dims: {width: 12.5, length: 12.5, height: 1.6}
+      dims: {lx: 12.5, ly: 12.5, lz: 1.6}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}
@@ -176,7 +176,7 @@ shipped with the app: `package` (root, declares the `leads.*` schema),
 packages:
   - name: my_module_base
     extends: prism                     # builtin generics are in scope
-    dims: {width: 12.5, length: 12.5, height: 1.6}
+    dims: {lx: 12.5, ly: 12.5, lz: 1.6}
     leads:
       direction: [0, 0, -1]
       body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}
@@ -260,7 +260,7 @@ families:
     color: "#26323f"
     variants:
       - id: std
-        dims: {width: 10.0, length: 20.0, height: 15.0}
+        dims: {lx: 20.0, ly: 10.0, lz: 15.0}
         # pin-to-pin offsets after pin 1: pins at x = 0, 5, 20, 25 mm
         leads: {body_offset: {unit: 2.5, value: [[2,0], [6,0], [2,0]]}}
 
