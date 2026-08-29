@@ -141,8 +141,8 @@ class DefaultFootprintChoiceProvider:
         self._last_defn = defn
         out: list[FootprintOptionView] = []
         root = defn.refdes_prefix
-        if defn.footprints:
-            for opt in defn.footprints:
+        if defn.package_options:
+            for opt in defn.package_options:
                 if opt.ref is not None:
                     addr = opt.ref
                     is_kind = self._ref_is_kind(opt.ref)

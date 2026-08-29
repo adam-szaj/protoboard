@@ -395,7 +395,7 @@ def inline_option_families(
     out: dict[str, PackageFamily] = {}
     for name in library.names():
         defn = library.get(name)
-        for option in defn.footprints:
+        for option in defn.package_options:
             if option.package is None:
                 continue
             family_id = f"@{name}/{option.name}"

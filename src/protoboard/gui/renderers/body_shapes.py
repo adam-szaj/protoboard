@@ -65,13 +65,13 @@ def _active_option_style(
     the first ``footprints:`` entry is the part's geometry source (the loader
     derived ``defn.package`` from it), so its style applies.
     """
-    if not defn.footprints:
+    if not defn.package_options:
         return None
     address = instance.package_variant if instance is not None else None
     if not address:
-        return defn.footprints[0].style
+        return defn.package_options[0].style
     from protoboard.services.library.loader import inline_option_address
-    for opt in defn.footprints:
+    for opt in defn.package_options:
         opt_address = (opt.ref if opt.ref is not None
                        else inline_option_address(defn.name, opt.name))
         if opt_address == address:
