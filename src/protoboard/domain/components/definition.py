@@ -260,7 +260,7 @@ class ComponentDefinition:
     # derives the ``package`` above so instance-less consumers see one default
     # geometry. Empty = no choice (the part carries its ``package`` directly).
     # See docs/footprints/authoring.md.
-    footprints: tuple[PackageOption, ...] = ()
+    package_options: tuple[PackageOption, ...] = ()
     # Parametric (variable-pin-count) entry: the library YAML declared a
     # ``package: {kind: …}`` with NO ``pins:``, so the pin count (and any open
     # generator parameters, e.g. a pin header's ``rows``) are chosen by the
@@ -310,6 +310,8 @@ class ComponentDefinition:
             raise ValueError(
                 f"{name}: cannot synthesize a package over a footprint with "
                 f"no pins")
+        if "footprints" in kwargs and "package_options" not in kwargs:
+            kwargs["package_options"] = kwargs.pop("footprints")
         return cls(name=name, package=pkg, pin_names=pin_names, **kwargs)
 
     def default_footprint(self) -> Footprint:
@@ -338,13 +340,9 @@ class ComponentDefinition:
         return None if option is None else option.ref
 
     @property
-    def package_options(self) -> tuple[PackageOption, ...]:
-        """Package choices offered by this definition.
-
-        ``footprints`` remains the serialized field during the authoring
-        migration; domain callers should use this package-oriented name.
-        """
-        return self.footprints
+    def footprints(self) -> tuple[PackageOption, ...]:
+        """Deprecated runtime alias for code not yet migrated."""
+        return self.package_options
 
     @property
     def pin_count(self) -> int:

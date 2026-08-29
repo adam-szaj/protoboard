@@ -1097,7 +1097,7 @@ class TestFootprintOptionStyle:
             component_class=ComponentClass.RESISTOR,
             pin_names={},
             package=_colored_prism("#cdd2d6"),
-            footprints=(
+            package_options=(
                 PackageOption(name="DIN-0207", ref="din-0207/typ"),
                 PackageOption(name="SMD-0805", ref="smd-0805/typ",
                               style=Appearance(color="#222222")),
@@ -1353,7 +1353,7 @@ class TestPackageBodyDispatch:
             component_class=ComponentClass.DIODE,
             footprint=SIL(n=2),
             pin_names={},
-            footprints=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
+            package_options=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
         )
         shape = body_shape_for(defn, package_families=self._families())
         assert isinstance(shape, PackageBody)
@@ -1384,7 +1384,7 @@ class TestPackageBodyDispatch:
             component_class=ComponentClass.DIODE,
             footprint=SIL(n=2),
             pin_names={},
-            footprints=(PackageOption(name="NOPE/x", ref="NOPE/x"),),
+            package_options=(PackageOption(name="NOPE/x", ref="NOPE/x"),),
         )
         with pytest.raises(ValueError, match="NOPE/x"):
             body_shape_for(defn, package_families=self._families())

@@ -64,8 +64,8 @@ def _families() -> dict[str, PackageFamily]:
 
 def _defn(**kw: object) -> ComponentDefinition:
     package_ref = kw.pop("package_ref", None)
-    if package_ref is not None and "footprints" not in kw:
-        kw["footprints"] = (
+    if package_ref is not None and "package_options" not in kw:
+        kw["package_options"] = (
             PackageOption(name=str(package_ref), ref=str(package_ref)),
         )
     if "package" in kw:

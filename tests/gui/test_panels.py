@@ -591,7 +591,7 @@ class TestBodyVariantDropdown:
         return ComponentDefinition.from_footprint(
             name="R", footprint=SIL(n=2),
             pin_names={}, component_class=ComponentClass.RESISTOR,
-            footprints=(
+            package_options=(
                 PackageOption(name="DIN-0207/typ", ref="DIN-0207/typ"),
             ),
         )

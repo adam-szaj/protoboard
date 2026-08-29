@@ -303,7 +303,7 @@ class TestVariantFootprintOnLoad:
         # variant with different pin spacing.
         defn = ComponentDefinition.from_footprint(
             name="P", footprint=SIL(2), pin_names={1: "A", 2: "B"},
-            footprints=(PackageOption(
+            package_options=(PackageOption(
                 name=f"{family_id}/{default_vid}",
                 ref=f"{family_id}/{default_vid}",
             ),),

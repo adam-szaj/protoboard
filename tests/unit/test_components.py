@@ -191,7 +191,7 @@ class TestComponentDefinition:
             name="D",
             footprint=SIL(2),
             pin_names={},
-            footprints=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
+                package_options=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
         )
         assert defn.default_package_ref() == "DO-35/typ"
         assert defn.default_package_option() is not None
@@ -206,7 +206,7 @@ class TestComponentDefinition:
                 name="tmp", footprint=SIL(2), pin_names={}
             ).package,
             pin_names={},
-            footprints=(
+                package_options=(
                 PackageOption(name="A", ref="DIN-0207/typ"),
                 PackageOption(name="B", ref="DO-35/typ"),
             ),

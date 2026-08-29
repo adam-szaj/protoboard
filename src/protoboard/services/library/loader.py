@@ -926,7 +926,7 @@ def _component_from_dict(
             package=package_obj,
             appearance=appearance,
             symbol=symbol,
-            footprints=footprints,
+            package_options=footprints,
             parametric_pins=parametric_pins,
         )
     except ValueError as exc:
