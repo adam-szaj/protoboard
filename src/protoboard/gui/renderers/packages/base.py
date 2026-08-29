@@ -65,7 +65,8 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.components.value_text import body_print_text
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point, Transform2D
+from protoboard.geometry import Point, Rect, Transform2D
+from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.packages.body_label import make_body_label
 from protoboard.gui.renderers.packages.canvas import (
     BodyCanvas,
@@ -208,15 +209,16 @@ class GenericBody(BodyShape):
         if corners is not None and any(corners):
             mm = theme.raster_pitch_mm
             tl, tr, br, bl = corners
+            body_rect = Rect.of(x0, y0, w, h)
             path_item = QGraphicsPathItem(rounded_rect_path(
-                QRectF(x0, y0, w, h),
+                to_qrectf(body_rect),
                 (tl / mm, tr / mm, br / mm, bl / mm),
             ))
             path_item.setBrush(QBrush(fill))
             path_item.setPen(_body_pen(border, alpha))
             path_item.setZValue(z)
             return [path_item], []
-        rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
+        rect = QGraphicsRectItem(to_qrectf(Rect.of(x0, y0, w, h)))
         rect.setBrush(QBrush(fill))
         rect.setPen(_body_pen(border, alpha))
         rect.setZValue(z)
