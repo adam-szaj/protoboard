@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -325,6 +326,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
+from protoboard.services.library.loader import _component_from_dict
 
 
 def _perfboard(rows: int, cols: int) -> Board:
@@ -397,6 +399,53 @@ class TestPadIndexBuild:
         # PinItem present on both sides (through-hole).
         assert len(pin_pad.physically_blocked_on("top")) == 1
         assert len(pin_pad.physically_blocked_on("bottom")) == 1
+
+    def test_one_metapin_propagates_net_to_two_package_pins(self) -> None:
+        families: dict = {}
+        defn = _component_from_dict(
+            {
+                "name": "X",
+                "pins": {"count": 2},
+                "package": {"kind": "sil"},
+                "meta_pins": [["GND"]],
+                "pin_map": {1: [1, 2]},
+            },
+            Path("metapin.yaml"),
+            families,
+            families,
+        )
+        inst = ComponentInstance.new("X", "X1", "").bind(defn, families)
+        placement = ComponentPlacement(
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=90,
+            side="top",
+        )
+        layout = _empty_layout()
+        layout.placements[inst.id] = placement
+        net_id = uuid.uuid4()
+        schematic = Schematic(
+            nets={
+                net_id: Net(
+                    id=net_id,
+                    name="GND",
+                    pins={PinRef(inst.id, 1)},
+                )
+            }
+        )
+
+        index = PadIndex(
+            _perfboard(2, 2),
+            layout,
+            schematic,
+            {"X": defn},
+            {inst.id: inst},
+        )
+
+        for point in (Point(0.5, 0.5), Point(1.5, 0.5)):
+            pad = index.pad_at(point)
+            assert pad is not None
+            assert pad.electrical_net_on("top") == net_id
 
 
 class TestPadIndexIncremental:

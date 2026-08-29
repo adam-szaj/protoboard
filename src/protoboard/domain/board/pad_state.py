@@ -860,6 +860,9 @@ class PadIndex:
             resolve_component_package,
             resolved_footprint,
         )
+        from protoboard.domain.components.package.pin_mapping import (
+            meta_pin_for_package_pin,
+        )
         from protoboard.domain.layout.placement import pin_world_position
         # Variant-aware footprint/package: a bound instance resolves the body
         # the user actually chose; without one (or an unbound stub) the
@@ -891,10 +894,15 @@ class PadIndex:
             pad = self._pads.get(key)
             if pad is None:
                 continue
+            meta_pin_index = meta_pin_for_package_pin(defn, instance, pin_num)
             pin_item = PinItem(
                 id=comp_id,
                 pin_number=pin_num,
-                net=pin_net_map.get(pin_num),
+                net=(
+                    pin_net_map.get(meta_pin_index)
+                    if meta_pin_index is not None
+                    else None
+                ),
             )
             pad._add_item(pin_item, side)
             footprint.append((key, side, pin_item))
