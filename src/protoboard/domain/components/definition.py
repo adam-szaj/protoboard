@@ -340,11 +340,6 @@ class ComponentDefinition:
         return None if option is None else option.ref
 
     @property
-    def footprints(self) -> tuple[PackageOption, ...]:
-        """Deprecated runtime alias for code not yet migrated."""
-        return self.package_options
-
-    @property
     def pin_count(self) -> int:
         return self.package.pin_count()
 

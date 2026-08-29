@@ -709,7 +709,7 @@ class TestConnectorPlacement:
         # blocks placement (the bug the user hit).
         for name in ("PinHeader_1x04", "PinHeader_2x05", "JST_PH_3pin"):
             defn, _inst, _cat = self._setup(name)
-            assert not defn.footprints, name
+            assert not defn.package_options, name
 
     def test_preview_and_placed_render_same_kind_prism(self,
                                                        qtbot: QtBot) -> None:
@@ -762,7 +762,7 @@ class TestTO92PackageParity:
         defn, _inst, _cat = self._setup()
         assert defn.symbol == "Q"
         assert [(o.name, o.ref)
-                for o in defn.footprints] == [("TO92", "TO-92")]
+                for o in defn.package_options] == [("TO92", "TO-92")]
 
     def test_preview_and_placed_render_the_same_flat_cylinder(
         self,
@@ -823,7 +823,7 @@ class TestTO220PackageParity:
     def test_regulator_declares_to220_footprint(self) -> None:
         defn, _inst, _cat = self._setup("7805")
         assert [(o.name, o.ref)
-                for o in defn.footprints] == [("TO220", "TO-220")]
+                for o in defn.package_options] == [("TO220", "TO-220")]
 
     def test_preview_and_placed_render_the_same_prism(self,
                                                       qtbot: QtBot) -> None:

@@ -180,7 +180,7 @@ class TestComponentSymbol:
 
     def test_footprints_default_empty(self) -> None:
         defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
-        assert defn.footprints == ()
+        assert defn.package_options == ()
 
 
 class TestComponentDefinition:

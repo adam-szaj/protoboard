@@ -516,8 +516,8 @@ class TestPartialKindFootprintOption:
         )
         self._register_needs_rows()
         defn = self._load(tmp_path).get("PART_OPT")
-        assert len(defn.footprints) == 1
-        opt = defn.footprints[0]
+        assert len(defn.package_options) == 1
+        opt = defn.package_options[0]
         assert isinstance(opt.package, Prism)
         # Generic semantics preserved (geometry is the synthetic bbox)...
         assert is_generic_package(opt.package)

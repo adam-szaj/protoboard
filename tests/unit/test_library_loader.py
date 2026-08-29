@@ -76,9 +76,9 @@ class TestFootprintsList:
         )
         defn = load_library([tmp_path]).get("U_DIP14")
         assert defn.default_footprint().pin_count() == 14          # from the first entry
-        assert len(defn.footprints) == 2
-        assert defn.footprints[0].name == "DIP-14"
-        assert defn.footprints[1].package is not None    # inline package built
+        assert len(defn.package_options) == 2
+        assert defn.package_options[0].name == "DIP-14"
+        assert defn.package_options[1].package is not None    # inline package built
 
     def test_footprint_style_default_and_per_entry_override(
         self, tmp_path: Path
@@ -103,8 +103,8 @@ class TestFootprintsList:
         )
         defn = load_library([tmp_path]).get("R")
         # entry A inherits the list default; entry B overrides the colour.
-        assert defn.footprints[0].style == Appearance(color="#228822")
-        assert defn.footprints[1].style == Appearance(color="#333333")
+        assert defn.package_options[0].style == Appearance(color="#228822")
+        assert defn.package_options[1].style == Appearance(color="#333333")
 
     def test_ref_entry_resolves_against_catalogue(self, tmp_path: Path) -> None:
         from protoboard.domain.components.package.generated_families import (
@@ -121,8 +121,8 @@ class TestFootprintsList:
         lib = load_library([tmp_path], package_families=generate_inline_families())
         defn = lib.get("U_DIP16")
         assert defn.default_footprint().pin_count() == 16
-        assert defn.footprints[0].ref == "dip-16/std"
-        assert defn.footprints[0].name == "dip-16/std"   # name defaults to ref
+        assert defn.package_options[0].ref == "dip-16/std"
+        assert defn.package_options[0].name == "dip-16/std"   # name defaults to ref
 
     def test_inline_option_resolves_via_synthesized_family(
         self, tmp_path: Path
@@ -218,7 +218,7 @@ class TestLibraryFilePackagesAndFamilies:
         lib = load_library([tmp_path], package_families={})
         defn = lib.get("D_MY")
         assert defn.default_footprint().pin_count() == 2
-        assert defn.footprints[0].ref == "MY-DO/std"
+        assert defn.package_options[0].ref == "MY-DO/std"
         # The family rides on the library so the session's picker offers it.
         assert "MY-DO" in lib.package_families
         assert lib.package_families["MY-DO"].variants[0].variant_id == "std"
@@ -557,7 +557,7 @@ class TestConsolidatedPassives:
         pins = [(round(p.x), round(p.y))
                 for p in defn.default_footprint().pin_positions()]
         assert pins == [(0, 0), (3, 0)]
-        names = [o.name for o in defn.footprints]
+        names = [o.name for o in defn.package_options]
         assert "DIN-0207" in names and "SMD-0805" in names
         assert defn.default_value == "?"
 
@@ -567,8 +567,8 @@ class TestConsolidatedPassives:
         cp = lib.get("C_POL")
         assert c.refdes_prefix == "C" and cp.refdes_prefix == "C"
         assert cp.pin_name(1) == "+" and cp.pin_name(2) == "-"   # polarity kept
-        assert "Disc-D5" in [o.name for o in c.footprints]
-        assert "Radial-D5" in [o.name for o in cp.footprints]
+        assert "Disc-D5" in [o.name for o in c.package_options]
+        assert "Radial-D5" in [o.name for o in cp.package_options]
 
     def test_consolidated_names_dropped_aliases_kept(self) -> None:
         lib = self._lib()
