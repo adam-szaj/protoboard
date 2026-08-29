@@ -28,7 +28,8 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Rect, Vector
+from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS, Z_LABELS_TOP
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.controller.theme import DEFAULT_THEME, Theme
@@ -585,8 +586,10 @@ def _render_one(
 
         if is_bold:
             dot = QGraphicsEllipseItem(
-                QRectF(pos.x - dot_radius, pos.y - dot_radius,
-                       2 * dot_radius, 2 * dot_radius)
+                to_qrectf(Rect.of(
+                    pos.x - dot_radius, pos.y - dot_radius,
+                    2 * dot_radius, 2 * dot_radius,
+                ))
             )
             dot.setBrush(QBrush(dot_fill))
             dot.setPen(QPen(Qt.PenStyle.NoPen))
@@ -744,7 +747,9 @@ def make_ghost_item(
 
     r = theme.pin_radius
     for pos in positions:
-        dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
+        dot = QGraphicsEllipseItem(to_qrectf(Rect.of(
+            pos.x - r, pos.y - r, 2 * r, 2 * r,
+        )))
         dot.setBrush(QBrush(ghost_pin))
         dot.setPen(QPen(Qt.GlobalColor.transparent, 0))
         group.addToGroup(dot)
