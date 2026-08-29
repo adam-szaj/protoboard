@@ -881,7 +881,7 @@ def render_groups(
             name_col = QColor(t.group_name_color)
             name_col.setAlpha(t.group_dim_name_alpha)
 
-        rect = QGraphicsRectItem(QRectF(x0, y0, bw, bh))
+        rect = QGraphicsRectItem(to_qrectf(Rect.of(x0, y0, bw, bh)))
         rect.setPen(pen)
         rect.setBrush(QBrush(fill))
         # Tag the rect so SelectTool can identify it as a group outline.

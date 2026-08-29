@@ -32,7 +32,7 @@ from protoboard.gui.renderers.wire_renderer import (
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.services.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
-from protoboard.geometry import Insets
+from protoboard.geometry import Insets, Rect
 from protoboard.gui.qt_geometry import to_qrectf
 
 if TYPE_CHECKING:
@@ -691,4 +691,4 @@ class SceneComposer:
             y0 = min(ys) - margin
             rect_w = max(xs) - min(xs) + 2 * margin
             rect_h = max(ys) - min(ys) + 2 * margin
-            rect_item.setRect(QRectF(x0, y0, rect_w, rect_h))
+            rect_item.setRect(to_qrectf(Rect.of(x0, y0, rect_w, rect_h)))
