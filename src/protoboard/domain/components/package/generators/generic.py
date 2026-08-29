@@ -8,10 +8,9 @@ synthetic ``_generic`` package the loader used to fabricate for bare
     pins: {count: 2}
     package: {kind: generic}
 
-The body keeps every ``_generic`` semantic: non-rigid (authored
-``bendable_pins`` stay in force — ``effective_bend_specs`` defers to them),
-excluded from the DRC body mask and from the body-variant picker, rendered as
-the plain pin-cloud bbox. Pins default to a single 1-hole-pitch row.
+The declared body is rigid, excluded from the DRC body mask and from the
+body-variant picker, and rendered as the plain pin-cloud bbox. Pins default to
+a single 1-hole-pitch row; bend mechanics must be declared by a real package.
 """
 
 from __future__ import annotations
@@ -38,12 +37,10 @@ class GenericGenerator(PackageGenerator):
 
         n = ctx.pin_count
         if n < 1:
-            raise PackageDefError(
-                f"kind 'generic' cannot build a body for {n} pins")
+            raise PackageDefError(f"kind 'generic' cannot build a body for {n} pins")
         pkg = synth_generic_package(SIL(n=n))
         if pkg is None:
-            raise PackageDefError(
-                f"kind 'generic' cannot build a body for {n} pins")
+            raise PackageDefError(f"kind 'generic' cannot build a body for {n} pins")
         return ctx.with_package(pkg)
 
     def offered_family_ids(self, pin_count: int) -> list[str]:

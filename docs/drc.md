@@ -22,7 +22,7 @@ class DRCIssue:
 
 | Code | Severity | Description |
 |---|---|---|
-| `OVERLAP` | error | Two components share a pad (and at least one conflicting pin has no `PinBendSpec`). |
+| `OVERLAP` | error | Two components share a pad and at least one conflicting package pin is not bendable. |
 | `SHORT` | error | Pads of different nets are electrically connected. |
 | `FLOATING_PIN` | warning | A placed component has a pin with no `PinRef` in any net. |
 | `BARE_WIRE_CROSS` | error | Two bare wires of different nets cross at the same point. |

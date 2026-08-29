@@ -44,7 +44,7 @@ components:
 
 The declared spelling of "no particular body" (the legacy bare `footprint:`
 field was removed 2026-07-04): a non-rigid generic bbox package over a single
-1-hole-pitch pin row, tagged `_generic` — authored `bendable_pins` stay in
+1-hole-pitch pin row, tagged `_generic` — package bend mechanics stay in
 force, the body is excluded from the DRC body mask and the body picker.
 
 ### 2b. Inline `package:` with explicit geometry

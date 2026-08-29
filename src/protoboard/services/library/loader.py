@@ -23,7 +23,6 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
     PackageOption,
-    PinBendSpec,
     PinVariant,
 )
 from protoboard.domain.components.footprints import (
@@ -38,7 +37,6 @@ from protoboard.domain.components.package import (
     package_to_footprint,
     Prism,
     build_package,
-    is_rigid_package,
     resolve_extends,
     resolve_variant,
 )
@@ -64,11 +62,13 @@ def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
         KIND_NODES,
         register_kind_nodes,
     )
+
     cached = getattr(_load_builtin_package_defs, "_cache", None)
     if cached is not None:
         if any(
-                isinstance(d.get("kind"), str) and d["kind"] not in KIND_NODES
-                for d in cached.values()):
+            isinstance(d.get("kind"), str) and d["kind"] not in KIND_NODES
+            for d in cached.values()
+        ):
             register_kind_nodes(cached)
         return cached  # type: ignore[no-any-return]
     defs: dict[str, dict[str, Any]] = {}
@@ -103,25 +103,20 @@ def _component_pin_count(data: dict[str, Any]) -> int | None:
 def _geometry_from_option(
     option: PackageOption,
     families: dict[str, PackageFamily],
-) -> tuple[Package | None, Footprint | None, bool]:
-    """Resolve a footprint option to ``(package, footprint, drop_bendable)``.
+) -> tuple[Package | None, Footprint | None]:
+    """Resolve a footprint option to ``(package, footprint)``.
 
     An inline option carries its package directly; a reference resolves through
-    the family catalogue. ``drop_bendable`` is True for a rigid catalogue body
-    (its fixed pin spacing supersedes per-pin bend). Returns ``(None, None,
-    False)`` when a reference does not resolve (a stale ref degrades gracefully).
+    the family catalogue. Returns ``(None, None)`` when a reference does not
+    resolve (a stale ref degrades gracefully).
     """
     if option.package is not None:
-        return option.package, package_to_footprint(option.package), False
+        return option.package, package_to_footprint(option.package)
     if option.ref is not None:
         variant = resolve_variant(families, option.ref)
         if variant is not None:
-            return (
-                variant.package,
-                package_to_footprint(variant.package),
-                is_rigid_package(variant.package),
-            )
-    return None, None, False
+            return variant.package, package_to_footprint(variant.package)
+    return None, None
 
 
 def _parse_footprints(
@@ -145,8 +140,9 @@ def _parse_footprints(
         raise SerializationError(f"{source}: 'footprints' must be a list")
     cname = data["name"]
     try:
-        list_style = parse_style(data.get("footprint_style"),
-                                 ctx=f"{cname} footprint_style")
+        list_style = parse_style(
+            data.get("footprint_style"), ctx=f"{cname} footprint_style"
+        )
     except (TypeError, ValueError) as exc:
         raise SerializationError(f"{source}: {exc}") from exc
 
@@ -161,8 +157,9 @@ def _parse_footprints(
             name_raw = entry
         elif isinstance(entry, dict):
             if isinstance(entry.get("package"), dict):
-                built = _build_component_package(cname, entry["package"],
-                                                 pin_count, generics)
+                built = _build_component_package(
+                    cname, entry["package"], pin_count, generics
+                )
                 if isinstance(built, ResidualKind):
                     # Partially-parameterised kind: the option becomes a
                     # pending-kind placeholder (generic-bbox geometry, target
@@ -175,13 +172,14 @@ def _parse_footprints(
                         raise SerializationError(
                             f"{source}: footprint entry for {cname!r} leaves "
                             f"kind {built.kind!r} parameters unfilled and the "
-                            f"component declares no pin count")
-                    package = _pending_kind_placeholder(
-                        built, SIL(n=pin_count))
+                            f"component declares no pin count"
+                        )
+                    package = _pending_kind_placeholder(built, SIL(n=pin_count))
                     if package is None:
                         raise SerializationError(
                             f"{source}: footprint entry for {cname!r} leaves "
-                            f"kind {built.kind!r} parameters unfilled")
+                            f"kind {built.kind!r} parameters unfilled"
+                        )
                 else:
                     package = built
             elif entry.get("ref") is not None:
@@ -189,17 +187,20 @@ def _parse_footprints(
             else:
                 raise SerializationError(
                     f"{source}: footprint entry for {cname!r} needs 'ref' or "
-                    f"'package'")
+                    f"'package'"
+                )
             name_raw = entry.get("name", ref)
             try:
-                entry_style = parse_style(entry.get("style"),
-                                          ctx=f"{cname} footprint style")
+                entry_style = parse_style(
+                    entry.get("style"), ctx=f"{cname} footprint style"
+                )
             except (TypeError, ValueError) as exc:
                 raise SerializationError(f"{source}: {exc}") from exc
         else:
             raise SerializationError(
                 f"{source}: footprint entry for {cname!r} must be a string or "
-                f"mapping")
+                f"mapping"
+            )
         name = str(name_raw) if name_raw is not None else ""
         style = Appearance.resolve(entry_style, list_style)
         options.append(
@@ -208,12 +209,14 @@ def _parse_footprints(
                 ref=ref,
                 package=package,
                 style=style if not style.is_empty else None,
-            ))
+            )
+        )
     return tuple(options)
 
 
 def _pending_kind_placeholder(
-    residual: ResidualKind, footprint: Footprint,
+    residual: ResidualKind,
+    footprint: Footprint,
 ) -> Package | None:
     """A generic-bbox stand-in carrying a partially-applied kind.
 
@@ -296,8 +299,7 @@ def _build_component_package(
 
     # Load the builtin package defs BEFORE kind dispatch — the load binds the
     # declarative kind nodes (kinds.yaml), which the kind driver consults.
-    registry = dict(
-        _load_builtin_package_defs() if generics is None else generics)
+    registry = dict(_load_builtin_package_defs() if generics is None else generics)
 
     kind = raw.get("kind")
     # ``kind:`` may be a single name or a list — a left→right generator chain
@@ -312,12 +314,12 @@ def _build_component_package(
         if n is None:
             raise PackageDefError(
                 f"{name}: package kind {kind!r} needs a pin count "
-                f"(component pins or package 'pins')")
+                f"(component pins or package 'pins')"
+            )
         # Forward any remaining package fields (e.g. a connector's ``rows``) as
         # generator values; the builder ignores keys it does not use.
         values = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
-        ctx = build_kind_package(
-            chain, GeneratorContext(pin_count=n, values=values))
+        ctx = build_kind_package(chain, GeneratorContext(pin_count=n, values=values))
         if ctx.residual is not None:
             return ctx.residual
         assert ctx.package is not None  # driver sets package XOR residual
@@ -327,8 +329,8 @@ def _build_component_package(
     registry[name] = node
     merged = resolve_extends(name, registry)
     from protoboard.domain.components.package.loader import extends_chain
-    return build_package(
-        merged, name, lineage=extends_chain(name, registry))
+
+    return build_package(merged, name, lineage=extends_chain(name, registry))
 
 
 @dataclass
@@ -358,6 +360,7 @@ class ComponentLibrary:
         from protoboard.services.library.parametric import (
             resolve_parametric_name,
         )
+
         synth = resolve_parametric_name(self._by_name, name)
         if synth is None:
             raise KeyError(name)
@@ -386,7 +389,8 @@ def inline_option_address(defn_name: str, option_name: str) -> str:
 
 
 def inline_option_families(
-    library: ComponentLibrary, ) -> dict[str, PackageFamily]:
+    library: ComponentLibrary,
+) -> dict[str, PackageFamily]:
     """One-variant families for every inline footprint option in *library*.
 
     Merge these into the package-family catalogue so the picker can offer inline
@@ -402,11 +406,13 @@ def inline_option_families(
             out[family_id] = PackageFamily(
                 family_id=family_id,
                 label=option.name,
-                variants=(PackageVariant(
-                    variant_id=_INLINE_VARIANT,
-                    label=option.name,
-                    package=option.package,
-                ), ),
+                variants=(
+                    PackageVariant(
+                        variant_id=_INLINE_VARIANT,
+                        label=option.name,
+                        package=option.package,
+                    ),
+                ),
             )
     return out
 
@@ -436,6 +442,7 @@ def load_library(
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         families = load_full_package_catalogue()
     else:
         families = package_families
@@ -452,8 +459,7 @@ def load_library(
     lib_family_entries: list[tuple[dict[str, Any], Path]] = []
     for directory in directories:
         if not directory.exists():
-            raise FileNotFoundError(
-                f"Library directory not found: {directory}")
+            raise FileNotFoundError(f"Library directory not found: {directory}")
         for yaml_path in sorted(directory.glob("**/*.yaml")):
             sections = _read_library_file(yaml_path)
             for raw in sections.components:
@@ -465,8 +471,7 @@ def load_library(
                 if raw["name"] not in lib_packages:
                     lib_packages[raw["name"]] = raw
                     lib_pkg_source[raw["name"]] = yaml_path
-            lib_family_entries.extend(
-                (entry, yaml_path) for entry in sections.families)
+            lib_family_entries.extend((entry, yaml_path) for entry in sections.families)
 
     # Generics registry: builtins plus the library files' ``packages:``. A
     # builtin wins on a name clash (warn — the library entry is ignored), the
@@ -474,8 +479,11 @@ def load_library(
     generics = dict(_load_builtin_package_defs())
     for pkg_name, raw in lib_packages.items():
         if pkg_name in generics:
-            _log.warning("library.package_name_clash", package=pkg_name,
-                         path=str(lib_pkg_source[pkg_name]))
+            _log.warning(
+                "library.package_name_clash",
+                package=pkg_name,
+                path=str(lib_pkg_source[pkg_name]),
+            )
             continue
         generics[pkg_name] = raw
         # A library ``packages:`` entry may itself be a declarative kind node
@@ -485,12 +493,16 @@ def load_library(
             from protoboard.domain.components.package.kind_nodes import (
                 register_kind_node,
             )
+
             try:
                 register_kind_node(pkg_name, generics)
             except PackageDefError as exc:
-                _log.warning("library.kind_node_skipped", package=pkg_name,
-                             path=str(lib_pkg_source[pkg_name]),
-                             error=str(exc))
+                _log.warning(
+                    "library.kind_node_skipped",
+                    package=pkg_name,
+                    path=str(lib_pkg_source[pkg_name]),
+                    error=str(exc),
+                )
 
     # Families from library files, parsed against the merged generics. The
     # passed-in catalogue wins on an id clash. The library-contributed ones are
@@ -501,16 +513,21 @@ def load_library(
         from protoboard.services.library.package_family_loader import (
             parse_family,
         )
+
         for entry, yaml_path in lib_family_entries:
             try:
                 fam = parse_family(entry, yaml_path, generics)
             except ValueError as exc:
-                _log.warning("library.family_skipped", path=str(yaml_path),
-                             error=str(exc))
+                _log.warning(
+                    "library.family_skipped", path=str(yaml_path), error=str(exc)
+                )
                 continue
             if fam.family_id in families or fam.family_id in lib_families:
-                _log.warning("library.family_name_clash",
-                             family_id=fam.family_id, path=str(yaml_path))
+                _log.warning(
+                    "library.family_name_clash",
+                    family_id=fam.family_id,
+                    path=str(yaml_path),
+                )
                 continue
             lib_families[fam.family_id] = fam
     families = {**families, **lib_families}
@@ -524,10 +541,9 @@ def load_library(
         path = raw_source[name]
         resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
         try:
-            defn = _component_from_dict(resolved,
-                                        source=path,
-                                        families=families,
-                                        generics=generics)
+            defn = _component_from_dict(
+                resolved, source=path, families=families, generics=generics
+            )
         except PackageDefError as exc:
             # A malformed parametric package must not sink the whole library.
             # Skip this component; the user re-places it with a fresh definition.
@@ -581,8 +597,7 @@ def _read_library_file(path: Path) -> _LibraryFileSections:
         raise SerializationError(f"{path}: top-level must be a mapping")
     for key in data:
         if key not in _KNOWN_SECTIONS:
-            _log.warning("library.unknown_section", path=str(path),
-                         section=str(key))
+            _log.warning("library.unknown_section", path=str(path), section=str(key))
 
     def _named_dicts(section: str) -> list[dict[str, Any]]:
         raw_list = data.get(section, [])
@@ -590,11 +605,10 @@ def _read_library_file(path: Path) -> _LibraryFileSections:
             raise SerializationError(f"{path}: '{section}' must be a list")
         out: list[dict[str, Any]] = []
         for raw in raw_list:
-            if not isinstance(raw, dict) or not isinstance(
-                    raw.get("name"), str):
+            if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
                 raise SerializationError(
-                    f"{path}: each {section[:-1]} must be a mapping with "
-                    f"'name'")
+                    f"{path}: each {section[:-1]} must be a mapping with " f"'name'"
+                )
             out.append(raw)
         return out
 
@@ -624,15 +638,14 @@ def _resolve_extends(
     if parent_name is None:
         return raw
     if not isinstance(parent_name, str):
-        raise SerializationError(
-            f"{source}: 'extends' must be a string in {name!r}")
+        raise SerializationError(f"{source}: 'extends' must be a string in {name!r}")
     parent_raw = index.get(parent_name)
     if parent_raw is None:
         raise SerializationError(
-            f"{source}: {name!r} extends unknown template {parent_name!r}")
+            f"{source}: {name!r} extends unknown template {parent_name!r}"
+        )
     # Recursively resolve the parent first.
-    resolved_parent = _resolve_extends(parent_raw, index, source,
-                                       chain + [name])
+    resolved_parent = _resolve_extends(parent_raw, index, source, chain + [name])
     # Child fields override parent; 'extends' key is dropped.
     merged: dict[str, Any] = {**resolved_parent, **raw}
     merged.pop("extends", None)
@@ -682,8 +695,9 @@ def _component_from_dict(
             if preview_count is not None:
                 parametric_pins = True
                 build_pin_count = preview_count
-        built = _build_component_package(data["name"], package_raw,
-                                         build_pin_count, generics)
+        built = _build_component_package(
+            data["name"], package_raw, build_pin_count, generics
+        )
         if isinstance(built, ResidualKind):
             pending_kind = built
         else:
@@ -692,14 +706,16 @@ def _component_from_dict(
     # The available footprints (the picker offers these). The default/first entry
     # is the singular geometry source when there is no inline ``package``
     # block, so instance-less consumers see one default geometry.
-    footprints = _parse_footprints(data, comp_pin_count, source, families
-                                   or {}, generics)
+    footprints = _parse_footprints(
+        data, comp_pin_count, source, families or {}, generics
+    )
 
     if "package_family_ref" in data:
         raise PackageDefError(
             f"{data['name']}: 'package_family_ref:' was removed — declare "
             "catalogue geometry with 'footprints: [{name: ..., ref: "
-            "family/variant}]'")
+            "family/variant}]'"
+        )
 
     # The removed legacy field. A loud, actionable error — raised as
     # PackageDefError so ONE legacy part is skipped (with the migration hint
@@ -708,20 +724,20 @@ def _component_from_dict(
         raise PackageDefError(
             f"{data['name']}: the 'footprint:' field was removed — declare "
             f"geometry via 'package:' (inline or kind:), 'footprints:' "
-            "(catalogue refs)")
+            "(catalogue refs)"
+        )
 
     # Geometry chain — the definition's DEFAULT body. Precedence: inline
     # ``package:`` → first ``footprints:`` option → the pending-kind placeholder.
-    drop_bend_from_default = False
     if package_obj is not None:
         footprint: Footprint = package_to_footprint(package_obj)
     elif footprints:
-        pkg, fp, drop_bend_from_default = _geometry_from_option(
-            footprints[0], families or {})
+        pkg, fp = _geometry_from_option(footprints[0], families or {})
         if pkg is None or fp is None:
-                raise PackageDefError(
-                    f"{source}: component {data['name']!r} default footprint "
-                    f"{footprints[0].name!r} did not resolve to a package")
+            raise PackageDefError(
+                f"{source}: component {data['name']!r} default footprint "
+                f"{footprints[0].name!r} did not resolve to a package"
+            )
         package_obj, footprint = pkg, fp
     elif pending_kind is not None and comp_pin_count:
         # A partially-parameterised kind has no geometry yet — a provisional
@@ -731,24 +747,28 @@ def _component_from_dict(
     else:
         raise SerializationError(
             f"{source}: component {data.get('name')!r} requires 'package', "
-            "'footprints'")
+            "'footprints'"
+        )
 
     pin_names_raw = data.get("pin_names") or {}
     if not isinstance(pin_names_raw, dict):
         raise SerializationError(
-            f"{source}: pin_names for {data['name']!r} must be a mapping")
+            f"{source}: pin_names for {data['name']!r} must be a mapping"
+        )
     pin_names: dict[int, str] = {}
     for k, v in pin_names_raw.items():
         try:
             pin_names[int(k)] = str(v)
         except (TypeError, ValueError) as exc:
             raise SerializationError(
-                f"{source}: pin_names key {k!r} is not an integer") from exc
+                f"{source}: pin_names key {k!r} is not an integer"
+            ) from exc
 
     metadata_raw = data.get("metadata") or {}
     if not isinstance(metadata_raw, dict):
         raise SerializationError(
-            f"{source}: metadata for {data['name']!r} must be a mapping")
+            f"{source}: metadata for {data['name']!r} must be a mapping"
+        )
 
     # component_class is an OPEN tag: a known value normalizes to its
     # ComponentClass member; an unknown one loads as-is (warned — it is a
@@ -757,7 +777,8 @@ def _component_from_dict(
     raw_class = str(data.get("component_class", "other"))
     if not raw_class:
         raise SerializationError(
-            f"{source}: empty component_class for {data['name']!r}")
+            f"{source}: empty component_class for {data['name']!r}"
+        )
     comp_class: str
     try:
         comp_class = ComponentClass(raw_class)
@@ -770,68 +791,6 @@ def _component_from_dict(
         )
         comp_class = raw_class
 
-    from protoboard.geometry import Vector as _Vector
-
-    def _parse_vector(raw: Any, ctx: str) -> _Vector:
-        if isinstance(raw, dict):
-            return _Vector(float(raw["x"]), float(raw["y"]))
-        if isinstance(raw, (list, tuple)) and len(raw) == 2:
-            return _Vector(float(raw[0]), float(raw[1]))
-        raise SerializationError(f"{source}: invalid Vector {raw!r} in {ctx}")
-
-    def _parse_point(raw: Any, ctx: str) -> _Vector:
-        return _parse_vector(raw, ctx)
-
-    # def _parse_point(raw: Any, ctx: str) -> _Point:
-    #     if isinstance(raw, dict):
-    #         return _Point(float(raw["x"]), float(raw["y"]))
-    #     if isinstance(raw, (list, tuple)) and len(raw) == 2:
-    #         return _Point(float(raw[0]), float(raw[1]))
-    #     raise SerializationError(f"{source}: invalid Point {raw!r} in {ctx}")
-
-    bendable_raw = data.get("bendable_pins") or {}
-    bendable_pins: dict[int, PinBendSpec] = {}
-    if isinstance(bendable_raw, dict):
-        for k, spec_raw in bendable_raw.items():
-            try:
-                pin_num = int(k)
-            except (TypeError, ValueError) as exc:
-                raise SerializationError(
-                    f"{source}: bendable_pins key {k!r} is not an integer"
-                ) from exc
-
-            ctx = f"bendable_pins[{pin_num}]"
-            if isinstance(spec_raw, dict):
-                if "min_reach" in spec_raw or "max_reach" in spec_raw:
-                    # Format C — zakres 2D swobodny (nowy)
-                    bendable_pins[pin_num] = PinBendSpec(
-                        min_reach=float(spec_raw.get("min_reach", 0.0)),
-                        max_reach=float(spec_raw.get("max_reach", 0.0)),
-                        default_offset=_parse_vector(spec_raw["default"], ctx +
-                                                     ".default")
-                        if "default" in spec_raw else _Vector(0.0, 0.0),
-                    )
-                elif "min" in spec_raw and "max" in spec_raw:
-                    # Format B — stary zakres kierunkowy; konwertuj do reach
-                    import math as _math
-                    min_pt = _parse_point(spec_raw["min"], ctx + ".min")
-                    max_pt = _parse_point(spec_raw["max"], ctx + ".max")
-                    bendable_pins[pin_num] = PinBendSpec(
-                        min_reach=_math.hypot(min_pt.dx, min_pt.dy),
-                        max_reach=_math.hypot(max_pt.dx, max_pt.dy),
-                        default_offset=_parse_vector(spec_raw["default"], ctx +
-                                                     ".default")
-                        if "default" in spec_raw else _Vector(0.0, 0.0),
-                    )
-                else:
-                    raise SerializationError(
-                        f"{source}: {ctx} dict must have 'min_reach'/'max_reach'"
-                        " or 'min'+'max'")
-            else:
-                raise SerializationError(
-                    f"{source}: {ctx} must be a dict,"
-                    f" got {type(spec_raw).__name__}")
-
     variants_raw = data.get("variants") or []
     variants: list[PinVariant] = []
     if isinstance(variants_raw, list):
@@ -842,7 +801,8 @@ def _component_from_dict(
                 )
             if "id" not in v:
                 raise SerializationError(
-                    f"{source}: variant for {data['name']!r} requires 'id'")
+                    f"{source}: variant for {data['name']!r} requires 'id'"
+                )
             v_pins: dict[int, str] = {}
             for k, val in (v.get("pin_names") or {}).items():
                 try:
@@ -856,7 +816,8 @@ def _component_from_dict(
                     id=str(v["id"]),
                     label=str(v.get("label", v["id"])),
                     pin_names=v_pins,
-                ))
+                )
+            )
 
     default_value_raw = data.get("default_value")
     default_value: str = ""
@@ -864,12 +825,12 @@ def _component_from_dict(
         if not isinstance(default_value_raw, str):
             raise SerializationError(
                 f"{source}: default_value for {data['name']!r} must be a "
-                f"string; got {default_value_raw!r}")
+                f"string; got {default_value_raw!r}"
+            )
         default_value = default_value_raw
 
     try:
-        appearance = parse_style(data.get("style"),
-                                 ctx=f"{data['name']} style")
+        appearance = parse_style(data.get("style"), ctx=f"{data['name']} style")
     except (TypeError, ValueError) as exc:
         raise SerializationError(f"{source}: {exc}") from exc
 
@@ -882,18 +843,13 @@ def _component_from_dict(
             )
         symbol = symbol_raw
 
-    # A rigid default footprint (resolved above) fixes the pad spacing, so its
-    # per-pin bend is dropped.
-    if drop_bend_from_default:
-        bendable_pins = {}
-
     # Invariant: every definition carries a package. When none was declared
     # (axial diodes / R / C placed as THT, crystals, screw terminals), synthesize
     # a NON-rigid generic bbox package from the footprint so consumers can always
     # read ``defn.package`` instead of branching on ``None``. It is tagged
-    # ``kind="_generic"`` and non-rigid (bend > 0) so ``is_rigid_package`` stays
-    # False and the part keeps its authored bendable leads — bend-spec and DRC
-    # consumers exclude the generic tag to preserve their pre-invariant behaviour.
+    # ``kind="_generic"`` and rigid by default: missing package data must not
+    # invent bendability. The explicitly declared ``kind: generic`` follows the
+    # same rule.
     if package_obj is None and footprint.pin_count() >= 1:
         if pending_kind is not None:
             # Pending-kind placeholder — see _pending_kind_placeholder.
@@ -905,13 +861,15 @@ def _component_from_dict(
             from protoboard.domain.components.package.kind import (
                 synth_generic_package,
             )
+
             package_obj = synth_generic_package(footprint)
     if package_obj is None:
         # ComponentDefinition.package is required — a part whose geometry
         # cannot produce even a synthesized generic body is unloadable.
         raise SerializationError(
             f"{source}: component {data['name']!r} yields no package "
-            f"(footprint has no pins?)")
+            f"(footprint has no pins?)"
+        )
 
     try:
         return ComponentDefinition(
@@ -920,7 +878,6 @@ def _component_from_dict(
             description=str(data.get("description", "")),
             component_class=comp_class,
             metadata=dict(metadata_raw),
-            bendable_pins=bendable_pins,
             variants=tuple(variants),
             default_value=default_value,
             package=package_obj,
@@ -931,7 +888,8 @@ def _component_from_dict(
         )
     except ValueError as exc:
         raise SerializationError(
-            f"{source}: invalid component {data['name']!r}: {exc}") from exc
+            f"{source}: invalid component {data['name']!r}: {exc}"
+        ) from exc
 
 
 __all__ = ["ComponentLibrary", "load_library"]

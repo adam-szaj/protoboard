@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 """Place component tool — click to place the selected component.
 
-Flow for components without bendable_pins:
+Flow for packages without bendable pins:
   - Move mouse → ghost follows cursor (pin 1 = snap point).
   - Left-click → commit placement.
 
-Flow for components with bendable_pins (two-phase):
+Flow for packages with bendable pins (two-phase):
   Phase ANCHOR:
     - Ghost follows cursor (pin 1 = snap point, pins use default offsets).
     - Left-click → fix pin 1 position, enter PIN_DRAG phase.
@@ -14,13 +14,13 @@ Flow for components with bendable_pins (two-phase):
     - Pin 1 is frozen.
     - For is_free specs: cursor snaps to any board pad in reach; ring overlay
       highlights reachable pads.
-    - For discrete specs: cursor snaps to nearest allowed offset.
     - Ghost updates live.
     - Left-click → confirm this pin's offset, advance to next pin (or commit).
     - Ctrl+R → reset current pin to default_offset and restart drag for it.
     - Esc → return to ANCHOR phase (discard offsets, resume normal ghost).
     - R / Shift+R → standard rotation ±90° (pin_offsets unchanged).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -30,12 +30,18 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package import resolve_package_variant_footprint
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    flip_component,
+    pin_world_position,
+    unrotate,
+)
 from protoboard.geometry import Point, Vector
 from protoboard.controller.tools.base import ControllerTool
 
@@ -79,6 +85,7 @@ class PhaseEnum(StrEnum):
     ANCHOR = "ancor"
     DRAG_PIN = "drag_pin"
     FLOATING = "floating"
+
 
 class PlaceTool(ControllerTool):
     """Places a component at the snapped cursor position on left-click.
@@ -139,14 +146,18 @@ class PlaceTool(ControllerTool):
         return self._prompts
 
     @property
-    def _view(self) -> _ViewProto:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
+    def _view(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self,
+    ) -> _ViewProto:  # type: ignore[override]
         """The bound view, narrowed away from None for the post-activate
         event handlers (same idiom as :attr:`preview`)."""
         assert self.__view is not None  # set by activate()
         return self.__view
 
     @_view.setter
-    def _view(self, value: _ViewProto | None) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
+    def _view(  # pyright: ignore[reportIncompatibleVariableOverride]
+        self, value: _ViewProto | None
+    ) -> None:
         self.__view = value
 
     def _theme_typed(self) -> Theme:
@@ -157,6 +168,7 @@ class PlaceTool(ControllerTool):
         runs with the real view/theme bound, so this narrows for the drawing
         path (mirrors gui_tools._theme_fn)."""
         from protoboard.controller.theme import Theme as _Theme
+
         t = self._theme()
         assert isinstance(t, _Theme)  # real theme bound on the GUI subclass
         return t
@@ -207,12 +219,12 @@ class PlaceTool(ControllerTool):
 
         The **chosen footprint variant** drives the specs: a part whose bodies
         live in a ``footprints:`` list (e.g. ``R`` placed as ``SMD-0805``)
-        resolves its rigid / SMD king-move spec, not the legacy axial
-        ``bendable_pins``. During placement no real instance exists yet, so we
+        resolves its rigid / SMD king-move spec, not another package's axial
+        reach. During placement no real instance exists yet, so we
         pass the picker's ``package_variant`` address (a netlist-imported
         ``existing_instance`` supplies it via ``instance`` instead) plus the
         session catalogue. With no chosen variant the resolver falls through to
-        ``defn``'s own package / ``bendable_pins``, so THT parts are unaffected.
+        the definition's own package, so THT parts are unaffected.
         Shared with the properties panel and the select-tool re-drag via
         :func:`effective_bend_specs`."""
         inst = (
@@ -257,9 +269,7 @@ class PlaceTool(ControllerTool):
                 #     itself dragged and — bound by its r_min reach disc — could
                 #     not stick to the clicked pad (it snapped out to the ring).
                 self._anchor_pos = snapped
-                self._pin_offsets = {
-                    p: specs[p].default_offset for p in bendable
-                }
+                self._pin_offsets = {p: specs[p].default_offset for p in bendable}
                 self._drag_pin_queue = [p for p in bendable if p != _ANCHOR_PIN]
                 if self._drag_pin_queue:
                     self._current_drag_pin = self._drag_pin_queue.pop(0)
@@ -388,9 +398,14 @@ class PlaceTool(ControllerTool):
             return False
         defn = self._session.components.get(self._definition_ref)
         fp = self._resolved_footprint(defn) if defn else None
-        if (defn and fp is not None and fp.pin_count() == 2
-                and self._anchor_pos is not None):
+        if (
+            defn
+            and fp is not None
+            and fp.pin_count() == 2
+            and self._anchor_pos is not None
+        ):
             import uuid as _uuid
+
             tmp_pl = ComponentPlacement(
                 component_id=_uuid.UUID(int=0),
                 position=self._anchor_pos,
@@ -399,8 +414,8 @@ class PlaceTool(ControllerTool):
                 pin_offsets=dict(self._pin_offsets),
             )
             flipped = flip_component(fp, tmp_pl)
-            self._anchor_pos  = flipped.position
-            self._rotation    = flipped.rotation
+            self._anchor_pos = flipped.position
+            self._rotation = flipped.rotation
             self._pin_offsets = flipped.pin_offsets
             self._rebuild_ghost_at_anchor()
             self._update_reach_overlay()
@@ -433,9 +448,7 @@ class PlaceTool(ControllerTool):
             return False  # nothing to re-drag yet
         if self._is_phase(PhaseEnum.ANCHOR):
             # anchor already fixed (e.g. after phase reset), start drag
-            self._pin_offsets = {
-                p: specs[p].default_offset for p in bendable
-            }
+            self._pin_offsets = {p: specs[p].default_offset for p in bendable}
             self._drag_pin_queue = bendable[1:]
             self._current_drag_pin = bendable[0]
             self._set_phase(PhaseEnum.DRAG_PIN)
@@ -476,9 +489,11 @@ class PlaceTool(ControllerTool):
         # package_families (the view's theme override may not). Without this the
         # resolve falls through to the default body — the candy-disc bug.
         import dataclasses
+
         families = getattr(self._session, "package_families", None)
         theme = dataclasses.replace(
-            self._theme_typed(), package_families=families or {})
+            self._theme_typed(), package_families=families or {}
+        )
         self.preview.show_ghost(
             defn,
             rotation=self._rotation,
@@ -517,11 +532,13 @@ class PlaceTool(ControllerTool):
 
         if spec.is_free():
             origin = self._anchor_pos  # placement.position = component (0,0)
-            self.preview.show_reach_dots([
-                pt
-                for pt in self._view.board_pad_positions()
-                if spec.is_reachable_from_origin(origin, pt)
-            ])
+            self.preview.show_reach_dots(
+                [
+                    pt
+                    for pt in self._view.board_pad_positions()
+                    if spec.is_reachable_from_origin(origin, pt)
+                ]
+            )
             return
 
     @traced()
@@ -575,8 +592,7 @@ class PlaceTool(ControllerTool):
             side="top",
             pin_offsets={},
         )
-        return pin_world_position(self._resolved_footprint(defn), temp,
-                                  pin_number)
+        return pin_world_position(self._resolved_footprint(defn), temp, pin_number)
 
     @traced()
     def _compute_drag_offset(self, cursor: Point) -> Vector | None:
@@ -611,7 +627,12 @@ class PlaceTool(ControllerTool):
 
     @traced()
     def _commit(self, position: Point, pin_offsets: dict[int, Vector]) -> None:
-        _log.debug("place.attempt", definition=self._definition_ref, pos=(position.x, position.y), rotation=self._rotation)
+        _log.debug(
+            "place.attempt",
+            definition=self._definition_ref,
+            pos=(position.x, position.y),
+            rotation=self._rotation,
+        )
 
         # Resolve instance + placement + conflicts via the controller; the tool
         # keeps the floating / auto-accept UX and the phase machine.
@@ -627,12 +648,17 @@ class PlaceTool(ControllerTool):
             prompts=self.prompts,
         )
         if resolved is None:
-            _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))
+            _log.info(
+                "place.blocked",
+                definition=self._definition_ref,
+                pos=(position.x, position.y),
+            )
             return
 
         has_wire_conflict = bool(resolved.wire_cmds)
 
         from protoboard.controller.app_settings import load_app_settings
+
         auto_accept = load_app_settings().auto_accept_placement
 
         if auto_accept and not has_wire_conflict:
@@ -646,21 +672,26 @@ class PlaceTool(ControllerTool):
             self._set_phase(PhaseEnum.FLOATING)
             self._session.notify_changed()
             if self._view is not None:
-                self._view.notify_status(StatusEvent(
-                    "place.floating",
-                    {"text": "[Enter] Accept placement  ·  [Esc] Cancel",
-                     "timeout_ms": 0},
-                ))
+                self._view.notify_status(
+                    StatusEvent(
+                        "place.floating",
+                        {
+                            "text": "[Enter] Accept placement  ·  [Esc] Cancel",
+                            "timeout_ms": 0,
+                        },
+                    )
+                )
 
     @traced()
     def _do_place(self, resolved: "ResolvedPlacement") -> None:
         """Commit a resolved placement immediately via the controller."""
         self._session.edit_controller.place_component(resolved)
-        _log.info("place.committed",
-                  definition=self._definition_ref,
-                  refdes=resolved.instance.refdes,
-                  pos=(resolved.placement.position.x,
-                       resolved.placement.position.y))
+        _log.info(
+            "place.committed",
+            definition=self._definition_ref,
+            refdes=resolved.instance.refdes,
+            pos=(resolved.placement.position.x, resolved.placement.position.y),
+        )
 
     @traced()
     def _reset_pending(self, resolved: "ResolvedPlacement | None" = None) -> None:

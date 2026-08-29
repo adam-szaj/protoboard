@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from protoboard.domain.components.package.body import MountStyle
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.component_package import (
     resolve_component_package,
 )
@@ -39,7 +40,6 @@ from protoboard.services.debug_trace import traced
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import (
         ComponentDefinition,
-        PinBendSpec,
     )
     from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.instance import ComponentInstance
@@ -121,6 +121,8 @@ def is_pin_bendable(
     when lead_length > 0).  A surface-mount package's second terminal is movable
     via its free reach ring over the neighbour pads even though its body is rigid.
     """
+    if package.bendable_pins:
+        return pin_number in package.bendable_pins
     if getattr(package, "mount", None) is MountStyle.SURFACE:
         return pin_number == 2 and package.pin_count() == 2
     reach = pin_reaches(package, orientation=orientation).get(pin_number)
@@ -132,7 +134,7 @@ def package_to_bend_specs(
     package: Package,
     *,
     orientation: MountOrientation = MountOrientation.HORIZONTAL,
-) -> dict[int, "PinBendSpec"]:
+) -> dict[int, PinBendSpec]:
     """Adapt a Package into the legacy ``dict[int, PinBendSpec]``.
 
     Lets existing consumers (place_tool) keep their ``PinBendSpec`` logic while
@@ -150,11 +152,13 @@ def package_to_bend_specs(
     wider than a point) are included; ``min_reach``/``max_reach`` are the ring in
     HOLE units (ring mm ÷ RASTER_MM); ``discrete`` is empty (free-2D).
     """
-    from protoboard.domain.components.definition import PinBendSpec
+    if package.bendable_pins:
+        return dict(package.bendable_pins)
 
     is_surface = getattr(package, "mount", None) is MountStyle.SURFACE
     if is_surface and package.pin_count() == 2:
         from math import sqrt
+
         return {
             2: PinBendSpec(
                 min_reach=1.0,
@@ -180,15 +184,12 @@ def effective_bend_specs(
     instance: "ComponentInstance | None" = None,
     families: "dict[str, PackageFamily] | None" = None,
     package_variant: str | None = None,
-) -> dict[int, "PinBendSpec"]:
+) -> dict[int, PinBendSpec]:
     """The per-pin bend specs in force for a definition / placed instance.
 
     Single point of truth shared by the place tool, the properties panel and the
-    select-tool re-drag: a parametric package drives the specs (including an SMD
-    chip's discrete mount points); otherwise the legacy ``bendable_pins`` apply.
-    Without this, a consumer reading ``defn.bendable_pins`` directly would miss
-    package-driven specs — the loader clears ``bendable_pins`` for rigid (incl.
-    SMD) packages baked onto the definition.
+    select-tool re-drag. The resolved package drives the specs, including its
+    explicit ``bendable_pins`` and geometry-derived SMD mount points.
 
     When *families* is given, the **chosen footprint variant** drives the specs.
     The variant comes from *instance* (a placed part — properties panel /
@@ -201,8 +202,6 @@ def effective_bend_specs(
     is ``None``. Omitting *families* keeps the legacy ``defn.package`` →
     ``bendable_pins`` behaviour for callers with no catalogue to resolve against.
     """
-    # Local import avoids a module-load cycle (kind → package.loader).
-    from protoboard.domain.components.package.kind import is_generic_package
     if families is not None:
         # A picker-chosen address (no placed instance yet) takes precedence — it
         # is the variant the user is actively placing.
@@ -211,15 +210,9 @@ def effective_bend_specs(
             if variant is not None:
                 return package_to_bend_specs(variant.package)
         pkg = resolve_component_package(defn, instance, families)
-        if pkg is not None and not is_generic_package(pkg):
+        if pkg is not None:
             return package_to_bend_specs(pkg)
-    # A declared package drives the specs; the synthetic generic fallback
-    # (``kind="_generic"``) does not — it defers to the authored ``bendable_pins``
-    # so a THT part keeps its real bend ring after the package invariant made
-    # ``defn.package`` always non-None.
-    if defn.package is not None and not is_generic_package(defn.package):
-        return package_to_bend_specs(defn.package)
-    return defn.bendable_pins
+    return package_to_bend_specs(defn.package)
 
 
 # ---------------------------------------------------------------------------

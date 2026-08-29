@@ -47,7 +47,7 @@ Related: [docs/footprints/package-model.md](footprints/package-model.md),
   object for every pin** (`pin_reaches` loops handing each pin the one `ring`).
 - `PinReach.is_reachable` measures distance **from the origin**, not from the
   pin's default.
-- `PinBendSpec` (`domain/components/definition.py:75`) — the legacy view the
+- `PinBendSpec` (`domain/components/package/bend.py`) — the adapter view the
   consumers read — carries `min_reach` / `max_reach` as a euclidean radius
   **from `placement.position` (the component origin)**:
   `is_reachable_from_origin(origin_world, target_world)` measures

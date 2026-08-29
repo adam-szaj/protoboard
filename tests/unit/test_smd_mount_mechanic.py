@@ -25,19 +25,13 @@ from protoboard.geometry import Point
 def _smd_package(mount_points: list | None = None) -> Prism:
     node: dict = {
         "shape": "prism",
-        "dims": {
-            "lx": 2.0,
-            "ly": 1.25
-        },
+        "dims": {"lx": 2.0, "ly": 1.25},
         "arrangement": "axial",
         "mount": "surface",
         "bend": 0,
         "leads": {
             "direction": [[0, 0, -1], [0, 0, -1]],
-            "body_offset": {
-                "unit": 2.5,
-                "value": [[1, 0]]
-            },
+            "body_offset": {"unit": 2.5, "value": [[1, 0]]},
             "board_offset": "default",
         },
     }
@@ -52,10 +46,7 @@ def _through_hole_prism() -> Prism:
     pkg = build_package(
         {
             "shape": "prism",
-            "dims": {
-                "ly": 7.62,
-                "lx": 10.0
-            },
+            "dims": {"ly": 7.62, "lx": 10.0},
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],
@@ -97,7 +88,7 @@ class TestPackageToBendSpecs:
         specs = package_to_bend_specs(_smd_package())
         assert list(specs.keys()) == [2]
         spec = specs[2]
-        assert spec.is_free()       # free ring, not a discrete mount set
+        assert spec.is_free()  # free ring, not a discrete mount set
         assert spec.min_reach == 1.0
         assert spec.max_reach == sqrt(2) + 0.1
 
@@ -117,6 +108,7 @@ class TestEffectiveBendSpecs:
             ComponentClass,
             ComponentDefinition,
         )
+
         pkg = _smd_package()
         defn = ComponentDefinition(
             name="R_SMD",
@@ -128,18 +120,32 @@ class TestEffectiveBendSpecs:
         assert list(specs.keys()) == [2]
         assert specs[2].is_free()  # SMD pin 2 is now a free neighbour ring
 
-    def test_plain_footprint_falls_back_to_bendable_pins(self) -> None:
+    def test_explicit_generic_package_pin_map_is_used(self) -> None:
         from protoboard.domain.components.definition import (
             ComponentClass,
             ComponentDefinition,
-            PinBendSpec,
         )
+        from protoboard.domain.components.package.bend import PinBendSpec
+
         defn = ComponentDefinition.from_footprint(
             name="R",
             component_class=ComponentClass.RESISTOR,
             footprint=SIL(n=2),
             pin_names={},
-            bendable_pins={2: PinBendSpec(min_reach=1, max_reach=5)},
+        )
+        from dataclasses import replace
+        from types import MappingProxyType
+
+        defn = replace(
+            defn,
+            package=replace(
+                defn.package,
+                bendable_pins=MappingProxyType(
+                    {
+                        2: PinBendSpec(min_reach=1, max_reach=5),
+                    }
+                ),
+            ),
         )
         specs = effective_bend_specs(defn)
         assert list(specs.keys()) == [2]
@@ -162,6 +168,7 @@ class TestLibrarySmdIsRigidWithMount:
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         families = load_full_package_catalogue()
         lib = load_library([BUILTIN_LIBRARY_DIR], families)
         defn = lib.get("R")
@@ -189,6 +196,7 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         families = load_full_package_catalogue()
         lib = load_library([BUILTIN_LIBRARY_DIR], families)
         return lib.get("R"), families
@@ -200,7 +208,9 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
 
         defn, families = self._resistor_and_catalogue()
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="",
+            definition_ref="R",
+            refdes="R1",
+            value="",
             package_variant="SMD-0805/typ",
         )
         specs = effective_bend_specs(defn, inst, families)
@@ -216,7 +226,9 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
 
         defn, families = self._resistor_and_catalogue()
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R2", value="",
+            definition_ref="R",
+            refdes="R2",
+            value="",
             package_variant="DIN-0207/typ",
         )
         specs = effective_bend_specs(defn, inst, families)
@@ -227,8 +239,8 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
         # Legacy callers pass only the defn (no instance/catalogue). R's default
         # body is now the real DIN-0207 axial package (the dead ``footprint:
         # TwoPin`` default was dropped), so the reach comes from that package —
-        # both leads bend — not the authored bendable_pins ring.
+        # Both leads bend from the resolved package geometry, not its empty map.
         defn, _ = self._resistor_and_catalogue()
         specs = effective_bend_specs(defn)
         assert set(specs) == {1, 2}
-        assert specs != defn.bendable_pins
+        assert specs != defn.package.bendable_pins

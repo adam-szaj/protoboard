@@ -46,7 +46,9 @@ def _place(
 
 
 def _press(
-    tool: _Tool, x: float, y: float,
+    tool: _Tool,
+    x: float,
+    y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     tool.on_press(pointer(x, y, mods=mods))
@@ -61,7 +63,9 @@ def _release(tool: _Tool, x: float, y: float) -> None:
 
 
 def _click(
-    tool: _Tool, x: float, y: float,
+    tool: _Tool,
+    x: float,
+    y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     """Press + release at the same point — a click (no drag)."""
@@ -70,7 +74,8 @@ def _click(
 
 
 def _key(
-    tool: _Tool | None, key: Qt.Key,
+    tool: _Tool | None,
+    key: Qt.Key,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     assert tool is not None
@@ -95,8 +100,11 @@ def _wire_edit_after_handoff(board_view: BoardView) -> "WireEditTool":
 
 
 def _comp_ids(tool: SelectTool) -> set:
-    return {h.id for h in (s.to_hit() for s in tool._selection.selected())
-            if h.kind == "component"}
+    return {
+        h.id
+        for h in (s.to_hit() for s in tool._selection.selected())
+        if h.kind == "component"
+    }
 
 
 def _pose(session, comp_id):  # type: ignore[no-untyped-def]
@@ -213,7 +221,9 @@ class TestCyanSelectionOutline:
 
         # Simulate the scene wipe + rebuild that a drag refresh performs.
         board_view.composer._invalidate_all_groups()
-        assert not board_view.highlight._selection_bbox_overlays  # refs dropped, not dangling
+        assert (
+            not board_view.highlight._selection_bbox_overlays
+        )  # refs dropped, not dangling
         assert not board_view.highlight._cyan_outlined
         board_view.refresh()
 
@@ -361,12 +371,16 @@ class TestRubberBand:
         inst = next(iter(session.instances.values()))  # X1 at (1.5, 1.5)
         gid = _uuid.uuid4()
         session.layout.groups[gid] = ComponentGroup(
-            id=gid, name="G1", component_ids=frozenset([inst.id]),
-            child_group_ids=frozenset(), exported_pins=frozenset(),
+            id=gid,
+            name="G1",
+            component_ids=frozenset([inst.id]),
+            child_group_ids=frozenset(),
+            exported_pins=frozenset(),
         )
         root = session.layout.groups[ROOT_GROUP_ID]
         session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-            id=ROOT_GROUP_ID, name=root.name,
+            id=ROOT_GROUP_ID,
+            name=root.name,
             component_ids=root.component_ids - frozenset([inst.id]),
             child_group_ids=root.child_group_ids | {gid},
             exported_pins=root.exported_pins,
@@ -391,7 +405,7 @@ class TestRubberBand:
         # Ctrl+band starting on EMPTY space, sweeping over b only → b joins a.
         bb = session.component_bbox(b.id)
         assert bb is not None
-        x0, y0 = bb.x - 0.5, bb.y - 0.5   # empty corner near b (a is far away)
+        x0, y0 = bb.x - 0.5, bb.y - 0.5  # empty corner near b (a is far away)
         x1, y1 = bb.x + bb.lx + 0.5, bb.y + bb.ly + 0.5
         _press(tool, x0, y0, Qt.KeyboardModifier.ControlModifier)
         _move(tool, x1, y1)
@@ -585,9 +599,7 @@ class TestPressReleaseSelection:
         assert _comp_ids(tool) == {b.id}
 
 
-def _make_group(
-    session: EditorSession, component_ids: list, name: str = "G1"
-):
+def _make_group(session: EditorSession, component_ids: list, name: str = "G1"):
     import uuid
 
     from protoboard.domain.layout.group import ComponentGroup
@@ -654,15 +666,21 @@ class TestGroupDrag:
 
 def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
     """Give *comp_id*'s definition a free bendable lead on *pin* (in-place)."""
-    from protoboard.domain.components.definition import PinBendSpec
+    from dataclasses import replace
+    from types import MappingProxyType
+
+    from protoboard.domain.components.package.bend import PinBendSpec
     from protoboard.geometry import Vector
 
     inst = session.instances[comp_id]
     defn = session.components[inst.definition_ref]
-    # bendable_pins is a mutable dict on the (frozen) definition — inject a free
-    # continuous spec reaching a few raster units in any direction.
-    defn.bendable_pins[pin] = PinBendSpec(
+    specs = dict(defn.package.bendable_pins)
+    specs[pin] = PinBendSpec(
         min_reach=0.0, max_reach=5.0, default_offset=Vector(0.0, 0.0)
+    )
+    session.components[inst.definition_ref] = replace(
+        defn,
+        package=replace(defn.package, bendable_pins=MappingProxyType(specs)),
     )
 
 
@@ -716,7 +734,13 @@ class TestRedrag:
     def test_redrag_no_bendable_pin_is_noop(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        inst = _place(board_view, session, 1.0, 1.0)  # R has no bendable pins
+        from dataclasses import replace
+
+        defn = session.components["R"]
+        session.components["R"] = replace(
+            defn, package=replace(defn.package, bend_holes=0.0)
+        )
+        inst = _place(board_view, session, 1.0, 1.0)
         tool = _v2(board_view)
         _press(tool, 1.0, 1.0)
         tool.begin_redrag(inst.id)
@@ -727,16 +751,21 @@ class TestRedrag:
         """Inject a placed SMD chip (rigid body, discrete pin-2 mount)."""
         import uuid
         from protoboard.domain.components.definition import (
-            ComponentClass, ComponentDefinition,
+            ComponentClass,
+            ComponentDefinition,
         )
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.components.package.loader import build_package
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.geometry import Point
+
         pkg = build_package(
             {
-                "shape": "prism", "dims": {"lx": 2.0, "ly": 1.25},
-                "arrangement": "axial", "mount": "surface", "bend": 0,
+                "shape": "prism",
+                "dims": {"lx": 2.0, "ly": 1.25},
+                "arrangement": "axial",
+                "mount": "surface",
+                "bend": 0,
                 "leads": {
                     "direction": [[0, 0, -1], [0, 0, -1]],
                     "body_offset": {"unit": 2.5, "value": [[1, 0]]},
@@ -746,16 +775,24 @@ class TestRedrag:
             "SMD_TEST",
         )
         defn = ComponentDefinition(
-            name="R_SMD_T", component_class=ComponentClass.RESISTOR,
-            pin_names={}, package=pkg,
+            name="R_SMD_T",
+            component_class=ComponentClass.RESISTOR,
+            pin_names={},
+            package=pkg,
         )
         cid = uuid.uuid4()
         session.components["R_SMD_T"] = defn
         session.instances[cid] = ComponentInstance(
-            id=cid, definition_ref="R_SMD_T", refdes="R9", value="",
+            id=cid,
+            definition_ref="R_SMD_T",
+            refdes="R9",
+            value="",
         ).bind(defn, session.package_families)
         session.layout.placements[cid] = ComponentPlacement(
-            component_id=cid, position=Point(x, y), rotation=0, side="top",
+            component_id=cid,
+            position=Point(x, y),
+            rotation=0,
+            side="top",
         )
         return cid
 
@@ -779,11 +816,14 @@ class TestRedrag:
         # pads is now one [R] step of the armed rotate (45° about pin 1).
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.layout.placement import pin_world_position
+
         cid = self._place_smd(session, 1.5, 1.5)
         ctrl = session.edit_controller
         ctrl.begin_transform(
-            frozenset({cid}), None,
-            active_group_id=ROOT_GROUP_ID, mode="rotate",
+            frozenset({cid}),
+            None,
+            active_group_id=ROOT_GROUP_ID,
+            mode="rotate",
         )
         ctrl.rotate_armed(-90)  # one CCW step = the SE diagonal (y grows down)
         ctrl.accept_transform()
@@ -862,7 +902,7 @@ class TestRedrag:
         from protoboard.geometry import Point
 
         inst = _place(board_view, session, 1.0, 1.0)  # pin1 (0.5,0.5) rigid
-        _make_bendable(session, inst.id, pin=2)       # only pin 2 bends
+        _make_bendable(session, inst.id, pin=2)  # only pin 2 bends
         tool = _v2(board_view)
         _press(tool, 0.5, 0.5)  # click the rigid pin 1
         assert tool._selected_clicked_pin(inst.id) == 1
@@ -892,12 +932,15 @@ class TestRedrag:
         assert tool._redrag_pin == 2
         # Independently compute the feasible pads via the shared predicate.
         feasible = [
-            p for p in board_view.board_pad_positions()
+            p
+            for p in board_view.board_pad_positions()
             if (r := tool._redrag_feasibility(inst.id, 2, p)) is not None and r.ok
         ]
         # The overlay drew one green dot per feasible pad (plus the disc ring).
         assert len(feasible) > 0
-        assert len(_qt_preview(tool).redrag.items) == len(feasible) + 1  # dots + disc outline
+        assert (
+            len(_qt_preview(tool).redrag.items) == len(feasible) + 1
+        )  # dots + disc outline
 
 
 class TestPickRouting:
@@ -908,9 +951,7 @@ class TestPickRouting:
         tool = _v2(board_view)
         done: list[list] = []
         # Arm the pick through the tool so it routes via a PointPickController.
-        tool._arm_pick(
-            "component", Stop.count(1), on_done=lambda xs: done.append(xs)
-        )
+        tool._arm_pick("component", Stop.count(1), on_done=lambda xs: done.append(xs))
         # A click during an active pick feeds it, not the normal selection.
         _click(tool, 0.5, 0.5)
         assert len(done) == 1
@@ -926,8 +967,10 @@ class TestPickRouting:
         tool = _v2(board_view)
         cancelled: list[bool] = []
         tool._arm_pick(
-            "component", Stop.confirm(),
-            on_done=lambda xs: None, on_cancel=lambda: cancelled.append(True),
+            "component",
+            Stop.confirm(),
+            on_done=lambda xs: None,
+            on_cancel=lambda: cancelled.append(True),
         )
         _key(tool, Qt.Key.Key_Escape)
         assert cancelled == [True]
@@ -961,33 +1004,45 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
     from protoboard.services.library.loader import load_library
 
     grid = BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        width_policy=SizePolicy.HUG,
+        height_policy=SizePolicy.HUG,
         cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             layers=PadLayers(top=True, bottom=True, plated_through=True),
         ),
-        rows=16, cols=16, row_gap=0.0, col_gap=0.0,
+        rows=16,
+        cols=16,
+        row_gap=0.0,
+        col_gap=0.0,
     )
     library = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
     sess = EditorSession(board=Board(root=grid), library=library)
 
-    defn = ComponentDefinition.from_footprint(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
+    defn = ComponentDefinition.from_footprint(
+        name="STUB1", footprint=SIL(1), pin_names={1: "P1"}
+    )
     sess.components["STUB1"] = defn
     inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
     inst = inst.bind(defn, {})
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(1.5, 1.5), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(1.5, 1.5),
+        rotation=0,
+        side="top",
     )
     net_id = uuid.uuid4()
     sess.schematic.nets[net_id] = Net(
-        id=net_id, name="N1",
+        id=net_id,
+        name="N1",
         pins={PinRef(component_id=inst.id, pin_number=1)},
     )
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5), Point(4.5, 1.5)],
-        insulated=False, side="bottom",
+        insulated=False,
+        side="bottom",
     )
     sess.layout.wires.append(wire)
     sess.invalidate_graph()
@@ -1024,8 +1079,12 @@ class TestWireEdit:
         session, view = _wire_session(qtbot)
         # Replace the fixture wire with an endpoints-only one spanning 4 pads.
         session.layout.wires.clear()
-        w = Wire(id=_uuid.uuid4(), path=[Point(1.5, 1.5), Point(4.5, 1.5)],
-                 insulated=False, side="top")
+        w = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(1.5, 1.5), Point(4.5, 1.5)],
+            insulated=False,
+            side="top",
+        )
         session.layout.wires.append(w)
         session.invalidate_graph()
         view.refresh()
@@ -1124,9 +1183,7 @@ class TestWireEdit:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
-        before = [
-            list(w.path) for w in session.layout.wires
-        ]
+        before = [list(w.path) for w in session.layout.wires]
 
         _key(tool, Qt.Key.Key_E)
         _click(tool, 2.5, 1.5)
@@ -1407,28 +1464,42 @@ class TestWireAndPadHighlight:
         from protoboard.services.library.loader import load_library
 
         grid = BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=10, cols=10, row_gap=0.0, col_gap=0.0,
+            rows=10,
+            cols=10,
+            row_gap=0.0,
+            col_gap=0.0,
         )
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         session = EditorSession(board=Board(root=grid), library=lib)
-        defn = ComponentDefinition.from_footprint(name="D1", footprint=SIL(1), pin_names={1: "A"})
+        defn = ComponentDefinition.from_footprint(
+            name="D1", footprint=SIL(1), pin_names={1: "A"}
+        )
         session.components["D1"] = defn
-        c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="").bind(defn, {})
-        c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="").bind(defn, {})
+        c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="").bind(
+            defn, {}
+        )
+        c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="").bind(
+            defn, {}
+        )
         session.instances[c1.id] = c1
         session.instances[c2.id] = c2
         session.layout.placements[c1.id] = ComponentPlacement(
-            component_id=c1.id, position=Point(1.5, 1.5), rotation=0, side="top")
+            component_id=c1.id, position=Point(1.5, 1.5), rotation=0, side="top"
+        )
         session.layout.placements[c2.id] = ComponentPlacement(
-            component_id=c2.id, position=Point(5.5, 1.5), rotation=0, side="top")
+            component_id=c2.id, position=Point(5.5, 1.5), rotation=0, side="top"
+        )
         # U1 → netA only, U2 → netB only.
         session.schematic.nets[_uuid.uuid4()] = Net(
-            id=_uuid.uuid4(), name="NA", pins={PinRef(c1.id, 1)})
+            id=_uuid.uuid4(), name="NA", pins={PinRef(c1.id, 1)}
+        )
         nb = Net(id=_uuid.uuid4(), name="NB", pins={PinRef(c2.id, 1)})
         session.schematic.nets[nb.id] = nb
         session.invalidate_graph()
@@ -1533,9 +1604,7 @@ class TestDragConflictOutline:
         assert soft is not None and soft.green() > hard.green()  # amber vs red
 
         # CLEAR → back to cyan (override removed).
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.CLEAR)
-        )
+        tool._show_conflict_corner(DragCommitDecision(severity=DragSeverity.CLEAR))
         assert board_view.highlight._select_outline_override is None
 
     def test_wire_ghosting_dims_drop_wires(self, qtbot) -> None:
@@ -1566,9 +1635,7 @@ class TestDragConflictOutline:
         assert wire.id in tool._ghosted_wire_ids
 
         # CLEAR decision → wire restored to full opacity.
-        tool._update_wire_ghosting(
-            DragCommitDecision(severity=DragSeverity.CLEAR)
-        )
+        tool._update_wire_ghosting(DragCommitDecision(severity=DragSeverity.CLEAR))
         assert grp.opacity() == 1.0
         assert wire.id not in tool._ghosted_wire_ids
 
@@ -1627,6 +1694,7 @@ class TestDragConflictOutline:
         # A selected component gets a thin dashed bbox overlay when the toggle
         # is on; selecting with it off draws none; deselecting removes it.
         from PySide6.QtCore import Qt as _Qt
+
         board_view.set_show_selection_bbox(True)
         inst = _place(board_view, session, 2.5, 2.5)
         board_view.refresh()
@@ -1698,6 +1766,7 @@ class TestFreePinHint:
 
         from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+
         session.stack.execute(
             cast(
                 "Command[ComponentState]",
@@ -1725,6 +1794,7 @@ class TestFreePinHint:
 
         from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+
         session.stack.execute(
             cast(
                 "Command[ComponentState]",
@@ -1781,23 +1851,30 @@ class TestNetContext:
         from protoboard.services.library.loader import load_library
 
         grid = BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=10, cols=10, row_gap=0.0, col_gap=0.0,
+            rows=10,
+            cols=10,
+            row_gap=0.0,
+            col_gap=0.0,
         )
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         sess = EditorSession(board=Board(root=grid), library=lib)
         # 2-pin component: pin1 on netA, pin2 on netB.
         sess.components["D2"] = ComponentDefinition.from_footprint(
-            name="D2", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+            name="D2", footprint=SIL(2), pin_names={1: "A", 2: "B"}
+        )
         inst = ComponentInstance.new(definition_ref="D2", refdes="U1", value="")
         inst = inst.bind(sess.components["D2"], {})
         sess.instances[inst.id] = inst
         sess.layout.placements[inst.id] = ComponentPlacement(
-            component_id=inst.id, position=Point(2.5, 2.5), rotation=0, side="top")
+            component_id=inst.id, position=Point(2.5, 2.5), rotation=0, side="top"
+        )
         na = Net(id=_uuid.uuid4(), name="NA", pins={PinRef(inst.id, 1)})
         nb = Net(id=_uuid.uuid4(), name="NB", pins={PinRef(inst.id, 2)})
         sess.schematic.nets[na.id] = na
@@ -1895,7 +1972,8 @@ class TestContextMenu:
         depth = _depth(session)
 
         opt = next(
-            o for o in self._options(tool, 2.5, 1.5)
+            o
+            for o in self._options(tool, 2.5, 1.5)
             if o.action_id == "select-tool.ctx.wire_side"
         )
         self._run(tool, opt)
@@ -1914,10 +1992,7 @@ class TestContextMenu:
         depth = _depth(session)
 
         opts = self._options(tool, 0.5, 0.5)
-        opt = next(
-            o for o in opts
-            if o.action_id == "select-tool.ctx.component_side"
-        )
+        opt = next(o for o in opts if o.action_id == "select-tool.ctx.component_side")
         self._run(tool, opt)
 
         assert _depth(session) == depth + 1  # a command ran
@@ -1929,9 +2004,7 @@ class TestContextMenu:
         tool = _v2(view)
         _select_wire(tool, session)
         opts = self._options(tool, 2.5, 1.5)
-        generic = [
-            o for o in opts if o.action_id.startswith("select-tool.action.")
-        ]
+        generic = [o for o in opts if o.action_id.startswith("select-tool.action.")]
         parameterised = [o for o in opts if o.data]
         assert generic, "generic tool-action section missing"
         assert parameterised, "item-aware entries missing"
@@ -1961,7 +2034,8 @@ class TestContextMenu:
         depth = _depth(session)
 
         opt = next(
-            o for o in self._options(tool, 1.5, 1.5)
+            o
+            for o in self._options(tool, 1.5, 1.5)
             if o.action_id == "select-tool.ctx.lock"
         )
         self._run(tool, opt)
@@ -1981,7 +2055,8 @@ class TestContextMenu:
         assert session.schematic.net_for_pin(ref) is not None  # netted first
 
         opt = next(
-            o for o in self._options(tool, 1.5, 1.5)
+            o
+            for o in self._options(tool, 1.5, 1.5)
             if o.action_id == "select-tool.ctx.disconnect_pin"
         )
         self._run(tool, opt)
@@ -2007,7 +2082,8 @@ class TestContextMenu:
         wire = next(iter(session.layout.wires))
 
         opt = next(
-            o for o in self._options(tool, 1.5, 1.5)
+            o
+            for o in self._options(tool, 1.5, 1.5)
             if o.action_id == "select-tool.ctx.select_net_wires"
         )
         self._run(tool, opt)
@@ -2023,7 +2099,8 @@ class TestContextMenu:
 
         assert not session.highlight_stack.has_persistent()
         opt = next(
-            o for o in self._options(tool, 2.5, 1.5)
+            o
+            for o in self._options(tool, 2.5, 1.5)
             if o.action_id == "select-tool.ctx.highlight_selection"
         )
         self._run(tool, opt)
@@ -2105,6 +2182,7 @@ class TestWantsKeyShortcutVeto:
         # Now the armed WireEditTool claims [W] (reroute) and [A] (autoroute).
         assert we.wants_key(_key_event(Qt.Key.Key_W)) is True
         assert we.wants_key(_key_event(Qt.Key.Key_A)) is True
+
 
 class TestDynamicRebind:
     """Veto + dispatch follow the *current* binding, never a hard-coded key."""
@@ -2243,9 +2321,7 @@ class TestSelectionBroadcastOnClick:
     @staticmethod
     def _spy(session: EditorSession) -> list[tuple]:
         events: list[tuple] = []
-        session.selection_changed.connect(
-            lambda c, w, n: events.append((c, w, n))
-        )
+        session.selection_changed.connect(lambda c, w, n: events.append((c, w, n)))
         return events
 
     def test_plain_click_select_broadcasts(

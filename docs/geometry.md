@@ -149,10 +149,11 @@ rejected by the move's conflict check, leaving the component in place.
 
 For through-hole components with flexible leads (resistors, diodes, axial parts) each pin may be moved independently from the footprint's default position. This is stored in `pin_offsets: dict[int, Point]` — a vector added to the footprint pin position **in local frame** (before mirror/rotation).
 
-`ComponentDefinition.bendable_pins: dict[int, PinBendSpec]` declares which pins are bendable and under what constraints:
-
-- **Discrete mode** (`PinBendSpec` with `allowed_offsets`): a set of fixed allowed offset vectors (e.g., only horizontal stretches in multiples of 1.0 raster unit).
-- **Free 2D mode** (`PinBendSpec` with `reach_min/reach_max`): any board pad whose world distance from pin 1's world position falls within `[reach_min, reach_max]`.
+`Package.bendable_pins: Mapping[int, PinBendSpec]` optionally declares exact
+per-pin constraints. `PinBendSpec` stores `min_reach`, `max_reach`, and a
+package-local `default_offset`, all in hole units. When the map is absent,
+reach is derived from package geometry (`bend`, the axial solver, or SMD mount
+rules). An explicit map overrides geometry-derived reach for the whole package.
 
 `PlaceTool` exposes a **PIN_DRAG phase** after the component is anchored: the user clicks each bendable pin's target pad in sequence. The tool calls `snap_pin_offset()` to compute the local-frame offset that would move that pin's world position to the chosen pad.
 

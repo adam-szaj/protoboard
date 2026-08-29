@@ -10,7 +10,8 @@ Dispatch to a shape class is by the ``shape`` field (registry), NOT by the
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 import structlog
@@ -21,6 +22,7 @@ from protoboard.domain.components.package.body import (
     LeadArrangement,
     MountStyle,
 )
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.offsets import (
     cumulative_positions,
     expand_direction,
@@ -77,8 +79,7 @@ def deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
     return out
 
 
-def resolve_extends(name: str, registry: dict[str,
-                                              PackageDict]) -> PackageDict:
+def resolve_extends(name: str, registry: dict[str, PackageDict]) -> PackageDict:
     """Flatten a package's ``extends`` chain into a single merged dict."""
     seen: set[str] = set()
 
@@ -129,18 +130,15 @@ def extends_chain(name: str, registry: dict[str, PackageDict]) -> tuple[str, ...
 
 def _require(value: object, field_name: str, pkg: str) -> object:
     if value is None:
-        raise PackageDefError(
-            f"{pkg}: required field {field_name!r} left null")
+        raise PackageDefError(f"{pkg}: required field {field_name!r} left null")
     return value
 
 
 def _require_float(value: object, field_name: str, pkg: str) -> float:
     if value is None:
-        raise PackageDefError(
-            f"{pkg}: required field {field_name!r} left null")
+        raise PackageDefError(f"{pkg}: required field {field_name!r} left null")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise PackageDefError(
-            f"{pkg}: {field_name!r} must be a number, got {value!r}")
+        raise PackageDefError(f"{pkg}: {field_name!r} must be a number, got {value!r}")
     return float(value)
 
 
@@ -171,8 +169,9 @@ def _board_offset(raw: object) -> tuple[Vector, ...] | str:
     return tuple(expand_offsets(raw))  # type: ignore[arg-type]
 
 
-def _board_steps_in_holes(board_offset: tuple[Vector, ...] | str,
-                          body_mm: list[Vector]) -> list[Vector]:
+def _board_steps_in_holes(
+    board_offset: tuple[Vector, ...] | str, body_mm: list[Vector]
+) -> list[Vector]:
     """Default board layout pin→pin step vectors, in holes (grid domain).
 
     ``default`` reads body_offset in the grid domain (mm / raster); an explicit
@@ -186,11 +185,11 @@ def _board_steps_in_holes(board_offset: tuple[Vector, ...] | str,
     return list(board_offset)
 
 
-def _geo_mid_holes(board_offset: tuple[Vector, ...] | str,
-                   body_mm: list[Vector]) -> Point:
+def _geo_mid_holes(
+    board_offset: tuple[Vector, ...] | str, body_mm: list[Vector]
+) -> Point:
     """Geometric centre of the default on-board lead axis, in holes (pin1=[0,0])."""
-    positions = cumulative_positions(
-        _board_steps_in_holes(board_offset, body_mm))
+    positions = cumulative_positions(_board_steps_in_holes(board_offset, body_mm))
     n = len(positions)
     return Point(
         sum(p.x for p in positions) / n,
@@ -202,12 +201,54 @@ def _as_vector(raw: object, field_name: str, pkg: str) -> Vector:
     """Coerce a scalar (sugar → ``(s, 0)``) or a 2-vector into a Vector."""
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         return Vector(float(raw), 0.0)
-    if (isinstance(raw, (list, tuple)) and len(raw) == 2 and all(
-            isinstance(c, (int, float)) and not isinstance(c, bool)
-            for c in raw)):
+    if (
+        isinstance(raw, (list, tuple))
+        and len(raw) == 2
+        and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in raw)
+    ):
         return Vector(float(raw[0]), float(raw[1]))
     raise PackageDefError(
-        f"{pkg}: {field_name!r} must be a number or [x, y], got {raw!r}")
+        f"{pkg}: {field_name!r} must be a number or [x, y], got {raw!r}"
+    )
+
+
+def _bendable_pins(raw: object, pin_count: int, pkg: str) -> Mapping[int, PinBendSpec]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise PackageDefError(f"{pkg}: 'bendable_pins' must be a mapping")
+
+    result: dict[int, PinBendSpec] = {}
+    for raw_pin, raw_spec in raw.items():
+        try:
+            pin = int(raw_pin)
+        except (TypeError, ValueError) as exc:
+            raise PackageDefError(
+                f"{pkg}: bendable_pins key {raw_pin!r} is not an integer"
+            ) from exc
+        if not 1 <= pin <= pin_count:
+            raise PackageDefError(
+                f"{pkg}: bendable_pins references pin {pin} outside " f"1..{pin_count}"
+            )
+        if not isinstance(raw_spec, dict):
+            raise PackageDefError(f"{pkg}: bendable_pins[{pin}] must be a mapping")
+
+        default_raw = raw_spec.get("default", [0.0, 0.0])
+        if isinstance(default_raw, dict):
+            try:
+                default_raw = [default_raw["x"], default_raw["y"]]
+            except KeyError as exc:
+                raise PackageDefError(
+                    f"{pkg}: bendable_pins[{pin}].default requires x and y"
+                ) from exc
+        result[pin] = PinBendSpec(
+            min_reach=float(raw_spec.get("min_reach", 0.0)),
+            max_reach=float(raw_spec.get("max_reach", 0.0)),
+            default_offset=_as_vector(
+                default_raw, f"bendable_pins[{pin}].default", pkg
+            ),
+        )
+    return MappingProxyType(result)
 
 
 def _resolve_eccentricity(
@@ -235,7 +276,8 @@ def _resolve_eccentricity(
         if board_offset == BOARD_SOLVE:
             raise PackageDefError(
                 f"{pkg}: 'body_axis_pos' needs a default board layout; "
-                f"board_offset 'solve' has none — use 'body_eccentricity'")
+                f"board_offset 'solve' has none — use 'body_eccentricity'"
+            )
         axis_pos = _as_vector(axis_raw, "body_axis_pos", pkg)
         geo_mid = _geo_mid_holes(board_offset, body_mm)
         return Vector(
@@ -257,8 +299,8 @@ def build_leads(merged: PackageDict, pkg: str) -> Leads:
     pin_count = len(body_mm) + 1
 
     direction = expand_direction(
-        _require(leads_raw.get("direction"), "leads.direction", pkg),
-        pin_count)
+        _require(leads_raw.get("direction"), "leads.direction", pkg), pin_count
+    )
 
     board_offset = _board_offset(leads_raw.get("board_offset", BOARD_DEFAULT))
 
@@ -268,8 +310,9 @@ def build_leads(merged: PackageDict, pkg: str) -> Leads:
         board_offset=board_offset,
         lead_length_mm=_opt_float(leads_raw.get("lead_length")),
         lead_r_mm=_opt_float(leads_raw.get("lead_r")),
-        body_eccentricity_mm=_resolve_eccentricity(leads_raw, board_offset,
-                                                   body_mm, pkg),
+        body_eccentricity_mm=_resolve_eccentricity(
+            leads_raw, board_offset, body_mm, pkg
+        ),
     )
 
 
@@ -286,7 +329,8 @@ def _flat_normal(raw: object, pkg: str) -> Vector:
         return Vector(0.0, 0.0)
     if not isinstance(raw, (list, tuple)) or len(raw) != 2:
         raise PackageDefError(
-            f"{pkg}: flat_normal must be a 2-element [x, y] list, got {raw!r}")
+            f"{pkg}: flat_normal must be a 2-element [x, y] list, got {raw!r}"
+        )
     return Vector(float(raw[0]), float(raw[1]))
 
 
@@ -316,8 +360,7 @@ def _margin_insets(raw: object) -> Insets | None:
     raise PackageDefError(f"margin needs 1-4 values, got {len(vals)}")
 
 
-def _arrangement(raw: object, default: LeadArrangement,
-                 pkg: str) -> LeadArrangement:
+def _arrangement(raw: object, default: LeadArrangement, pkg: str) -> LeadArrangement:
     if raw is None:
         return default
     try:
@@ -363,7 +406,10 @@ def _mount_points(raw: object, pkg: str) -> tuple[Point, ...]:
     try:
         return tuple(
             Point(v.dx, v.dy)
-            for v in expand_offsets(raw))  # type: ignore[arg-type]
+            for v in expand_offsets(  # pyright: ignore[reportArgumentType]
+                raw  # type: ignore[arg-type]
+            )
+        )
     except (TypeError, ValueError) as exc:
         raise PackageDefError(f"{pkg}: invalid mount_points: {exc}") from exc
 
@@ -415,7 +461,8 @@ def _check_no_auto(tree: PackageDict, pkg: str) -> None:
     if stuck:
         raise PackageDefError(
             f"{pkg}: 'auto' left unresolved at {', '.join(sorted(stuck))} — "
-            f"a kind generator must fill these before the body can build")
+            f"a kind generator must fill these before the body can build"
+        )
 
 
 # A kind generator's value transform: fills ``auto`` slots in the (defaults-
@@ -458,9 +505,9 @@ def _apply_schema(
         raw_values = _resolved_values(filled)  # before the body_offset unwrap
         schema.check_required(filled)
         if resolve_auto is not None:
-            filled = resolve_auto(filled)      # §5.4: generator fills ``auto``
+            filled = resolve_auto(filled)  # §5.4: generator fills ``auto``
         _check_no_auto(filled, pkg)
-        _normalise_body_offset(filled, pkg)    # §5b: fold {unit,value} → mm list
+        _normalise_body_offset(filled, pkg)  # §5b: fold {unit,value} → mm list
         schema.validate(filled)
     except SchemaError as exc:
         raise PackageDefError(f"{pkg}: {exc}") from exc
@@ -483,10 +530,16 @@ def _resolved_values(merged: PackageDict) -> dict[str, Any]:
 
 #: Recognized ``dims:`` keys per shape — the typo-catcher's vocabulary.
 _KNOWN_DIMS_KEYS: dict[str, frozenset[str]] = {
-    "cylinder": frozenset({
-        "diameter", "length", "edge_radius", "flat_radius", "flat_r",
-        "flat_normal",
-    }),
+    "cylinder": frozenset(
+        {
+            "diameter",
+            "length",
+            "edge_radius",
+            "flat_radius",
+            "flat_r",
+            "flat_normal",
+        }
+    ),
     "disc": frozenset({"diameter", "thickness"}),
     "prism": frozenset({"lx", "ly", "lz", "corner_radius"}),
 }
@@ -522,19 +575,17 @@ def _validate_dims(
     if shape == "prism":
         legacy = [k for k in _LEGACY_PRISM_DIMS if k in dims]
         if legacy:
-            mapping = ", ".join(
-                f"{old} -> {_LEGACY_PRISM_DIMS[old]}" for old in legacy)
+            mapping = ", ".join(f"{old} -> {_LEGACY_PRISM_DIMS[old]}" for old in legacy)
             raise PackageDefError(
                 f"{pkg}: prism dims uses legacy datasheet keys "
                 f"({', '.join(legacy)}) — rename to the local-frame axis "
                 f"names: {mapping} (lx runs along the lead axis, ly across "
-                f"it, lz is the off-board elevation)")
+                f"it, lz is the off-board elevation)"
+            )
     known = _KNOWN_DIMS_KEYS.get(shape, frozenset())
     if schema is not None:
         known = known | {
-            path.split(".", 1)[1]
-            for path in schema.fields
-            if path.startswith("dims.")
+            path.split(".", 1)[1] for path in schema.fields if path.startswith("dims.")
         }
     for key in dims:
         if key not in known:
@@ -553,11 +604,13 @@ def _validate_dims(
             raise PackageDefError(
                 f"{pkg}: prism dims gives only one extent — missing "
                 f"dims.{missing} (a half pair cannot derive the body and "
-                f"would silently degrade to the pin-hug rectangle)")
+                f"would silently degrade to the pin-hug rectangle)"
+            )
         if dims.get("lz") is not None and not has_lx:
             raise PackageDefError(
                 f"{pkg}: prism dims gives lz without lx/ly — the elevation "
-                f"alone cannot derive a body")
+                f"alone cannot derive a body"
+            )
 
 
 @traced()
@@ -579,6 +632,7 @@ def build_package(
     if shape not in lineage:
         lineage = (str(shape), *lineage)
     leads = build_leads(merged, pkg)
+    bendable_pins = _bendable_pins(merged.get("bendable_pins"), leads.pin_count, pkg)
     dims = merged.get("dims") or {}
     _validate_dims(dims, str(shape), pkg, schema)
     bend = float(merged.get("bend", 0.0))
@@ -588,8 +642,7 @@ def build_package(
     if shape == "cylinder":
         flat_r = dims.get("flat_radius", dims.get("flat_r"))
         return Cylinder(
-            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter",
-                                       pkg),
+            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter", pkg),
             length_mm=_require_float(dims.get("length"), "dims.length", pkg),
             leads=leads,
             bend_holes=bend,
@@ -606,13 +659,12 @@ def build_package(
             schema=schema,
             raw_values=raw_values,
             lineage=lineage,
+            bendable_pins=bendable_pins,
         )
     if shape == "disc":
         return Disc(
-            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter",
-                                       pkg),
-            thickness_mm=_require_float(dims.get("thickness"),
-                                        "dims.thickness", pkg),
+            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter", pkg),
+            thickness_mm=_require_float(dims.get("thickness"), "dims.thickness", pkg),
             leads=leads,
             bend_holes=bend,
             profile=_disc_profile(merged.get("disc_profile"), pkg),
@@ -626,14 +678,18 @@ def build_package(
             schema=schema,
             raw_values=raw_values,
             lineage=lineage,
+            bendable_pins=bendable_pins,
         )
     # prism
     margin = _margin_insets(merged.get("margin"))
     lx = _opt_float(dims.get("lx"))
     ly = _opt_float(dims.get("ly"))
     lz = _opt_float(dims.get("lz"))
-    size_mm = (Size3D(lx, ly, lz if lz is not None else 0.0)
-               if lx is not None and ly is not None else None)
+    size_mm = (
+        Size3D(lx, ly, lz if lz is not None else 0.0)
+        if lx is not None and ly is not None
+        else None
+    )
     return Prism(
         leads=leads,
         size_mm=size_mm,
@@ -652,6 +708,7 @@ def build_package(
         schema=schema,
         raw_values=raw_values,
         lineage=lineage,
+        bendable_pins=bendable_pins,
     )
 
 
@@ -666,6 +723,5 @@ def load_packages(raw_list: list[PackageDict]) -> dict[str, Package]:
         if node.get("abstract") or node.get("kind"):
             continue
         merged = resolve_extends(name, registry)
-        out[name] = build_package(
-            merged, name, lineage=extends_chain(name, registry))
+        out[name] = build_package(merged, name, lineage=extends_chain(name, registry))
     return out

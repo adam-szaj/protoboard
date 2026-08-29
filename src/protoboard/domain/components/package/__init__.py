@@ -22,6 +22,7 @@ from protoboard.domain.components.package.body import (
     LeadArrangement,
     MountStyle,
 )
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.component_package import (
     package_to_footprint,
     resolve_component_package,
@@ -93,6 +94,7 @@ __all__ = [
     "package_to_footprint",
     "PadCell",
     "PinReach",
+    "PinBendSpec",
     "Prism",
     "axial_board_offset_range",
     "body_holes",

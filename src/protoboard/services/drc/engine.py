@@ -70,6 +70,7 @@ class DRCIssue:
 # Human-readable formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def _format_location(p: Point, axis_labels: AxisLabelSettings | None) -> str:
     """Render a board point as the user-facing column/row label.
 
@@ -86,16 +87,20 @@ def _format_location(p: Point, axis_labels: AxisLabelSettings | None) -> str:
         return f"col {col_i}, row {row_i}"
     col_str = (
         format_index(axis_labels.columns, col_i)
-        if axis_labels.columns != AxisLabelFormat.DISABLED else str(col_i)
+        if axis_labels.columns != AxisLabelFormat.DISABLED
+        else str(col_i)
     )
     row_str = (
         format_index(axis_labels.rows, row_i)
-        if axis_labels.rows != AxisLabelFormat.DISABLED else str(row_i)
+        if axis_labels.rows != AxisLabelFormat.DISABLED
+        else str(row_i)
     )
     # Compact form when both axes use single-char alphabetic + 1-based numeric
     # (the typical case): "B6".  Otherwise fall back to a labelled form.
-    if (axis_labels.columns == AxisLabelFormat.ALPHABETIC
-            or axis_labels.rows == AxisLabelFormat.ALPHABETIC):
+    if (
+        axis_labels.columns == AxisLabelFormat.ALPHABETIC
+        or axis_labels.rows == AxisLabelFormat.ALPHABETIC
+    ):
         return f"{col_str}{row_str}"
     return f"col {col_str}, row {row_str}"
 
@@ -199,8 +204,12 @@ class DRCEngine:
         if _cancelled():
             return issues
         issues += _check_short(
-            schematic, layout, graph, instances,
-            components=components, axis_labels=axis_labels,
+            schematic,
+            layout,
+            graph,
+            instances,
+            components=components,
+            axis_labels=axis_labels,
         )
         if _cancelled():
             return issues
@@ -214,25 +223,36 @@ class DRCEngine:
         if _cancelled():
             return issues
         issues += _check_bare_wire_interior_cross(
-            layout, graph, axis_labels, cancel_flag=cancel_flag,
+            layout,
+            graph,
+            axis_labels,
+            cancel_flag=cancel_flag,
         )
         if _cancelled():
             return issues
         if board is not None:
             issues += _check_off_pad_joint(
-                layout, board=board, axis_labels=axis_labels,
+                layout,
+                board=board,
+                axis_labels=axis_labels,
                 pad_index=pad_index,
             )
             if _cancelled():
                 return issues
             issues += _check_off_board_pins(
-                board, layout, components, instances, axis_labels,
+                board,
+                layout,
+                components,
+                instances,
+                axis_labels,
                 pad_index=pad_index,
             )
             if _cancelled():
                 return issues
             issues += _check_wire_pin_on_plated_through(
-                layout, board=board, axis_labels=axis_labels,
+                layout,
+                board=board,
+                axis_labels=axis_labels,
                 pad_index=pad_index,
             )
             if _cancelled():
@@ -263,9 +283,8 @@ def _check_overlap(
 ) -> list[DRCIssue]:
     """Detect two component pins occupying the same pad on the same side.
 
-    Skipped when *every* conflicting pin at the pad declares a
-    ``PinBendSpec`` in its component definition — the user has explicitly
-    marked those leads as bendable so sharing the hole is intentional.
+    Skipped when every conflicting package pin is bendable, so sharing the
+    hole is intentional.
     Partial bendability (only some pins declare it) still flags as a
     conflict so accidental overlaps aren't silently swallowed.
     """
@@ -292,11 +311,16 @@ def _check_overlap(
         unshared = [
             (cid, pnum)
             for cid, pnum in occupants
-            if pnum not in (layout.placements[cid].shared_pins
-                            if cid in layout.placements else frozenset())
+            if pnum
+            not in (
+                layout.placements[cid].shared_pins
+                if cid in layout.placements
+                else frozenset()
+            )
         ]
         if len(unshared) <= 1:
             continue
+
         # Skip when every conflicting pin is declared bendable in its
         # component definition — the user has marked those leads as
         # legitimately shareable.
@@ -308,9 +332,8 @@ def _check_overlap(
             if defn is None:
                 return False
             pkg = package_of(defn, inst)
-            if pkg is not None and not is_generic_package(pkg):
-                return is_pin_bendable(pkg, pin_num)
-            return pin_num in defn.bendable_pins
+            return pkg is not None and is_pin_bendable(pkg, pin_num)
+
         if all(_is_bendable(cid, p) for cid, p in unshared):
             continue
         affected_pins = [PinRef(component_id=cid, pin_number=p) for cid, p in occupants]
@@ -358,6 +381,7 @@ def _placed_pad_mask(
         body_blocks=getattr(defn, "body_blocks_routing", False),
     )
     from protoboard.domain.layout.placement import placement_transform
+
     to_world = placement_transform(package, placement)
     out: dict[Point, PadCell] = {}
     for hole, bits in local.items():
@@ -389,8 +413,9 @@ def _check_body_overlap(
     # the definition's default body may be a different footprint option than
     # the variant actually placed (an SMD chip must not collide via the
     # phantom axial body of its part's default option).
-    placed: list[tuple[uuid.UUID, ComponentPlacement,
-                       ComponentDefinition, Package]] = []
+    placed: list[tuple[uuid.UUID, ComponentPlacement, ComponentDefinition, Package]] = (
+        []
+    )
     for cid, pl in layout.placements.items():
         inst = instances.get(cid)
         if inst is None:
@@ -431,9 +456,7 @@ def _check_body_overlap(
             return True
         defn = components[instances[cid].definition_ref]
         pkg = package_of(defn, instances[cid])
-        if pkg is not None and not is_generic_package(pkg):
-            return is_pin_bendable(pkg, pin_num)
-        return pin_num in defn.bendable_pins
+        return pkg is not None and is_pin_bendable(pkg, pin_num)
 
     issues: list[DRCIssue] = []
     ids = [cid for cid, _, _, _ in placed]
@@ -527,8 +550,10 @@ def _check_short(
         from protoboard.domain.layout.placement import (
             resolve_pin_world_position,
         )
+
         return resolve_pin_world_position(
-            ref.component_id, ref.pin_number,
+            ref.component_id,
+            ref.pin_number,
             placements=layout.placements,
             instances=instances,
             components=components,
@@ -719,15 +744,13 @@ def _check_bare_wire_interior_cross(
             if cancel_flag is not None and cancel_flag.is_set():
                 return issues
             wi = ws[i]
-            k_i = (
-                graph.node_for_pad(wi.path[0], side)
-                or graph.node_for_pad(wi.path[-1], side)
+            k_i = graph.node_for_pad(wi.path[0], side) or graph.node_for_pad(
+                wi.path[-1], side
             )
             for j in range(i + 1, len(ws)):
                 wj = ws[j]
-                k_j = (
-                    graph.node_for_pad(wj.path[0], side)
-                    or graph.node_for_pad(wj.path[-1], side)
+                k_j = graph.node_for_pad(wj.path[0], side) or graph.node_for_pad(
+                    wj.path[-1], side
                 )
                 # Same electric set — geometric crossing is self-overlap,
                 # electrically fine.
@@ -736,8 +759,10 @@ def _check_bare_wire_interior_cross(
                 for a in range(len(wi.path) - 1):
                     for b in range(len(wj.path) - 1):
                         if not _segs_cross(
-                            wi.path[a], wi.path[a + 1],
-                            wj.path[b], wj.path[b + 1],
+                            wi.path[a],
+                            wi.path[a + 1],
+                            wj.path[b],
+                            wj.path[b + 1],
                         ):
                             continue
                         # Locate the intersection (line-line) for reporting.
@@ -813,7 +838,9 @@ def _check_missing_net(
             group_strs.append(f"[{_format_pin_list(grp, instances, max_items=3)}]")
         if len(group_lists) > 3:
             extra_pins = sum(len(g) for g in group_lists[3:])
-            group_strs.append(f"and {len(group_lists) - 3} more group(s), {extra_pins} pins")
+            group_strs.append(
+                f"and {len(group_lists) - 3} more group(s), {extra_pins} pins"
+            )
             for grp in group_lists[3:]:
                 all_disconnected.extend(grp)
 
@@ -861,9 +888,9 @@ def _check_off_pad_joint(
     all_pads: set[Point] | None = None
     if pad_index is None:
         from protoboard.domain.layout.wire_utils import board_pads_for_side
-        all_pads = (
-            board_pads_for_side(board, "top")
-            | board_pads_for_side(board, "bottom")
+
+        all_pads = board_pads_for_side(board, "top") | board_pads_for_side(
+            board, "bottom"
         )
     issues: list[DRCIssue] = []
     for knot in layout.knots.values():
@@ -923,6 +950,7 @@ def _check_off_board_pins(
     pads_by_side: dict[str, set[Point]] | None = None
     if pad_index is None:
         from protoboard.domain.layout.wire_utils import board_pads_for_side
+
         pads_by_side = {
             "top": board_pads_for_side(board, "top"),
             "bottom": board_pads_for_side(board, "bottom"),
@@ -948,8 +976,7 @@ def _check_off_board_pins(
                 # (the pin physically bridges both layers through the
                 # hole — rule 3 / 5).
                 if pad is not None and (
-                    pad.layers.has_layer(side)
-                    or pad.layers.plated_through
+                    pad.layers.has_layer(side) or pad.layers.plated_through
                 ):
                     on_pad = True
             else:
@@ -1158,6 +1185,7 @@ def _check_wire_pin_on_plated_through(
             plated = pad is not None and pad.layers.plated_through
         else:
             from protoboard.domain.layout.wire_utils import plated_through_pads
+
             plated = _point_on_pads(pos, set(plated_through_pads(board)))
         if plated:
             continue

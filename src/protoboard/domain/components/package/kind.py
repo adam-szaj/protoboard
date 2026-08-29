@@ -62,9 +62,8 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 
-# Marker stamped on the synthetic fallback package (``Prism.kind``) so consumers
-# can tell a *declared* body apart from this generic bbox stand-in and keep their
-# pre-invariant behaviour (authored ``bendable_pins``, DRC body-overlap skip).
+# Marker stamped on the synthetic fallback package (``Prism.kind``) so body-mask
+# and package-picker consumers can identify this generic bbox stand-in.
 GENERIC_PACKAGE_KIND = "_generic"
 
 # The user-facing spelling: ``package: {kind: generic}`` builds the same body
@@ -124,17 +123,15 @@ def _synth_generic_by_pins(
     return pkg
 
 
-def synth_generic_package(
-    fp: Footprint, *, bend_holes: float = 1.0
-) -> Package | None:
+def synth_generic_package(fp: Footprint, *, bend_holes: float = 0.0) -> Package | None:
     """A NON-rigid generic bbox package whose pins follow *fp*.
 
     The fallback body for a library part that declares no real package, so
     ``ComponentDefinition.package`` can be an invariant (always set). Geometry is
     the pin-cloud bbox + 0.5-hole margin (matching the legacy ``component_bbox``
-    body footprint); ``bend > 0`` keeps ``is_rigid_package`` False so the part's
-    bendable leads survive. Tagged ``kind="_generic"`` so bend-spec / DRC
-    consumers can tell it from a declared body and keep today's behaviour.
+    body footprint). It is rigid by default: bendability must be declared by
+    the package rather than inferred from a missing component package. Tagged
+    ``kind="_generic"`` so body-mask consumers can identify the fallback.
     Returns ``None`` for a footprint with no pins. Cached by pin-cloud (the ~187
     library parts collapse to a handful of distinct clouds)."""
     pins = tuple((p.x, p.y) for p in fp.pin_positions())
@@ -187,8 +184,9 @@ def _build_node_package(
         out = gen.resolve_auto(dataclasses.replace(ctx, values=filled))
         return dict(out.values)
 
-    pkg: Package = build_package(tree, node.kind, lineage=node.lineage,
-                                 resolve_auto=_fill)
+    pkg: Package = build_package(
+        tree, node.kind, lineage=node.lineage, resolve_auto=_fill
+    )
     if isinstance(pkg, (Prism, Cylinder, Disc)):
         changes: dict[str, Any] = {}
         if "kind" in {f.name for f in dataclasses.fields(pkg)}:
@@ -197,8 +195,7 @@ def _build_node_package(
             changes["color"] = gen.color
         if changes:
             pkg = dataclasses.replace(pkg, **changes)
-    return dataclasses.replace(
-        ctx, values=dict(values), package=pkg, residual=None)
+    return dataclasses.replace(ctx, values=dict(values), package=pkg, residual=None)
 
 
 def build_kind_package(
@@ -261,8 +258,8 @@ def build_kind_package(
         while True:
             if current in seen:
                 raise PackageDefError(
-                    f"package kind redirect cycle: "
-                    f"{' -> '.join([*seen, current])}")
+                    f"package kind redirect cycle: " f"{' -> '.join([*seen, current])}"
+                )
             seen.add(current)
             gen_cls = KIND_GENERATORS.get(current)
             if gen_cls is None:
@@ -272,9 +269,7 @@ def build_kind_package(
             # replaces them with defaults (a hole is "ask the user", never a
             # build input).
             declared = gen.params.apply_to(current_values)
-            concrete = {
-                k: v for k, v in current_values.items() if v is not None
-            }
+            concrete = {k: v for k, v in current_values.items() if v is not None}
             values = gen.params.apply_to(concrete)
             try:
                 gen.params.check_required(values)
@@ -282,12 +277,15 @@ def build_kind_package(
                 if not final:
                     raise PackageDefError(
                         f"chain compute step {current!r} is missing required "
-                        f"parameters: {exc}") from exc
+                        f"parameters: {exc}"
+                    ) from exc
                 # Partially-applied kind: hand the remaining parameters to the
                 # picker instead of failing the build.
                 return dataclasses.replace(
-                    ctx, package=None,
-                    residual=ResidualKind(kind=current, values=declared))
+                    ctx,
+                    package=None,
+                    residual=ResidualKind(kind=current, values=declared),
+                )
             gen.params.validate(values)
             if final:
                 # A kind bound to a declarative YAML node builds through the
@@ -299,8 +297,8 @@ def build_kind_package(
                 if node is not None:
                     return _build_node_package(node, gen, ctx, values)
             out = gen.generate(
-                dataclasses.replace(ctx, values=values, package=None,
-                                    residual=None))
+                dataclasses.replace(ctx, values=values, package=None, residual=None)
+            )
             if out.residual is not None:
                 # Redirect to another kind — loop; the completeness check at
                 # the top decides whether it builds or surfaces.
@@ -311,14 +309,16 @@ def build_kind_package(
                 if out.package is not None:
                     raise PackageDefError(
                         f"chain compute step {current!r} must not build a "
-                        f"package (only the final step does)")
+                        f"package (only the final step does)"
+                    )
                 current_values = dict(out.values)
                 break  # next chain step
             pkg = out.package
             if pkg is None:
                 raise PackageDefError(
                     f"kind {current!r} generator returned no package for "
-                    f"{ctx.pin_count} pins")
+                    f"{ctx.pin_count} pins"
+                )
             if not isinstance(pkg, (Prism, Cylinder, Disc)):
                 return out.with_package(pkg)  # unknown shape — nothing to stamp
             field_names = {f.name for f in dataclasses.fields(pkg)}

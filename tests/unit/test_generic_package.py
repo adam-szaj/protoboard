@@ -1,11 +1,9 @@
 # SPDX-License-Identifier: MIT
 """The synthetic generic-package invariant.
 
-The loader injects a NON-rigid generic bbox package (tagged ``kind="_generic"``)
+The loader injects a rigid generic bbox package (tagged ``kind="_generic"``)
 for any library part that declares no real package, so ``defn.package`` is always
-set. Consumers that key on the package (bend specs, DRC) exclude the generic tag
-to keep their pre-invariant behaviour. These tests pin both halves: the synthesis
-itself, and the behaviour-freeze for parts that fall back to it.
+set. The fallback preserves pin geometry but does not invent package mechanics.
 """
 
 from __future__ import annotations
@@ -26,10 +24,10 @@ from protoboard.services.library.package_family_loader import (
 
 
 class TestSynthGenericPackage:
-    def test_is_non_rigid_and_tagged(self) -> None:
+    def test_is_rigid_and_tagged(self) -> None:
         pkg = synth_generic_package(SIL(n=2))
         assert pkg is not None
-        assert not is_rigid_package(pkg)          # bend > 0 → bendable preserved
+        assert is_rigid_package(pkg)
         assert is_generic_package(pkg)
         assert getattr(pkg, "kind", None) == GENERIC_PACKAGE_KIND
 
@@ -52,6 +50,7 @@ class TestSynthGenericPackage:
         families = load_full_package_catalogue()
         # A real catalogue body (SMD-0805) must NOT be flagged generic.
         from protoboard.domain.components.package.family import resolve_variant
+
         var = resolve_variant(families, "SMD-0805/typ")
         assert var is not None
         assert not is_generic_package(var.package)
@@ -71,6 +70,7 @@ class TestPackageInvariant:
         # field removal, the referenced variant IS its default geometry
         # (a real bendable axial body, not the synthetic generic).
         from protoboard.domain.components.package import is_rigid_package
+
         diode = lib.get("1N4148")
         assert diode.package is not None
         assert not is_generic_package(diode.package)
@@ -97,14 +97,14 @@ class TestBendSpecParityFrozen:
     def test_generic_resistor_uses_package_bend_specs(self) -> None:
         # R's default is now the real DIN-0207 axial body (the dead
         # ``footprint: TwoPin`` neutral default was dropped), so its lead reach
-        # comes from that package, not the authored bendable_pins.
+        # comes from that package geometry, not its empty explicit map.
         defn = self._lib().get("R")
         assert not is_generic_package(defn.package)
         specs = effective_bend_specs(defn)
         # Both leads bend, with the package-derived reach (not the YAML ring).
         assert set(specs) == {1, 2}
-        assert specs != defn.bendable_pins
+        assert specs != defn.package.bendable_pins
 
     def test_crystal_with_no_bend_stays_empty(self) -> None:
         defn = self._lib().get("OSC_1MHz")
-        assert effective_bend_specs(defn) == defn.bendable_pins
+        assert effective_bend_specs(defn) == defn.package.bendable_pins

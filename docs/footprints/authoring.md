@@ -65,7 +65,6 @@ A `components:` entry. Fields (from `_component_from_dict`, `loader.py:226`, and
 | `aliases` | — | Extra names the part is also found under. |
 | `default_value` | — | Value shown when placed (`"?"` for a generic template, `""` for a concrete part). |
 | `metadata` | — | Free key→value bag (not interpreted by the renderer). |
-| `bendable_pins` | — | Per-pin reach/bend for flexible THT leads (resistors etc.). |
 | `body_blocks_routing` | — | `true` for SMD/tight parts whose body should block routing under it. |
 
 Minimal examples:
@@ -120,6 +119,7 @@ Common fields on a package:
 | `edge` | `sharp` \| `rounded`. |
 | `margin` | (prism) PCB margin in mm from outer pin centres — when present, `dims` may be derived from the pin bbox. |
 | `bend` | Lead "give": one radius in **holes** the pin may move from its default (rigid = `0`). |
+| `bendable_pins` | Optional per-pin reach map. Each entry accepts `min_reach`, `max_reach`, and `default: {x, y}` in hole units. When present, it overrides geometry-derived reach for the whole package. |
 | `leads` | Lead geometry — `direction`, `body_offset`, `board_offset`, … (see §3.1 and package-model.md §2). |
 
 ### 3.1 Pin geometry — aggregated offsets
@@ -285,10 +285,9 @@ still using it is skipped at load with the hint in the log. Migration map:
 | `footprint: {type: TO92}` | `footprints: [{name: TO92, ref: "TO-92"}]` |
 | non-raster pitch (`pitch: 2.0`) | an explicit inline `package:` prism whose `body_offset` spells the pitch out |
 
-`kind: generic` is the declared spelling of the old bare-footprint semantics:
-a plain bbox body over a single 1-hole pin row that keeps every `_generic`
-behaviour (authored `bendable_pins` stay in force, excluded from the DRC body
-mask and the body picker).
+`kind: generic` declares a rigid plain bbox body over a single 1-hole pin row.
+It is excluded from the DRC body mask and the body picker. Bend mechanics must
+come from a real package definition rather than from generic fallback geometry.
 
 ---
 

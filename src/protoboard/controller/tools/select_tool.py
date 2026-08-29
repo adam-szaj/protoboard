@@ -1773,9 +1773,9 @@ class SelectTool(ControllerTool):
     def _movable_pins(self, comp_id: uuid.UUID) -> set[int]:
         """The pins of *comp_id* whose lead can bend (free reach), package-aware.
 
-        Specs come from :func:`effective_bend_specs`, so package-driven mounts
-        are seen even when ``bendable_pins`` is empty (the loader clears it for
-        rigid packages).  Replaces the legacy single-pin ``_redraggable_pin``.
+        Specs come from :func:`effective_bend_specs`, so both explicit package
+        maps and geometry-derived reach follow the selected package variant.
+        Replaces the legacy single-pin ``_redraggable_pin``.
         """
         from protoboard.domain.components.package import effective_bend_specs
 

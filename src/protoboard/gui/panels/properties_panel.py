@@ -26,8 +26,9 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.components.appearance import Appearance, parse_style
-from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
@@ -160,7 +161,9 @@ class PropertiesPanel(QWidget):
         self._body_variant_combo.setVisible(False)
 
         self._apply_btn.clicked.connect(self._on_apply)
-        self._pin_variant_combo.currentIndexChanged.connect(self._on_pin_variant_changed)
+        self._pin_variant_combo.currentIndexChanged.connect(
+            self._on_pin_variant_changed
+        )
         self._body_variant_combo.currentIndexChanged.connect(
             self._on_package_variant_changed,
         )
@@ -278,7 +281,9 @@ class PropertiesPanel(QWidget):
         placement = self._session.layout.placements.get(cid)
         defn = self._session.components.get(inst.definition_ref)
         self.show_component(
-            inst, placement, defn,
+            inst,
+            placement,
+            defn,
             package_families=self._session.package_families,
         )
 
@@ -301,7 +306,9 @@ class PropertiesPanel(QWidget):
         self._update_geometry_table(placement, defn, inst, package_families or {})
         self._rebuild_pin_variant_combo(defn, inst.pin_variant)
         self._rebuild_body_variant_combo(
-            defn, inst.package_variant, package_families or {},
+            defn,
+            inst.package_variant,
+            package_families or {},
         )
         self._rebuild_parameters(defn, inst, package_families or {})
 
@@ -404,9 +411,11 @@ class PropertiesPanel(QWidget):
         # (e.g. ``R`` as ``SMD-0805``) shows the SMD mount picker, matching the
         # place tool — not the legacy axial ``bendable_pins``.
         from protoboard.domain.components.package import effective_bend_specs
+
         specs = (
             effective_bend_specs(defn, instance, package_families)
-            if defn is not None else {}
+            if defn is not None
+            else {}
         )
         if defn is None or not specs:
             self._pin_offsets_grp.setVisible(False)
@@ -483,7 +492,7 @@ class PropertiesPanel(QWidget):
 
         leaf = view.path.rsplit(".", 1)[-1]
         suffix = {
-            FieldStatus.REQUIRED_EMPTY: "",       # editable → no suffix
+            FieldStatus.REQUIRED_EMPTY: "",  # editable → no suffix
             FieldStatus.SET: "  (set)",
             FieldStatus.AUTO: "  (auto)",
         }[view.status]
@@ -494,9 +503,11 @@ class PropertiesPanel(QWidget):
         if not view.editable:
             # Non-colour read-only cue: a clear-button-less, non-editable field
             # plus the label suffix. A tooltip explains why it cannot be edited.
-            reason = ("computed by the package generator"
-                      if view.status is FieldStatus.AUTO
-                      else "fixed by the package definition")
+            reason = (
+                "computed by the package generator"
+                if view.status is FieldStatus.AUTO
+                else "fixed by the package definition"
+            )
             edit.setToolTip(f"Read-only — {reason}.")
         else:
             edit.setToolTip("Editable — left open by the package definition.")
@@ -528,16 +539,23 @@ class PropertiesPanel(QWidget):
         # Per-pin geometry — resolved against the instance's chosen variant.
         if defn is not None:
             from protoboard.domain.components.package import resolved_footprint
+
             fp = resolved_footprint(defn, inst, package_families)
             fp_positions = fp.pin_positions()
             for i, fp_pos in enumerate(fp_positions):
                 pin_num = i + 1
                 off = placement.pin_offsets.get(pin_num, Vector(0.0, 0.0))
                 world = pin_world_position(fp, placement, pin_num)
-                rows.append((f"── pin {pin_num} fp_pos", f"({fp_pos.x:g}, {fp_pos.y:g})"))
+                rows.append(
+                    (f"── pin {pin_num} fp_pos", f"({fp_pos.x:g}, {fp_pos.y:g})")
+                )
                 if off.dx != 0.0 or off.dy != 0.0:
-                    rows.append((f"   pin {pin_num} offset", f"({off.dx:g}, {off.dy:g})"))
-                rows.append((f"   pin {pin_num} world", f"({world.x:.3f}, {world.y:.3f})"))
+                    rows.append(
+                        (f"   pin {pin_num} offset", f"({off.dx:g}, {off.dy:g})")
+                    )
+                rows.append(
+                    (f"   pin {pin_num} world", f"({world.x:.3f}, {world.y:.3f})")
+                )
 
         self._geo_table.setRowCount(len(rows))
         for row_idx, (param, value) in enumerate(rows):
@@ -700,7 +718,8 @@ class PropertiesPanel(QWidget):
         ):
             return
         self.package_variant_changed.emit(
-            self._current_id, self._body_variant_addresses[index],
+            self._current_id,
+            self._body_variant_addresses[index],
         )
 
     @traced()
@@ -714,9 +733,7 @@ class PropertiesPanel(QWidget):
         self._shown_appearance = appearance
         color = appearance.color if appearance is not None else None
         self._style_color_edit.setText(color or "")
-        radii = (
-            appearance.corner_radius_mm if appearance is not None else None
-        )
+        radii = appearance.corner_radius_mm if appearance is not None else None
         self._style_radius_edit.setText(
             " ".join(f"{v:g}" for v in radii) if radii is not None else ""
         )
@@ -798,8 +815,10 @@ class DRCPanel(QWidget):
 # Bend widgets — inline controls for PinBendSpec
 # ---------------------------------------------------------------------------
 
+
 class _BendWidget(QWidget):
     """Abstract base for bend-spec controls."""
+
     value_changed = Signal()
 
     @traced()
@@ -815,7 +834,9 @@ class _FreeBendWidget(_BendWidget):
     """
 
     @traced()
-    def __init__(self, spec: PinBendSpec, current: Vector, parent: object = None) -> None:
+    def __init__(
+        self, spec: PinBendSpec, current: Vector, parent: object = None
+    ) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._spec = spec
         self._current = current
@@ -845,5 +866,6 @@ class _FreeBendWidget(_BendWidget):
     @traced()
     def _fmt(pt: Vector) -> str:
         import math as _math
+
         d = _math.hypot(pt.dx, pt.dy)
         return f"dx={pt.dx:g}  dy={pt.dy:g}  |d|={d:.2f}"

@@ -17,40 +17,96 @@ from protoboard.geometry import Point, Vector
 # depend on which named packages happen to live in the builtin generic.yaml
 # (placed parts resolve through the package-family catalogue, not these).
 _CATALOGUE: list[dict] = [
-    {"name": "cylinder", "abstract": True, "shape": "cylinder",
-     "dims": {"diameter": None, "length": None, "edge_radius": 0.0}},
+    {
+        "name": "cylinder",
+        "abstract": True,
+        "shape": "cylinder",
+        "dims": {"diameter": None, "length": None, "edge_radius": 0.0},
+    },
     {"name": "prism", "abstract": True, "shape": "prism"},
-    {"name": "cylinder_axial", "abstract": True, "extends": "cylinder",
-     "leads": {"direction": [[0, 0, -1], [0, 0, 1]], "body_offset": 0,
-               "board_offset": "solve", "lead_length": None, "lead_r": None,
-               "body_eccentricity": 0.0}},
-    {"name": "cylinder_radial", "abstract": True, "extends": "cylinder",
-     "arrangement": "radial",
-     "leads": {"direction": [[0, 0, -1], [0, 0, -1]],
-               "body_offset": {"unit": 2.5, "value": [[1, 0]]},
-               "board_offset": "default"}, "bend": 0.0},
-    {"name": "prism_dil", "abstract": True, "extends": "prism",
-     "leads": {"direction": [0, 0, -1], "board_offset": "default"},
-     "bend": 0.0},
+    {
+        "name": "cylinder_axial",
+        "abstract": True,
+        "extends": "cylinder",
+        "leads": {
+            "direction": [[0, 0, -1], [0, 0, 1]],
+            "body_offset": 0,
+            "board_offset": "solve",
+            "lead_length": None,
+            "lead_r": None,
+            "body_eccentricity": 0.0,
+        },
+    },
+    {
+        "name": "cylinder_radial",
+        "abstract": True,
+        "extends": "cylinder",
+        "arrangement": "radial",
+        "leads": {
+            "direction": [[0, 0, -1], [0, 0, -1]],
+            "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+            "board_offset": "default",
+        },
+        "bend": 0.0,
+    },
+    {
+        "name": "prism_dil",
+        "abstract": True,
+        "extends": "prism",
+        "leads": {"direction": [0, 0, -1], "board_offset": "default"},
+        "bend": 0.0,
+    },
     # Axial resistor body (DIN 0207): solver-driven reach.
-    {"name": "R_Axial_DIN0207", "extends": "cylinder_axial",
-     "dims": {"diameter": 2.5, "length": 6.3},
-     "leads": {"lead_r": 0.27, "lead_length": 32.0}},
+    {
+        "name": "R_Axial_DIN0207",
+        "extends": "cylinder_axial",
+        "dims": {"diameter": 2.5, "length": 6.3},
+        "leads": {"lead_r": 0.27, "lead_length": 32.0},
+    },
     # Radial electrolytic 6.3x11: bend ring 1..5 holes.
-    {"name": "CP_Elec_6.3x11", "extends": "cylinder_radial",
-     "dims": {"diameter": 6.3, "length": 11.0},
-     "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}, "bend": 4.0},
+    {
+        "name": "CP_Elec_6.3x11",
+        "extends": "cylinder_radial",
+        "dims": {"diameter": 6.3, "length": 11.0},
+        "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}},
+        "bend": 4.0,
+    },
     # DIP-8: rigid, two rows of 4 at 0.3in.
-    {"name": "DIP-8", "extends": "prism_dil",
-     "dims": {"ly": 6.25, "lx": 9.20, "lz": 4.0},
-     "leads": {"body_offset": {"unit": 2.5,
-               "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
+    {
+        "name": "DIP-8",
+        "extends": "prism_dil",
+        "dims": {"ly": 6.25, "lx": 9.20, "lz": 4.0},
+        "leads": {
+            "body_offset": {"unit": 2.5, "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}
+        },
+    },
     # A 3-pin bendable prism (TO-92-like): each lead bends about its own home.
-    {"name": "BEND3", "extends": "prism",
-     "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
-     "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
-               "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
-               "board_offset": "default"}, "bend": 3.54},
+    {
+        "name": "BEND3",
+        "extends": "prism",
+        "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
+        "leads": {
+            "direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
+            "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
+            "board_offset": "default",
+        },
+        "bend": 3.54,
+    },
+    # Explicit per-pin reach overrides the package-wide geometric bend.
+    {
+        "name": "BEND_OVERRIDE",
+        "extends": "prism",
+        "dims": {"ly": 4.5, "lx": 4.5, "lz": 5.2},
+        "leads": {
+            "direction": [[0, 0, -1], [0, 0, -1]],
+            "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+            "board_offset": "default",
+        },
+        "bend": 3.54,
+        "bendable_pins": {
+            2: {"min_reach": 2.0, "max_reach": 9.0, "default": {"x": 0.0, "y": 4.0}},
+        },
+    },
 ]
 
 
@@ -73,7 +129,7 @@ class TestPinReaches:
         c = _builtin()["CP_Elec_6.3x11"]
         reaches = pin_reaches(c)
         assert reaches[2].default == c.pin_positions()[1]
-        assert reaches[2].origin == Point(0.0, 0.0)   # fixed origin
+        assert reaches[2].origin == Point(0.0, 0.0)  # fixed origin
         assert reaches[1].origin == Point(0.0, 0.0)
 
     def test_electrolytic_reachable_within_bend(self) -> None:
@@ -81,16 +137,24 @@ class TestPinReaches:
         reach = pin_reaches(c)[2]
         d = reach.default  # pin 2 home hole = (1, 0); the disc is centred here
         # measured from the pin's own default hole:
-        assert reach.is_reachable(Point(d.x + 5.0, d.y), raster_mm=RASTER_MM) is True   # 5 holes = r_max
-        assert reach.is_reachable(Point(d.x + 1.0, d.y), raster_mm=RASTER_MM) is True   # 1 hole = r_min
-        assert reach.is_reachable(d, raster_mm=RASTER_MM) is False                      # on the default (< r_min)
-        assert reach.is_reachable(Point(d.x + 6.0, d.y), raster_mm=RASTER_MM) is False  # beyond r_max
+        assert (
+            reach.is_reachable(Point(d.x + 5.0, d.y), raster_mm=RASTER_MM) is True
+        )  # 5 holes = r_max
+        assert (
+            reach.is_reachable(Point(d.x + 1.0, d.y), raster_mm=RASTER_MM) is True
+        )  # 1 hole = r_min
+        assert (
+            reach.is_reachable(d, raster_mm=RASTER_MM) is False
+        )  # on the default (< r_min)
+        assert (
+            reach.is_reachable(Point(d.x + 6.0, d.y), raster_mm=RASTER_MM) is False
+        )  # beyond r_max
 
     def test_disc_centred_on_pin_default(self) -> None:
         # Reach is a disc centred on the pin's OWN default hole, not the origin.
         c = _builtin()["CP_Elec_6.3x11"]
         reach = pin_reaches(c)[2]
-        d = reach.default                       # (1, 0), not the origin (0, 0)
+        d = reach.default  # (1, 0), not the origin (0, 0)
         assert d == Point(1.0, 0.0)
         # A point r_max away from the default is reachable in any direction…
         assert reach.is_reachable(Point(d.x, d.y + 5.0), raster_mm=RASTER_MM) is True
@@ -102,18 +166,20 @@ class TestPinReaches:
 
     def test_each_pin_has_own_centre(self) -> None:
         # N>2: every pin's disc is centred on that pin's default, independently.
-        t = _bendable_3pin()                    # pins at (0,0), (1,0), (2,0)
+        t = _bendable_3pin()  # pins at (0,0), (1,0), (2,0)
         reaches = pin_reaches(t)
         assert reaches[1].default != reaches[2].default != reaches[3].default
         # A target on pin 3's far side: in pin 3's disc, outside pin 1's disc.
-        far = Point(reaches[3].default.x + 4.0, 0.0)   # 4.0 holes from pin 3
+        far = Point(reaches[3].default.x + 4.0, 0.0)  # 4.0 holes from pin 3
         assert reaches[3].is_reachable(far, raster_mm=RASTER_MM) is True
-        assert reaches[1].is_reachable(far, raster_mm=RASTER_MM) is False  # 6.0 from pin 1 > r_max
+        assert (
+            reaches[1].is_reachable(far, raster_mm=RASTER_MM) is False
+        )  # 6.0 from pin 1 > r_max
 
 
 class TestIsPinBendable:
     def test_rigid_dip_not_bendable(self) -> None:
-        d = _builtin()["DIP-8"]   # bend=0 → rigid
+        d = _builtin()["DIP-8"]  # bend=0 → rigid
         assert not is_pin_bendable(d, 2)
         assert not is_pin_bendable(d, 8)
 
@@ -126,7 +192,7 @@ class TestIsPinBendable:
         assert is_pin_bendable(r, 2)
 
     def test_to92_bendable(self) -> None:
-        t = _bendable_3pin()   # 3-pin prism, bend 3.54
+        t = _bendable_3pin()  # 3-pin prism, bend 3.54
         assert is_pin_bendable(t, 2)
         assert is_pin_bendable(t, 3)
 
@@ -141,11 +207,19 @@ class TestPackageToBendSpecs:
         # bend=0 → no movable pins → empty dict (place_tool: not bendable).
         assert package_to_bend_specs(_builtin()["DIP-8"]) == {}
 
+    def test_explicit_per_pin_specs_override_geometric_reach(self) -> None:
+        specs = package_to_bend_specs(_builtin()["BEND_OVERRIDE"])
+
+        assert set(specs) == {2}
+        assert specs[2].min_reach == 2.0
+        assert specs[2].max_reach == 9.0
+        assert specs[2].default_offset == Vector(0.0, 4.0)
+
     def test_electrolytic_specs_are_free_2d(self) -> None:
         specs = package_to_bend_specs(_builtin()["CP_Elec_6.3x11"])
-        assert set(specs) == {1, 2}              # both pins bendable
+        assert set(specs) == {1, 2}  # both pins bendable
         spec = specs[2]
-        assert spec.is_free()                    # always free-2D, never discrete
+        assert spec.is_free()  # always free-2D, never discrete
         # ring 1..5 holes from origin; reach in HOLE units (mm ÷ 2.5).
         assert spec.min_reach == 1.0
         assert spec.max_reach == 5.0
@@ -178,10 +252,9 @@ class TestPackageToBendSpecs:
         spec = package_to_bend_specs(_builtin()["CP_Elec_6.3x11"])[2]
         centre = Point(3.0, 1.0)
         for target in (Point(3.0, 4.0), Point(9.0, 1.0), Point(3.0, 1.0)):
-            assert (
-                spec.is_reachable_from_pin_default(centre, target)
-                == spec.is_reachable_from_origin(centre, target)
-            )
+            assert spec.is_reachable_from_pin_default(
+                centre, target
+            ) == spec.is_reachable_from_origin(centre, target)
 
 
 class TestReachOffsetRange:
@@ -190,6 +263,7 @@ class TestReachOffsetRange:
 
     def test_axial_reach_is_union_of_orientations(self) -> None:
         from protoboard.domain.components.package.solver import MountOrientation
+
         r = _builtin()["R_Axial_DIN0207"]
         h = r.board_offset_range(orientation=MountOrientation.HORIZONTAL)
         v = r.board_offset_range(orientation=MountOrientation.VERTICAL)
@@ -207,6 +281,7 @@ class TestReachOffsetRange:
         positions = r.pin_positions()
         # Default pin-2 spacing equals the horizontal solver minimum (in holes).
         from protoboard.domain.components.package.solver import MountOrientation
+
         h = r.board_offset_range(orientation=MountOrientation.HORIZONTAL)
         assert round(positions[1].x, 3) == round(h.r_min_mm / RASTER_MM, 3)
 

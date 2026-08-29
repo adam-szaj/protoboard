@@ -2,6 +2,8 @@
 """Tests for DRCEngine — verifies SHORT, MISSING_NET, OVERLAP checks."""
 
 import uuid
+from dataclasses import replace
+from types import MappingProxyType
 
 import pytest
 
@@ -39,7 +41,9 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(
+        name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"}
+    )
 
 
 class TestDRCClean:
@@ -62,8 +66,16 @@ class TestDRCClean:
         # a mid-point. All pins assigned → DRC clean.
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
 
         # Pad centers at x=0.5,1.5,2.5,3.5,4.5, y=0.5 (1-row board).
         # SIL(2) rotation=90: pin2 rel=(0,1) rotates to (1,0) → world at (px+1, py).
@@ -121,8 +133,16 @@ class TestDRCMissingNet:
     def test_missing_connection_detected(self) -> None:
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         # Pad centers at 0.5, 1.5, 2.5, 3.5
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"
@@ -162,8 +182,16 @@ class TestDRCShort:
         # Two separate nets, but a wire accidentally connects both.
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         # Pad centers at 0.5, 1.5, 2.5, 3.5
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"
@@ -211,8 +239,16 @@ class TestDRCOverlap:
         # Two components placed at the same position → pin overlap.
         board = _perfboard(1, 3)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         # Both at (0,0) → same pads.
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top"
@@ -238,7 +274,7 @@ class TestDRCOverlap:
         assert all(i.severity == "error" for i in overlaps)
 
     def test_overlap_skipped_when_all_pins_bendable(self) -> None:
-        from protoboard.domain.components.definition import PinBendSpec
+        from protoboard.domain.components.package.bend import PinBendSpec
 
         board = _perfboard(1, 3)
         # Two component definitions where both pin 1 and pin 2 are bendable.
@@ -247,21 +283,44 @@ class TestDRCOverlap:
             name="R_bend",
             footprint=SIL(2),
             pin_names={1: "A", 2: "B"},
-            bendable_pins={1: bend_spec, 2: bend_spec},
         )
-        r1 = bind(ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R_bend", refdes="R2", value="10k"), defn, {})
+        defn = replace(
+            defn,
+            package=replace(
+                defn.package,
+                bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
+            ),
+        )
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R_bend", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         pl_r1 = ComponentPlacement(
-            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r1.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         pl_r2 = ComponentPlacement(
-            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r2.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         engine = DRCEngine()
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection()),
+            layout=Layout(
+                placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+                wires=WireCollection(),
+            ),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -291,18 +350,34 @@ class TestDRCOverlap:
 
         board = _perfboard(1, 3)
         defn = ComponentDefinition(
-            name="C_pkg", pin_names={1: "+", 2: "-"}, package=pkg,
+            name="C_pkg",
+            pin_names={1: "+", 2: "-"},
+            package=pkg,
         )
-        c1 = bind(ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u"), defn, {})
-        c2 = bind(ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u"), defn, {})
+        c1 = bind(
+            ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u"),
+            defn,
+            {},
+        )
+        c2 = bind(
+            ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u"),
+            defn,
+            {},
+        )
         pl = lambda cid: ComponentPlacement(  # noqa: E731
-            component_id=cid, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=cid,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         engine = DRCEngine()
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements=PlacementCollection({c1.id: pl(c1.id), c2.id: pl(c2.id)}), wires=WireCollection()),
+            layout=Layout(
+                placements=PlacementCollection({c1.id: pl(c1.id), c2.id: pl(c2.id)}),
+                wires=WireCollection(),
+            ),
             components={defn.name: defn},
             instances={c1.id: c1, c2.id: c2},
         )
@@ -310,7 +385,7 @@ class TestDRCOverlap:
         assert [i for i in issues if i.code == "OVERLAP"] == []
 
     def test_overlap_still_flags_when_partial_bendable(self) -> None:
-        from protoboard.domain.components.definition import PinBendSpec
+        from protoboard.domain.components.package.bend import PinBendSpec
 
         board = _perfboard(1, 3)
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
@@ -319,22 +394,45 @@ class TestDRCOverlap:
             name="R_bend",
             footprint=SIL(2),
             pin_names={1: "A", 2: "B"},
-            bendable_pins={1: bend_spec, 2: bend_spec},
+        )
+        bendy = replace(
+            bendy,
+            package=replace(
+                bendy.package,
+                bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
+            ),
         )
         rigid = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"), bendy, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), rigid, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"),
+            bendy,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            rigid,
+            {},
+        )
         pl_r1 = ComponentPlacement(
-            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r1.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         pl_r2 = ComponentPlacement(
-            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r2.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         engine = DRCEngine()
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection()),
+            layout=Layout(
+                placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+                wires=WireCollection(),
+            ),
             components={bendy.name: bendy, rigid.name: rigid},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -344,19 +442,36 @@ class TestDRCOverlap:
     def test_overlap_populates_affected_components_and_pins(self) -> None:
         board = _perfboard(1, 3)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         pl_r1 = ComponentPlacement(
-            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r1.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         pl_r2 = ComponentPlacement(
-            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r2.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         engine = DRCEngine()
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection()),
+            layout=Layout(
+                placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+                wires=WireCollection(),
+            ),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -404,17 +519,25 @@ class TestDRCBodyOverlap:
         for refdes, pos, side in placements:
             inst = bind(
                 ComponentInstance.new(
-                    definition_ref=defn.name, refdes=refdes, value="",
+                    definition_ref=defn.name,
+                    refdes=refdes,
+                    value="",
                 ),
                 defn,
                 {},
             )
             insts[inst.id] = inst
             pls[inst.id] = ComponentPlacement(
-                component_id=inst.id, position=pos, rotation=0,
+                component_id=inst.id,
+                position=pos,
+                rotation=0,
                 side=side,  # type: ignore[arg-type]
             )
-        return Layout(placements=PlacementCollection(pls), wires=WireCollection()), {defn.name: defn}, insts
+        return (
+            Layout(placements=PlacementCollection(pls), wires=WireCollection()),
+            {defn.name: defn},
+            insts,
+        )
 
     def test_overlapping_bodies_flag_body_overlap(self) -> None:
         board = _perfboard(4, 4)
@@ -425,8 +548,11 @@ class TestDRCBodyOverlap:
             ("U2", Point(0.5, 0.5), "top"),
         )
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}),
-            layout=lay, components=comps, instances=insts,
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         body = [i for i in issues if i.code == "BODY_OVERLAP"]
         assert len(body) == 1
@@ -443,8 +569,11 @@ class TestDRCBodyOverlap:
             ("U2", Point(5.5, 5.5), "top"),
         )
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}),
-            layout=lay, components=comps, instances=insts,
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
 
@@ -461,8 +590,11 @@ class TestDRCBodyOverlap:
             ("U2", Point(0.5, 2.5), "bottom"),
         )
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}),
-            layout=lay, components=comps, instances=insts,
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
 
@@ -477,8 +609,11 @@ class TestDRCBodyOverlap:
             ("R2", Point(0.0, 0.0), "top"),
         )
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}),
-            layout=lay, components=comps, instances=insts,
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
         assert [i for i in issues if i.code == "OVERLAP"] != []
@@ -488,8 +623,11 @@ class TestDRCBodyOverlap:
         defn = _prism_defn()
         lay, comps, insts = self._placed(defn, ("U1", Point(0.5, 0.5), "top"))
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}),
-            layout=lay, components=comps, instances=insts,
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
 
@@ -505,13 +643,27 @@ class TestDRCMessages:
 
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         pl_r1 = ComponentPlacement(
-            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r1.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         pl_r2 = ComponentPlacement(
-            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r2.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         engine = DRCEngine()
         labels = AxisLabelSettings(
@@ -521,7 +673,10 @@ class TestDRCMessages:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection()),
+            layout=Layout(
+                placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+                wires=WireCollection(),
+            ),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
             axis_labels=labels,
@@ -534,19 +689,36 @@ class TestDRCMessages:
     def test_axis_labels_fallback_to_col_row(self) -> None:
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         pl_r1 = ComponentPlacement(
-            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r1.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         pl_r2 = ComponentPlacement(
-            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=r2.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         engine = DRCEngine()
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection()),
+            layout=Layout(
+                placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+                wires=WireCollection(),
+            ),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
             # axis_labels=None → fallback
@@ -587,7 +759,11 @@ class TestDRCFloatingPin:
     def _setup(self) -> tuple[Board, ComponentDefinition, ComponentInstance]:
         board = _perfboard(1, 3)
         defn = _r_defn()
-        inst = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        inst = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
         return board, defn, inst
 
     def test_floating_pin_when_component_not_placed(self) -> None:
@@ -623,7 +799,9 @@ class TestDRCFloatingPin:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection())
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection()
+        )
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -646,8 +824,12 @@ class TestDRCBareWireCross:
         # They share pad (1.5,1.5) → BARE_WIRE_CROSS.
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="1k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="1k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="1k"), defn, {}
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="1k"), defn, {}
+        )
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 1.5), rotation=90, side="top"
         )
@@ -715,7 +897,9 @@ class TestDRCBareWireCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b])
+        )
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -756,7 +940,9 @@ class TestDRCBareWireInteriorCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b])
+        )
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -784,7 +970,9 @@ class TestDRCBareWireInteriorCross:
             side="bottom",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b])
+        )
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -808,7 +996,9 @@ class TestDRCBareWireInteriorCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b])
+        )
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -828,28 +1018,55 @@ class TestDRCGroupExports:
 
     @staticmethod
     def _three_resistor_setup() -> tuple[
-        Board, ComponentDefinition,
-        ComponentInstance, ComponentInstance, ComponentInstance,
-        Schematic, dict, dict, dict[uuid.UUID, ComponentPlacement],
+        Board,
+        ComponentDefinition,
+        ComponentInstance,
+        ComponentInstance,
+        ComponentInstance,
+        Schematic,
+        dict,
+        dict,
+        dict[uuid.UUID, ComponentPlacement],
     ]:
         from protoboard.domain.schematic.net import PinRef as _PinRef
+
         board = _perfboard(1, 7)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
-        r3 = bind(ComponentInstance.new(definition_ref="R", refdes="R3", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
+        r3 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R3", value="10k"),
+            defn,
+            {},
+        )
         placements = {
-            r1.id: ComponentPlacement(component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"),
-            r2.id: ComponentPlacement(component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"),
-            r3.id: ComponentPlacement(component_id=r3.id, position=Point(4.5, 0.5), rotation=90, side="top"),
+            r1.id: ComponentPlacement(
+                component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"
+            ),
+            r2.id: ComponentPlacement(
+                component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
+            ),
+            r3.id: ComponentPlacement(
+                component_id=r3.id, position=Point(4.5, 0.5), rotation=90, side="top"
+            ),
         }
         in_net = Net(
-            id=uuid.uuid4(), name="VCC",
+            id=uuid.uuid4(),
+            name="VCC",
             pins={_PinRef(component_id=r1.id, pin_number=1)},
             global_net=True,
         )
         ab_net = Net(
-            id=uuid.uuid4(), name="AB",
+            id=uuid.uuid4(),
+            name="AB",
             pins={
                 _PinRef(component_id=r1.id, pin_number=2),
                 _PinRef(component_id=r2.id, pin_number=1),
@@ -857,12 +1074,18 @@ class TestDRCGroupExports:
             },
         )
         out_net = Net(
-            id=uuid.uuid4(), name="OUT",
+            id=uuid.uuid4(),
+            name="OUT",
             pins={_PinRef(component_id=r3.id, pin_number=2)},
         )
         sch = Schematic(nets={n.id: n for n in (in_net, ab_net, out_net)})
         return (
-            board, defn, r1, r2, r3, sch,
+            board,
+            defn,
+            r1,
+            r2,
+            r3,
+            sch,
             {defn.name: defn},
             {r1.id: r1, r2.id: r2, r3.id: r3},
             placements,
@@ -871,24 +1094,34 @@ class TestDRCGroupExports:
     def test_missing_export_for_external_net(self) -> None:
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
+
+        board, defn, r1, r2, r3, sch, comps, insts, placements = (
+            self._three_resistor_setup()
+        )
         gid = uuid.uuid4()
         grp = ComponentGroup(
-            id=gid, name="G1",
+            id=gid,
+            name="G1",
             component_ids=frozenset({r1.id, r2.id}),
             exported_pins=frozenset(),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, gid: grp},
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
-            components=comps, instances=insts,
+            board=board,
+            schematic=sch,
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         missing = [i for i in issues if i.code == "GROUP_MISSING_EXPORT"]
         assert len(missing) == 2
@@ -900,27 +1133,39 @@ class TestDRCGroupExports:
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef
-        board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
+
+        board, defn, r1, r2, r3, sch, comps, insts, placements = (
+            self._three_resistor_setup()
+        )
         gid = uuid.uuid4()
         grp = ComponentGroup(
-            id=gid, name="G1",
+            id=gid,
+            name="G1",
             component_ids=frozenset({r1.id, r2.id}),
-            exported_pins=frozenset({
-                PinRef(component_id=r1.id, pin_number=1),  # VCC (global)
-                PinRef(component_id=r1.id, pin_number=2),  # AB
-            }),
+            exported_pins=frozenset(
+                {
+                    PinRef(component_id=r1.id, pin_number=1),  # VCC (global)
+                    PinRef(component_id=r1.id, pin_number=2),  # AB
+                }
+            ),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, gid: grp},
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
-            components=comps, instances=insts,
+            board=board,
+            schematic=sch,
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         assert [i for i in issues if i.code.startswith("GROUP_")] == []
 
@@ -929,42 +1174,76 @@ class TestDRCGroupExports:
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
+
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r2 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         placements = {
-            r1.id: ComponentPlacement(component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"),
-            r2.id: ComponentPlacement(component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+            r1.id: ComponentPlacement(
+                component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"
+            ),
+            r2.id: ComponentPlacement(
+                component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
+            ),
         }
-        vcc = Net(id=uuid.uuid4(), name="VCC", global_net=True,
-                  pins={_PinRef(component_id=r1.id, pin_number=1)})
-        gnd = Net(id=uuid.uuid4(), name="GND", global_net=True,
-                  pins={_PinRef(component_id=r2.id, pin_number=2)})
-        mid = Net(id=uuid.uuid4(), name="MID",
-                  pins={_PinRef(component_id=r1.id, pin_number=2),
-                        _PinRef(component_id=r2.id, pin_number=1)})
+        vcc = Net(
+            id=uuid.uuid4(),
+            name="VCC",
+            global_net=True,
+            pins={_PinRef(component_id=r1.id, pin_number=1)},
+        )
+        gnd = Net(
+            id=uuid.uuid4(),
+            name="GND",
+            global_net=True,
+            pins={_PinRef(component_id=r2.id, pin_number=2)},
+        )
+        mid = Net(
+            id=uuid.uuid4(),
+            name="MID",
+            pins={
+                _PinRef(component_id=r1.id, pin_number=2),
+                _PinRef(component_id=r2.id, pin_number=1),
+            },
+        )
         sch = Schematic(nets={n.id: n for n in (vcc, gnd, mid)})
         gid = uuid.uuid4()
         grp = ComponentGroup(
-            id=gid, name="G1",
+            id=gid,
+            name="G1",
             component_ids=frozenset({r1.id, r2.id}),
-            exported_pins=frozenset({
-                PinRef(component_id=r1.id, pin_number=1),  # VCC, ok
-                PinRef(component_id=r2.id, pin_number=2),  # GND, ok
-                PinRef(component_id=r1.id, pin_number=2),  # MID, BOGUS
-            }),
+            exported_pins=frozenset(
+                {
+                    PinRef(component_id=r1.id, pin_number=1),  # VCC, ok
+                    PinRef(component_id=r2.id, pin_number=2),  # GND, ok
+                    PinRef(component_id=r1.id, pin_number=2),  # MID, BOGUS
+                }
+            ),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, gid: grp},
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -981,34 +1260,47 @@ class TestDRCGroupExports:
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef
-        board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
+
+        board, defn, r1, r2, r3, sch, comps, insts, placements = (
+            self._three_resistor_setup()
+        )
         inner_gid = uuid.uuid4()
         outer_gid = uuid.uuid4()
         inner = ComponentGroup(
-            id=inner_gid, name="Inner",
+            id=inner_gid,
+            name="Inner",
             component_ids=frozenset({r1.id, r2.id}),
             exported_pins=frozenset(),  # missing — will fire
         )
         outer = ComponentGroup(
-            id=outer_gid, name="Outer",
+            id=outer_gid,
+            name="Outer",
             component_ids=frozenset({r3.id}),
             child_group_ids=frozenset({inner_gid}),
-            exported_pins=frozenset({
-                PinRef(component_id=r1.id, pin_number=1),  # VCC (global)
-                PinRef(component_id=r3.id, pin_number=2),  # OUT
-            }),
+            exported_pins=frozenset(
+                {
+                    PinRef(component_id=r1.id, pin_number=1),  # VCC (global)
+                    PinRef(component_id=r3.id, pin_number=2),  # OUT
+                }
+            ),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({outer_gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({outer_gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, outer_gid: outer, inner_gid: inner},
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
-            components=comps, instances=insts,
+            board=board,
+            schematic=sch,
+            layout=lay,
+            components=comps,
+            instances=insts,
         )
         missing = [i for i in issues if i.code == "GROUP_MISSING_EXPORT"]
         # Inner sees VCC (global) and AB (R3 outside inner) as external.
@@ -1033,16 +1325,36 @@ class TestDRCGroupInvalidExport:
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
+
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r_outside = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r_inner = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r_outside = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         placements = {
-            r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
-            r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+            r_inner.id: ComponentPlacement(
+                component_id=r_inner.id,
+                position=Point(0.5, 0.5),
+                rotation=90,
+                side="top",
+            ),
+            r_outside.id: ComponentPlacement(
+                component_id=r_outside.id,
+                position=Point(2.5, 0.5),
+                rotation=90,
+                side="top",
+            ),
         }
         ext_net = Net(
-            id=uuid.uuid4(), name="EXT",
+            id=uuid.uuid4(),
+            name="EXT",
             pins={
                 _PinRef(component_id=r_inner.id, pin_number=1),
                 _PinRef(component_id=r_outside.id, pin_number=1),
@@ -1058,33 +1370,43 @@ class TestDRCGroupInvalidExport:
         b_gid = uuid.uuid4()
         a_gid = uuid.uuid4()
         c = ComponentGroup(
-            id=c_gid, name="C",
+            id=c_gid,
+            name="C",
             component_ids=frozenset({r_inner.id}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=b_gid, name="B",
+            id=b_gid,
+            name="B",
             child_group_ids=frozenset({c_gid}),
             # Note: B does NOT re-export ep.
         )
         a = ComponentGroup(
-            id=a_gid, name="A",
+            id=a_gid,
+            name="A",
             child_group_ids=frozenset({b_gid}),
             exported_pins=frozenset({ep}),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({a_gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={
                 ROOT_GROUP_ID: root_grp,
-                a_gid: a, b_gid: b, c_gid: c,
+                a_gid: a,
+                b_gid: b,
+                c_gid: c,
             },
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r_inner.id: r_inner, r_outside.id: r_outside},
         )
@@ -1094,6 +1416,7 @@ class TestDRCGroupInvalidExport:
         invalid_groups = {tuple(i.affected_pins)[0] for i in invalid}
         # PinRef equality — should be the ep's pin on both A and B's lists.
         from protoboard.domain.schematic.net import PinRef as _PR
+
         assert _PR(component_id=r_inner.id, pin_number=1) in invalid_groups
         assert any("A" in i.message for i in invalid)
         # B does not export ep at all — only A is invalid.
@@ -1107,16 +1430,36 @@ class TestDRCGroupInvalidExport:
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
+
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r_outside = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r_inner = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r_outside = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         placements = {
-            r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
-            r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+            r_inner.id: ComponentPlacement(
+                component_id=r_inner.id,
+                position=Point(0.5, 0.5),
+                rotation=90,
+                side="top",
+            ),
+            r_outside.id: ComponentPlacement(
+                component_id=r_outside.id,
+                position=Point(2.5, 0.5),
+                rotation=90,
+                side="top",
+            ),
         }
         ext_net = Net(
-            id=uuid.uuid4(), name="EXT",
+            id=uuid.uuid4(),
+            name="EXT",
             pins={
                 _PinRef(component_id=r_inner.id, pin_number=1),
                 _PinRef(component_id=r_outside.id, pin_number=1),
@@ -1129,33 +1472,43 @@ class TestDRCGroupInvalidExport:
         b_gid = uuid.uuid4()
         a_gid = uuid.uuid4()
         c = ComponentGroup(
-            id=c_gid, name="C",
+            id=c_gid,
+            name="C",
             component_ids=frozenset({r_inner.id}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=b_gid, name="B",
+            id=b_gid,
+            name="B",
             child_group_ids=frozenset({c_gid}),
             exported_pins=frozenset({ep}),  # re-export
         )
         a = ComponentGroup(
-            id=a_gid, name="A",
+            id=a_gid,
+            name="A",
             child_group_ids=frozenset({b_gid}),
             exported_pins=frozenset({ep}),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({a_gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={
                 ROOT_GROUP_ID: root_grp,
-                a_gid: a, b_gid: b, c_gid: c,
+                a_gid: a,
+                b_gid: b,
+                c_gid: c,
             },
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r_inner.id: r_inner, r_outside.id: r_outside},
         )
@@ -1168,19 +1521,39 @@ class TestDRCGroupInvalidExport:
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
+
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        r_outside = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r_inner = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        r_outside = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
+            defn,
+            {},
+        )
         placements = {
-            r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
-            r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+            r_inner.id: ComponentPlacement(
+                component_id=r_inner.id,
+                position=Point(0.5, 0.5),
+                rotation=90,
+                side="top",
+            ),
+            r_outside.id: ComponentPlacement(
+                component_id=r_outside.id,
+                position=Point(2.5, 0.5),
+                rotation=90,
+                side="top",
+            ),
         }
         # Net stays fully inside C (no outside pin, not global).  An INVALID
         # flat export on A would normally also count as BOGUS for A — assert
         # only INVALID fires.
         internal_net = Net(
-            id=uuid.uuid4(), name="INT",
+            id=uuid.uuid4(),
+            name="INT",
             pins={
                 _PinRef(component_id=r_inner.id, pin_number=1),
                 _PinRef(component_id=r_outside.id, pin_number=1),
@@ -1197,44 +1570,52 @@ class TestDRCGroupInvalidExport:
         # directly, so actually... we need C wrapped in B).
         b_gid = uuid.uuid4()
         c = ComponentGroup(
-            id=c_gid, name="C",
+            id=c_gid,
+            name="C",
             component_ids=frozenset({r_inner.id}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=b_gid, name="B",
+            id=b_gid,
+            name="B",
             child_group_ids=frozenset({c_gid}),
             # B does not re-export.
         )
         a = ComponentGroup(
-            id=a_gid, name="A",
+            id=a_gid,
+            name="A",
             component_ids=frozenset({r_outside.id}),
             child_group_ids=frozenset({b_gid}),
             exported_pins=frozenset({ep}),
         )
         root_grp = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
-            component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
+            id=ROOT_GROUP_ID,
+            name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset({a_gid}),
         )
         lay = Layout(
-            placements=PlacementCollection(placements), wires=WireCollection(),
+            placements=PlacementCollection(placements),
+            wires=WireCollection(),
             groups={
                 ROOT_GROUP_ID: root_grp,
-                a_gid: a, b_gid: b, c_gid: c,
+                a_gid: a,
+                b_gid: b,
+                c_gid: c,
             },
         )
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r_inner.id: r_inner, r_outside.id: r_outside},
         )
         a_issues_invalid = [
-            i for i in issues if i.code == "GROUP_INVALID_EXPORT"
-            and "A" in i.message
+            i for i in issues if i.code == "GROUP_INVALID_EXPORT" and "A" in i.message
         ]
         a_issues_bogus = [
-            i for i in issues if i.code == "GROUP_BOGUS_EXPORT"
-            and "A" in i.message
+            i for i in issues if i.code == "GROUP_BOGUS_EXPORT" and "A" in i.message
         ]
         assert len(a_issues_invalid) == 1
         assert a_issues_bogus == []
@@ -1245,6 +1626,7 @@ class TestAutoroutePreconditionBlocksMissingExport:
         from protoboard.services.routing.autorouter import (
             _AUTOROUTE_BLOCKING_DRC_CODES,
         )
+
         assert "GROUP_MISSING_EXPORT" in _AUTOROUTE_BLOCKING_DRC_CODES
         assert "SHORT" in _AUTOROUTE_BLOCKING_DRC_CODES
         assert "OFF_BOARD_PIN" in _AUTOROUTE_BLOCKING_DRC_CODES
@@ -1260,15 +1642,26 @@ class TestDRCOffBoardPin:
     def test_component_fully_on_board_no_issue(self) -> None:
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
         # SIL(2) rot=90: pin1@(0.5,0.5), pin2@(1.5,0.5) — both on board.
-        placements = {r1.id: ComponentPlacement(
-            component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top",
-        )}
+        placements = {
+            r1.id: ComponentPlacement(
+                component_id=r1.id,
+                position=Point(0.5, 0.5),
+                rotation=90,
+                side="top",
+            )
+        }
         lay = Layout(placements=PlacementCollection(placements), wires=WireCollection())
         sch = Schematic(nets={})
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r1.id: r1},
         )
@@ -1277,15 +1670,26 @@ class TestDRCOffBoardPin:
     def test_component_overhanging_board_flags_pin(self) -> None:
         board = _perfboard(1, 2)  # pads at x=0.5, 1.5
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
         # pin1@(1.5, 0.5)=on board last pad, pin2@(2.5, 0.5)=off board.
-        placements = {r1.id: ComponentPlacement(
-            component_id=r1.id, position=Point(1.5, 0.5), rotation=90, side="top",
-        )}
+        placements = {
+            r1.id: ComponentPlacement(
+                component_id=r1.id,
+                position=Point(1.5, 0.5),
+                rotation=90,
+                side="top",
+            )
+        }
         lay = Layout(placements=PlacementCollection(placements), wires=WireCollection())
         sch = Schematic(nets={})
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r1.id: r1},
         )
@@ -1306,18 +1710,32 @@ class TestDRCOffBoardPin:
                 height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=False, plated_through=False),
             ),
-            rows=1, cols=2, row_gap=0.0, col_gap=0.0,
+            rows=1,
+            cols=2,
+            row_gap=0.0,
+            col_gap=0.0,
         )
         board = Board(root=grid)
         defn = _r_defn()
-        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
-        placements = {r1.id: ComponentPlacement(
-            component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="bottom",
-        )}
+        r1 = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
+            defn,
+            {},
+        )
+        placements = {
+            r1.id: ComponentPlacement(
+                component_id=r1.id,
+                position=Point(0.5, 0.5),
+                rotation=90,
+                side="bottom",
+            )
+        }
         lay = Layout(placements=PlacementCollection(placements), wires=WireCollection())
         sch = Schematic(nets={})
         issues = DRCEngine().check(
-            board=board, schematic=sch, layout=lay,
+            board=board,
+            schematic=sch,
+            layout=lay,
             components={defn.name: defn},
             instances={r1.id: r1},
         )
@@ -1334,16 +1752,21 @@ class TestDRCOffBoardPin:
 
 def _bare_perfboard(rows: int, cols: int, plated: bool) -> Board:
     """Variant of _perfboard that lets a test control plated-through."""
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=plated),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=plated),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 class TestDRCHalfOrphanWire:
@@ -1362,8 +1785,11 @@ class TestDRCHalfOrphanWire:
         lay.knots[ka.id] = ka
         lay.knots[kb.id] = kb
         wire = Wire(
-            id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-            side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+            side="top",
+            a=KnotRef(id=ka.id),
+            b=KnotRef(id=kb.id),
         )
         lay.add_wire(wire)
         return lay
@@ -1372,8 +1798,11 @@ class TestDRCHalfOrphanWire:
         board = _bare_perfboard(1, 3, plated=True)
         lay = self._make_half_orphan_layout()
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}), layout=lay,
-            components={}, instances={},
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components={},
+            instances={},
         )
         half = [i for i in issues if i.code == "HALF_ORPHAN_WIRE"]
         # Both endpoints are lone joints → 2 warnings.
@@ -1395,24 +1824,34 @@ class TestDRCHalfOrphanWire:
         lay.knots[kb.id] = kb
         lay.knots[kc.id] = kc
         w1 = Wire(
-            id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-            side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+            side="top",
+            a=KnotRef(id=ka.id),
+            b=KnotRef(id=kb.id),
         )
         w2 = Wire(
-            id=uuid.uuid4(), path=[Point(1.5, 0.5), Point(2.5, 0.5)],
-            side="top", a=KnotRef(id=kb.id), b=KnotRef(id=kc.id),
+            id=uuid.uuid4(),
+            path=[Point(1.5, 0.5), Point(2.5, 0.5)],
+            side="top",
+            a=KnotRef(id=kb.id),
+            b=KnotRef(id=kc.id),
         )
         lay.add_wire(w1)
         lay.add_wire(w2)
         # kb is shared by both wires (t-junction), ka and kc are still
         # half-orphan.
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}), layout=lay,
-            components={}, instances={},
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components={},
+            instances={},
         )
         half_ids = {
             (i.locations[0].x, i.locations[0].y)
-            for i in issues if i.code == "HALF_ORPHAN_WIRE"
+            for i in issues
+            if i.code == "HALF_ORPHAN_WIRE"
         }
         assert (0.5, 0.5) in half_ids
         assert (2.5, 0.5) in half_ids
@@ -1441,14 +1880,25 @@ class TestDRCHalfOrphanWire:
 
         state = _State(lay, board)
         ConvertEndpointToWirePinCommand(
-            wire_id=wire.id, endpoint="a", net_id=None,
-        ).apply(state)  # type: ignore[arg-type]
+            wire_id=wire.id,
+            endpoint="a",
+            net_id=None,
+        ).apply(
+            state
+        )  # type: ignore[arg-type]
         ConvertEndpointToWirePinCommand(
-            wire_id=wire.id, endpoint="b", net_id=None,
-        ).apply(state)  # type: ignore[arg-type]
+            wire_id=wire.id,
+            endpoint="b",
+            net_id=None,
+        ).apply(
+            state
+        )  # type: ignore[arg-type]
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}), layout=lay,
-            components={}, instances={},
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components={},
+            instances={},
         )
         assert [i for i in issues if i.code == "HALF_ORPHAN_WIRE"] == []
 
@@ -1473,12 +1923,16 @@ class TestDRCWirePinOffPlatedThrough:
         wire = Wire(
             id=uuid.uuid4(),
             path=[position, position + Vector(1.0, 0.0)],
-            side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+            side="top",
+            a=KnotRef(id=ka.id),
+            b=KnotRef(id=kb.id),
         )
         lay.add_wire(wire)
         # Promote ka to wire-pin at the given position.
         lay.knots[ka.id] = WirePinKnot(
-            id=ka.id, position=position, net_id=None,
+            id=ka.id,
+            position=position,
+            net_id=None,
             wire_ids=frozenset({wire.id}),
         )
         return lay
@@ -1487,24 +1941,26 @@ class TestDRCWirePinOffPlatedThrough:
         board = _bare_perfboard(1, 3, plated=True)
         lay = self._make_wire_pin_layout(Point(0.5, 0.5))
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}), layout=lay,
-            components={}, instances={},
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components={},
+            instances={},
         )
-        assert [
-            i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
-        ] == []
+        assert [i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"] == []
 
     def test_wire_pin_on_isolated_pad_fires_error(self) -> None:
         # Pad without plated-through → error.
         board = _bare_perfboard(1, 3, plated=False)
         lay = self._make_wire_pin_layout(Point(0.5, 0.5))
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}), layout=lay,
-            components={}, instances={},
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components={},
+            instances={},
         )
-        bad = [
-            i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
-        ]
+        bad = [i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"]
         assert len(bad) == 1
         assert bad[0].severity == "error"
 
@@ -1513,12 +1969,13 @@ class TestDRCWirePinOffPlatedThrough:
         board = _bare_perfboard(1, 3, plated=True)
         lay = self._make_wire_pin_layout(Point(0.7, 0.7))
         issues = DRCEngine().check(
-            board=board, schematic=Schematic(nets={}), layout=lay,
-            components={}, instances={},
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=lay,
+            components={},
+            instances={},
         )
-        bad = [
-            i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
-        ]
+        bad = [i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"]
         assert len(bad) == 1
 
 
@@ -1531,6 +1988,7 @@ class TestDRCBodyOverlapResolvedVariant:
     @staticmethod
     def _build(spec_leads: list, dims: dict, name: str):
         from protoboard.domain.components.package.loader import build_package
+
         return build_package(
             {
                 "shape": "prism",
@@ -1548,13 +2006,14 @@ class TestDRCBodyOverlapResolvedVariant:
     def _smd_resistor_defn_and_families(self):
         """A part whose DEFAULT body is a long axial, offering an SMD variant."""
         from protoboard.domain.components.package import PackageFamily, PackageVariant
+
         axial = self._build([[4, 0]], {"ly": 2.5, "lx": 7.5}, "AXIAL")
         smd = self._build([[1, 0]], {"ly": 1.25, "lx": 2.0}, "SMD")
         families = {
             "smd-0805": PackageFamily(
-                family_id="smd-0805", label="SMD 0805",
-                variants=(PackageVariant(variant_id="typ", label="typ",
-                                         package=smd),),
+                family_id="smd-0805",
+                label="SMD 0805",
+                variants=(PackageVariant(variant_id="typ", label="typ", package=smd),),
             )
         }
         defn = ComponentDefinition(
@@ -1567,8 +2026,11 @@ class TestDRCBodyOverlapResolvedVariant:
 
     def _check(self, layout, comps, insts):
         return DRCEngine().check(
-            board=_perfboard(16, 16), schematic=Schematic(nets={}),
-            layout=layout, components=comps, instances=insts,
+            board=_perfboard(16, 16),
+            schematic=Schematic(nets={}),
+            layout=layout,
+            components=comps,
+            instances=insts,
         )
 
     def test_smd_variant_does_not_collide_via_phantom_default_body(
@@ -1577,20 +2039,28 @@ class TestDRCBodyOverlapResolvedVariant:
         defn_r, families = self._smd_resistor_defn_and_families()
         defn_u = _prism_defn()
         r = bind(
-            ComponentInstance.new(definition_ref="R", refdes="R1", value="",
-                                  package_variant="smd-0805/typ"),
-            defn_r, families,
+            ComponentInstance.new(
+                definition_ref="R",
+                refdes="R1",
+                value="",
+                package_variant="smd-0805/typ",
+            ),
+            defn_r,
+            families,
         )
-        u = bind(ComponentInstance.new(definition_ref="U", refdes="U1",
-                                       value=""), defn_u, {})
+        u = bind(
+            ComponentInstance.new(definition_ref="U", refdes="U1", value=""), defn_u, {}
+        )
         insts = {r.id: r, u.id: u}
         pls = {
             # SMD chip on pads (1,1)-(2,1); the phantom axial default would
             # reach 3 holes further right.
-            r.id: ComponentPlacement(component_id=r.id, position=Point(1, 1),
-                                     rotation=0, side="top"),
-            u.id: ComponentPlacement(component_id=u.id, position=Point(4, 1),
-                                     rotation=0, side="top"),
+            r.id: ComponentPlacement(
+                component_id=r.id, position=Point(1, 1), rotation=0, side="top"
+            ),
+            u.id: ComponentPlacement(
+                component_id=u.id, position=Point(4, 1), rotation=0, side="top"
+            ),
         }
         layout = Layout(placements=PlacementCollection(pls), wires=WireCollection())
         issues = self._check(layout, {"R": defn_r, "U": defn_u}, insts)
@@ -1600,8 +2070,7 @@ class TestDRCBodyOverlapResolvedVariant:
         """A TO-220-style body (10 mm ALONG its 3-pin row, 4.5 mm across) must
         not claim holes two rows away perpendicular to the row — and must
         claim them along the row."""
-        to220ish = self._build([[1, 0], [1, 0]],
-                               {"ly": 4.5, "lx": 10.0}, "TO220ISH")
+        to220ish = self._build([[1, 0], [1, 0]], {"ly": 4.5, "lx": 10.0}, "TO220ISH")
         defn_t = ComponentDefinition(
             name="Q",
             # type: ignore[arg-type]
@@ -1611,24 +2080,29 @@ class TestDRCBodyOverlapResolvedVariant:
         defn_u = _prism_defn()
 
         def place(upos: Point):
-            t = bind(ComponentInstance.new(definition_ref="Q", refdes="Q1",
-                                           value=""), defn_t, {})
-            u = bind(ComponentInstance.new(definition_ref="U", refdes="U1",
-                                           value=""), defn_u, {})
+            t = bind(
+                ComponentInstance.new(definition_ref="Q", refdes="Q1", value=""),
+                defn_t,
+                {},
+            )
+            u = bind(
+                ComponentInstance.new(definition_ref="U", refdes="U1", value=""),
+                defn_u,
+                {},
+            )
             pls = {
-                t.id: ComponentPlacement(component_id=t.id,
-                                         position=Point(4, 4),
-                                         rotation=0, side="top"),
-                u.id: ComponentPlacement(component_id=u.id, position=upos,
-                                         rotation=0, side="top"),
+                t.id: ComponentPlacement(
+                    component_id=t.id, position=Point(4, 4), rotation=0, side="top"
+                ),
+                u.id: ComponentPlacement(
+                    component_id=u.id, position=upos, rotation=0, side="top"
+                ),
             }
             layout = Layout(placements=PlacementCollection(pls), wires=WireCollection())
-            return self._check(layout, {"Q": defn_t, "U": defn_u},
-                               {t.id: t, u.id: u})
+            return self._check(layout, {"Q": defn_t, "U": defn_u}, {t.id: t, u.id: u})
 
         # Two rows BELOW the pin row (outside the 4.5 mm body depth): clean.
-        below = [i for i in place(Point(4, 7))
-                 if i.code == "BODY_OVERLAP"]
+        below = [i for i in place(Point(4, 7)) if i.code == "BODY_OVERLAP"]
         assert below == []
         # ALONG the row just past the last pin (inside the 10 mm face): flags.
         along = [i for i in place(Point(7, 4)) if i.code == "BODY_OVERLAP"]
