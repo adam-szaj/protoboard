@@ -174,25 +174,17 @@ class ComponentInstance:
         )
 
     def build_pin_identities(self, defn: "ComponentDefinition") -> None:
-        """(Re)build the shared PinIdentity for each same-name pin group.
-
-        Reads ``defn.pins_grouped_by_name(self.pin_variant)`` and creates one
-        identity per group, mapping every pin of the group to it. Mutates the
-        ``pin_identities`` dict in place (frozen-safe — the binding is
-        unchanged). Idempotent; call again after a pin-variant change, which
-        may regroup names. Pins not in any group get no entry.
-        """
+        """(Re)build one electrical identity for every MetaPin."""
         self.pin_identities.clear()
-        for pins in defn.pins_grouped_by_name(self.pin_variant).values():
-            canonical = min(pins)
-            identity = PinIdentity(key=(self.id, canonical))
-            for pin_num in pins:
-                self.pin_identities[pin_num] = identity
+        for meta_pin_index in range(1, len(defn.meta_pins) + 1):
+            self.pin_identities[meta_pin_index] = PinIdentity(
+                key=(self.id, meta_pin_index)
+            )
 
     def pin_ref(self, pin_number: int) -> PinRef:
         """Return a PinRef for *pin_number*, carrying its shared PinIdentity.
 
-        Ungrouped pins (no same-name sibling) get a ref with ``identity=None``;
-        they are equal to and interchangeable with a bare lookup ref.
+        Call :meth:`build_pin_identities` first to attach the MetaPin's live
+        electrical identity.
         """
         return PinRef(self.id, pin_number, identity=self.pin_identities.get(pin_number))

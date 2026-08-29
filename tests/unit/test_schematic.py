@@ -9,11 +9,11 @@ import pytest
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
+    MetaPin,
+    PackageOption,
 )
-from protoboard.domain.components.footprints import DIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.schematic.net import Net, PinIdentity
-from protoboard.domain.schematic.pin_siblings import same_name_refs
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 
 
@@ -174,12 +174,22 @@ class TestPinRefIdentity:
 
 
 def _ic_with_two_gnd() -> ComponentDefinition:
-    """8-pin IC where pins 4 and 8 are both 'GND' → one shared node."""
-    return ComponentDefinition.from_footprint(
+    """One GND MetaPin carried by package pins 4 and 8."""
+    return ComponentDefinition(
         name="T",
-        footprint=DIL(n=8),
-        pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
-                   5: "E", 6: "F", 7: "G", 8: "GND"},
+        meta_pins=tuple(
+            MetaPin((label,)) for label in ("A", "B", "C", "GND", "E", "F", "G")
+        ),
+        package_options=(
+            PackageOption(
+                name="DIP-8",
+                ref="dip-8/std",
+                pin_map={
+                    1: (1,), 2: (2,), 3: (3,), 4: (4, 8),
+                    5: (5,), 6: (6,), 7: (7,),
+                },
+            ),
+        ),
         component_class=ComponentClass.IC,
     )
 
@@ -192,17 +202,16 @@ def _net_id_of(ref: PinRef) -> uuid.UUID | None:
 class TestPinIdentityFactory:
     """ComponentInstance is the factory for same-name pin identities."""
 
-    def test_same_name_pins_share_identity(self) -> None:
+    def test_metapin_has_identity(self) -> None:
         inst = ComponentInstance.new("T", "U1", "")
         inst.build_pin_identities(_ic_with_two_gnd())
-        r4, r8 = inst.pin_ref(4), inst.pin_ref(8)
+        r4 = inst.pin_ref(4)
         assert r4.identity is not None
-        assert r4.identity is r8.identity
 
-    def test_ungrouped_pin_has_no_identity(self) -> None:
+    def test_every_metapin_has_identity(self) -> None:
         inst = ComponentInstance.new("T", "U1", "")
         inst.build_pin_identities(_ic_with_two_gnd())
-        assert inst.pin_ref(1).identity is None
+        assert inst.pin_ref(1).identity is not None
 
     def test_instance_stays_frozen(self) -> None:
         inst = ComponentInstance.new("T", "U1", "")
@@ -216,8 +225,7 @@ class TestPinIdentityFactory:
         r4 = inst.pin_ref(4)
         assert r4.identity is not None
         r4.identity.net_id = net_id
-        # Sibling pin 8 sees it via the shared identity.
-        assert _net_id_of(inst.pin_ref(8)) == net_id
+        assert _net_id_of(inst.pin_ref(4)) == net_id
 
     def test_eq_ignores_pin_identities(self) -> None:
         a = ComponentInstance.new("T", "U1", "")
@@ -229,14 +237,13 @@ class TestPinIdentityFactory:
         inst = ComponentInstance.new("T", "U1", "")
         inst.build_pin_identities(_ic_with_two_gnd())
         assert 4 in inst.pin_identities
-        # Rebuilding with a definition that has no same-name groups clears it.
-        defn2 = ComponentDefinition.from_footprint(
-            name="T", footprint=DIL(n=8),
-            pin_names={i: f"S{i}" for i in range(1, 9)},
-            component_class=ComponentClass.IC,
+        defn2 = ComponentDefinition(
+            name="T",
+            meta_pins=(MetaPin(("ONLY",)),),
+            package_options=(PackageOption("one", "one/std", pin_map={1: (1,)}),),
         )
         inst.build_pin_identities(defn2)
-        assert inst.pin_identities == {}
+        assert set(inst.pin_identities) == {1}
 
 
 class TestSchematicMutators:
@@ -252,15 +259,13 @@ class TestSchematicMutators:
     def test_assign_one_gnd_pin_propagates_net_id(self) -> None:
         sch, inst, net_id = self._setup()
         sch.assign_pin(inst.pin_ref(4), net_id)
-        # Both GND pins now see the net via the shared identity.
         assert _net_id_of(inst.pin_ref(4)) == net_id
-        assert _net_id_of(inst.pin_ref(8)) == net_id
 
     def test_unassign_clears_identity_net(self) -> None:
         sch, inst, net_id = self._setup()
         sch.assign_pin(inst.pin_ref(4), net_id)
         sch.unassign_pin(inst.pin_ref(4))
-        assert _net_id_of(inst.pin_ref(8)) is None
+        assert _net_id_of(inst.pin_ref(4)) is None
 
     def test_bare_ref_assign_is_noop_on_identity(self) -> None:
         # Assigning via a bare ref (no identity) must not error and leaves
@@ -272,9 +277,7 @@ class TestSchematicMutators:
 
 class TestSchematicGroupOps:
     """The single group-level abstraction every net-membership operation funnels
-    through: ``assign_pins`` / ``unassign_pins`` / ``restore``. Expansion to
-    same-name siblings is :func:`same_name_refs`; these methods move the whole
-    expanded group and produce a self-describing :class:`PinGroupUndo`."""
+    through: ``assign_pins`` / ``unassign_pins`` / ``restore``."""
 
     def _setup(self) -> tuple[Schematic, ComponentInstance, dict, dict, uuid.UUID]:
         defn = _ic_with_two_gnd()
@@ -287,14 +290,14 @@ class TestSchematicGroupOps:
         return sch, inst, instances, components, net_id
 
     def _gnd_refs(self, inst, instances, components) -> list[PinRef]:
-        return same_name_refs(inst.id, 4, instances, components)
+        return [inst.pin_ref(4)]
 
     def test_assign_pins_moves_whole_group(self) -> None:
         sch, inst, instances, components, net_id = self._setup()
         refs = self._gnd_refs(inst, instances, components)
         sch.assign_pins(refs, net_id)
         nums = {r.pin_number for r in sch.nets[net_id].pins}
-        assert nums == {4, 8}
+        assert nums == {4}
 
     def test_assign_then_restore_round_trips(self) -> None:
         sch, inst, instances, components, net_id = self._setup()
@@ -303,7 +306,7 @@ class TestSchematicGroupOps:
         sch.restore(undo)
         # Net pre-existed empty → restore removes both siblings, net survives.
         assert sch.nets[net_id].pins == set()
-        assert _net_id_of(inst.pin_ref(8)) is None
+        assert _net_id_of(inst.pin_ref(4)) is None
 
     def test_restore_recreates_dropped_source_net(self) -> None:
         # Source net has only the GND group; assigning elsewhere empties and
@@ -318,7 +321,7 @@ class TestSchematicGroupOps:
         assert src_id not in sch.nets  # emptied → dropped on apply
         sch.restore(undo)
         assert src_id in sch.nets
-        assert {r.pin_number for r in sch.nets[src_id].pins} == {4, 8}
+        assert {r.pin_number for r in sch.nets[src_id].pins} == {4}
         assert sch.nets[target_id].pins == set()
 
     def test_unassign_pins_drops_group_and_restores(self) -> None:
@@ -327,7 +330,7 @@ class TestSchematicGroupOps:
         sch.assign_pins(refs, net_id)  # populate first
         undo = sch.unassign_pins(refs)
         assert net_id not in sch.nets  # last pins removed → net dropped
-        assert _net_id_of(inst.pin_ref(8)) is None
+        assert _net_id_of(inst.pin_ref(4)) is None
         sch.restore(undo)
         assert net_id in sch.nets
-        assert {r.pin_number for r in sch.nets[net_id].pins} == {4, 8}
+        assert {r.pin_number for r in sch.nets[net_id].pins} == {4}

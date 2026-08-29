@@ -50,6 +50,11 @@ class PinRef:
         if self.pin_number < 1:
             raise ValueError(f"pin_number must be >= 1; got {self.pin_number}")
 
+    @property
+    def meta_pin_index(self) -> int:
+        """The 1-based MetaPin ordinal represented by this reference."""
+        return self.pin_number
+
 
 @dataclass
 class Net:
