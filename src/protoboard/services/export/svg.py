@@ -46,6 +46,7 @@ def export_svg(
     schematic: "Schematic | None" = None,
     scale: float | None = None,
     theme: Theme = DEFAULT_THEME,
+    package_families: dict | None = None,
 ) -> str:
     """Render the board to an SVG string.
 
@@ -63,7 +64,8 @@ def export_svg(
         board=board, layout=layout, schematic=sch,
         components=components, instances=instances,
     )
-    families = getattr(theme, "package_families", None) or {}
+    families = (package_families if package_families is not None else
+                getattr(theme, "package_families", None)) or {}
     snapshot = BoardSnapshot(
         board=board, layout=layout,
         components=components, instances=instances,

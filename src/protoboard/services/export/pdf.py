@@ -36,6 +36,7 @@ def export_pdf(
     schematic: "Schematic | None" = None,
     raster_pitch_mm: float = _MM_PER_RASTER,
     theme: Theme = DEFAULT_THEME,
+    package_families: dict | None = None,
 ) -> None:
     """Write a print-ready 1:1 PDF of the board top layer to *path*.
 
@@ -48,7 +49,8 @@ def export_pdf(
         board=board, layout=layout, schematic=sch,
         components=components, instances=instances,
     )
-    families = getattr(theme, "package_families", None) or {}
+    families = (package_families if package_families is not None else
+                getattr(theme, "package_families", None)) or {}
     snapshot = BoardSnapshot(
         board=board, layout=layout,
         components=components, instances=instances,

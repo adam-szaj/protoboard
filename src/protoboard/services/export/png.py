@@ -36,6 +36,7 @@ def export_png(
     svg_scale: float = 10.0,         # kept for signature compatibility
     pixel_scale: int = 4,             # legacy: SVG units × pixel_scale
     theme: Theme = DEFAULT_THEME,
+    package_families: dict | None = None,
 ) -> None:
     """Rasterise the board into a PNG at *path*.
 
@@ -50,7 +51,8 @@ def export_png(
         board=board, layout=layout, schematic=sch,
         components=components, instances=instances,
     )
-    families = getattr(theme, "package_families", None) or {}
+    families = (package_families if package_families is not None else
+                getattr(theme, "package_families", None)) or {}
     snapshot = BoardSnapshot(
         board=board, layout=layout,
         components=components, instances=instances,

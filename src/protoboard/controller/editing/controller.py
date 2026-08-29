@@ -1203,6 +1203,7 @@ class EditController:
             "components": state.components,
             "instances": state.instances,
             "schematic": state.schematic,
+            "package_families": state.package_families,
         }
         if kind == "pdf":
             from protoboard.services.export.pdf import export_pdf
