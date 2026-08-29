@@ -69,6 +69,13 @@ class TestConcretize:
         assert not c.parametric_pins
         assert c.default_package_ref() == "PinHeader_1x05-package/std"
         assert "PinHeader_1x05-package" in families
+        assert c.package_options[0].pin_map == {
+            1: (1,),
+            2: (2,),
+            3: (3,),
+            4: (4,),
+            5: (5,),
+        }
 
     def test_pin_header_dual_row(self) -> None:
         families: dict = {}

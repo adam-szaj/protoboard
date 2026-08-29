@@ -16,9 +16,66 @@ from protoboard.domain.components.definition import (
     ComponentDefinition,
 )
 from protoboard.errors import SerializationError
-from protoboard.services.library.loader import ComponentLibrary, load_library
+from protoboard.services.library.loader import (
+    ComponentLibrary,
+    _component_from_dict,
+    load_library,
+)
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "library"
+
+
+class TestMetaPinMapping:
+    @staticmethod
+    def _raw(pin_map: dict[int, list[int]]) -> dict[str, object]:
+        return {
+            "name": "X",
+            "pins": {"count": 3},
+            "package": {"kind": "sil"},
+            "meta_pins": [["A", "alternate"], "B"],
+            "pin_map": pin_map,
+        }
+
+    def test_normalizes_labels_and_one_to_many_mapping(self) -> None:
+        families: dict = {}
+
+        definition = _component_from_dict(
+            self._raw({1: [1, 3], 2: [2]}),
+            Path("metapins.yaml"),
+            families,
+            families,
+        )
+
+        assert [meta_pin.labels for meta_pin in definition.meta_pins] == [
+            ("A", "alternate"),
+            ("B",),
+        ]
+        assert definition.package_options[0].pin_map == {
+            1: (1, 3),
+            2: (2,),
+        }
+
+    @pytest.mark.parametrize(
+        "pin_map",
+        [
+            {1: [1], 3: [2]},
+            {1: [1, 2], 2: [2]},
+            {1: [4]},
+            {0: [1]},
+        ],
+    )
+    def test_rejects_invalid_mapping(
+        self, pin_map: dict[int, list[int]]
+    ) -> None:
+        families: dict = {}
+
+        with pytest.raises(SerializationError):
+            _component_from_dict(
+                self._raw(pin_map),
+                Path("metapins.yaml"),
+                families,
+                families,
+            )
 
 
 class TestDevboardInlinePackage:

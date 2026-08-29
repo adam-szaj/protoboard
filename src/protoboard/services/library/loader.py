@@ -157,7 +157,7 @@ def _parse_footprints(
     parameterized by *pin_count*). A list-wide ``footprint_style:`` default is
     overlaid by a per-entry ``style:``. ``name`` defaults to the ref/family token.
     """
-    raw_list = data.get("footprints")
+    raw_list = data.get("package_options", data.get("footprints"))
     if raw_list is None:
         return ()
     if not isinstance(raw_list, list):
@@ -176,10 +176,14 @@ def _parse_footprints(
         package: Package | None = None
         name_raw: object = None
         entry_style: Appearance | None = None
+        pin_map: dict[int, tuple[int, ...]] = {}
         if isinstance(entry, str):
             ref = entry
             name_raw = entry
         elif isinstance(entry, dict):
+            pin_map = _parse_pin_map(
+                entry.get("pin_map"), source, component_name=cname
+            )
             if isinstance(entry.get("package"), dict):
                 built = _build_component_package(
                     cname, entry["package"], pin_count, generics
@@ -241,9 +245,96 @@ def _parse_footprints(
                 name=name,
                 ref=ref or "",
                 style=style if not style.is_empty else None,
+                pin_map=pin_map,
             )
         )
     return tuple(options)
+
+
+def _parse_pin_map(
+    raw: object,
+    source: Path,
+    *,
+    component_name: str,
+) -> dict[int, tuple[int, ...]]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise SerializationError(
+            f"{source}: pin_map for {component_name!r} must be a mapping"
+        )
+    parsed: dict[int, tuple[int, ...]] = {}
+    for raw_meta_index, raw_package_pins in raw.items():
+        try:
+            meta_index = int(raw_meta_index)
+        except (TypeError, ValueError) as exc:
+            raise SerializationError(
+                f"{source}: pin_map MetaPin index {raw_meta_index!r} "
+                "is not an integer"
+            ) from exc
+        if meta_index < 1:
+            raise SerializationError(
+                f"{source}: pin_map MetaPin index must be positive"
+            )
+        if not isinstance(raw_package_pins, list):
+            raise SerializationError(
+                f"{source}: pin_map[{meta_index}] must be a list"
+            )
+        try:
+            parsed[meta_index] = tuple(int(pin) for pin in raw_package_pins)
+        except (TypeError, ValueError) as exc:
+            raise SerializationError(
+                f"{source}: pin_map[{meta_index}] contains a non-integer pin"
+            ) from exc
+    return parsed
+
+
+def _parse_meta_pins(
+    raw: object,
+    source: Path,
+    *,
+    component_name: str,
+) -> tuple[MetaPin, ...]:
+    if not isinstance(raw, list) or not raw:
+        raise SerializationError(
+            f"{source}: meta_pins for {component_name!r} must be a non-empty list"
+        )
+    meta_pins: list[MetaPin] = []
+    for entry in raw:
+        labels_raw = entry if isinstance(entry, list) else [entry]
+        try:
+            meta_pins.append(MetaPin(tuple(str(label) for label in labels_raw)))
+        except ValueError as exc:
+            raise SerializationError(
+                f"{source}: invalid MetaPin for {component_name!r}: {exc}"
+            ) from exc
+    return tuple(meta_pins)
+
+
+def _validate_pin_map(
+    option: PackageOption,
+    meta_pin_count: int,
+    package_pin_count: int,
+    source: Path,
+) -> None:
+    physical_pins: list[int] = []
+    for meta_index, package_pins in option.pin_map.items():
+        if not 1 <= meta_index <= meta_pin_count:
+            raise SerializationError(
+                f"{source}: pin_map references MetaPin {meta_index} outside "
+                f"1..{meta_pin_count}"
+            )
+        for package_pin in package_pins:
+            if not 1 <= package_pin <= package_pin_count:
+                raise SerializationError(
+                    f"{source}: pin_map references package pin {package_pin} "
+                    f"outside 1..{package_pin_count}"
+                )
+            physical_pins.append(package_pin)
+    if len(set(physical_pins)) != len(physical_pins):
+        raise SerializationError(
+            f"{source}: a physical package pin maps to more than one MetaPin"
+        )
 
 
 def _pending_kind_placeholder(
@@ -819,6 +910,44 @@ def _component_from_dict(
         for pin_number in range(1, pin_count + 1)
     }
 
+    has_meta_pins = "meta_pins" in data
+    meta_pins = (
+        _parse_meta_pins(
+            data["meta_pins"], source, component_name=data["name"]
+        )
+        if has_meta_pins
+        else tuple(
+            MetaPin((pin_names[index],))
+            for index in range(1, len(pin_names) + 1)
+        )
+    )
+    if package_obj is not None and options:
+        options[0] = dataclasses.replace(
+            options[0],
+            pin_map=_parse_pin_map(
+                data.get("pin_map"), source, component_name=data["name"]
+            ),
+        )
+    for index, option in enumerate(options):
+        option_package, _ = _geometry_from_option(option, family_catalogue)
+        if option_package is None:
+            raise SerializationError(
+                f"{source}: package option {option.ref!r} did not resolve"
+            )
+        if not has_meta_pins and not option.pin_map:
+            options[index] = dataclasses.replace(
+                option,
+                pin_map={
+                    pin: (pin,)
+                    for pin in range(
+                        1, min(len(meta_pins), option_package.pin_count()) + 1
+                    )
+                },
+            )
+        _validate_pin_map(
+            options[index], len(meta_pins), option_package.pin_count(), source
+        )
+
     metadata_raw = data.get("metadata") or {}
     if not isinstance(metadata_raw, dict):
         raise SerializationError(
@@ -901,10 +1030,7 @@ def _component_from_dict(
     try:
         return ComponentDefinition(
             name=data["name"],
-            meta_pins=tuple(
-                MetaPin((pin_names[index],))
-                for index in range(1, len(pin_names) + 1)
-            ),
+            meta_pins=meta_pins,
             description=str(data.get("description", "")),
             component_class=comp_class,
             metadata=dict(metadata_raw),

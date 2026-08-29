@@ -106,7 +106,13 @@ def concretize(
         meta_pins=tuple(
             MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1)
         ),
-        package_options=(PackageOption(name="default", ref=f"{family_id}/std"),),
+        package_options=(
+            PackageOption(
+                name="default",
+                ref=f"{family_id}/std",
+                pin_map={pin: (pin,) for pin in range(1, pin_count + 1)},
+            ),
+        ),
         parametric_pins=False,
     )
 
