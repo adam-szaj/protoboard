@@ -165,7 +165,7 @@ class ComponentDefinition:
     component_class: ComponentClass = ComponentClass.OTHER
     body_blocks_routing: bool = False  # SMD / tight-fit packages set this True
     # Package model (see footprints/package-model.md):
-    footprints: tuple[PackageOption, ...] = ()  # picker choices (first = default)
+    package_options: tuple[PackageOption, ...] = ()  # picker choices (first = default)
     symbol: str | None = None          # refdes prefix + picker label root
     variants: tuple[PinVariant, ...] = ()      # alt pin-name mappings
     appearance: Appearance | None = None       # visual-only override (colour/radius)
@@ -228,7 +228,7 @@ session catalogue. So the instance can resolve its own variant geometry:
 `domain/components/package/component_package.py`):
 
 ```
-instance.package_variant  →  defn.footprints[0]  →  defn.package (default body — always set)
+instance.package_variant  →  defn.package_options[0]  →  defn.package (default body — always set)
 ```
 
 The first two resolve via the catalogue; the last rung always exists, so

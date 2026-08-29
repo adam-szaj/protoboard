@@ -172,7 +172,7 @@ deliberately a **two-branch** dispatch:
 ```
 body_shape_for:
   pkg = resolve_component_package(defn, instance, package_families)
-        # precedence: instance.package_variant → defn.footprints[0]
+        # precedence: instance.package_variant → defn.package_options[0]
         #             → defn.package (default body — always set)
   if pkg is not None:  return PackageBody(pkg, component_class, vertical_flipped, appearance)
   else:                return GenericBody()          # unreachable for loaded parts (package required)
