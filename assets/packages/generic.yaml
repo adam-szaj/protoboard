@@ -5,7 +5,7 @@
 # Concrete, instantiable bodies live in the family catalogue, not here.
 #
 # Fields are declared under `schema:` (path-mirrored to the value tree: a value
-# at dims.width is described at schema.dims.width). A field leaf is
+# at dims.lx is described at schema.dims.lx). A field leaf is
 # {type, default?, required?}. Validation is LOOSE — a value with no schema leaf
 # (flat_radius, flat_normal, margin, edge_radius, corner_radius, …) passes
 # through untouched. See docs/footprints/schema-design.md.
