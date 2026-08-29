@@ -1302,7 +1302,11 @@ def _build_pin_positions(
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
 ) -> dict[PinRef, tuple[Point, str]]:
-    """Return PinRef → (world_position, side) for every placed pin."""
+    """Return each placed MetaPin's canonical physical position."""
+    from protoboard.domain.components.package.pin_mapping import (
+        package_pins_for_meta_pin,
+    )
+
     pos: dict[PinRef, tuple[Point, str]] = {}
     for comp_id, placement in layout.placements.items():
         inst = instances.get(comp_id)
@@ -1312,9 +1316,14 @@ def _build_pin_positions(
         if defn is None:
             continue
         fp = footprint_of(defn, inst)
-        for pin_num in range(1, fp.pin_count() + 1):
-            p = pin_world_position(fp, placement, pin_num)
-            pos[PinRef(component_id=comp_id, pin_number=pin_num)] = (p, placement.side)
+        for meta_pin_index in range(1, len(defn.meta_pins) + 1):
+            package_pins = package_pins_for_meta_pin(defn, inst, meta_pin_index)
+            if not package_pins:
+                continue
+            p = pin_world_position(fp, placement, package_pins[0])
+            pos[PinRef(component_id=comp_id, pin_number=meta_pin_index)] = (
+                p, placement.side,
+            )
     return pos
 
 

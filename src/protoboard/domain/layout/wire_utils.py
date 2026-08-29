@@ -935,6 +935,9 @@ def _pin_at(
         )
     )
     from protoboard.domain.components.package import resolved_footprint
+    from protoboard.domain.components.package.pin_mapping import (
+        meta_pin_for_package_pin,
+    )
     for comp_id, placement in layout.placements.items():
         if not cross_side_ok and placement.side != side:
             continue
@@ -948,7 +951,10 @@ def _pin_at(
         for pin_num in range(1, fp.pin_count() + 1):
             wp = pin_world_position(fp, placement, pin_num)
             if abs(wp.x - position.x) < tol and abs(wp.y - position.y) < tol:
-                return PinRef(component_id=comp_id, pin_number=pin_num)
+                meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+                if meta_pin_index is None:
+                    continue
+                return PinRef(component_id=comp_id, pin_number=meta_pin_index)
     return None
 
 
@@ -1887,6 +1893,9 @@ def find_pin_at(
     caller resolves ``strategy`` / ``pad_index`` off the host session.
     """
     from protoboard.domain.components.package import resolved_footprint
+    from protoboard.domain.components.package.pin_mapping import (
+        meta_pin_for_package_pin,
+    )
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
 
@@ -1909,7 +1918,10 @@ def find_pin_at(
                 and abs(pos.y - point.y) < _EPS_KNOT
             ):
                 continue
-            pin_ref = PinRef(component_id=comp_id, pin_number=pin_num)
+            meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+            if meta_pin_index is None:
+                continue
+            pin_ref = PinRef(component_id=comp_id, pin_number=meta_pin_index)
             # If a PinKnot for this pin already exists, the pin is already
             # accepting wire connections — adding one more is a legal
             # multi-degree pin junction.  Strategy.can_place_pin's rule 6
@@ -2222,6 +2234,11 @@ def update_wires_for_move(
         to the moved component (user-observed bug 2026-05-31).
         """
         # Strong: explicit PinKnot ref.
+        from protoboard.domain.components.package.pin_mapping import (
+            meta_pin_for_package_pin,
+        )
+
+        meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
         has_any_knot_ref = False
         for ref in (w.a, w.b):
             if ref is None:
@@ -2230,7 +2247,7 @@ def update_wires_for_move(
             knot = layout.knots.get(ref.id)
             if isinstance(knot, PinKnot):
                 if (knot.pin.component_id == comp_id
-                        and knot.pin.pin_number == pin_num):
+                        and knot.pin.meta_pin_index == meta_pin_index):
                     return True
         if has_any_knot_ref:
             return False

@@ -72,6 +72,10 @@ def _build_pad_context(
 
     all_pin_positions: dict[tuple[Point, str], uuid.UUID] = {}
     point_side_to_net: dict[tuple[Point, str], uuid.UUID] = {}
+    from protoboard.domain.components.package.pin_mapping import (
+        package_pins_for_meta_pin,
+    )
+
     _FLOATING = uuid.UUID("00000000-0000-0000-0000-000000000002")
     for net in worker_schematic.nets.values():
         for ref in net.pins:
@@ -85,11 +89,12 @@ def _build_pad_context(
             if defn is None:
                 continue
             fp = footprint_of(defn, inst)
-            if ref.pin_number < 1 or ref.pin_number > fp.pin_count():
-                continue
-            pt = pin_world_position(fp, placement, ref.pin_number)
-            point_side_to_net[(pt, "top")] = net.id
-            point_side_to_net[(pt, "bottom")] = net.id
+            for package_pin_number in package_pins_for_meta_pin(
+                defn, inst, ref.meta_pin_index
+            ):
+                pt = pin_world_position(fp, placement, package_pin_number)
+                point_side_to_net[(pt, "top")] = net.id
+                point_side_to_net[(pt, "bottom")] = net.id
     for comp_id, placement in worker_layout.placements.items():
         inst = instances.get(comp_id)
         if inst is None:

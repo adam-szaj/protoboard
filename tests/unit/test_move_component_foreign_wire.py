@@ -21,9 +21,13 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -85,11 +89,19 @@ def _place(
     state: _State, refdes: str, pos: Point,
 ) -> tuple[ComponentInstance, ComponentPlacement]:
     defn_name = f"_J_{refdes}"
-    defn = ComponentDefinition.from_footprint(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
+    family = sil_family(2)
+    assert family is not None
+    defn = ComponentDefinition(
+        name=defn_name,
+        meta_pins=(MetaPin(("P",)),),
+        package_options=(
+            PackageOption("SIL-2", "sil-2/std", pin_map={1: (1,)}),
+        ),
+    )
     state.components[defn_name] = defn
     inst = ComponentInstance.new(
         definition_ref=defn_name, refdes=refdes, value="",
-    ).bind(defn, {})
+    ).bind(defn, {family.family_id: family})
     state.instances[inst.id] = inst
     pl = ComponentPlacement(
         component_id=inst.id, position=pos, rotation=0, side="top",
