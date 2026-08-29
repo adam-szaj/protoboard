@@ -34,6 +34,9 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.pin_mapping import (
+    package_pins_for_meta_pin,
+)
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import pin_world_position
@@ -50,10 +53,10 @@ from protoboard.domain.board.pad_geometry import (
     qkey as _qkey,
 )
 
-
 # ---------------------------------------------------------------------------
 # Core data structures
 # ---------------------------------------------------------------------------
+
 
 class ElectricSet:
     """A set of electrically connected NodeEntries."""
@@ -91,23 +94,26 @@ class NodeEntry:
 @dataclass
 class MergeRecord:
     """Records one merge operation so it can be reversed."""
-    merged: ElectricSet   # the set that absorbed the other (survived)
+
+    merged: ElectricSet  # the set that absorbed the other (survived)
     evicted: ElectricSet  # the set that was absorbed (now "dead")
-    split_idx: int        # merged._items[split_idx:] were from evicted
+    split_idx: int  # merged._items[split_idx:] were from evicted
 
 
 @dataclass
 class WireRecord:
     """All merge records produced by one add_wire() call, in order."""
+
     wire_id: uuid.UUID
-    merges: list[MergeRecord]       # in order of execution
-    is_loop: bool = False           # True when wire connected already-same set
+    merges: list[MergeRecord]  # in order of execution
+    is_loop: bool = False  # True when wire connected already-same set
     intermediate_keys: list[_NodeKey] = field(default_factory=list)  # wire-only nodes
 
 
 # ---------------------------------------------------------------------------
 # Main class
 # ---------------------------------------------------------------------------
+
 
 class ConnectivityGraph:
     """Incremental electrical graph — drop-in replacement for the networkx version.
@@ -255,6 +261,7 @@ class ConnectivityGraph:
         if cached is not None:
             return cached
         from protoboard.domain.layout.wire_utils import board_pads_for_side
+
         pads = board_pads_for_side(self._board, side)
         self._board_pads_cache[side] = pads
         return pads
@@ -270,6 +277,7 @@ class ConnectivityGraph:
         if len(path) < 2:
             return path
         from protoboard.domain.layout.wire_utils import insert_pad_nodes
+
         return insert_pad_nodes(path, self._board_pads_for_side(side))
 
     def add_wire(self, wire: Wire) -> None:
@@ -301,7 +309,9 @@ class ConnectivityGraph:
         )
 
     def _resolve_fragment_nodes(
-        self, frag: Fragment, wire: Wire,
+        self,
+        frag: Fragment,
+        wire: Wire,
     ) -> tuple[list[NodeEntry], list[_NodeKey]]:
         """Map each vertex of *frag* to the node it contributes to the graph.
 
@@ -324,7 +334,7 @@ class ConnectivityGraph:
         entries: list[NodeEntry] = []
         intermediate: list[_NodeKey] = []
         for i, pt in enumerate(path):
-            is_endpoint = (i == 0 or i == n_pts - 1)
+            is_endpoint = i == 0 or i == n_pts - 1
             if wire.insulated and not is_endpoint:
                 key = _qkey(pt, side + f"_ins_{wire.id.int}_{id(frag)}")
                 entry: NodeEntry = self._make_node(key)
@@ -341,7 +351,8 @@ class ConnectivityGraph:
         return entries, intermediate
 
     def _merge_along_path(
-        self, entries: list[NodeEntry],
+        self,
+        entries: list[NodeEntry],
     ) -> tuple[list[MergeRecord], bool]:
         """Union the electric sets of consecutive nodes along one fragment.
 
@@ -377,9 +388,7 @@ class ConnectivityGraph:
             self._split(mr)
         self._remove_intermediate_nodes(record)
 
-    def _local_rebuild_after_remove_v2(
-        self, wire: Wire, record: WireRecord
-    ) -> None:
+    def _local_rebuild_after_remove_v2(self, wire: Wire, record: WireRecord) -> None:
         """Wire-level fallback rebuild — collects touched keys across fragments."""
         touched: set[_NodeKey] = set()
         for frag in wire.fragments:
@@ -395,15 +404,17 @@ class ConnectivityGraph:
         affected_sets: set[int] = {e.electric_set.id for e in affected_entries}
         for eset_id in affected_sets:
             eset_entries = [
-                e for e in self._pad_index.values()
-                if e.electric_set.id == eset_id
+                e for e in self._pad_index.values() if e.electric_set.id == eset_id
             ]
             self._rebuild_set(eset_entries)
         self._remove_intermediate_nodes(record)
 
     def are_connected(
-        self, position_a: Point, side_a: str,
-        position_b: Point, side_b: str,
+        self,
+        position_a: Point,
+        side_a: str,
+        position_b: Point,
+        side_b: str,
     ) -> bool:
         """O(1) connectivity check."""
         ea = self._pad_index.get(_qkey(position_a, side_a))
@@ -478,9 +489,7 @@ class ConnectivityGraph:
     # Internal — local rebuild after out-of-order removal
     # ------------------------------------------------------------------
 
-    def _local_rebuild_after_remove(
-        self, wire: Wire, record: WireRecord
-    ) -> None:
+    def _local_rebuild_after_remove(self, wire: Wire, record: WireRecord) -> None:
         """Fallback: rebuild connectivity for the nodes touched by *wire*.
 
         This is O(N_affected + E_affected) — much cheaper than a full graph
@@ -488,9 +497,7 @@ class ConnectivityGraph:
         """
         # Collect all nodes that were on the wire's path.
         side = wire.side
-        touched: set[_NodeKey] = {
-            _qkey(pt, side) for pt in wire.path
-        }
+        touched: set[_NodeKey] = {_qkey(pt, side) for pt in wire.path}
 
         # Find the ElectricSet that currently contains these nodes.
         # They may all be in one big set now (due to subsequent merges).
@@ -509,8 +516,7 @@ class ConnectivityGraph:
         for eset_id in affected_sets:
             # Find all entries currently in this set.
             eset_entries = [
-                e for e in self._pad_index.values()
-                if e.electric_set.id == eset_id
+                e for e in self._pad_index.values() if e.electric_set.id == eset_id
             ]
             self._rebuild_set(eset_entries)
 
@@ -560,7 +566,10 @@ class ConnectivityGraph:
                 entry = self._pad_index.get(key)
                 if entry is None:
                     continue
-                if prev_entry is not None and prev_entry.electric_set is not entry.electric_set:
+                if (
+                    prev_entry is not None
+                    and prev_entry.electric_set is not entry.electric_set
+                ):
                     self._merge(prev_entry.electric_set, entry.electric_set)
                 prev_entry = entry
 
@@ -587,18 +596,7 @@ class ConnectivityGraph:
         self._build_component_pin_map(layout)
 
     def _build_component_internal_nets(self, layout: Layout) -> None:
-        """Merge electric sets of a component's same-name pins.
-
-        Pins of one component that share a name (several ``GND``) are one node
-        inside the part — a pre-routed internal net. We union their electric
-        sets here so connecting one of them connects all, with no drawn wire.
-
-        This is a *structural* merge (no WireRecord), exactly like the
-        plated-through / strip merges in ``_build_board_nodes``: it is re-applied
-        on every full rebuild (the GUI discards and rebuilds the graph on every
-        layout change) and is never torn down by ``remove_wire`` (which only
-        reverses wire merges).
-        """
+        """Merge physical package pins that carry the same MetaPin."""
         for comp_id, placement in layout.placements.items():
             inst = self._instances.get(comp_id)
             if inst is None:
@@ -607,9 +605,9 @@ class ConnectivityGraph:
             if defn is None:
                 continue
             fp = resolved_footprint_or_default(defn, inst)
-            for pins in defn.pins_grouped_by_name(inst.pin_variant).values():
+            for meta_pin_index in range(1, len(defn.meta_pins) + 1):
                 anchor: NodeEntry | None = None
-                for pin_num in pins:
+                for pin_num in package_pins_for_meta_pin(defn, inst, meta_pin_index):
                     if pin_num < 1 or pin_num > fp.pin_count():
                         continue
                     world_pos = pin_world_position(fp, placement, pin_num)
@@ -672,7 +670,10 @@ class ConnectivityGraph:
             key: _NodeKey = _qkey(pt, side)
             self._board_pad_keys.add(key)
             entry = self._ensure_node(key)
-            if prev_entry is not None and prev_entry.electric_set is not entry.electric_set:
+            if (
+                prev_entry is not None
+                and prev_entry.electric_set is not entry.electric_set
+            ):
                 self._merge(prev_entry.electric_set, entry.electric_set)
             prev_entry = entry
 
@@ -689,14 +690,19 @@ class ConnectivityGraph:
             if defn is None:
                 continue
             fp = resolved_footprint_or_default(defn, inst)
-            for pin_num in range(1, fp.pin_count() + 1):
+            for meta_pin_index in range(1, len(defn.meta_pins) + 1):
+                package_pins = package_pins_for_meta_pin(defn, inst, meta_pin_index)
+                if not package_pins:
+                    continue
+                pin_num = package_pins[0]
+                if pin_num > fp.pin_count():
+                    continue
                 world_pos = pin_world_position(fp, placement, pin_num)
-                side = placement.side
-                key: _NodeKey = _qkey(world_pos, side)
+                key: _NodeKey = _qkey(world_pos, placement.side)
                 entry = self._pad_index.get(key)
                 if entry is None:
                     # Pin on a pad not in the board layout — create a stub.
                     entry = self._make_node(key)
                     self._board_pad_keys.add(key)
-                ref = PinRef(component_id=comp_id, pin_number=pin_num)
+                ref = PinRef(component_id=comp_id, pin_number=meta_pin_index)
                 self._pin_index[ref] = entry

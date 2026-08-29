@@ -13,19 +13,25 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 import structlog
+
 _log = structlog.get_logger(__name__)
 
 
 def _dbg_enabled() -> bool:
     """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
     import logging
+
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
 
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
     component_bbox,
     pin_world_position,
+)
+from protoboard.domain.components.package.pin_mapping import (
+    meta_pin_for_package_pin,
 )
 from protoboard.geometry import Point
 
@@ -105,20 +111,21 @@ def resolved_footprint_or_default(
 
 
 class ConflictKind(Enum):
-    SAME_NET = "same_net"                   # auto-allowed: shared intentionally
-    DIFFERENT_NETS = "diff_nets"            # always blocked
-    ONE_UNCONNECTED = "one_unconnected"     # needs user decision
-    BOTH_UNCONNECTED = "both_unconnected"   # needs user decision
+    SAME_NET = "same_net"  # auto-allowed: shared intentionally
+    DIFFERENT_NETS = "diff_nets"  # always blocked
+    ONE_UNCONNECTED = "one_unconnected"  # needs user decision
+    BOTH_UNCONNECTED = "both_unconnected"  # needs user decision
     # Wire-conflict kinds (pin lands on a wire point):
-    PIN_ON_WIRE_UNCONNECTED = "pin_on_wire_unconnected"    # wire no net -> auto-create
-    PIN_ON_WIRE_WITH_NET = "pin_on_wire_with_net"          # wire has net -> auto-join
-    PIN_ON_WIRE_SAME_NET = "pin_on_wire_same_net"          # same net -> auto-ok
+    PIN_ON_WIRE_UNCONNECTED = "pin_on_wire_unconnected"  # wire no net -> auto-create
+    PIN_ON_WIRE_WITH_NET = "pin_on_wire_with_net"  # wire has net -> auto-join
+    PIN_ON_WIRE_SAME_NET = "pin_on_wire_same_net"  # same net -> auto-ok
     PIN_ON_WIRE_DIFFERENT_NET = "pin_on_wire_different_net"  # blocked
 
 
 @dataclass(frozen=True)
 class PadConflict:
     """One conflicting pin of the incoming component with an existing pin or wire."""
+
     # The incoming component's pin number.
     incoming_pin: int
     # The existing component and its pin (uuid.UUID(int=0) / 0 for wire conflicts).
@@ -188,6 +195,23 @@ def find_conflicts(
         for ref in net.pins:
             pin_net[(ref.component_id, ref.pin_number)] = (net.id, net.name)
 
+    def net_for_package_pin(
+        component_id: uuid.UUID,
+        package_pin_number: int,
+    ) -> tuple[uuid.UUID, str] | None:
+        instance = instances.get(component_id)
+        if instance is None:
+            return None
+        definition = components.get(instance.definition_ref)
+        if definition is None:
+            return None
+        meta_pin_index = meta_pin_for_package_pin(
+            definition, instance, package_pin_number
+        )
+        if meta_pin_index is None:
+            return None
+        return pin_net.get((component_id, meta_pin_index))
+
     conflicts: list[PadConflict] = []
     for pin_num in range(1, n_pins + 1):
         if pin_num in incoming_placement.shared_pins:
@@ -204,12 +228,19 @@ def find_conflicts(
         ex_comp_id, ex_pin_num = hit
 
         # Net of existing pin.
-        ex_net = pin_net.get((ex_comp_id, ex_pin_num))
+        ex_net = net_for_package_pin(ex_comp_id, ex_pin_num)
         ex_net_id = ex_net[0] if ex_net else None
         ex_net_name = ex_net[1] if ex_net else None
 
         # Net of incoming pin (by instance id, if it's being moved).
-        in_net = pin_net.get((incoming_instance_id, pin_num))
+        incoming_meta_pin = meta_pin_for_package_pin(
+            incoming_defn, incoming_inst, pin_num
+        )
+        in_net = (
+            None
+            if incoming_meta_pin is None
+            else pin_net.get((incoming_instance_id, incoming_meta_pin))
+        )
         in_net_id = in_net[0] if in_net else None
         in_net_name = in_net[1] if in_net else None
 
@@ -224,17 +255,19 @@ def find_conflicts(
         else:
             kind = ConflictKind.ONE_UNCONNECTED
 
-        conflicts.append(PadConflict(
-            incoming_pin=pin_num,
-            existing_comp_id=ex_comp_id,
-            existing_pin=ex_pin_num,
-            position=p,
-            kind=kind,
-            existing_net_id=ex_net_id,
-            existing_net_name=ex_net_name,
-            incoming_net_id=in_net_id,
-            incoming_net_name=in_net_name,
-        ))
+        conflicts.append(
+            PadConflict(
+                incoming_pin=pin_num,
+                existing_comp_id=ex_comp_id,
+                existing_pin=ex_pin_num,
+                position=p,
+                kind=kind,
+                existing_net_id=ex_net_id,
+                existing_net_name=ex_net_name,
+                incoming_net_id=in_net_id,
+                incoming_net_name=in_net_name,
+            )
+        )
 
     return conflicts
 
@@ -321,13 +354,19 @@ def find_wire_conflicts(
                 continue
             wire_net_info = wire_net_map.get(wire_id)
         else:
-            hit = _wire_hit_via_pad_index(pad_index, p, incoming_placement.side,
-                                          net_name_by_id)
+            hit = _wire_hit_via_pad_index(
+                pad_index, p, incoming_placement.side, net_name_by_id
+            )
             if hit is None:
                 continue
             wire_id, wire_net_info = hit
 
-        in_net = pin_net_incoming.get(pin_num)
+        meta_pin_index = meta_pin_for_package_pin(
+            incoming_defn, incoming_instance, pin_num
+        )
+        in_net = (
+            None if meta_pin_index is None else pin_net_incoming.get(meta_pin_index)
+        )
 
         if wire_net_info is not None and in_net is not None:
             if wire_net_info[0] == in_net[0]:
@@ -347,18 +386,20 @@ def find_wire_conflicts(
         else:
             kind = ConflictKind.PIN_ON_WIRE_UNCONNECTED
 
-        conflicts.append(PadConflict(
-            incoming_pin=pin_num,
-            existing_comp_id=_sentinel,
-            existing_pin=0,
-            position=p,
-            kind=kind,
-            existing_net_id=wire_net_info[0] if wire_net_info else None,
-            existing_net_name=wire_net_info[1] if wire_net_info else None,
-            incoming_net_id=in_net[0] if in_net else None,
-            incoming_net_name=in_net[1] if in_net else None,
-            wire_id=wire_id,
-        ))
+        conflicts.append(
+            PadConflict(
+                incoming_pin=pin_num,
+                existing_comp_id=_sentinel,
+                existing_pin=0,
+                position=p,
+                kind=kind,
+                existing_net_id=wire_net_info[0] if wire_net_info else None,
+                existing_net_name=wire_net_info[1] if wire_net_info else None,
+                incoming_net_id=in_net[0] if in_net else None,
+                incoming_net_name=in_net[1] if in_net else None,
+                wire_id=wire_id,
+            )
+        )
 
     return conflicts
 
@@ -418,23 +459,29 @@ def _wire_hit_via_pad_index(
     items_own = pad.physically_blocked_on(own_side)  # type: ignore[arg-type]
     items_opp = pad.physically_blocked_on(opposite)  # type: ignore[arg-type]
     for it in items_own:
-        if isinstance(it, (
-            BareWireItem,
-            BareWireCrossing,
-            InsulatedWireItem,
-            InsulatedWireCrossing,
-        )):
+        if isinstance(
+            it,
+            (
+                BareWireItem,
+                BareWireCrossing,
+                InsulatedWireItem,
+                InsulatedWireCrossing,
+            ),
+        ):
             wire_item = it
             hit_side = own_side
             break
     if wire_item is None:
         for it in items_opp:
-            if isinstance(it, (
-                BareWireItem,
-                BareWireCrossing,
-                InsulatedWireItem,
-                InsulatedWireCrossing,
-            )):
+            if isinstance(
+                it,
+                (
+                    BareWireItem,
+                    BareWireCrossing,
+                    InsulatedWireItem,
+                    InsulatedWireCrossing,
+                ),
+            ):
                 wire_item = it
                 hit_side = opposite
                 break
@@ -489,9 +536,9 @@ def _pin_hit_via_pad_index(
 _CROSS_EPS = 0.5  # half-raster tolerance — pad radius in raster units
 
 
-def _seg_point_dist(px: float, py: float,
-                    ax: float, ay: float,
-                    bx: float, by: float) -> float:
+def _seg_point_dist(
+    px: float, py: float, ax: float, ay: float, bx: float, by: float
+) -> float:
     """Shortest distance from point (px, py) to segment (ax, ay)→(bx, by)."""
     dx, dy = bx - ax, by - ay
     if dx == 0.0 and dy == 0.0:
@@ -555,10 +602,16 @@ def find_wires_crossing_pads(
             fp = footprint_of(defn, inst)
             for pin_num in range(1, fp.pin_count() + 1):
                 p = pin_world_position(fp, pl, pin_num)
-                net_id = pin_net_map.get((comp_id, pin_num))
+                meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+                net_id = (
+                    None
+                    if meta_pin_index is None
+                    else pin_net_map.get((comp_id, meta_pin_index))
+                )
                 pad_net[(_round(p.x), _round(p.y))] = net_id
     else:
         from protoboard.domain.board.pad_state import PinItem
+
         for pad in pad_index.iter_pads():
             pin_item: PinItem | None = None
             for it in pad.iter_items():
@@ -580,10 +633,15 @@ def find_wires_crossing_pads(
     # reduces the inner loop from O(all_pads) to O(pads_near_segment) — typically
     # 0–4 pads per cell × a handful of cells vs. ~1100 pads for every segment.
     from collections import defaultdict
-    pad_grid: dict[tuple[int, int], list[tuple[float, float, uuid.UUID | None]]] = defaultdict(list)
+
+    pad_grid: dict[tuple[int, int], list[tuple[float, float, uuid.UUID | None]]] = (
+        defaultdict(list)
+    )
     for (kx, ky), net_id in pad_net.items():
         px_f, py_f = float(kx), float(ky)
-        pad_grid[(int(math.floor(px_f)), int(math.floor(py_f)))].append((px_f, py_f, net_id))
+        pad_grid[(int(math.floor(px_f)), int(math.floor(py_f)))].append(
+            (px_f, py_f, net_id)
+        )
 
     def _pads_near_segment(
         ax: float, ay: float, bx: float, by: float
@@ -654,10 +712,11 @@ def find_wires_crossing_pads(
 # Group-move conflict classification
 # ---------------------------------------------------------------------------
 
+
 class MoveConflictSeverity(Enum):
-    CLEAR = "clear"          # no conflict
+    CLEAR = "clear"  # no conflict
     REMOVABLE = "removable"  # only wire conflicts removable without asking
-    BLOCKED = "blocked"      # hard block (pad-pad different-net or subgroup wire)
+    BLOCKED = "blocked"  # hard block (pad-pad different-net or subgroup wire)
 
 
 @dataclass(frozen=True)
@@ -710,9 +769,11 @@ def check_group_move_conflicts(
     blocking_pads: list[Point] = []
     removable_ids: list[uuid.UUID] = []
 
-    _log.debug("group_move.check.start",
-               moved_ids=[str(i) for i in moved_ids],
-               active_group_id=str(active_group_id))
+    _log.debug(
+        "group_move.check.start",
+        moved_ids=[str(i) for i in moved_ids],
+        active_group_id=str(active_group_id),
+    )
 
     # --- 1. Pad-on-pad AND bbox conflicts for every moved component ---
     for comp_id in moved_ids:
@@ -750,9 +811,13 @@ def check_group_move_conflicts(
                     other_pins.add((_round(p2.x), _round(p2.y)))
                 if moved_pin_positions.isdisjoint(other_pins):
                     # Pure body overlap — blocking (mirrors _move_blocked behaviour).
-                    _log.debug("group_move.bbox_conflict",
-                               comp_id=str(comp_id), other_id=str(other_id),
-                               bbox=str(new_bbox), other_bbox=str(other_bbox))
+                    _log.debug(
+                        "group_move.bbox_conflict",
+                        comp_id=str(comp_id),
+                        other_id=str(other_id),
+                        bbox=str(new_bbox),
+                        other_bbox=str(other_bbox),
+                    )
                     # Use any pin of the moved component as blocking position indicator.
                     first_pin = pin_world_position(fp, pl, 1)
                     blocking_pads.append(first_pin)
@@ -787,19 +852,24 @@ def check_group_move_conflicts(
                     pos=(c.position.x, c.position.y),
                 )
                 continue
-            _log.debug("group_move.pad_conflict",
-                       comp_id=str(comp_id),
-                       kind=c.kind.value,
-                       pos=(c.position.x, c.position.y),
-                       in_net=c.incoming_net_name,
-                       ex_net=c.existing_net_name)
+            _log.debug(
+                "group_move.pad_conflict",
+                comp_id=str(comp_id),
+                kind=c.kind.value,
+                pos=(c.position.x, c.position.y),
+                in_net=c.incoming_net_name,
+                ex_net=c.existing_net_name,
+            )
             # Block on ANY pin overlap during group drag — same-net is already
             # excluded by find_conflicts (it only returns conflicting pins).
             if c.kind != ConflictKind.SAME_NET:
                 blocking_pads.append(c.position)
 
     if blocking_pads:
-        _log.info("group_move.blocked.pad", blocking_positions=[(p.x, p.y) for p in blocking_pads])
+        _log.info(
+            "group_move.blocked.pad",
+            blocking_positions=[(p.x, p.y) for p in blocking_pads],
+        )
         return MoveConflictResult(
             severity=MoveConflictSeverity.BLOCKED,
             blocking_pad_positions=blocking_pads,
@@ -817,19 +887,26 @@ def check_group_move_conflicts(
         moved_wire_ids=moved_wire_ids,
         pad_index=pad_index,
     )
-    _log.debug("group_move.wire_crossings", count=len(crossing_ids),
-               wire_ids=[str(i) for i in crossing_ids])
+    _log.debug(
+        "group_move.wire_crossings",
+        count=len(crossing_ids),
+        wire_ids=[str(i) for i in crossing_ids],
+    )
 
     # --- 2b. Skewed wires (dragged-along wires that ended up neither ortho
     # nor diagonal after the component move).  Treated identically to crossing
     # wires for severity purposes: they are REMOVABLE (auto-deleted).
     from protoboard.domain.layout.wire_utils import find_skewed_wires
+
     skewed_ids = find_skewed_wires(
         layout_wires, moved_wire_ids=set(moved_wire_ids or set())
     )
     if skewed_ids:
-        _log.debug("group_move.skewed_wires", count=len(skewed_ids),
-                   wire_ids=[str(i) for i in skewed_ids])
+        _log.debug(
+            "group_move.skewed_wires",
+            count=len(skewed_ids),
+            wire_ids=[str(i) for i in skewed_ids],
+        )
         # Merge into crossing_ids dedupe-wise so the downstream subgroup
         # classification handles them.
         crossing_ids = list({*crossing_ids, *skewed_ids})
@@ -879,10 +956,12 @@ def check_group_move_conflicts(
         is_subgroup_wire = any(
             _wire_is_internal_bbox(wire, bbox) for bbox in subgroup_bboxes
         )
-        _log.debug("group_move.wire_classify",
-                   wire_id=str(wire_id),
-                   is_subgroup_wire=is_subgroup_wire,
-                   path=[(p.x, p.y) for p in wire.path])
+        _log.debug(
+            "group_move.wire_classify",
+            wire_id=str(wire_id),
+            is_subgroup_wire=is_subgroup_wire,
+            path=[(p.x, p.y) for p in wire.path],
+        )
         if is_subgroup_wire:
             _log.info("group_move.blocked.subgroup_wire", wire_id=str(wire_id))
             # Subgroup wire crossing → hard block
@@ -894,8 +973,11 @@ def check_group_move_conflicts(
         removable_ids.append(wire_id)
 
     if removable_ids:
-        _log.info("group_move.result", severity="REMOVABLE",
-                  removable_wire_ids=[str(i) for i in removable_ids])
+        _log.info(
+            "group_move.result",
+            severity="REMOVABLE",
+            removable_wire_ids=[str(i) for i in removable_ids],
+        )
         return MoveConflictResult(
             severity=MoveConflictSeverity.REMOVABLE,
             blocking_pad_positions=[],
@@ -953,9 +1035,9 @@ def check_multi_group_move_conflicts(
         drag_set.all_component_ids(layout_groups)  # type: ignore[attr-defined]
     )
 
-    extra_groups: set[uuid.UUID] = (
-        set(drag_set.groups) - {active_group_id}  # type: ignore[attr-defined]
-    )
+    extra_groups: set[uuid.UUID] = set(drag_set.groups) - {
+        active_group_id
+    }  # type: ignore[attr-defined]
 
     _log.debug(
         "multi_group_move.check.start",
@@ -1013,14 +1095,14 @@ def _wire_is_internal_bbox(
 ) -> bool:
     x0, y0, x1, y1 = bbox
     return len(wire.path) >= 2 and all(
-        x0 - tol <= p.x <= x1 + tol and y0 - tol <= p.y <= y1 + tol
-        for p in wire.path
+        x0 - tol <= p.x <= x1 + tol and y0 - tol <= p.y <= y1 + tol for p in wire.path
     )
 
 
 # ---------------------------------------------------------------------------
 # Cohesive scanner — context-object view over one layout
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ConflictScanner:
@@ -1055,8 +1137,9 @@ class ConflictScanner:
     pad_index: PadIndex | None = None
 
     @classmethod
-    def from_session(cls, session: object, *,
-                     pad_index: PadIndex | None = None) -> ConflictScanner:
+    def from_session(
+        cls, session: object, *, pad_index: PadIndex | None = None
+    ) -> ConflictScanner:
         """Build a scanner from an ``EditorSession``-like object.
 
         Reads ``layout.placements``, ``instances``, ``components``,

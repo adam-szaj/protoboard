@@ -8,9 +8,13 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
@@ -47,19 +51,35 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition(
+        name="R",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
+    )
 
 
 def _make_inst(refdes: str = "R1") -> ComponentInstance:
-    # The R defn has no package, so bind with families={} — resolved_footprint
-    # then returns defn.default_footprint() (the part's genuine default geometry).
-    return ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="10k"
-    ).bind(_r_defn(), {})
+    family = sil_family(2)
+    assert family is not None
+    defn = _r_defn()
+    return ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k").bind(
+        defn, {family.family_id: family}
+    )
 
 
-def _placement(inst: ComponentInstance, x: float, y: float, rot: int = 90,
-               shared_pins: frozenset[int] | None = None) -> ComponentPlacement:
+def _placement(
+    inst: ComponentInstance,
+    x: float,
+    y: float,
+    rot: int = 90,
+    shared_pins: frozenset[int] | None = None,
+) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=inst.id,
         position=Point(x, y),
@@ -132,6 +152,51 @@ class TestFindConflictsNone:
 # ---------------------------------------------------------------------------
 # find_conflicts: BOTH_UNCONNECTED
 # ---------------------------------------------------------------------------
+
+
+def test_conflict_net_lookup_translates_physical_pin_to_metapin() -> None:
+    family = sil_family(2)
+    assert family is not None
+    defn = ComponentDefinition(
+        name="X",
+        meta_pins=(MetaPin(("SIGNAL",)),),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (2,)},
+            ),
+        ),
+    )
+    families = {family.family_id: family}
+    existing = ComponentInstance.new("X", "X1", "").bind(defn, families)
+    incoming = ComponentInstance.new("X", "X2", "").bind(defn, families)
+    existing_placement = _placement(existing, 0.5, 0.5)
+    incoming_placement = _placement(incoming, 0.5, 0.5)
+    net_id = uuid.uuid4()
+    schematic = Schematic(
+        nets={
+            net_id: Net(
+                id=net_id,
+                name="SIGNAL",
+                pins={PinRef(existing.id, 1), PinRef(incoming.id, 1)},
+            )
+        }
+    )
+
+    conflicts = find_conflicts(
+        incoming_placement=incoming_placement,
+        incoming_defn=defn,
+        incoming_instance_id=incoming.id,
+        incoming_instance=incoming,
+        layout_placements={existing.id: existing_placement},
+        instances={existing.id: existing},
+        components={defn.name: defn},
+        schematic=schematic,
+    )
+
+    pin_two = next(conflict for conflict in conflicts if conflict.incoming_pin == 2)
+    assert pin_two.kind is ConflictKind.SAME_NET
 
 
 class TestFindConflictsBothUnconnected:
@@ -312,7 +377,10 @@ class TestDRCOverlapSharedPins:
         pl_r2: ComponentPlacement,
     ) -> list[str]:
         sch = Schematic(nets={})
-        lay = Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection())
+        lay = Layout(
+            placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+            wires=WireCollection(),
+        )
         engine = DRCEngine()
         board = _perfboard(1, 4)
         issues = engine.check(
@@ -359,10 +427,9 @@ class TestDRCOverlapSharedPins:
 # find_wire_conflicts
 # ---------------------------------------------------------------------------
 
+
 def _wire(path: list[Point]) -> Wire:
-    return Wire(
-        id=uuid.uuid4(), path=path, insulated=True, side="top"
-    )
+    return Wire(id=uuid.uuid4(), path=path, insulated=True, side="top")
 
 
 class TestFindWireConflicts:
@@ -565,34 +632,48 @@ class TestPadIndexPath:
         r2 = _make_inst("R2")
         pl_r1 = _placement(r1, 0.5, 0.5)
         pl_r2 = _placement(r2, 0.5, 0.5)
-        net_a = Net(id=uuid.uuid4(), name="A",
-                    pins={PinRef(component_id=r1.id, pin_number=1)})
-        net_b = Net(id=uuid.uuid4(), name="B",
-                    pins={PinRef(component_id=r2.id, pin_number=1)})
+        net_a = Net(
+            id=uuid.uuid4(), name="A", pins={PinRef(component_id=r1.id, pin_number=1)}
+        )
+        net_b = Net(
+            id=uuid.uuid4(), name="B", pins={PinRef(component_id=r2.id, pin_number=1)}
+        )
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
 
         idx = self._build_index(
-            board, {r1.id: pl_r1}, {r1.id: r1}, {"R": defn}, sch,
+            board,
+            {r1.id: pl_r1},
+            {r1.id: r1},
+            {"R": defn},
+            sch,
         )
         legacy = find_conflicts(
-            incoming_placement=pl_r2, incoming_defn=defn,
+            incoming_placement=pl_r2,
+            incoming_defn=defn,
             incoming_instance_id=r2.id,
             incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
-            instances={r1.id: r1}, components={"R": defn}, schematic=sch,
+            instances={r1.id: r1},
+            components={"R": defn},
+            schematic=sch,
         )
         via_index = find_conflicts(
-            incoming_placement=pl_r2, incoming_defn=defn,
+            incoming_placement=pl_r2,
+            incoming_defn=defn,
             incoming_instance_id=r2.id,
             incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
-            instances={r1.id: r1}, components={"R": defn}, schematic=sch,
+            instances={r1.id: r1},
+            components={"R": defn},
+            schematic=sch,
             pad_index=idx,
         )
+
         # Both pins of r2 overlap r1's pins; pin1 has DIFFERENT_NETS,
         # pin2 has ONE_UNCONNECTED (only one of the two pins has a net).
         def _summary(cs):
             return sorted((c.incoming_pin, c.kind) for c in cs)
+
         assert _summary(legacy) == _summary(via_index)
         assert (1, ConflictKind.DIFFERENT_NETS) in _summary(via_index)
 
@@ -605,10 +686,14 @@ class TestPadIndexPath:
         sch = Schematic(nets={})
         idx = self._build_index(board, {}, {}, {}, sch)
         out = find_conflicts(
-            incoming_placement=pl, incoming_defn=defn,
+            incoming_placement=pl,
+            incoming_defn=defn,
             incoming_instance_id=r1.id,
             incoming_instance=r1,
-            layout_placements={}, instances={}, components={}, schematic=sch,
+            layout_placements={},
+            instances={},
+            components={},
+            schematic=sch,
             pad_index=idx,
         )
         assert out == []
@@ -629,19 +714,30 @@ class TestPadIndexPath:
         r1 = _make_inst("R1")
         pl = _placement(r1, 0.5, 0.5, rot=0)
         # Bare wire so PadIndex records it as a bare wire item (top).
-        wire = Wire(id=uuid.uuid4(),
-                           path=[Point(0.5, 0.5), Point(0.5, 2.5)],
-                           insulated=False, side="top")
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(0.5, 2.5)],
+            insulated=False,
+            side="top",
+        )
         sch = Schematic(nets={})
         idx = self._build_index(
-            board, {}, {}, {}, sch, wires=[wire],
+            board,
+            {},
+            {},
+            {},
+            sch,
+            wires=[wire],
         )
         out = find_wire_conflicts(
-            incoming_placement=pl, incoming_defn=defn,
+            incoming_placement=pl,
+            incoming_defn=defn,
             incoming_instance_id=r1.id,
             incoming_instance=r1,
-            wires=[wire], schematic=sch,
-            point_to_net={}, already_conflicted=set(),
+            wires=[wire],
+            schematic=sch,
+            point_to_net={},
+            already_conflicted=set(),
             pad_index=idx,
         )
         assert len(out) == 2
@@ -660,17 +756,23 @@ class TestPadIndexPath:
         # Both pins on different nets.
         pl_r1 = _placement(r1, 0.5, 0.5, rot=0)
         pl_r2 = _placement(r2, 2.5, 0.5, rot=0)
-        net_a = Net(id=uuid.uuid4(), name="A",
-                    pins={PinRef(component_id=r1.id, pin_number=1)})
-        net_b = Net(id=uuid.uuid4(), name="B",
-                    pins={PinRef(component_id=r2.id, pin_number=1)})
+        net_a = Net(
+            id=uuid.uuid4(), name="A", pins={PinRef(component_id=r1.id, pin_number=1)}
+        )
+        net_b = Net(
+            id=uuid.uuid4(), name="B", pins={PinRef(component_id=r2.id, pin_number=1)}
+        )
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
         # Bare wire goes from net_a pin (0.5,0.5) straight through (2.5,0.5)
         # which is on net_b — crossing alien pad → conflict.
         from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
-        wire = Wire(id=uuid.uuid4(),
-                           path=[Point(0.5, 0.5), Point(2.5, 0.5)],
-                           insulated=False, side="top")
+
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
         idx = self._build_index(
             board,
             {r1.id: pl_r1, r2.id: pl_r2},
@@ -680,7 +782,8 @@ class TestPadIndexPath:
             wires=[wire],
         )
         out = find_wires_crossing_pads(
-            wires=[wire], moved_comp_ids=set(),
+            wires=[wire],
+            moved_comp_ids=set(),
             layout_placements={r1.id: pl_r1, r2.id: pl_r2},
             instances={r1.id: r1, r2.id: r2},
             components={"R": defn},
@@ -689,7 +792,8 @@ class TestPadIndexPath:
         )
         # Legacy path returns the same wire id.
         legacy = find_wires_crossing_pads(
-            wires=[wire], moved_comp_ids=set(),
+            wires=[wire],
+            moved_comp_ids=set(),
             layout_placements={r1.id: pl_r1, r2.id: pl_r2},
             instances={r1.id: r1, r2.id: r2},
             components={"R": defn},
@@ -713,36 +817,55 @@ class TestPadIndexPath:
         Hard rule: NO foreign wire may sit on a pin's pad
         (semantics rule 6).
         """
-        from protoboard.domain.components.footprints import SIL
-
         board = _perfboard(7, 3)
         # 3-pin SIL connector at (1.5..3.5, 0.5) on top.
-        conn_defn = ComponentDefinition.from_footprint(
-            name="J", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"},
+        family = sil_family(3)
+        assert family is not None
+        conn_defn = ComponentDefinition(
+            name="J",
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",)), MetaPin(("C",))),
+            package_options=(
+                PackageOption(
+                    name="SIL-3",
+                    ref="sil-3/std",
+                    pin_map={1: (1,), 2: (2,), 3: (3,)},
+                ),
+            ),
         )
-        conn = ComponentInstance.new(
-            definition_ref="J", refdes="J1", value=""
-        ).bind(conn_defn, {})
-        pl_conn = _placement(conn, 1.5, 0.5, rot=0)  # pins (1.5,0.5),(1.5,1.5),(1.5,2.5)
+        families = {family.family_id: family}
+        conn = ComponentInstance.new(definition_ref="J", refdes="J1", value="").bind(
+            conn_defn, families
+        )
+        pl_conn = _placement(
+            conn, 1.5, 0.5, rot=0
+        )  # pins (1.5,0.5),(1.5,1.5),(1.5,2.5)
         # Foreign-net bare wire spanning (1.5, 0.5)→(1.5, 2.5) — every
         # connector pin lands on it (endpoint, middle vertex,
         # endpoint).  Wire belongs to NET_FOREIGN via an anchor pin
         # off to the side.
         anchor = ComponentInstance.new(
             definition_ref="J", refdes="ANCHOR", value=""
-        ).bind(conn_defn, {})
+        ).bind(conn_defn, families)
         pl_anchor = _placement(anchor, 5.5, 0.5, rot=0)
         net_foreign = Net(
-            id=uuid.uuid4(), name="FOREIGN",
+            id=uuid.uuid4(),
+            name="FOREIGN",
             pins={PinRef(component_id=anchor.id, pin_number=1)},
         )
         sch = Schematic(nets={net_foreign.id: net_foreign})
-        wire = Wire(id=uuid.uuid4(),
-                    path=[Point(1.5, 0.5), Point(1.5, 2.5)],
-                    insulated=False, side="top")
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 0.5), Point(1.5, 2.5)],
+            insulated=False,
+            side="top",
+        )
         idx = self._build_index(
-            board, {anchor.id: pl_anchor}, {anchor.id: anchor},
-            {"J": conn_defn}, sch, wires=[wire],
+            board,
+            {anchor.id: pl_anchor},
+            {anchor.id: anchor},
+            {"J": conn_defn},
+            sch,
+            wires=[wire],
         )
         # point_to_net for anchor's pin so the wire resolves to FOREIGN.
         # Coords are pre-rounded (matching find_wire_conflicts internals).
@@ -754,11 +877,14 @@ class TestPadIndexPath:
         # (used in the schematic-less leg) sees it.  PadIndex path
         # already knows from electrical_net_on().
         out = find_wire_conflicts(
-            incoming_placement=pl_conn, incoming_defn=conn_defn,
+            incoming_placement=pl_conn,
+            incoming_defn=conn_defn,
             incoming_instance_id=conn.id,
             incoming_instance=conn,
-            wires=[wire], schematic=sch,
-            point_to_net=point_to_net, already_conflicted=set(),
+            wires=[wire],
+            schematic=sch,
+            point_to_net=point_to_net,
+            already_conflicted=set(),
             pad_index=idx,
         )
         # All three connector pins lie on the wire — every one must

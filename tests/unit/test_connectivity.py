@@ -10,9 +10,14 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy, VBox
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -36,6 +41,28 @@ def _perfboard(rows: int, cols: int) -> Board:
         col_gap=0.0,
     )
     return Board(root=grid)
+
+
+def _sil_component(
+    name: str,
+    labels: tuple[str, ...],
+    pin_map: dict[int, tuple[int, ...]],
+    physical_pin_count: int,
+) -> tuple[ComponentDefinition, dict[str, object]]:
+    family = sil_family(physical_pin_count)
+    assert family is not None
+    defn = ComponentDefinition(
+        name=name,
+        meta_pins=tuple(MetaPin((label,)) for label in labels),
+        package_options=(
+            PackageOption(
+                name=f"SIL-{physical_pin_count}",
+                ref=f"sil-{physical_pin_count}/std",
+                pin_map=pin_map,
+            ),
+        ),
+    )
+    return defn, {family.family_id: family}
 
 
 class TestConnectivityGraphBasic:
@@ -94,17 +121,59 @@ class TestConnectivityGraphBasic:
 
 
 class TestConnectivityGraphWithComponents:
+    def test_metapin_maps_to_all_physical_package_pins(self) -> None:
+        board = _perfboard(3, 1)
+        family = sil_family(3)
+        assert family is not None
+        defn = ComponentDefinition(
+            name="JUMPER",
+            meta_pins=(MetaPin(("COMMON",)), MetaPin(("SIGNAL",))),
+            package_options=(
+                PackageOption(
+                    name="SIL-3",
+                    ref="sil-3/std",
+                    pin_map={1: (1, 3), 2: ()},
+                ),
+            ),
+        )
+        inst = ComponentInstance.new(
+            definition_ref=defn.name,
+            refdes="J1",
+            value="",
+        ).bind(defn, {family.family_id: family})
+        placement = ComponentPlacement(
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
+        )
+        layout = Layout(
+            placements=PlacementCollection({inst.id: placement}),
+            wires=WireCollection([]),
+        )
+
+        graph = ConnectivityGraph(
+            board=board,
+            layout=layout,
+            components={defn.name: defn},
+            instances={inst.id: inst},
+        )
+
+        common = graph.node_for_pin(PinRef(inst.id, 1))
+        assert common is not None
+        assert common == graph.node_for_pad(Point(0.5, 0.5), "top")
+        assert common == graph.node_for_pad(Point(0.5, 2.5), "top")
+        assert graph.node_for_pin(PinRef(inst.id, 2)) is None
+
     def test_placed_component_pins_on_pads(self) -> None:
         # SIL(2) places pins vertically: pin1 at position, pin2 at position+(0,1).
         # Use a 2-row × 1-col board so both pads exist.
         # gap=0 → pad centers at (0.5, 0.5) and (0.5, 1.5).
         board = _perfboard(2, 1)
-        comp_defn = ComponentDefinition.from_footprint(
-            name="R",
-            footprint=SIL(2),
-            pin_names={1: "A", 2: "B"},
-        )
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        comp_defn, families = _sil_component("R", ("A", "B"), {1: (1,), 2: (2,)}, 2)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
+            comp_defn, families
+        )  # type: ignore[arg-type]
         # Place pin1 on pad (0.5, 0.5), pin2 on pad (0.5, 1.5).
         pl = ComponentPlacement(
             component_id=inst.id,
@@ -112,7 +181,9 @@ class TestConnectivityGraphWithComponents:
             rotation=0,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([])
+        )
         graph = ConnectivityGraph(
             board=board,
             layout=lay,
@@ -128,12 +199,10 @@ class TestConnectivityGraphWithComponents:
     def test_wire_joins_component_pins(self) -> None:
         # Pad centers: (0.5,0), (1.5,0), (2.5,0).
         board = _perfboard(1, 3)
-        comp_defn = ComponentDefinition.from_footprint(
-            name="R",
-            footprint=SIL(2),
-            pin_names={},
-        )
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        comp_defn, families = _sil_component("R", ("P1", "P2"), {1: (1,), 2: (2,)}, 2)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
+            comp_defn, families
+        )  # type: ignore[arg-type]
         # SIL(2) rotation=90: pin2=(0,1)→rot(1,0)→world(1.5, 0.5).
         pl = ComponentPlacement(
             component_id=inst.id,
@@ -148,7 +217,9 @@ class TestConnectivityGraphWithComponents:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire])
+        )
         graph = ConnectivityGraph(
             board=board,
             layout=lay,
@@ -160,49 +231,65 @@ class TestConnectivityGraphWithComponents:
         assert node_pin2 == node_pad3
 
 
-class TestInternalNetsSameNamePins:
-    """Pins of one component sharing a name are one electrical node — a
-    pre-routed internal net island — with no wire drawn between them."""
+class TestPackagePinMapping:
+    """Package mappings define which physical leads share a MetaPin."""
 
-    def _ic_4pin(self, pin_names: dict[int, str]) -> ComponentDefinition:
-        return ComponentDefinition.from_footprint(
-            name="IC", footprint=SIL(4), pin_names=pin_names
+    def _ic_4pin(
+        self,
+    ) -> tuple[ComponentDefinition, dict[str, object]]:
+        return _sil_component(
+            "IC",
+            ("GND", "A", "B"),
+            {1: (1, 3), 2: (2,), 3: (4,)},
+            4,
         )
 
     def test_same_name_pins_share_node_without_wire(self) -> None:
         # SIL(4) vertical on a 4×1 board: pins at y=0.5,1.5,2.5,3.5 (x=0.5).
-        # pin1 and pin3 are both "GND" → one electrical node, no wire.
+        # Physical pins 1 and 3 carry the same GND MetaPin.
         board = _perfboard(4, 1)
-        defn = self._ic_4pin({1: "GND", 2: "A", 3: "GND", 4: "B"})
-        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        defn, families = self._ic_4pin()
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
+            defn, families
+        )  # type: ignore[arg-type]
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
-        graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([])
         )
-        node_pin1 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
-        node_pin3 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=3))
-        assert node_pin1 is not None
-        assert node_pin1 == node_pin3, "same-name pins must be one node"
+        graph = ConnectivityGraph(
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
+        )
+        node_gnd = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
+        assert node_gnd is not None
+        assert node_gnd == graph.node_for_pad(Point(0.5, 0.5), "top")
+        assert node_gnd == graph.node_for_pad(Point(0.5, 2.5), "top")
 
     def test_differently_named_pins_stay_separate(self) -> None:
         board = _perfboard(4, 1)
-        defn = self._ic_4pin({1: "GND", 2: "A", 3: "GND", 4: "B"})
-        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        defn, families = self._ic_4pin()
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
+            defn, families
+        )  # type: ignore[arg-type]
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([])
+        )
         graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
         )
         node_gnd = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
         node_a = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=2))
-        node_b = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=4))
+        node_b = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=3))
         assert node_a != node_gnd
         assert node_b != node_gnd
         assert node_a != node_b
@@ -211,8 +298,10 @@ class TestInternalNetsSameNamePins:
         # Wire from an external pad to pin1 (GND); pin3 (GND) must end up in the
         # same electrical set without its own wire — the pre-routed island.
         board = _perfboard(4, 2)  # 2 cols: col x=0.5 holds the IC, col x=1.5 free
-        defn = self._ic_4pin({1: "GND", 2: "A", 3: "GND", 4: "B"})
-        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        defn, families = self._ic_4pin()
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
+            defn, families
+        )  # type: ignore[arg-type]
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
@@ -220,31 +309,46 @@ class TestInternalNetsSameNamePins:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(0.5, 0.5)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire])
+        )
         graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
         )
         node_free = graph.node_for_pad(Point(1.5, 0.5), "top")
-        node_pin3 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=3))
+        node_gnd = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
         assert node_free is not None
-        # pin3 (GND, no wire) is on the same net as the wired free pad.
-        assert node_pin3 == node_free
+        assert node_gnd == node_free
 
     def test_single_named_pin_not_merged(self) -> None:
-        # Only one "GND" pin → nothing to merge; it stays its own node.
+        # Each logical terminal maps to exactly one physical pin.
         board = _perfboard(4, 1)
-        defn = self._ic_4pin({1: "GND", 2: "A", 3: "B", 4: "C"})
-        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        defn, families = _sil_component(
+            "IC",
+            ("GND", "A", "B", "C"),
+            {1: (1,), 2: (2,), 3: (3,), 4: (4,)},
+            4,
+        )
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
+            defn, families
+        )  # type: ignore[arg-type]
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([])
+        )
         graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
         )
         # Each pin on its own node — 4 distinct.
         nodes = {
@@ -321,7 +425,9 @@ class TestInsulatedWireIsolation:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b])
+        )
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # Middle pad must still be isolated from the wire endpoints.
         node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
@@ -363,13 +469,15 @@ class TestInsulatedWireIsolation:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([wire_a, wire_b])
+        )
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         node_a_left = graph.node_for_pad(Point(0.5, 0.5), "top")
         node_b_left = graph.node_for_pad(Point(0.5, 1.5), "top")
-        assert node_a_left != node_b_left, (
-            "Bare wires sharing an off-pad crossing point must remain in separate ElectricSets"
-        )
+        assert (
+            node_a_left != node_b_left
+        ), "Bare wires sharing an off-pad crossing point must remain in separate ElectricSets"
 
     def test_bare_wire_shortcut_connects_crossed_pads(self) -> None:
         # 1×4 perfboard.  A bare wire is laid as a direct shortcut from the
@@ -386,14 +494,12 @@ class TestInsulatedWireIsolation:
         )
         lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         graph = ConnectivityGraph(board=board, layout=lay, components={})
-        nodes = [
-            graph.node_for_pad(Point(x + 0.5, 0.5), "top") for x in range(4)
-        ]
+        nodes = [graph.node_for_pad(Point(x + 0.5, 0.5), "top") for x in range(4)]
         for n in nodes:
             assert n is not None
-        assert len(set(nodes)) == 1, (
-            "Bare shortcut must merge every pad on its physical path"
-        )
+        assert (
+            len(set(nodes)) == 1
+        ), "Bare shortcut must merge every pad on its physical path"
 
     def test_insulated_wire_shortcut_does_not_connect_crossed_pads(self) -> None:
         # Mirror of the above: insulated wire shortcut must NOT merge crossed
