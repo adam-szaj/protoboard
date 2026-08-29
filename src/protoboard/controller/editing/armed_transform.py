@@ -479,8 +479,8 @@ class ArmedTransform:
     @staticmethod
     def _pin_count(defn: object) -> int:
         fp = getattr(defn, "footprint", None)
-        count = getattr(fp, "pin_count", None)
-        return count() if callable(count) else 0
+        count = cast(Callable[[], int] | None, getattr(fp, "pin_count", None))
+        return count() if count is not None else 0
 
     # -- commit-readiness + terminal ---------------------------------------
 

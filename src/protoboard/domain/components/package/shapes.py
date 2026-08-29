@@ -213,7 +213,10 @@ class Package(Footprint):
         return None
 
     def is_rigid(self) -> bool:
-        return self.leads.board_offset != BOARD_SOLVE and self.bend_holes == 0
+        leads = getattr(self, "leads", None)
+        bend_holes = getattr(self, "bend_holes", None)
+        return (getattr(leads, "board_offset", None) != BOARD_SOLVE
+                and bend_holes == 0)
 
     @abstractmethod
     def min_radial_pitch_mm(self) -> float:

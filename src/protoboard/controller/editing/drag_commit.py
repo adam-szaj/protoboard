@@ -11,7 +11,8 @@ a Qt dialog — so it lives here in ``controller/editing`` rather than under
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -70,7 +71,8 @@ def classify_drag_commit(
         getter = getattr(session, "cached_wire_net_map", None)
         if callable(getter):
             try:
-                wire_net_map = dict(getter())
+                raw_map = cast(Mapping[uuid.UUID, uuid.UUID], getter())
+                wire_net_map = dict(raw_map)
             except Exception:  # noqa: BLE001
                 wire_net_map = {}
 

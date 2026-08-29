@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence
@@ -41,6 +41,7 @@ from protoboard.controller.theme import Theme, save_theme
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QComboBox, QFormLayout
 
+    from protoboard.gui.keymap import AbstractKeyMap
     from protoboard.services.routing.postprocess import SimplifyMode
 
 
@@ -341,7 +342,7 @@ class _ShortcutsPage(QWidget):
                 make_key_map = getattr(tool, "make_key_map", None)
                 if not callable(make_key_map):
                     continue
-                layer = make_key_map(keymap)
+                layer = cast(AbstractKeyMap, make_key_map(keymap))
                 ids = [a.id for a in layer.known_actions()]
                 if not ids:
                     continue
