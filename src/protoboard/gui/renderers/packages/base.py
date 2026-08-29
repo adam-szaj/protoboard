@@ -858,7 +858,9 @@ class PackageRenderer(BodyShape):
         rings: list[QGraphicsItem] = []
         for p in positions:
             ring = QGraphicsEllipseItem(
-                QRectF(p.x - pad_r, p.y - pad_r, 2 * pad_r, 2 * pad_r)
+                to_qrectf(Rect.of(
+                    p.x - pad_r, p.y - pad_r, 2 * pad_r, 2 * pad_r,
+                ))
             )
             ring.setPen(pen)
             ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))

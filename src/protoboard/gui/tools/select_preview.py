@@ -111,7 +111,9 @@ class _RubberBandRect:
         from PySide6.QtWidgets import QGraphicsRectItem
 
         x0, y0 = min(a.x, b.x), min(a.y, b.y)
-        rect = QRectF(x0, y0, abs(b.x - a.x), abs(b.y - a.y))
+        from protoboard.gui.qt_geometry import to_qrectf
+        from protoboard.geometry import Rect
+        rect = to_qrectf(Rect.of(x0, y0, abs(b.x - a.x), abs(b.y - a.y)))
         if self.item is None:
             item = QGraphicsRectItem(rect)
             item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
