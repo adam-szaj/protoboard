@@ -52,9 +52,11 @@ Expected: failure because `MetaPin` and `pin_map` do not exist.
 
 - [ ] **Step 3: Implement minimal model**
 
-Remove `PinVariant`, `pin_names`, `variants`, `pin_count`, `pin_name()`,
-`effective_pin_names()`, and label-based grouping. Validate non-empty labels and
-positive MetaPin keys. Implement 1-based `meta_pin()` lookup.
+Make `meta_pins` the stored source of truth. Validate non-empty labels and
+positive MetaPin keys, and implement 1-based `meta_pin()` lookup. Keep
+`pin_names` and `pin_count` temporarily as read-only projections of the first
+MetaPin label so consumers can be migrated in later tasks without a second
+stored pin model. Do not load or author new `PinVariant` data.
 
 - [ ] **Step 4: Verify and commit**
 
@@ -214,6 +216,9 @@ explicit `pin_map`. Translate KiCad physical pads at its boundary.
 ```bash
 rg -n "pin_names|PinVariant|pin_variant|defn\.pin_count|PinRef\([^)]*pin_number" src
 ```
+
+At this point remove the temporary `pin_names` and `pin_count` projections and
+the remaining `PinVariant` implementation.
 
 - [ ] **Step 2: Run formatting and types**
 
