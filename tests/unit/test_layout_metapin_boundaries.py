@@ -3,6 +3,7 @@
 
 import uuid
 
+from protoboard.domain.board.pad_state import PinItem
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,
@@ -12,10 +13,16 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
+from protoboard.domain.layout.group_ownership import _pin_endpoint_matches_path
+from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.domain.layout.wire_utils import _pin_at, find_pin_at
+from protoboard.domain.layout.pin_pad_classification import (
+    ModifierShape,
+    _resolve_modifier,
+)
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _build_pin_positions
@@ -124,3 +131,33 @@ def test_autorouter_locates_metapin_on_mapped_package_pin() -> None:
     )
 
     assert positions == {PinRef(instance.id, 1): (Point(0.5, 1.5), "top")}
+
+
+def test_pin_pad_modifier_uses_metapin_identity() -> None:
+    component_id = uuid.uuid4()
+    item = PinItem(
+        id=component_id,
+        pin_number=2,
+        meta_pin_index=1,
+        net=None,
+    )
+
+    modifier = _resolve_modifier(
+        [item],
+        frozenset({PinRef(component_id, 1)}),
+    )
+
+    assert modifier is ModifierShape.STAR
+
+
+def test_group_ownership_resolves_pinknot_metapin_to_package_pin() -> None:
+    definition, instance, layout = _placed_component()
+    knot = PinKnot(id=uuid.uuid4(), pin=PinRef(instance.id, 1))
+
+    assert _pin_endpoint_matches_path(
+        knot,
+        Point(0.5, 1.5),
+        layout.placements,
+        {instance.id: instance},
+        {definition.name: definition},
+    )

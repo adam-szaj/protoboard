@@ -71,6 +71,7 @@ class PinItem:
     id: uuid.UUID            # component instance id
     pin_number: int
     net: NetId | None
+    meta_pin_index: int | None = None
     kind: ClassVar[str] = "pin"
 
 
@@ -903,6 +904,7 @@ class PadIndex:
                     if meta_pin_index is not None
                     else None
                 ),
+                meta_pin_index=meta_pin_index,
             )
             pad._add_item(pin_item, side)
             footprint.append((key, side, pin_item))
@@ -965,11 +967,18 @@ class PadIndex:
                 new_items.append((key, side, item))
                 continue
             if isinstance(item, PinItem):
-                new_net = new_nets_by_pin.get(item.pin_number, item.net)
+                new_net = (
+                    item.net
+                    if item.meta_pin_index is None
+                    else new_nets_by_pin.get(item.meta_pin_index, item.net)
+                )
                 if new_net != item.net:
                     pad._remove_item(item.id)
                     new_item = PinItem(
-                        id=item.id, pin_number=item.pin_number, net=new_net,
+                        id=item.id,
+                        pin_number=item.pin_number,
+                        net=new_net,
+                        meta_pin_index=item.meta_pin_index,
                     )
                     pad._add_item(new_item, side)
                     new_items.append((key, side, new_item))

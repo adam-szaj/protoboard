@@ -121,9 +121,10 @@ def _resolve_modifier(
     combine flags: if *any* of the soldered pins is pin1, the square
     flag is set; if *any* is exported, the diamond flag is set.
     """
-    is_pin1 = any(p.pin_number == 1 for p in pin_items)
+    is_pin1 = any(p.meta_pin_index == 1 for p in pin_items)
     is_exported = any(
-        PinRef(component_id=p.id, pin_number=p.pin_number)
+        p.meta_pin_index is not None
+        and PinRef(component_id=p.id, pin_number=p.meta_pin_index)
         in exported_pin_set
         for p in pin_items
     )

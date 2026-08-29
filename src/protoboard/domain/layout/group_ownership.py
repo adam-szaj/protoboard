@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from protoboard.services.call_counters import counted
 
@@ -223,15 +223,18 @@ def _pin_endpoint_matches_path(
         return False
     pin = knot.pin
     cache_key = (pin.component_id, pin.pin_number)
-    wp: object | None = None
+    physical_positions: tuple[object, ...] | None = None
     if pin_world_cache is not None:
         cached = pin_world_cache.get(cache_key, _MISSING)
         if cached is not _MISSING:
             if cached is False:
                 return False
-            wp = cached
-    if wp is None:
+            physical_positions = cast(tuple[object, ...], cached)
+    if physical_positions is None:
         from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.components.package.pin_mapping import (
+            package_pins_for_meta_pin,
+        )
         from protoboard.domain.layout.placement import pin_world_position
         pl = placements.get(pin.component_id)
         if pl is None:
@@ -250,24 +253,34 @@ def _pin_endpoint_matches_path(
             return False
         try:
             fp = resolved_footprint(defn, inst, inst.families)
-            wp = pin_world_position(fp, pl, pin.pin_number)
+            physical_positions = tuple(
+                pin_world_position(fp, pl, package_pin_number)
+                for package_pin_number in package_pins_for_meta_pin(
+                    defn, inst, pin.meta_pin_index
+                )
+            )
+            if not physical_positions:
+                return False
         except Exception:  # noqa: BLE001
             if pin_world_cache is not None:
                 pin_world_cache[cache_key] = False  # type: ignore[assignment]
             return False
         if pin_world_cache is not None:
-            pin_world_cache[cache_key] = wp
+            pin_world_cache[cache_key] = physical_positions
     ep_x = getattr(wire_endpoint, "x", None)
     ep_y = getattr(wire_endpoint, "y", None)
     if ep_x is None or ep_y is None:
         return False
-    wp_x = getattr(wp, "x", None)
-    wp_y = getattr(wp, "y", None)
-    if wp_x is None or wp_y is None:
-        return False
-    dx = abs(float(wp_x) - float(ep_x))
-    dy = abs(float(wp_y) - float(ep_y))
-    return dx <= _PIN_PATH_MATCH_TOL and dy <= _PIN_PATH_MATCH_TOL
+    for position in physical_positions:
+        wp_x = getattr(position, "x", None)
+        wp_y = getattr(position, "y", None)
+        if wp_x is None or wp_y is None:
+            continue
+        dx = abs(float(wp_x) - float(ep_x))
+        dy = abs(float(wp_y) - float(ep_y))
+        if dx <= _PIN_PATH_MATCH_TOL and dy <= _PIN_PATH_MATCH_TOL:
+            return True
+    return False
 
 
 _MISSING: object = object()
