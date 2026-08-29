@@ -216,7 +216,6 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                     {"package_variant": inst.package_variant}
                     if inst.package_variant else {}
                 ),
-                **({"pin_variant": inst.pin_variant} if inst.pin_variant else {}),
                 **_appearance_to_style_field(inst.appearance),
             }
             for inst in instances.values()
@@ -242,7 +241,7 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
             "kind": "pin",
             "pin": {
                 "component_id": str(knot.pin.component_id),
-                "pin_number": knot.pin.pin_number,
+                "meta_pin": knot.pin.meta_pin_index,
             },
         }
     if isinstance(knot, _WirePin):
@@ -356,8 +355,8 @@ def _layout_to_yaml(layout: Layout) -> str:
                         ),
                         **(
                             {"exported_pins": [
-                                {"component_id": str(ep.component_id), "pin_number": ep.pin_number}
-                                for ep in sorted(g.exported_pins, key=lambda e: (str(e.component_id), e.pin_number))
+                                {"component_id": str(ep.component_id), "meta_pin": ep.meta_pin_index}
+                                for ep in sorted(g.exported_pins, key=lambda e: (str(e.component_id), e.meta_pin_index))
                             ]}
                             if g.exported_pins else {}
                         ),
@@ -392,7 +391,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
                 "pins": [
                     {
                         "component_id": str(ref.component_id),
-                        "pin_number": ref.pin_number,
+                        "meta_pin": ref.meta_pin_index,
                     }
                     for ref in net.pins
                 ],
@@ -1039,7 +1038,6 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
             package_variant=(
                 str(raw["package_variant"]) if raw.get("package_variant") else None
             ),
-            pin_variant=str(raw["pin_variant"]) if raw.get("pin_variant") else None,
             appearance=appearance,
         )
     return result
@@ -1132,7 +1130,7 @@ def _layout_from_yaml(
         exported_pins: frozenset[PinRef] = frozenset(
             PinRef(
                 component_id=uuid.UUID(ep["component_id"]),
-                pin_number=int(ep["pin_number"]),
+                pin_number=int(ep["meta_pin"]),
             )
             for ep in (raw.get("exported_pins") or [])
         )
@@ -1274,7 +1272,7 @@ def _decode_knots_and_wires(
             pin_raw = raw["pin"]
             pin = PinRef(
                 component_id=uuid.UUID(pin_raw["component_id"]),
-                pin_number=int(pin_raw["pin_number"]),
+                pin_number=int(pin_raw["meta_pin"]),
             )
             knot = PinKnot(id=kid, pin=pin)
             layout.pin_knots[pin] = kid
@@ -1345,7 +1343,7 @@ def _schematic_from_yaml(text: str) -> Schematic:
         pins = {
             PinRef(
                 component_id=uuid.UUID(p["component_id"]),
-                pin_number=int(p["pin_number"]),
+                pin_number=int(p["meta_pin"]),
             )
             for p in raw.get("pins") or []
         }

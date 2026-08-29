@@ -16,6 +16,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.schematic import Schematic
+from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
@@ -35,6 +36,34 @@ def _perfboard() -> Board:
         col_gap=0.0,
     )
     return Board(root=grid)
+
+
+def test_schematic_persists_metapin_ordinal(tmp_path: Path) -> None:
+    component_id = uuid.UUID(int=1)
+    net_id = uuid.UUID(int=2)
+    schematic = Schematic(
+        nets={
+            net_id: Net(
+                id=net_id,
+                name="SIG",
+                pins={PinRef(component_id, 2)},
+            )
+        }
+    )
+
+    save_project(
+        tmp_path,
+        _perfboard(),
+        Layout(),
+        schematic,
+        instances={},
+    )
+
+    schematic_yaml = (tmp_path / "schematic.yaml").read_text()
+    assert "meta_pin: 2" in schematic_yaml
+    assert "pin_number:" not in schematic_yaml
+    _, _, loaded, *_ = load_project(tmp_path)
+    assert loaded.nets[net_id].pins == {PinRef(component_id, 2)}
 
 
 class TestInstancesRoundtrip:

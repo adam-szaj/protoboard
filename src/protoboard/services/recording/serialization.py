@@ -166,8 +166,6 @@ def _instance_to(inst: ComponentInstance) -> dict[str, Any]:
         out["tolerance"] = inst.tolerance
     if inst.package_variant:
         out["package_variant"] = inst.package_variant
-    if inst.pin_variant:
-        out["pin_variant"] = inst.pin_variant
     return out
 
 
@@ -182,7 +180,6 @@ def _instance_from(d: dict[str, Any]) -> ComponentInstance:
         package_variant=(
             str(d["package_variant"]) if d.get("package_variant") else None
         ),
-        pin_variant=str(d["pin_variant"]) if d.get("pin_variant") else None,
     )
 
 
@@ -210,8 +207,8 @@ def _wire_from(d: dict[str, Any]) -> Wire:
 
 def _exported_pins_to(pins: frozenset[PinRef]) -> list[dict[str, Any]]:
     return [
-        {"component_id": _uuid_to(ep.component_id), "pin_number": ep.pin_number}
-        for ep in sorted(pins, key=lambda e: (str(e.component_id), e.pin_number))
+        {"component_id": _uuid_to(ep.component_id), "meta_pin": ep.meta_pin_index}
+        for ep in sorted(pins, key=lambda e: (str(e.component_id), e.meta_pin_index))
     ]
 
 
@@ -219,7 +216,7 @@ def _exported_pins_from(raw: Any) -> frozenset[PinRef]:
     return frozenset(
         PinRef(
             component_id=_uuid_from(d["component_id"]),
-            pin_number=int(d["pin_number"]),
+            pin_number=int(d["meta_pin"]),
         )
         for d in (raw or [])
     )
