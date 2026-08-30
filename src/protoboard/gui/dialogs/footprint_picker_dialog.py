@@ -122,7 +122,9 @@ class FootprintPickerDialog(QDialog):
             return visible
 
         for index in range(self._tree.topLevelItemCount()):
-            filter_item(self._tree.topLevelItem(index))
+            item = self._tree.topLevelItem(index)
+            if item is not None:
+                filter_item(item)
         first = self._first_visible_leaf()
         if first is not None:
             self._tree.setCurrentItem(first)
@@ -140,7 +142,10 @@ class FootprintPickerDialog(QDialog):
             return None
 
         for index in range(self._tree.topLevelItemCount()):
-            found = find(self._tree.topLevelItem(index))
+            item = self._tree.topLevelItem(index)
+            if item is None:
+                continue
+            found = find(item)
             if found is not None:
                 return found
         return None
