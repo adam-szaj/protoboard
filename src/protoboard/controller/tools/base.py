@@ -85,7 +85,7 @@ class _ViewProto(Protocol):
 
 
 class ControllerTool:
-    """Do-nothing Qt-free tool base. The gui mixin adds make_key_map/_theme/on_key."""
+    """Do-nothing Qt-free tool base. The GUI mixin adds View-only behavior."""
 
     def __init__(self) -> None:
         # Bound on activate(); set to None up-front so that pre-activate code
@@ -122,15 +122,6 @@ class ControllerTool:
         if view is None:
             return False
         return view.keymap.matches(inp.key, inp.native_mods, action_id)
-
-    def make_key_map(self, parent: object) -> object:
-        """Build this tool's key-map layer chained onto *parent*.
-
-        Qt-free default: headless has no KeyMap layer to build — return
-        *parent* unchanged. ``ViewToolMixin`` overrides this to build the
-        real View key-map layer.
-        """
-        return parent
 
     def _theme(self) -> object | None:
         """The resolved theme.

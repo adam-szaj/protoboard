@@ -454,15 +454,9 @@ class _Tool(Protocol):
     ``class _Tool(...)`` forced nominal assignability and produced ~150 spurious
     ``set_tool(SelectTool())`` argument-type errors.
 
-    ``make_key_map`` is declared LOOSE (``parent: object -> object``) to match
-    what pyright *actually resolves* for a concrete tool.  Although every tool
-    re-points ``make_key_map = ViewToolMixin.make_key_map`` at runtime, pyright
-    ignores a class-body re-point of an inherited ABC method and keeps
-    ``ControllerTool``'s ``object -> object`` as the static type (the concrete
-    tools list ``_XTool`` — hence ``ControllerTool`` — before ``ViewToolMixin``
-    in their MRO; see the composition-order note in ``gui/tools/gui_tools.py``).
-    Declaring the refined ``AbstractKeyMap -> KeyMap`` here would make every
-    concrete tool fail the structural check.
+    ``make_key_map`` uses the real View contract. ``ControllerTool`` deliberately
+    does not declare this View-only operation; every concrete GUI tool composes
+    and explicitly binds :meth:`ViewToolMixin.make_key_map`.
 
     ``@runtime_checkable`` keeps ``isinstance(tool, _Tool)`` working (the
     Preferences dialog relies on a structural guard).  It checks method
@@ -484,7 +478,7 @@ class _Tool(Protocol):
         tuple[str, Callable[[PointerInput | WheelInput], bool]],
         ...,
     ]: ...
-    def make_key_map(self, parent: object) -> object: ...
+    def make_key_map(self, parent: AbstractKeyMap) -> KeyMap: ...
     def displayable_action_ids(self) -> list[str]: ...
     def on_scene_cleared(self) -> None: ...
     def perform_context_action(
