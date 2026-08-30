@@ -42,9 +42,7 @@ dev = [
 protoboard = "protoboard.app:main"
 
 [tool.pyright]
-venvPath = "./"
-venv = ".venv/"
-pythonpath = ["src", "tests"]
+extraPaths = ["src", "tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/protoboard"]
