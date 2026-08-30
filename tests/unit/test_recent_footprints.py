@@ -20,11 +20,11 @@ def _isolate_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_add_then_load_roundtrip() -> None:
-    recent_footprints.add("R", "DIN-0207/typ", "R_DIN-0207")
+    recent_footprints.add("R", "r-tht/DIN/0207", "R_DIN-0207")
     loaded = recent_footprints.load()
     assert len(loaded) == 1
     assert loaded[0].definition_ref == "R"
-    assert loaded[0].address == "DIN-0207/typ"
+    assert loaded[0].address == "r-tht/DIN/0207"
     assert loaded[0].label == "R_DIN-0207"
 
 
@@ -33,7 +33,7 @@ def test_most_recent_first_and_dedupe() -> None:
     recent_footprints.add("R", "b/typ", "R_b")
     recent_footprints.add("R", "a/typ", "R_a")  # re-pick a → moves to front
     addrs = [e.address for e in recent_footprints.load()]
-    assert addrs == ["a/typ", "b/typ"]          # deduped, a first
+    assert addrs == ["a/typ", "b/typ"]  # deduped, a first
 
 
 def test_dedupe_is_per_definition_and_address() -> None:

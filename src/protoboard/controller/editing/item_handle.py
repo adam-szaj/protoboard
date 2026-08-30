@@ -29,14 +29,15 @@ addressed target into the same domain commands the verbs build; value objects
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from protoboard.geometry import Point
     from protoboard.controller.editing.controller import EditController
+    from protoboard.geometry import Point
 
 
 def _require_one(*callbacks: object) -> None:
@@ -252,7 +253,7 @@ class ComponentHandleBase(HandleKind):
         return getattr(inst, "definition_ref", None) if inst is not None else None
 
     @property
-    def pin_names(self) -> dict[int, str]:
+    def meta_pin_labels(self) -> dict[int, str]:
         """MetaPin ordinal → compact primary label."""
         inst = self._instance
         if inst is None:

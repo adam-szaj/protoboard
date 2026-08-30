@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-import copy
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence
@@ -35,9 +35,9 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
+from protoboard.controller.theme import Theme, save_theme
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
 from protoboard.gui.keymap import AbstractKeyMap
-from protoboard.controller.theme import Theme, save_theme
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QComboBox, QFormLayout
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helper — colour button
 # ---------------------------------------------------------------------------
+
 
 class _ColorButton(QPushButton):
     """Push button that shows a colour swatch and opens QColorDialog on click."""
@@ -67,14 +68,21 @@ class _ColorButton(QPushButton):
         self._update_swatch()
 
     def _update_swatch(self) -> None:
-        r, g, b, a = self._color.red(), self._color.green(), self._color.blue(), self._color.alpha()
+        r, g, b, a = (
+            self._color.red(),
+            self._color.green(),
+            self._color.blue(),
+            self._color.alpha(),
+        )
         self.setStyleSheet(
             f"background-color: rgba({r},{g},{b},{a}); border: 1px solid #666;"
         )
 
     def _pick(self) -> None:
         c = QColorDialog.getColor(
-            self._color, self, "Choose colour",
+            self._color,
+            self,
+            "Choose colour",
             QColorDialog.ColorDialogOption.ShowAlphaChannel,
         )
         if c.isValid():
@@ -85,6 +93,7 @@ class _ColorButton(QPushButton):
 # ---------------------------------------------------------------------------
 # Page — Shortcuts
 # ---------------------------------------------------------------------------
+
 
 class _AppShortcutsTab(QWidget):
     """The legacy flat KeyBindings table (application/menu shortcuts)."""
@@ -103,6 +112,7 @@ class _AppShortcutsTab(QWidget):
         # the default ~100px crops long action names like
         # "Component → Toggle Footprint Side".
         from PySide6.QtWidgets import QHeaderView
+
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -178,6 +188,7 @@ class _AppShortcutsTab(QWidget):
 def _valid_trigger_text(text: str) -> bool:
     """Every ``|``-separated alternative parses as a key or mouse chord."""
     from protoboard.gui.keymap import is_mouse_trigger
+
     for alt in (a.strip() for a in text.split("|")):
         if not alt:
             continue
@@ -205,12 +216,14 @@ class _KeyMapTab(QWidget):
     untouched — only a user edit steals).
     """
 
-    def __init__(self, keymap: object, action_ids: list[str],
-                 parent: QWidget | None = None) -> None:
+    def __init__(
+        self, keymap: object, action_ids: list[str], parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         from PySide6.QtWidgets import QHeaderView, QLineEdit
 
         from protoboard.gui.keymap import KeyMap
+
         assert isinstance(keymap, KeyMap)
         self._km = keymap
         layout = QVBoxLayout(self)
@@ -260,6 +273,7 @@ class _KeyMapTab(QWidget):
         from PySide6.QtWidgets import QMessageBox
 
         from protoboard.gui.keymap import FinalShortcutError
+
         for action_id, edit in self._edits.items():
             if not edit.isEnabled():
                 continue  # final — read-only
@@ -268,8 +282,10 @@ class _KeyMapTab(QWidget):
                 continue  # untouched
             if not _valid_trigger_text(text):
                 QMessageBox.warning(
-                    self, "Invalid binding",
-                    f"{text!r} is not a valid key or mouse chord.")
+                    self,
+                    "Invalid binding",
+                    f"{text!r} is not a valid key or mouse chord.",
+                )
                 edit.setText(self._initial.get(action_id, ""))
                 continue
             try:
@@ -285,6 +301,7 @@ class _KeyMapTab(QWidget):
     def _steal(self, winner: str, text: str) -> None:
         """Remove the newly-assigned alternatives from every other action here."""
         from protoboard.gui.keymap import FinalShortcutError
+
         wanted = {a for a in text.split("|") if a}
         for action_id, edit in self._edits.items():
             if action_id == winner or not edit.isEnabled():
@@ -305,11 +322,16 @@ class _KeyMapTab(QWidget):
 class _ShortcutsPage(QWidget):
     """Shortcuts — sub-tabs: Application (legacy table), Global, View, tools."""
 
-    def __init__(self, kb: KeyBindings, keymap: object | None = None,
-                 keymap_tools: tuple[object, ...] = (),
-                 parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        kb: KeyBindings,
+        keymap: object | None = None,
+        keymap_tools: tuple[object, ...] = (),
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         from PySide6.QtWidgets import QTabWidget
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         tabs = QTabWidget()
@@ -327,12 +349,11 @@ class _ShortcutsPage(QWidget):
                 KeyMap,
             )
             from protoboard.gui.shortcuts_help import category_label
+
             assert isinstance(keymap, KeyMap)
             self._keymap = keymap
-            self._add_km_tab(
-                tabs, keymap, [a.id for a in GLOBAL_ACTIONS], "Global")
-            self._add_km_tab(
-                tabs, keymap, [a.id for a in VIEW_ACTIONS], "View")
+            self._add_km_tab(tabs, keymap, [a.id for a in GLOBAL_ACTIONS], "Global")
+            self._add_km_tab(tabs, keymap, [a.id for a in VIEW_ACTIONS], "View")
             for tool in keymap_tools:
                 # A composed production tool (e.g. SelectTool = (_SelectTool,
                 # ViewToolMixin)) is NOT a nominal _Tool subclass, so a
@@ -346,12 +367,11 @@ class _ShortcutsPage(QWidget):
                 ids = [a.id for a in layer.known_actions()]
                 if not ids:
                     continue
-                self._add_km_tab(
-                    tabs, layer, ids, category_label(ids[0]))
+                self._add_km_tab(tabs, layer, ids, category_label(ids[0]))
 
-    def _add_km_tab(self, tabs: object, km: object, ids: list[str],
-                    label: str) -> None:
+    def _add_km_tab(self, tabs: object, km: object, ids: list[str], label: str) -> None:
         from PySide6.QtWidgets import QTabWidget
+
         assert isinstance(tabs, QTabWidget)
         tab = _KeyMapTab(km, ids)
         tabs.addTab(tab, label)
@@ -368,6 +388,7 @@ class _ShortcutsPage(QWidget):
 # ---------------------------------------------------------------------------
 # Page — Colours & Alphas
 # ---------------------------------------------------------------------------
+
 
 def _row(label_text: str, widget: QWidget) -> QHBoxLayout:
     row = QHBoxLayout()
@@ -401,8 +422,9 @@ def _opacity_row(label: str, initial: float) -> tuple[QHBoxLayout, QSlider]:
     return row, slider
 
 
-def _alpha_row(label: str, initial: float, is_int: bool = False
-               ) -> tuple[QHBoxLayout, QDoubleSpinBox | QSpinBox]:
+def _alpha_row(
+    label: str, initial: float, is_int: bool = False
+) -> tuple[QHBoxLayout, QDoubleSpinBox | QSpinBox]:
     if is_int:
         sp: QSpinBox = QSpinBox()
         sp.setRange(0, 255)
@@ -419,7 +441,12 @@ def _alpha_row(label: str, initial: float, is_int: bool = False
 
 
 def _float_row(
-    label: str, initial: float, lo: float, hi: float, step: float = 0.5, decimals: int = 1,
+    label: str,
+    initial: float,
+    lo: float,
+    hi: float,
+    step: float = 0.5,
+    decimals: int = 1,
 ) -> tuple[QHBoxLayout, QDoubleSpinBox]:
     spf = QDoubleSpinBox()
     spf.setRange(lo, hi)
@@ -445,7 +472,9 @@ class _ColorsPage(QWidget):
         vbox = QVBoxLayout(inner)
         vbox.setSpacing(12)
 
-        self._widgets: dict[str, _ColorButton | QDoubleSpinBox | QSpinBox | QSlider] = {}
+        self._widgets: dict[str, _ColorButton | QDoubleSpinBox | QSpinBox | QSlider] = (
+            {}
+        )
 
         def add_section(
             title: str,
@@ -453,7 +482,7 @@ class _ColorsPage(QWidget):
                 tuple[str, str, object] | tuple[str, str, object, tuple[float, float]]
             ],
         ) -> None:
-            """rows: (field_name, label, initial[, (lo, hi)]) — 4th element enables free range."""
+            """rows: (field_name, label, initial[, (lo, hi)]) — 4th element enables free range."""  # noqa: E501
             grp = QGroupBox(title)
             gl = QVBoxLayout(grp)
             for entry in rows:
@@ -466,7 +495,7 @@ class _ColorsPage(QWidget):
                 elif isinstance(init, int):
                     row_layout, w = _alpha_row(label, init, is_int=True)
                 elif range_hint is not None:
-                    row_layout, w = _float_row(label, float(init), range_hint[0], range_hint[1])  # type: ignore[arg-type]
+                    row_layout, w = _float_row(label, float(init), range_hint[0], range_hint[1])  # type: ignore[arg-type]  # noqa: E501
                 else:
                     row_layout, w = _alpha_row(label, float(init))  # type: ignore[arg-type]
                 gl.addLayout(row_layout)
@@ -483,25 +512,51 @@ class _ColorsPage(QWidget):
                 self._widgets[field_name] = slider
             vbox.addWidget(grp)
 
-        add_section("Board & Pads", [
-            ("board_bg",         "Board background",    theme.board_bg),
-            ("pad_color",        "Pad colour",          theme.pad_color),
-            ("strip_color",      "Strip colour",        theme.strip_color),
-            ("hole_color",       "Hole colour",         theme.hole_color),
-            ("isolated_x_color", "Strip cut X colour",  theme.isolated_x_color),
-            ("axis_label_color", "Axis label colour",   theme.axis_label_color),
-        ])
+        add_section(
+            "Board & Pads",
+            [
+                ("board_bg", "Board background", theme.board_bg),
+                ("pad_color", "Pad colour", theme.pad_color),
+                ("strip_color", "Strip colour", theme.strip_color),
+                ("hole_color", "Hole colour", theme.hole_color),
+                ("isolated_x_color", "Strip cut X colour", theme.isolated_x_color),
+                ("axis_label_color", "Axis label colour", theme.axis_label_color),
+            ],
+        )
 
-        add_section("Wires", [
-            ("bare_outline_color",  "Bare wire outline colour",      theme.bare_outline_color),
-            ("bare_width",          "Bare wire fill width",           theme.bare_width),
-            ("bare_outline_width",  "Bare wire outline width",        theme.bare_outline_width),
-            ("ins_outline_color",   "Insulated wire outline colour",  theme.ins_outline_color),
-            ("ins_width",           "Insulated wire fill width",      theme.ins_width),
-            ("ins_outline_width",   "Insulated wire outline width",   theme.ins_outline_width),
-            ("ratsnest_color",      "Ratsnest colour",                theme.ratsnest_color),
-            ("ratsnest_islands_color", "Ratsnest colour (multi-island warning)", theme.ratsnest_islands_color),
-        ])
+        add_section(
+            "Wires",
+            [
+                (
+                    "bare_outline_color",
+                    "Bare wire outline colour",
+                    theme.bare_outline_color,
+                ),
+                ("bare_width", "Bare wire fill width", theme.bare_width),
+                (
+                    "bare_outline_width",
+                    "Bare wire outline width",
+                    theme.bare_outline_width,
+                ),
+                (
+                    "ins_outline_color",
+                    "Insulated wire outline colour",
+                    theme.ins_outline_color,
+                ),
+                ("ins_width", "Insulated wire fill width", theme.ins_width),
+                (
+                    "ins_outline_width",
+                    "Insulated wire outline width",
+                    theme.ins_outline_width,
+                ),
+                ("ratsnest_color", "Ratsnest colour", theme.ratsnest_color),
+                (
+                    "ratsnest_islands_color",
+                    "Ratsnest colour (multi-island warning)",
+                    theme.ratsnest_islands_color,
+                ),
+            ],
+        )
 
         # net_colors palette (8 entries)
         net_grp = QGroupBox("Net colour palette")
@@ -513,73 +568,184 @@ class _ColorsPage(QWidget):
             self._net_color_btns.append(btn)
         vbox.addWidget(net_grp)
 
-        add_section("Components", [
-            ("comp_fill_color",   "Component fill colour",    theme.comp_fill_color),
-            ("comp_border",       "Component border colour",  theme.comp_border),
-            ("refdes_color",      "Label text colour",        theme.refdes_color),
-            ("label_bg_color",    "Label background colour",  theme.label_bg_color),
-            ("overlay_font_size", "Label font size (pt)",     theme.overlay_font_size, (2.0, 32.0)),
-            ("lead_color",        "Component lead colour",    theme.lead_color),
-        ])
+        add_section(
+            "Components",
+            [
+                ("comp_fill_color", "Component fill colour", theme.comp_fill_color),
+                ("comp_border", "Component border colour", theme.comp_border),
+                ("refdes_color", "Label text colour", theme.refdes_color),
+                ("label_bg_color", "Label background colour", theme.label_bg_color),
+                (
+                    "overlay_font_size",
+                    "Label font size (pt)",
+                    theme.overlay_font_size,
+                    (2.0, 32.0),
+                ),
+                ("lead_color", "Component lead colour", theme.lead_color),
+            ],
+        )
 
-        add_opacity_section("Layer opacity", [
-            ("back_alpha",        "Back-side opacity",       theme.back_alpha),
-            ("board_ghost_alpha", "Board ghost opacity",     theme.board_ghost_alpha),
-            ("ghost_comp_alpha",  "Component ghost opacity", theme.ghost_comp_alpha),
-        ])
+        add_opacity_section(
+            "Layer opacity",
+            [
+                ("back_alpha", "Back-side opacity", theme.back_alpha),
+                ("board_ghost_alpha", "Board ghost opacity", theme.board_ghost_alpha),
+                ("ghost_comp_alpha", "Component ghost opacity", theme.ghost_comp_alpha),
+            ],
+        )
 
-        add_opacity_section("Net / group highlight dim", [
-            ("highlight_dim_components", "Dimmed components opacity", theme.highlight_dim_components),
-            ("highlight_dim_wires",      "Dimmed wires opacity",      theme.highlight_dim_wires),
-        ])
+        add_opacity_section(
+            "Net / group highlight dim",
+            [
+                (
+                    "highlight_dim_components",
+                    "Dimmed components opacity",
+                    theme.highlight_dim_components,
+                ),
+                (
+                    "highlight_dim_wires",
+                    "Dimmed wires opacity",
+                    theme.highlight_dim_wires,
+                ),
+            ],
+        )
 
-        add_section("Groups", [
-            ("group_pen_color",  "Group outline colour", theme.group_pen_color),
-            ("group_pen_width",  "Group outline width",  theme.group_pen_width),
-            ("group_fill_color", "Group fill colour",    theme.group_fill_color),
-            ("group_name_color", "Group label colour",   theme.group_name_color),
-        ])
+        add_section(
+            "Groups",
+            [
+                ("group_pen_color", "Group outline colour", theme.group_pen_color),
+                ("group_pen_width", "Group outline width", theme.group_pen_width),
+                ("group_fill_color", "Group fill colour", theme.group_fill_color),
+                ("group_name_color", "Group label colour", theme.group_name_color),
+            ],
+        )
 
-        add_section("Selection", [
-            ("select_color",       "Selection outline colour",       theme.select_color),
-            ("select_width",       "Selection outline width",        theme.select_width),
-            ("multi_select_color", "Multi-selection outline colour", theme.multi_select_color),
-            ("multi_select_width", "Multi-selection outline width",  theme.multi_select_width),
-        ])
+        add_section(
+            "Selection",
+            [
+                ("select_color", "Selection outline colour", theme.select_color),
+                ("select_width", "Selection outline width", theme.select_width),
+                (
+                    "multi_select_color",
+                    "Multi-selection outline colour",
+                    theme.multi_select_color,
+                ),
+                (
+                    "multi_select_width",
+                    "Multi-selection outline width",
+                    theme.multi_select_width,
+                ),
+            ],
+        )
 
-        add_section("Active group", [
-            ("group_active_color",      "Active group outline colour", theme.group_active_color),
-            ("group_active_fill_color", "Active group fill colour",    theme.group_active_fill_color),
-        ])
+        add_section(
+            "Active group",
+            [
+                (
+                    "group_active_color",
+                    "Active group outline colour",
+                    theme.group_active_color,
+                ),
+                (
+                    "group_active_fill_color",
+                    "Active group fill colour",
+                    theme.group_active_fill_color,
+                ),
+            ],
+        )
 
-        add_section("Tool feedback", [
-            ("placement_reach_color",      "Reachable pad colour",    theme.placement_reach_color),
-            ("placement_reach_line_color", "Reach line colour",       theme.placement_reach_line_color),
-            ("routing_preview_color",      "Route preview colour",    theme.routing_preview_color),
-        ])
+        add_section(
+            "Tool feedback",
+            [
+                (
+                    "placement_reach_color",
+                    "Reachable pad colour",
+                    theme.placement_reach_color,
+                ),
+                (
+                    "placement_reach_line_color",
+                    "Reach line colour",
+                    theme.placement_reach_line_color,
+                ),
+                (
+                    "routing_preview_color",
+                    "Route preview colour",
+                    theme.routing_preview_color,
+                ),
+            ],
+        )
 
-        add_section("Component pins & markers", [
-            ("pin_width_complete",           "Pin width (with net)",      theme.pin_width_complete),
-            ("pin_width_incomplete",         "Pin width (no net)",        theme.pin_width_incomplete),
-            ("pin_label_fallback_color",     "Pin label fallback colour", theme.pin_label_fallback_color),
-            ("pin1_marker_color",            "Pin 1 marker colour",       theme.pin1_marker_color),
-            ("component_origin_cross_color", "Origin cross colour",       theme.component_origin_cross_color),
-            ("component_origin_cross_width", "Origin cross width",        theme.component_origin_cross_width),
-        ])
+        add_section(
+            "Component pins & markers",
+            [
+                (
+                    "pin_width_complete",
+                    "Pin width (with net)",
+                    theme.pin_width_complete,
+                ),
+                (
+                    "pin_width_incomplete",
+                    "Pin width (no net)",
+                    theme.pin_width_incomplete,
+                ),
+                (
+                    "pin_label_fallback_color",
+                    "Pin label fallback colour",
+                    theme.pin_label_fallback_color,
+                ),
+                ("pin1_marker_color", "Pin 1 marker colour", theme.pin1_marker_color),
+                (
+                    "component_origin_cross_color",
+                    "Origin cross colour",
+                    theme.component_origin_cross_color,
+                ),
+                (
+                    "component_origin_cross_width",
+                    "Origin cross width",
+                    theme.component_origin_cross_width,
+                ),
+            ],
+        )
 
-        add_section("Component body", [
-            ("body_led_stripe_color",    "LED stripe colour",       theme.body_led_stripe_color),
-            ("body_diode_cathode_color", "Diode cathode colour",    theme.body_diode_cathode_color),
-            ("body_diode_anode_color",   "Diode anode colour",      theme.body_diode_anode_color),
-            ("exported_pin_color",       "Exported pin colour",     theme.exported_pin_color),
-            ("exported_pin_pen_color",   "Exported pin pen colour", theme.exported_pin_pen_color),
-            ("exported_pin_pen_width",   "Exported pin pen width",  theme.exported_pin_pen_width),
-        ])
+        add_section(
+            "Component body",
+            [
+                (
+                    "body_led_stripe_color",
+                    "LED stripe colour",
+                    theme.body_led_stripe_color,
+                ),
+                (
+                    "body_diode_cathode_color",
+                    "Diode cathode colour",
+                    theme.body_diode_cathode_color,
+                ),
+                (
+                    "body_diode_anode_color",
+                    "Diode anode colour",
+                    theme.body_diode_anode_color,
+                ),
+                ("exported_pin_color", "Exported pin colour", theme.exported_pin_color),
+                (
+                    "exported_pin_pen_color",
+                    "Exported pin pen colour",
+                    theme.exported_pin_pen_color,
+                ),
+                (
+                    "exported_pin_pen_width",
+                    "Exported pin pen width",
+                    theme.exported_pin_pen_width,
+                ),
+            ],
+        )
 
-        add_opacity_section("Component body opacity", [
-            ("body_tab_opacity",  "Tab opacity",  theme.body_tab_opacity),
-            ("body_slot_opacity", "Slot opacity", theme.body_slot_opacity),
-        ])
+        add_opacity_section(
+            "Component body opacity",
+            [
+                ("body_tab_opacity", "Tab opacity", theme.body_tab_opacity),
+                ("body_slot_opacity", "Slot opacity", theme.body_slot_opacity),
+            ],
+        )
 
         reset_btn = QPushButton("Restore Defaults")
         reset_btn.clicked.connect(self._reset)
@@ -619,6 +785,7 @@ class _ColorsPage(QWidget):
 # ---------------------------------------------------------------------------
 # Page — Paths
 # ---------------------------------------------------------------------------
+
 
 class _PathListWidget(QWidget):
     """Editable list of directory paths with + / − / ↑ / ↓ buttons."""
@@ -689,9 +856,13 @@ class _PathsPage(QWidget):
         proj_grp = QGroupBox("Default projects directory")
         proj_layout = QHBoxLayout(proj_grp)
         self._proj_edit = QPushButton(
-            str(settings.default_projects_dir) if settings.default_projects_dir else "(not set)"
+            str(settings.default_projects_dir)
+            if settings.default_projects_dir
+            else "(not set)"
         )
-        self._proj_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._proj_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._proj_edit.clicked.connect(self._pick_projects_dir)
         clear_btn = QPushButton("Clear")
         clear_btn.setFixedWidth(56)
@@ -744,6 +915,7 @@ class _PathsPage(QWidget):
         # benefit from raising them so we send fewer X11 round-trips per
         # second.
         from PySide6.QtWidgets import QFormLayout
+
         perf_grp = QGroupBox("Render throttles (ms)")
         perf_form = QFormLayout(perf_grp)
         perf_note = QLabel(
@@ -796,9 +968,7 @@ class _PathsPage(QWidget):
             "paint time on very large boards or weak GPUs."
         )
         render_layout.addWidget(self._antialiasing_cb)
-        self._selection_bbox_cb = QCheckBox(
-            "Selection bounding box (dashed)"
-        )
+        self._selection_bbox_cb = QCheckBox("Selection bounding box (dashed)")
         self._selection_bbox_cb.setChecked(settings.show_selection_bbox)
         self._selection_bbox_cb.setToolTip(
             "Draw a thin dashed bounding box around each selected component, "
@@ -813,6 +983,7 @@ class _PathsPage(QWidget):
         # use the "ratsnest_islands_color" warning colour from the theme
         # regardless of this setting.
         from PySide6.QtWidgets import QButtonGroup, QRadioButton
+
         conn_grp = QGroupBox("Connections layer (ratsnest)")
         conn_layout = QVBoxLayout(conn_grp)
         self._ratsnest_mode_group = QButtonGroup(conn_grp)
@@ -860,8 +1031,14 @@ class _PathsPage(QWidget):
         save_app_settings(self._settings)
 
     def _pick_projects_dir(self) -> None:
-        start = str(self._default_projects_dir) if self._default_projects_dir else str(Path.home())
-        folder = QFileDialog.getExistingDirectory(self, "Choose default projects directory", start)
+        start = (
+            str(self._default_projects_dir)
+            if self._default_projects_dir
+            else str(Path.home())
+        )
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose default projects directory", start
+        )
         if folder:
             self._default_projects_dir = Path(folder)
             self._proj_edit.setText(folder)
@@ -887,7 +1064,7 @@ class _RoutingPage(QWidget):
     ) -> None:
         super().__init__(parent)
         # Import here to avoid circular dependency with domain layer.
-        from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
+        from protoboard.domain.routing_settings import ROUTING_DEFAULTS
         from protoboard.gui.session import EditorSession
 
         self._session: EditorSession = session  # type: ignore[assignment]
@@ -906,6 +1083,7 @@ class _RoutingPage(QWidget):
         gen_form = _RoutingFormLayout(gen_grp)
 
         from PySide6.QtWidgets import QComboBox
+
         self._preferred_side = QComboBox()
         self._preferred_side.addItems(["bottom", "top"])
         gen_form.addRow("Preferred layer", self._preferred_side)
@@ -935,6 +1113,7 @@ class _RoutingPage(QWidget):
         gen_form.addRow("Simplify after routing", self._enable_simplify)
 
         from PySide6.QtWidgets import QComboBox as _QComboBox
+
         self._simplify_mode = _QComboBox()
         self._simplify_mode.addItem("Chebyshev (shortcut via diag)", "chebyshev")
         self._simplify_mode.addItem(
@@ -969,10 +1148,12 @@ class _RoutingPage(QWidget):
 
         # --- Cost preset group ---
         from protoboard.services.routing.cost_presets import builtin_preset_names
+
         preset_grp = QGroupBox("Cost preset")
         preset_form = _RoutingFormLayout(preset_grp)
 
         from PySide6.QtWidgets import QComboBox as _PresetCombo
+
         self._cost_preset = _PresetCombo()
         # Built-ins first (reserved names; cannot be edited).
         self._builtin_preset_names = sorted(builtin_preset_names())
@@ -988,6 +1169,7 @@ class _RoutingPage(QWidget):
         preset_form.addRow("Active preset", self._cost_preset)
 
         from PySide6.QtWidgets import QPushButton as _PresetEditBtn
+
         edit_presets_btn = _PresetEditBtn("Edit presets…")
         edit_presets_btn.clicked.connect(self._open_preset_editor)
         preset_form.addRow("", edit_presets_btn)
@@ -1014,7 +1196,7 @@ class _RoutingPage(QWidget):
 
         self._load_from_settings(self._session.routing_settings)
 
-    def _build_overrides_group(self) -> "QGroupBox":
+    def _build_overrides_group(self) -> QGroupBox:
         """Dynamic spinbox grid for every user-tunable cost knob.
 
         Knobs are grouped by the prefix of their key (crossing_, bend_,
@@ -1025,15 +1207,22 @@ class _RoutingPage(QWidget):
         when ``apply()`` runs.
         """
         from PySide6.QtWidgets import (
-            QFormLayout, QGroupBox, QLabel, QScrollArea, QVBoxLayout, QWidget,
+            QFormLayout,
+            QGroupBox,
+            QLabel,
+            QScrollArea,
+            QVBoxLayout,
+            QWidget,
         )
-        from protoboard.services.routing.cost_model import (
-            merged_cost_key_docs, merged_user_tunable_cost_keys,
-        )
+
         # Defensive imports — ensure built-in routers register themselves
         # before we ask for their supported / user-tunable cost keys.
         import protoboard.services.routing.builtin  # noqa: F401
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
+        from protoboard.services.routing.cost_model import (
+            merged_cost_key_docs,
+            merged_user_tunable_cost_keys,
+        )
         from protoboard.services.routing.protocol import registry as _rrr
 
         # Union of supported_cost_keys across registered routers
@@ -1074,7 +1263,9 @@ class _RoutingPage(QWidget):
             "set ∞ (hard-disable the corresponding category)."
         )
         hint.setWordWrap(True)
-        font = hint.font(); font.setItalic(True); hint.setFont(font)
+        font = hint.font()
+        font.setItalic(True)
+        hint.setFont(font)
         outer_layout.addWidget(hint)
 
         # "Save as preset…" — promote the current effective weights
@@ -1108,10 +1299,7 @@ class _RoutingPage(QWidget):
                 spin.setSpecialValueText("∞")
                 raw = float(effective.get(key, 0.0))
                 spin.setValue(-1.0 if (raw == float("inf") or raw != raw) else raw)
-                spin.setToolTip(
-                    COST_KEY_DOCS.get(key, "")
-                    + "\n\nTip: enter -1 for ∞."
-                )
+                spin.setToolTip(COST_KEY_DOCS.get(key, "") + "\n\nTip: enter -1 for ∞.")
                 spin.valueChanged.connect(
                     lambda val, k=key: self._on_override_changed(k, val)
                 )
@@ -1155,12 +1343,12 @@ class _RoutingPage(QWidget):
     @staticmethod
     def _human_prefix(prefix: str) -> str:
         return {
-            "crossing":     "Crossings",
-            "at_pad":       "At-pad penalties",
-            "bend":         "Bends",
-            "diagonal":     "Diagonals",
+            "crossing": "Crossings",
+            "at_pad": "At-pad penalties",
+            "bend": "Bends",
+            "diagonal": "Diagonals",
             "foreign / via": "Foreign-pad / via avoidance",
-            "other":        "Other",
+            "other": "Other",
         }.get(prefix, prefix.title())
 
     def _on_override_changed(self, key: str, value: float) -> None:
@@ -1181,6 +1369,7 @@ class _RoutingPage(QWidget):
         the user is not left with redundant deltas.
         """
         from PySide6.QtWidgets import QInputDialog, QMessageBox
+
         from protoboard.controller.app_settings import save_app_settings
         from protoboard.services.routing.cost_presets import builtin_preset_names
 
@@ -1197,7 +1386,9 @@ class _RoutingPage(QWidget):
         # Prompt for a name, mirroring CostPresetsDialog._ask_for_name.
         while True:
             name, ok = QInputDialog.getText(
-                self, "Save as preset", "Preset name:",
+                self,
+                "Save as preset",
+                "Preset name:",
             )
             if not ok:
                 return
@@ -1206,15 +1397,20 @@ class _RoutingPage(QWidget):
                 return
             if name in builtin_preset_names():
                 QMessageBox.warning(
-                    self, "Reserved name",
+                    self,
+                    "Reserved name",
                     f"{name!r} is a built-in preset name and cannot be used.",
                 )
                 continue
             if name in self._app_settings.cost_presets:
-                if QMessageBox.question(
-                    self, "Overwrite preset",
-                    f"A user preset named {name!r} already exists.  Overwrite?",
-                ) != QMessageBox.StandardButton.Yes:
+                if (
+                    QMessageBox.question(
+                        self,
+                        "Overwrite preset",
+                        f"A user preset named {name!r} already exists.  Overwrite?",
+                    )
+                    != QMessageBox.StandardButton.Yes
+                ):
                     continue
             break
 
@@ -1249,12 +1445,14 @@ class _RoutingPage(QWidget):
 
     def _open_preset_editor(self) -> None:
         from protoboard.gui.dialogs.cost_presets_dialog import CostPresetsDialog
+
         # Use the shared AppSettings instance — CostPresetsDialog mutates
         # it in place so the parent PreferencesDialog's final
         # save_app_settings() preserves preset edits.
         # Build the union of all routers' supported_cost_keys so the editor
         # shows only meaningful knobs.
         from protoboard.services.routing.protocol import registry
+
         all_keys: set[str] = set()
         for name in registry.list_available():
             try:
@@ -1279,6 +1477,7 @@ class _RoutingPage(QWidget):
 
     def _load_from_settings(self, s: object) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
+
         rs: RoutingSettings = s  # type: ignore[assignment]
         # Preset selection — fall back to "default" if the saved name is
         # no longer available (built-in removed, or user preset deleted).
@@ -1314,6 +1513,7 @@ class _RoutingPage(QWidget):
 
     def apply(self) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
+
         rs_old = self._session.routing_settings  # type: ignore[attr-defined]
         new_settings = RoutingSettings(
             preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
@@ -1341,9 +1541,10 @@ class _RoutingPage(QWidget):
         self._session.mark_dirty()
 
 
-def _resolve_simplify_mode(raw: object) -> "SimplifyMode":
+def _resolve_simplify_mode(raw: object) -> SimplifyMode:
     """Translate the QComboBox data role back into a SimplifyMode enum."""
     from protoboard.services.routing.postprocess import SimplifyMode
+
     if isinstance(raw, str):
         try:
             return SimplifyMode(raw)
@@ -1352,8 +1553,9 @@ def _resolve_simplify_mode(raw: object) -> "SimplifyMode":
     return SimplifyMode.BARE_PARITY
 
 
-def _RoutingFormLayout(parent: QWidget) -> "QFormLayout":
+def _RoutingFormLayout(parent: QWidget) -> QFormLayout:
     from PySide6.QtWidgets import QFormLayout
+
     form = QFormLayout()
     form.setSpacing(6)
     form.setContentsMargins(8, 8, 8, 8)
@@ -1385,10 +1587,10 @@ class _BoardPage(QWidget):
 
     # Display string ↔ AxisLabelFormat value
     _OPTIONS: list[tuple[str, str]] = [
-        ("Disabled",      "disabled"),
-        ("0, 1, 2, …",    "numeric_0"),
-        ("1, 2, 3, …",    "numeric_1"),
-        ("a, b, c, …",    "alphabetic"),
+        ("Disabled", "disabled"),
+        ("0, 1, 2, …", "numeric_0"),
+        ("1, 2, 3, …", "numeric_1"),
+        ("a, b, c, …", "alphabetic"),
     ]
 
     def __init__(self, session: object, parent: QWidget | None = None) -> None:
@@ -1421,7 +1623,7 @@ class _BoardPage(QWidget):
 
         help_label = QLabel(
             "Labels are drawn on all four sides of the board.  Visibility can\n"
-            "be toggled separately from the Layers panel (\"Axis Labels\")."
+            'be toggled separately from the Layers panel ("Axis Labels").'
         )
         help_label.setStyleSheet("color: #888;")
         vbox.addWidget(help_label)
@@ -1446,6 +1648,7 @@ class _BoardPage(QWidget):
             AxisLabelFormat,
             AxisLabelSettings,
         )
+
         new_settings = AxisLabelSettings(
             columns=AxisLabelFormat(self._columns.currentData()),
             rows=AxisLabelFormat(self._rows.currentData()),
@@ -1481,11 +1684,17 @@ class _DragPage(QWidget):
     ]
 
     def __init__(
-        self, settings: AppSettings, parent: QWidget | None = None,
+        self,
+        settings: AppSettings,
+        parent: QWidget | None = None,
     ) -> None:
         from PySide6.QtWidgets import QFormLayout
+
         from protoboard.controller.editing.drag_preferences import DRAG_CONFLICT_VALUES
-        assert {v for v, _l in self._CONFLICT_CHOICES} == DRAG_CONFLICT_VALUES, (
+
+        assert {
+            v for v, _l in self._CONFLICT_CHOICES
+        } == DRAG_CONFLICT_VALUES, (
             "DragPage choices drifted from DRAG_CONFLICT_VALUES — keep them in sync"
         )
 
@@ -1546,8 +1755,9 @@ class _DragPage(QWidget):
 
         vbox.addStretch()
 
-    def _make_combo(self, current: str) -> "QComboBox":
+    def _make_combo(self, current: str) -> QComboBox:
         from PySide6.QtWidgets import QComboBox
+
         combo = QComboBox()
         for value, label in self._CONFLICT_CHOICES:
             combo.addItem(label, value)
@@ -1619,14 +1829,17 @@ class PreferencesDialog(QDialog):
         self._nav.setSpacing(2)
         for label in ("Shortcuts", "Colours", "Paths", "Routing", "Drag", "Board"):
             item = QListWidgetItem(label)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            item.setTextAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
             self._nav.addItem(item)
         outer.addWidget(self._nav)
 
         # Right stacked pages
         self._stack = QStackedWidget()
         self._shortcuts_page = _ShortcutsPage(
-            keybindings, keymap=keymap, keymap_tools=keymap_tools)
+            keybindings, keymap=keymap, keymap_tools=keymap_tools
+        )
         self._colors_page = _ColorsPage(theme)
         self._paths_page = _PathsPage(app_settings)
         self._routing_page: _RoutingPage | None = (
@@ -1667,7 +1880,9 @@ class PreferencesDialog(QDialog):
         )
         btn_box.accepted.connect(self._on_ok)
         btn_box.rejected.connect(self.reject)
-        btn_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply_current)
+        btn_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(
+            self._apply_current
+        )
         right_col.addWidget(btn_box)
 
         # Re-layout: nav on left, (stack + buttons) on right

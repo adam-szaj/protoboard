@@ -21,17 +21,22 @@ from pathlib import Path
 import pytest
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.selection.hit_test import HitTester, WireEditCycle
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily, PackageVariant
+from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
-from protoboard.controller.selection.hit_test import HitTester, WireEditCycle
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 
@@ -67,30 +72,71 @@ def three_wire_knot(
     library = load_library([_LIBRARY_DIR])
     sess = EditorSession(board=_perfboard(), library=library)
 
-    defn = ComponentDefinition.from_footprint(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
+    package = build_package(
+        {
+            "shape": "prism",
+            "dims": {"lx": 2.0, "ly": 2.0},
+            "arrangement": "axial",
+            "mount": "through_hole",
+            "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": []},
+                "board_offset": "default",
+            },
+        },
+        "STUB1-package",
+    )
+    sess.package_families["STUB1-package"] = PackageFamily(
+        family_id="STUB1-package",
+        variants=(PackageVariant("std", "std", package),),
+    )
+    defn = ComponentDefinition(
+        name="STUB1",
+        meta_pins=(MetaPin(("P1",)),),
+        package_options=(
+            PackageOption(
+                name="STUB1",
+                ref="STUB1-package/std",
+                pin_map={1: (1,)},
+            ),
+        ),
+    )
     sess.components["STUB1"] = defn
-    inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
+    inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="").bind(
+        defn, sess.package_families
+    )
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(5.5, 5.5), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(5.5, 5.5),
+        rotation=0,
+        side="top",
     )
     net_id = uuid.uuid4()
     sess.schematic.nets[net_id] = Net(
-        id=net_id, name="N1",
+        id=net_id,
+        name="N1",
         pins={PinRef(component_id=inst.id, pin_number=1)},
     )
 
     wire_a = Wire(
-        id=uuid.uuid4(), path=[Point(5.5, 5.5), Point(8.5, 5.5)],
-        insulated=False, side="bottom",
+        id=uuid.uuid4(),
+        path=[Point(5.5, 5.5), Point(8.5, 5.5)],
+        insulated=False,
+        side="bottom",
     )
     wire_b = Wire(
-        id=uuid.uuid4(), path=[Point(5.5, 5.5), Point(5.5, 8.5)],
-        insulated=False, side="bottom",
+        id=uuid.uuid4(),
+        path=[Point(5.5, 5.5), Point(5.5, 8.5)],
+        insulated=False,
+        side="bottom",
     )
     wire_c = Wire(
-        id=uuid.uuid4(), path=[Point(5.5, 5.5), Point(2.5, 5.5)],
-        insulated=False, side="bottom",
+        id=uuid.uuid4(),
+        path=[Point(5.5, 5.5), Point(2.5, 5.5)],
+        insulated=False,
+        side="bottom",
     )
     sess.layout.wires.extend([wire_a, wire_b, wire_c])
     sess.invalidate_graph()
@@ -106,12 +152,16 @@ class TestSharedKnotHitTest:
     def test_selected_wire_wins_first_click(self, three_wire_knot) -> None:
         sess, (a, b, c), nm = three_wire_knot
         sel, _cycle = _tester(sess).hit_wire_vertex(
-            5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=WireEditCycle(),
+            5.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=WireEditCycle(),
         )
         assert sel is not None
-        assert sel.wire_id == b.id, (
-            "selected wire must win when click lands on a shared knot"
-        )
+        assert (
+            sel.wire_id == b.id
+        ), "selected wire must win when click lands on a shared knot"
 
     def test_rotation_through_siblings_on_repeated_clicks(
         self, three_wire_knot
@@ -122,7 +172,11 @@ class TestSharedKnotHitTest:
         cycle = WireEditCycle()
         for _ in range(5):
             sel, cycle = tester.hit_wire_vertex(
-                5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=cycle,
+                5.5,
+                5.5,
+                start_wire_id=b.id,
+                wire_net_map=nm,
+                cycle=cycle,
             )
             assert sel is not None
             seen.append(sel.wire_id)
@@ -141,36 +195,54 @@ class TestSharedKnotHitTest:
         cycle = WireEditCycle()
 
         sel1, cycle = tester.hit_wire_vertex(
-            5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=cycle,
+            5.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=cycle,
         )
         sel2, cycle = tester.hit_wire_vertex(
-            5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=cycle,
+            5.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=cycle,
         )
         assert sel1 is not None and sel2 is not None
         assert sel1.wire_id != sel2.wire_id
 
         # Click the outer end of wireA — a different cluster.
         sel_other, cycle = tester.hit_wire_vertex(
-            8.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=cycle,
+            8.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=cycle,
         )
         assert sel_other is not None and sel_other.wire_id == a.id
 
         # Back at the knot: selected wire (B) wins again.
         sel_back, cycle = tester.hit_wire_vertex(
-            5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=cycle,
+            5.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=cycle,
         )
         assert sel_back is not None and sel_back.wire_id == b.id
 
-    def test_no_selected_wire_cycles_all_candidates(
-        self, three_wire_knot
-    ) -> None:
+    def test_no_selected_wire_cycles_all_candidates(self, three_wire_knot) -> None:
         sess, (a, b, c), nm = three_wire_knot
         tester = _tester(sess)
         seen: set[uuid.UUID] = set()
         cycle = WireEditCycle()
         for _ in range(5):
             sel, cycle = tester.hit_wire_vertex(
-                5.5, 5.5, start_wire_id=None, wire_net_map=nm, cycle=cycle,
+                5.5,
+                5.5,
+                start_wire_id=None,
+                wire_net_map=nm,
+                cycle=cycle,
             )
             assert sel is not None
             seen.add(sel.wire_id)
@@ -180,12 +252,20 @@ class TestSharedKnotHitTest:
         sess, (a, b, c), nm = three_wire_knot
         tester = _tester(sess)
         _sel, cycle = tester.hit_wire_vertex(
-            5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=WireEditCycle(),
+            5.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=WireEditCycle(),
         )
         assert cycle.key is not None
 
         sel_miss, cycle = tester.hit_wire_vertex(
-            0.0, 0.0, start_wire_id=b.id, wire_net_map=nm, cycle=cycle,
+            0.0,
+            0.0,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=cycle,
         )
         assert sel_miss is None
         assert cycle.key is None
@@ -194,7 +274,11 @@ class TestSharedKnotHitTest:
     def test_index_is_the_shared_vertex(self, three_wire_knot) -> None:
         sess, (a, b, c), nm = three_wire_knot
         sel, _cycle = _tester(sess).hit_wire_vertex(
-            5.5, 5.5, start_wire_id=b.id, wire_net_map=nm, cycle=WireEditCycle(),
+            5.5,
+            5.5,
+            start_wire_id=b.id,
+            wire_net_map=nm,
+            cycle=WireEditCycle(),
         )
         assert sel is not None
         # All three wires start at the shared knot → vertex index 0.

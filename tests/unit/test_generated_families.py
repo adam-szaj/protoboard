@@ -6,10 +6,10 @@ from __future__ import annotations
 import pytest
 
 from protoboard.domain.components.definition import (
-    ComponentClass,
     ComponentDefinition,
+    MetaPin,
+    PackageOption,
 )
-from protoboard.domain.components.footprints import DIL, SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import resolve_component_package
 from protoboard.domain.components.package.family import PackageFamily
@@ -17,7 +17,7 @@ from protoboard.domain.components.package.generated_families import (
     dip_family,
     generate_inline_families,
     inline_family_ids_for_pins,
-    offered_body_families,
+    offered_package_options,
     sil_family,
 )
 
@@ -31,8 +31,8 @@ class TestDipFamily:
         w_pkg = wide.variants[0].package
         n_cols = sorted({round(p.x, 1) for p in n_pkg.pin_positions()})
         w_cols = sorted({round(p.x, 1) for p in w_pkg.pin_positions()})
-        assert n_cols == [0.0, 3.0]   # 0.3" narrow
-        assert w_cols == [0.0, 6.0]   # 0.6" wide
+        assert n_cols == [0.0, 3.0]  # 0.3" narrow
+        assert w_cols == [0.0, 6.0]  # 0.6" wide
         # The wide body is physically wider.
         assert w_pkg.bbox().lx > n_pkg.bbox().lx
 
@@ -47,8 +47,8 @@ class TestDipFamily:
         assert narrow is not None and wide is not None
         n_mm = narrow.variants[0].package.bbox().lx * raster
         w_mm = wide.variants[0].package.bbox().lx * raster
-        assert round(n_mm, 2) == round(2.54 * 3 - 1.35, 2)   # 6.27
-        assert round(w_mm, 2) == round(2.54 * 6 - 1.35, 2)   # 13.89
+        assert round(n_mm, 2) == round(2.54 * 3 - 1.35, 2)  # 6.27
+        assert round(w_mm, 2) == round(2.54 * 6 - 1.35, 2)  # 13.89
 
     def test_pin_count_matches_name(self) -> None:
         fam = dip_family(28, wide=False)
@@ -70,9 +70,7 @@ class TestDipFamily:
             assert bb.x > cols[0] + 1e-6
             assert bb.x + bb.lx < cols[-1] - 1e-6
             # …and centred on the pin cloud across the rows.
-            assert round(bb.x + bb.lx / 2.0, 3) == round(
-                (cols[0] + cols[-1]) / 2.0, 3
-            )
+            assert round(bb.x + bb.lx / 2.0, 3) == round((cols[0] + cols[-1]) / 2.0, 3)
 
     def test_body_extends_past_end_pins_along_axis(self) -> None:
         # Along the pin axis the body runs a little past the first/last pin.
@@ -81,8 +79,8 @@ class TestDipFamily:
         pkg = fam.variants[0].package
         ys = sorted({round(p.y, 3) for p in pkg.pin_positions()})
         bb = pkg.bbox()
-        assert bb.y < ys[0]                 # past the first pin
-        assert bb.y + bb.ly > ys[-1]    # past the last pin
+        assert bb.y < ys[0]  # past the first pin
+        assert bb.y + bb.ly > ys[-1]  # past the last pin
 
     @pytest.mark.parametrize("pins", [0, 2, 3, 15, -4])
     def test_odd_or_too_small_returns_none(self, pins: int) -> None:
@@ -128,106 +126,102 @@ class TestInlineFamilyIdsForPins:
         assert inline_family_ids_for_pins(6, dual_row=False) == ["sil-6"]
 
 
-class TestOfferedBodyFamilies:
-    """The offer is derived from the component's *explicit body* (its kind
-    generator, or a plain two-pin package), never from the footprint type."""
-
-    def _catalogue(self) -> dict[str, PackageFamily]:
-        return dict(generate_inline_families())
-
-    def _kind_defn(self, kind: str, pins: int) -> ComponentDefinition:
-        from protoboard.domain.components.package.generators import (
-            GeneratorContext,
-        )
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
-        pkg = build_kind_package(kind, GeneratorContext(pin_count=pins)).package
-        assert pkg is not None
-        fp = DIL(n=pins) if kind in ("dip_ic", "wdip_ic") else SIL(n=pins)
+class TestOfferedPackageOptions:
+    @staticmethod
+    def _definition(*options: PackageOption) -> ComponentDefinition:
         return ComponentDefinition(
-            name="X", pin_names={},
-            component_class=ComponentClass.IC,
-            package=pkg,
+            name="X",
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=options,
         )
 
-    def test_dip_body_offers_both_widths_of_matching_count(self) -> None:
-        offered = offered_body_families(
-            self._kind_defn("dip_ic", 16), self._catalogue(),
-        )
-        assert [f.family_id for f in offered] == ["dip-16", "wdip-16"]
+    @staticmethod
+    def _catalogue() -> dict[str, PackageFamily]:
+        declared = sil_family(2)
+        unrelated = sil_family(3)
+        assert declared is not None and unrelated is not None
+        return {
+            "declared": PackageFamily(
+                family_id="declared",
+                variants=(
+                    declared.variants[0],
+                    type(declared.variants[0])(
+                        variant_id="alternate",
+                        label="Alternate",
+                        package=declared.variants[0].package,
+                    ),
+                ),
+            ),
+            "unrelated": unrelated,
+        }
 
-    def test_wide_dip_body_offers_the_same_pair(self) -> None:
-        offered = offered_body_families(
-            self._kind_defn("wdip_ic", 28), self._catalogue(),
+    def test_unrelated_family_is_not_offered_even_with_matching_pin_count(
+        self,
+    ) -> None:
+        option = PackageOption(
+            name="Declared",
+            ref="declared/std",
+            pin_map={1: (1,), 2: (2,)},
         )
-        assert [f.family_id for f in offered] == ["dip-28", "wdip-28"]
 
-    def test_sil_body_offers_matching_sil(self) -> None:
-        offered = offered_body_families(
-            self._kind_defn("sil", 6), self._catalogue(),
-        )
-        assert [f.family_id for f in offered] == ["sil-6"]
+        offered = offered_package_options(self._definition(option), self._catalogue())
 
-    def test_bare_multi_pin_part_offers_nothing(self) -> None:
-        # No declared body and not a two-pin part → no offer (a SIL-3 pin
-        # cloud fits a TO-92, a header or a trimmer — the footprint cannot
-        # decide).
-        defn = ComponentDefinition.from_footprint(
-            name="HDR3", footprint=SIL(n=3), pin_names={},
-            component_class=ComponentClass.CONNECTOR,
-        )
-        assert offered_body_families(defn, self._catalogue()) == []
+        assert [item.ref for item in offered] == ["declared/std"]
 
-    def _two_pin_catalogue(self) -> dict[str, PackageFamily]:
-        # The generated in-line set plus one two-pin family (the generated
-        # catalogue starts SIL at 3 — two-pin bodies live in the authored
-        # catalogue in production).
-        from protoboard.domain.components.package.generated_families import (
-            sil_family,
-        )
-        catalogue = self._catalogue()
-        two_pin = sil_family(2)
-        assert two_pin is not None
-        catalogue[two_pin.family_id] = two_pin
-        return catalogue
+    def test_family_reference_expands_variants_and_copies_pin_map(self) -> None:
+        pin_map = {1: (2,), 2: (1,)}
+        option = PackageOption(name="Declared", ref="declared", pin_map=pin_map)
 
-    def test_bare_two_pin_part_offers_all_two_pin_families(self) -> None:
-        # The resistor/diode body swap: a two-pin part with no declared body
-        # is offered every two-pin family in the catalogue.
-        defn = ComponentDefinition.from_footprint(
-            name="R", footprint=SIL(n=2), pin_names={},
-            component_class=ComponentClass.RESISTOR,
-        )
-        offered = offered_body_families(defn, self._two_pin_catalogue())
-        assert [f.family_id for f in offered] == ["sil-2"]
+        offered = offered_package_options(self._definition(option), self._catalogue())
 
-    def test_synthetic_generic_body_is_not_a_declared_body(self) -> None:
-        # The loader's `_generic` fallback must not be treated as a declared
-        # body (nor as a parameterisable kind) — the two-pin offer still runs.
-        from protoboard.domain.components.package.kind import (
-            synth_generic_package,
+        assert [item.ref for item in offered] == [
+            "declared/std",
+            "declared/alternate",
+        ]
+        assert [item.pin_map for item in offered] == [pin_map, pin_map]
+
+    def test_variant_reference_remains_one_leaf(self) -> None:
+        option = PackageOption(
+            name="Alternate",
+            ref="declared/alternate",
+            pin_map={1: (1,), 2: (2,)},
         )
-        pkg = synth_generic_package(SIL(n=2))
-        assert pkg is not None  # SIL(n=2) always has pins → a real package
-        defn = ComponentDefinition(
-            name="R", pin_names={},
-            component_class=ComponentClass.RESISTOR,
-            package=pkg,
+
+        offered = offered_package_options(self._definition(option), self._catalogue())
+
+        assert offered == [option]
+
+    def test_unresolvable_declared_option_is_not_offered(self) -> None:
+        option = PackageOption(name="Missing", ref="missing", pin_map={})
+
+        assert (
+            offered_package_options(self._definition(option), self._catalogue()) == []
         )
-        offered = offered_body_families(defn, self._two_pin_catalogue())
-        assert [f.family_id for f in offered] == ["sil-2"]
 
 
 class TestEndToEndResolution:
     def test_picking_wdip_resolves_wide_package(self) -> None:
         fams = generate_inline_families()
-        defn = ComponentDefinition.from_footprint(
-            name="U1", component_class=ComponentClass.IC,
-            footprint=DIL(n=16), pin_names={},
+        defn = ComponentDefinition(
+            name="U1",
+            meta_pins=tuple(MetaPin((str(index),)) for index in range(1, 17)),
+            package_options=(
+                PackageOption(
+                    name="DIP-16",
+                    ref="dip-16/std",
+                    pin_map={index: (index,) for index in range(1, 17)},
+                ),
+                PackageOption(
+                    name="WDIP-16",
+                    ref="wdip-16/std",
+                    pin_map={index: (index,) for index in range(1, 17)},
+                ),
+            ),
         )
         inst = ComponentInstance.new(
-            definition_ref="U1", refdes="U1", value="",
+            definition_ref="U1",
+            refdes="U1",
+            value="",
             package_variant="wdip-16/std",
         )
         pkg = resolve_component_package(defn, inst, fams)

@@ -10,41 +10,66 @@ from protoboard.domain.components.definition import (
     REFDES_PREFIX,
     ComponentClass,
     ComponentDefinition,
+    MetaPin,
+    PackageOption,
 )
-from protoboard.domain.components.footprints import DIL, SIL
 from protoboard.domain.components.instance import ComponentInstance
+
+
+def _definition(
+    name: str = "R",
+    labels: tuple[tuple[str, ...], ...] = (("A",), ("B",)),
+    **kwargs: object,
+) -> ComponentDefinition:
+    return ComponentDefinition(
+        name=name,
+        meta_pins=tuple(MetaPin(item) for item in labels),
+        package_options=(
+            PackageOption(
+                name="test",
+                ref="test/std",
+                pin_map={pin: (pin,) for pin in range(1, len(labels) + 1)},
+            ),
+        ),
+        **kwargs,  # type: ignore[arg-type]
+    )
 
 
 class TestAppearance:
     def test_resolve_per_field_precedence(self) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         # Instance wins per field; definition fills the gaps.
         eff = Appearance.resolve(
-            Appearance(color="#111"),                          # instance: color only
+            Appearance(color="#111"),  # instance: color only
             Appearance(color="#222", corner_radius_mm=(0.5,)),  # defn: color + radius
         )
-        assert eff.color == "#111"               # instance color wins
-        assert eff.corner_radius_mm == (0.5,)    # radius falls through to defn
+        assert eff.color == "#111"  # instance color wins
+        assert eff.corner_radius_mm == (0.5,)  # radius falls through to defn
         assert eff.corner_radius_mm_scalar == 0.5
 
     def test_resolve_all_none_is_empty(self) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         assert Appearance.resolve(None, None).is_empty
         assert Appearance().is_empty
         assert not Appearance(color="#fff").is_empty
 
     def test_negative_radius_rejected(self) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         with pytest.raises(ValueError):
             Appearance(corner_radius_mm=(-1.0,))
 
     def test_too_many_radii_rejected(self) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         with pytest.raises(ValueError):
             Appearance(corner_radius_mm=(1.0, 1.0, 1.0, 1.0, 1.0))
 
     def test_scalar_is_first_value(self) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         assert Appearance(corner_radius_mm=(2.0, 3.0)).corner_radius_mm_scalar == 2.0
         assert Appearance().corner_radius_mm_scalar is None
 
@@ -67,26 +92,28 @@ class TestAppearance:
             Appearance,
             parse_style,
         )
+
         assert parse_style(None, ctx="t") is None
-        assert parse_style("", ctx="t") is None        # empty → None
-        assert parse_style("   ", ctx="t") is None      # whitespace → None
+        assert parse_style("", ctx="t") is None  # empty → None
+        assert parse_style("   ", ctx="t") is None  # whitespace → None
         assert parse_style("color: #abc", ctx="t") == Appearance(color="#abc")
         with pytest.raises(ValueError):
-            parse_style("color: red", ctx="t")          # bad hex
+            parse_style("color: red", ctx="t")  # bad hex
         with pytest.raises(ValueError):
-            parse_style("corner-radius: -2", ctx="t")   # negative
+            parse_style("corner-radius: -2", ctx="t")  # negative
         with pytest.raises(ValueError):
-            parse_style("fill: #abc", ctx="t")          # unknown property
+            parse_style("fill: #abc", ctx="t")  # unknown property
         with pytest.raises(ValueError):
-            parse_style("color #abc", ctx="t")          # missing colon
+            parse_style("color #abc", ctx="t")  # missing colon
         with pytest.raises(ValueError):
-            parse_style(42, ctx="t")                    # non-string
+            parse_style(42, ctx="t")  # non-string
 
     def test_parse_multi_value_and_combined(self) -> None:
         from protoboard.domain.components.appearance import (
             Appearance,
             parse_style,
         )
+
         assert parse_style("corner-radius: 2 2 0 0", ctx="t") == Appearance(
             corner_radius_mm=(2.0, 2.0, 0.0, 0.0)
         )
@@ -107,20 +134,20 @@ class TestAppearance:
             Appearance,
             parse_style,
         )
-        assert parse_style("color: #ff000080", ctx="t") == Appearance(
-            color="#ff000080")
-        assert parse_style("color: #f008", ctx="t") == Appearance(
-            color="#f008")
+
+        assert parse_style("color: #ff000080", ctx="t") == Appearance(color="#ff000080")
+        assert parse_style("color: #f008", ctx="t") == Appearance(color="#f008")
         with pytest.raises(ValueError):
-            parse_style("color: #ff00080", ctx="t")      # 7 digits
+            parse_style("color: #ff00080", ctx="t")  # 7 digits
         with pytest.raises(ValueError):
-            parse_style("color: #ff0000801", ctx="t")    # 9 digits
+            parse_style("color: #ff0000801", ctx="t")  # 9 digits
 
     def test_to_style_string_roundtrip(self) -> None:
         from protoboard.domain.components.appearance import (
             Appearance,
             parse_style,
         )
+
         for a in (
             Appearance(color="#1a1a1a"),
             Appearance(color="#1a1a1a80"),
@@ -142,163 +169,114 @@ class TestComponentClass:
         assert REFDES_PREFIX[ComponentClass.DEVBOARD] == "U"
 
 
-class TestFootprintOption:
+class TestPackageOption:
     def test_ref_only_is_valid(self) -> None:
-        from protoboard.domain.components.definition import PackageOption
         opt = PackageOption(name="DIP-14", ref="dip-14/std")
-        assert opt.ref == "dip-14/std" and opt.package is None
+        assert opt.ref == "dip-14/std"
+        assert opt.pin_map == {}
 
-    def test_requires_exactly_one_of_ref_package(self) -> None:
-        from protoboard.domain.components.definition import PackageOption
+    def test_requires_ref(self) -> None:
         with pytest.raises(ValueError):
-            PackageOption(name="x")  # neither
-        with pytest.raises(ValueError):
-            PackageOption(name="x", ref="a/b", package=DIL(8))  # type: ignore[arg-type]
+            PackageOption(name="x", ref="")
 
     def test_empty_name_rejected(self) -> None:
-        from protoboard.domain.components.definition import PackageOption
         with pytest.raises(ValueError):
             PackageOption(name="", ref="a/b")
 
 
 class TestComponentSymbol:
     def test_symbol_drives_refdes_prefix(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="LED_5mm", footprint=SIL(2), pin_names={},
-            component_class=ComponentClass.DIODE_LED, symbol="LED",
+        defn = _definition(
+            name="LED_5mm",
+            component_class=ComponentClass.DIODE_LED,
+            symbol="LED",
         )
         assert defn.refdes_prefix == "LED"
 
     def test_refdes_prefix_falls_back_to_class(self) -> None:
         # No explicit symbol → the class default (RESISTOR → "R").
-        defn = ComponentDefinition.from_footprint(
-            name="R", footprint=SIL(2), pin_names={},
+        defn = _definition(
+            name="R",
             component_class=ComponentClass.RESISTOR,
         )
         assert defn.symbol is None
         assert defn.refdes_prefix == "R"
 
-    def test_footprints_default_empty(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
-        assert defn.package_options == ()
-
 
 class TestComponentDefinition:
     def test_package_option_becomes_default_package_ref(self) -> None:
-        from protoboard.domain.components.definition import PackageOption
-
-        defn = ComponentDefinition.from_footprint(
+        defn = ComponentDefinition(
             name="D",
-            footprint=SIL(2),
-            pin_names={},
-                package_options=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
+            meta_pins=(MetaPin(("A",)), MetaPin(("K",))),
+            package_options=(PackageOption(name="d-tht/DO/35", ref="d-tht/DO/35"),),
         )
-        assert defn.default_package_ref() == "DO-35/typ"
+        assert defn.default_package_ref() == "d-tht/DO/35"
         assert defn.default_package_option() is not None
-        assert defn.default_package_option().ref == "DO-35/typ"  # type: ignore[union-attr]
+        assert defn.default_package_option().ref == "d-tht/DO/35"  # type: ignore[union-attr]
 
-    def test_first_footprint_is_the_default_package_option(self) -> None:
-        from protoboard.domain.components.definition import PackageOption
-
+    def test_first_package_is_the_default_package_option(self) -> None:
         defn = ComponentDefinition(
             name="R",
-            package=ComponentDefinition.from_footprint(
-                name="tmp", footprint=SIL(2), pin_names={}
-            ).package,
-            pin_names={},
-                package_options=(
-                PackageOption(name="A", ref="DIN-0207/typ"),
-                PackageOption(name="B", ref="DO-35/typ"),
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=(
+                PackageOption(name="A", ref="r-tht/DIN/0207"),
+                PackageOption(name="B", ref="d-tht/DO/35"),
             ),
         )
-        assert defn.default_package_ref() == "DIN-0207/typ"
+        assert defn.default_package_ref() == "r-tht/DIN/0207"
 
-    def test_full_pin_names(self) -> None:
-        defn = ComponentDefinition.from_footprint(
+    def test_meta_pin_labels(self) -> None:
+        defn = ComponentDefinition(
             name="LM358",
-            footprint=DIL(8),
-            pin_names={
-                1: "OUT_A",
-                2: "IN-_A",
-                3: "IN+_A",
-                4: "VEE",
-                5: "IN+_B",
-                6: "IN-_B",
-                7: "OUT_B",
-                8: "VCC",
-            },
+            meta_pins=(
+                MetaPin(("OUT_A", "GPIO1")),
+                MetaPin(("IN-_A",)),
+                MetaPin(("VCC", "POWER")),
+            ),
+            package_options=(PackageOption("DIP", "dip-8/std"),),
         )
         assert defn.name == "LM358"
-        assert defn.pin_name(1) == "OUT_A"
-        assert defn.pin_name(8) == "VCC"
-
-    def test_partial_pin_names_default_pn(self) -> None:
-        # Per user decision: missing pin names default to "P{n}".
-        defn = ComponentDefinition.from_footprint(
-            name="LM358",
-            footprint=DIL(8),
-            pin_names={1: "OUT_A", 4: "VEE", 8: "VCC"},
-        )
-        assert defn.pin_name(1) == "OUT_A"
-        assert defn.pin_name(2) == "P2"
-        assert defn.pin_name(3) == "P3"
-        assert defn.pin_name(4) == "VEE"
-        assert defn.pin_name(7) == "P7"
-        assert defn.pin_name(8) == "VCC"
-
-    def test_no_pin_names_all_defaults(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
-        assert defn.pin_name(1) == "P1"
-        assert defn.pin_name(2) == "P2"
+        assert defn.meta_pin(1).labels[0] == "OUT_A"
+        assert defn.meta_pin(1).labels == ("OUT_A", "GPIO1")
+        assert defn.meta_pin(3).labels == ("VCC", "POWER")
 
     def test_pin_name_out_of_range_raises(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
+        defn = _definition()
         with pytest.raises(ValueError):
-            defn.pin_name(0)
+            defn.meta_pin(0).labels[0]
         with pytest.raises(ValueError):
-            defn.pin_name(3)
+            defn.meta_pin(3).labels[0]
 
-    def test_pin_names_with_invalid_pin_number_raises(self) -> None:
-        # Names referencing non-existent pins are a definition error.
+    def test_meta_pin_out_of_range_raises(self) -> None:
+        defn = _definition()
         with pytest.raises(ValueError):
-            ComponentDefinition.from_footprint(
-                name="R",
-                footprint=SIL(2),
-                pin_names={1: "A", 5: "BOGUS"},
-            )
+            defn.meta_pin(3)
 
     def test_pin_count_property(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="LM358", footprint=DIL(8), pin_names={})
-        assert defn.pin_count == 8
+        defn = _definition(labels=tuple((str(pin),) for pin in range(1, 9)))
+        assert len(defn.meta_pins) == 8
 
     def test_optional_description(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="LM358",
-            footprint=DIL(8),
-            pin_names={},
-            description="Dual op-amp",
-        )
+        defn = _definition(name="LM358", description="Dual op-amp")
         assert defn.description == "Dual op-amp"
 
     def test_default_description_is_empty(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
+        defn = _definition()
         assert defn.description == ""
 
     def test_metadata_default_empty(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
+        defn = _definition()
         assert defn.metadata == {}
 
     def test_metadata_carries_user_data(self) -> None:
-        defn = ComponentDefinition.from_footprint(
+        defn = _definition(
             name="R",
-            footprint=SIL(2),
-            pin_names={},
             metadata={"datasheet": "https://example.com/r.pdf"},
         )
         assert defn.metadata["datasheet"] == "https://example.com/r.pdf"
 
     def test_frozen(self) -> None:
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
+        defn = _definition()
         with pytest.raises(dataclasses.FrozenInstanceError):
             defn.name = "C"  # type: ignore[misc]
 

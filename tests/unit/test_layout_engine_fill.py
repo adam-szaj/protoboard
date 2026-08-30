@@ -9,6 +9,7 @@ Rules (per project plan):
 """
 
 import pytest
+
 from protoboard.domain.board.boxes import (
     BoardGrid,
     HBox,

@@ -23,29 +23,30 @@ The function leans on the existing :func:`autoroute` for the heavy
 lifting; this module only sequences the calls and merges their
 ``AutorouteResult`` objects.
 """
+
 from __future__ import annotations
 
 import copy
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Literal, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
 from protoboard.domain.board.board import Board
-from protoboard.types import Side
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import (
     all_component_ids,
     internal_net_ids_for_components,
 )
-from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
+from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.routing.autorouter import AutorouteResult, autoroute
 from protoboard.services.routing.cost_model import RoutingCostModel
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -56,7 +57,7 @@ _log = structlog.get_logger(__name__)
 
 
 def _postorder_groups(
-    groups: "Mapping[uuid.UUID, object]",  # ComponentGroup; Mapping for covariance
+    groups: Mapping[uuid.UUID, object],  # ComponentGroup; Mapping for covariance
     root_id: uuid.UUID,
 ) -> list[uuid.UUID]:
     """Return non-root group ids in post-order (children before parent).
@@ -104,14 +105,14 @@ def hierarchical_autoroute(
     optimize_progress_callback: Callable[[int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     net_ids: set[uuid.UUID] | None = None,
-    report_path: "Path | None" = None,
+    report_path: Path | None = None,
     push_and_shove: bool = True,
     enable_simplify_pass: bool = True,
     simplify_after_each_wire: bool = False,
     simplify_all_after_autoroute: bool = True,
     simplify_all_max_iterations: int = 50,
-    simplify_mode: "SimplifyMode | None" = None,
-    pad_index: "PadIndex | None" = None,
+    simplify_mode: SimplifyMode | None = None,
+    pad_index: PadIndex | None = None,
 ) -> AutorouteResult:
     """Route ``schematic`` via a bottom-up walk over ``layout.groups``.
 
@@ -123,9 +124,9 @@ def hierarchical_autoroute(
     that failed in its target pass).
     """
     # Determine the universe of nets we are allowed to route.
-    target_net_ids = net_ids if net_ids is not None else {
-        n.id for n in schematic.nets.values()
-    }
+    target_net_ids = (
+        net_ids if net_ids is not None else {n.id for n in schematic.nets.values()}
+    )
 
     # Working layout — keep a single mutable copy that accumulates wires
     # across passes so each subsequent pass sees prior results as
@@ -146,7 +147,8 @@ def hierarchical_autoroute(
     routed_net_ids: set[uuid.UUID] = set()
 
     def _route_subset(
-        subset_ids: set[uuid.UUID], stage_label: str,
+        subset_ids: set[uuid.UUID],
+        stage_label: str,
     ) -> None:
         """Run one autoroute pass over *subset_ids* and merge results."""
         if not subset_ids:
@@ -166,9 +168,12 @@ def hierarchical_autoroute(
             _stage = stage_label
 
             def _wrapped_progress(
-                pass_num: int, net_name: str, pct: int,
+                pass_num: int,
+                net_name: str,
+                pct: int,
             ) -> None:
                 _outer_cb(pass_num, f"[{_stage}] {net_name}", pct)
+
             stage_progress_cb = _wrapped_progress
         else:
             stage_progress_cb = None  # type: ignore[assignment]
@@ -230,7 +235,8 @@ def hierarchical_autoroute(
             break
         group_comps = all_component_ids(working_layout.groups, gid)
         internal = internal_net_ids_for_components(
-            frozenset(group_comps), schematic,
+            frozenset(group_comps),
+            schematic,
         )
         subset = set(internal) - routed_net_ids
         subset &= target_net_ids
@@ -238,8 +244,7 @@ def hierarchical_autoroute(
         # id when the group has no name set yet.
         grp = working_layout.groups.get(gid)
         grp_label = (
-            grp.name if grp is not None and grp.name
-            else f"group:{str(gid)[:8]}"
+            grp.name if grp is not None and grp.name else f"group:{str(gid)[:8]}"
         )
         _route_subset(subset, stage_label=grp_label)
 
@@ -250,6 +255,7 @@ def hierarchical_autoroute(
     # Optional report on the merged result.
     if report_path is not None:
         from protoboard.services.routing.autorouter import _write_report
+
         merged_result = AutorouteResult(
             wires=merged_wires,
             unrouted_nets=sorted(merged_unrouted),
@@ -266,5 +272,3 @@ def hierarchical_autoroute(
 
 
 __all__ = ["hierarchical_autoroute"]
-
-

@@ -15,8 +15,8 @@ from protoboard.domain.components.definition import (
     MetaPin,
     PackageOption,
 )
-from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.footprints import Footprint
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
     package_to_footprint,
     resolve_component_package,
@@ -27,7 +27,7 @@ from protoboard.domain.components.package.component_package import (
 from protoboard.domain.components.package.generated_families import (
     generate_inline_families,
 )
-from protoboard.errors import UnboundInstanceError
+from protoboard.errors import SerializationError, UnboundInstanceError
 from protoboard.services.library.loader import load_library
 
 
@@ -84,7 +84,8 @@ def test_inline_package_definition_exposes_default_geometry(tmp_path: Path) -> N
         "        body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}\n"
         "        board_offset: default\n"
         "      bend: 0\n"
-        "    pin_names: {1: A, 8: B}\n"
+        "    meta_pins: [A, P2, P3, P4, P5, P6, P7, B]\n"
+        "    pin_map: {1: [1], 2: [2], 3: [3], 4: [4], 5: [5], 6: [6], 7: [7], 8: [8]}\n"  # noqa: E501
     )
 
     library = load_library([tmp_path])
@@ -95,20 +96,26 @@ def test_inline_package_definition_exposes_default_geometry(tmp_path: Path) -> N
     assert "MOD_2x4-package" in library.package_families
     assert package is not None
     pins = package.pin_positions()
-    assert defn.pin_names == {
-        1: "A",
-        2: "P2",
-        3: "P3",
-        4: "P4",
-        5: "P5",
-        6: "P6",
-        7: "P7",
-        8: "B",
-    }
-    assert defn.pin_count == 8
+    assert [meta_pin.labels[0] for meta_pin in defn.meta_pins] == [
+        "A",
+        "P2",
+        "P3",
+        "P4",
+        "P5",
+        "P6",
+        "P7",
+        "B",
+    ]
+    assert len(defn.meta_pins) == 8
     assert [(round(p.x), round(p.y)) for p in pins] == [
-        (0, 0), (0, 1), (0, 2), (0, 3),
-        (5, 3), (5, 2), (5, 1), (5, 0),
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (5, 3),
+        (5, 2),
+        (5, 1),
+        (5, 0),
     ]
 
 
@@ -118,13 +125,12 @@ def test_first_footprint_option_defines_default_geometry(tmp_path: Path) -> None
         "  - name: U_DIP14\n"
         "    component_class: ic\n"
         "    symbol: U\n"
-        "    pins: {count: 14}\n"
-        "    footprints:\n"
+        "    package_options:\n"
         "      - name: DIP-14\n"
         "        package: {kind: dip_ic}\n"
         "      - name: WDIP-14\n"
         "        package: {kind: wdip_ic}\n"
-        "    pin_names: {7: GND, 14: VCC}\n"
+        "    meta_pins: [P1, P2, P3, P4, P5, P6, GND, P8, P9, P10, P11, P12, P13, VCC]\n"  # noqa: E501
     )
 
     library = load_library([tmp_path])
@@ -146,10 +152,10 @@ def test_instance_package_variant_overrides_definition_default(tmp_path: Path) -
         "  - name: U_DIP16\n"
         "    component_class: ic\n"
         "    symbol: U\n"
-        "    footprints:\n"
-        "      - {name: DIP-16, ref: dip-16/std}\n"
-        "    package: {kind: dip_ic}\n"
-        "    pin_names: {}\n"
+        "    package_options:\n"
+        "      - {name: DIP-16, ref: '@dip-16/std'}\n"
+        "      - {name: WDIP-16, ref: '@wdip-16/std'}\n"
+        "    meta_pins: [P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16]\n"  # noqa: E501
     )
 
     families = generate_inline_families()
@@ -177,8 +183,8 @@ def test_placed_component_geometry_requires_an_instance(tmp_path: Path) -> None:
         "    component_class: resistor\n"
         "    symbol: R\n"
         "    package: {kind: sil}\n"
-        "    pins: {count: 2}\n"
-        "    pin_names: {1: A, 2: B}\n"
+        "    meta_pins: [A, B]\n"
+        "    pin_map: {1: [1], 2: [2]}\n"
     )
 
     defn = load_library([tmp_path]).get("R")
@@ -207,10 +213,8 @@ def test_legacy_family_ref_component_is_rejected(tmp_path: Path) -> None:
         "    component_class: resistor\n"
         "    package_family_ref: dip-16/std\n"
         "    package: {kind: dip_ic}\n"
-        "    pin_names: {}\n"
+        ""
     )
 
-    library = load_library(
-        [tmp_path], package_families=generate_inline_families())
-
-    assert "R" not in library
+    with pytest.raises(SerializationError, match="package_family_ref"):
+        load_library([tmp_path], package_families=generate_inline_families())

@@ -3,20 +3,62 @@ components:
   # Templates
   # -----------------------------------------------------------------------
 
-  - name: _OSC_DIP14
-    component_class: crystal
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    pin_names: {1: NC, 7: GND, 8: OUT, 14: VCC}
+- name: _OSC_DIP14
+  component_class: crystal
+  package: {kind: dip_ic}
+  meta_pins:
+  - NC
+  - P2
+  - P3
+  - P4
+  - P5
+  - P6
+  - GND
+  - OUT
+  - P9
+  - P10
+  - P11
+  - P12
+  - P13
+  - VCC
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
 
   # -----------------------------------------------------------------------
   # Oscillator modules (DIP-14 footprint, full-can)
   # -----------------------------------------------------------------------
 
-  - name: OSC_1MHz
-    extends: _OSC_DIP14
-    description: "Oscillator module 1 MHz DIP-14"
+- name: OSC_1MHz
+  extends: _OSC_DIP14
+  description: "Oscillator module 1 MHz DIP-14"
 
-  - name: OSC_4MHz
-    extends: _OSC_DIP14
-    description: "Oscillator module 4 MHz DIP-14"
+- name: OSC_4MHz
+  extends: _OSC_DIP14
+  description: "Oscillator module 4 MHz DIP-14"

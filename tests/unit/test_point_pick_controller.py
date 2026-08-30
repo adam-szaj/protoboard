@@ -15,12 +15,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from protoboard.geometry import Point, Rect
 from protoboard.controller.selection.mouse_input import Intent, Mods
 from protoboard.controller.selection.point_pick_controller import PointPickController
 from protoboard.controller.selection.selectable import Selectable, Stop
 from protoboard.controller.selection.service import PickSession
 from protoboard.controller.selection_fsm import Hit
+from protoboard.geometry import Point, Rect
 
 if TYPE_CHECKING:
     from protoboard.controller.selection.selectable import ConnQuery

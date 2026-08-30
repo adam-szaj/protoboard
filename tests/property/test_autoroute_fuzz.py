@@ -19,8 +19,10 @@ import uuid
 from typing import Any
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
@@ -28,9 +30,12 @@ from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.routing.autorouter import autoroute
-
 from tests.unit._autoroute_invariants import (
-    assert_no_net_fusion, make_perfboard, make_sil, place,
+    assert_no_net_fusion,
+    make_perfboard,
+    make_sil,
+    place,
+    sil_families,
 )
 
 
@@ -44,6 +49,7 @@ def _force_sequential_astar(monkeypatch: pytest.MonkeyPatch) -> None:
     winner flips between runs, which Hypothesis flags as flaky.
     """
     from protoboard.services.routing import autorouter
+
     monkeypatch.setattr(autorouter, "_ASTAR_POOL", autorouter._SequentialExecutor())
 
 
@@ -75,11 +81,17 @@ def _det_uuid(prefix: int, index: int) -> uuid.UUID:
 
 
 def _generate_layout(
-    rows: int, cols: int, n_comps: int, rotations: list[int],
+    rows: int,
+    cols: int,
+    n_comps: int,
+    rotations: list[int],
     positions: list[tuple[int, int]],
+    defn: ComponentDefinition,
 ) -> tuple[Layout, list, dict]:
     """Place *n_comps* 2-pin SIL components on the board, no pin collisions."""
     from protoboard.domain.components.instance import ComponentInstance
+
+    families = sil_families(defn)
 
     used_pads: set[tuple[float, float]] = set()
     insts: list[ComponentInstance] = []
@@ -99,9 +111,11 @@ def _generate_layout(
         used_pads.add(p1)
         used_pads.add(p2)
         inst = ComponentInstance(
-            id=_det_uuid(0x01, i), definition_ref="COMP",
-            refdes=f"R{i+1}", value="",
-        )
+            id=_det_uuid(0x01, i),
+            definition_ref="COMP",
+            refdes=f"R{i+1}",
+            value="",
+        ).bind(defn, families)
         insts.append(inst)
         placements[inst.id] = place(inst.id, col + 0.5, row + 0.5, rot)
 
@@ -135,10 +149,13 @@ def _partition_into_nets(insts: list, n_nets: int) -> list[Net]:
     for i, bucket in enumerate(buckets):
         if len(bucket) < 2:
             continue
-        nets.append(Net(
-            id=_det_uuid(0x02, i), name=f"N{i+1}",
-            pins=set(bucket),
-        ))
+        nets.append(
+            Net(
+                id=_det_uuid(0x02, i),
+                name=f"N{i+1}",
+                pins=set(bucket),
+            )
+        )
     return nets
 
 
@@ -148,7 +165,8 @@ class TestAutorouteFuzz:
         max_examples=2000,
         deadline=30000,  # 30 s per example; dense boards take a while
         suppress_health_check=[
-            HealthCheck.too_slow, HealthCheck.data_too_large,
+            HealthCheck.too_slow,
+            HealthCheck.data_too_large,
             HealthCheck.function_scoped_fixture,
         ],
     )
@@ -162,20 +180,25 @@ class TestAutorouteFuzz:
                 st.integers(min_value=0, max_value=18),
                 st.integers(min_value=0, max_value=18),
             ),
-            min_size=SLOTS, max_size=SLOTS,
+            min_size=SLOTS,
+            max_size=SLOTS,
         ),
         n_nets=st.integers(min_value=1, max_value=6),
         wire_mode=WIRE_MODES,
     )
     def test_autoroute_never_fuses_nets(
         self,
-        rows: int, cols: int, n_comps: int,
-        rotations: list[int], positions: list[tuple[int, int]],
-        n_nets: int, wire_mode: str,
+        rows: int,
+        cols: int,
+        n_comps: int,
+        rotations: list[int],
+        positions: list[tuple[int, int]],
+        n_nets: int,
+        wire_mode: str,
     ) -> None:
         defn = make_sil("COMP")
         layout, insts, instances = _generate_layout(
-            rows, cols, n_comps, rotations, positions
+            rows, cols, n_comps, rotations, positions, defn
         )
         if len(insts) < 2:
             return
@@ -192,7 +215,11 @@ class TestAutorouteFuzz:
             max_optimize_iterations=0,
         )
         result = autoroute(
-            board, layout, schematic, components, instances,
+            board,
+            layout,
+            schematic,
+            components,
+            instances,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
             max_optimize_iterations=0,
@@ -200,8 +227,12 @@ class TestAutorouteFuzz:
 
         try:
             assert_no_net_fusion(
-                board, layout, list(result.wires),
-                schematic, components, instances,
+                board,
+                layout,
+                list(result.wires),
+                schematic,
+                components,
+                instances,
             )
         except AssertionError as e:
             raise AssertionError(
@@ -249,7 +280,8 @@ class TestAutorouteFuzzWide:
         max_examples=1000,
         deadline=60000,  # optimize pass adds ~10× work per example
         suppress_health_check=[
-            HealthCheck.too_slow, HealthCheck.data_too_large,
+            HealthCheck.too_slow,
+            HealthCheck.data_too_large,
             HealthCheck.function_scoped_fixture,
         ],
     )
@@ -263,7 +295,8 @@ class TestAutorouteFuzzWide:
                 st.integers(min_value=0, max_value=28),
                 st.integers(min_value=0, max_value=28),
             ),
-            min_size=BIG_SLOTS, max_size=BIG_SLOTS,
+            min_size=BIG_SLOTS,
+            max_size=BIG_SLOTS,
         ),
         n_nets=st.integers(min_value=1, max_value=8),
         wire_mode=WIRE_MODES,
@@ -271,13 +304,17 @@ class TestAutorouteFuzzWide:
     def test_autoroute_never_fuses_nets_wide(
         self,
         _force_sequential_astar: None,
-        rows: int, cols: int, n_comps: int,
-        rotations: list[int], positions: list[tuple[int, int]],
-        n_nets: int, wire_mode: str,
+        rows: int,
+        cols: int,
+        n_comps: int,
+        rotations: list[int],
+        positions: list[tuple[int, int]],
+        n_nets: int,
+        wire_mode: str,
     ) -> None:
         defn = make_sil("COMP")
         layout, insts, instances = _generate_layout(
-            rows, cols, n_comps, rotations, positions
+            rows, cols, n_comps, rotations, positions, defn
         )
         if len(insts) < 2:
             return
@@ -294,7 +331,11 @@ class TestAutorouteFuzzWide:
             max_optimize_iterations=0,
         )
         result = autoroute(
-            board, layout, schematic, components, instances,
+            board,
+            layout,
+            schematic,
+            components,
+            instances,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
             max_optimize_iterations=0,
@@ -302,8 +343,12 @@ class TestAutorouteFuzzWide:
 
         try:
             assert_no_net_fusion(
-                board, layout, list(result.wires),
-                schematic, components, instances,
+                board,
+                layout,
+                list(result.wires),
+                schematic,
+                components,
+                instances,
             )
         except AssertionError as e:
             raise AssertionError(

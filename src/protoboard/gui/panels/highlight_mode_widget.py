@@ -47,8 +47,11 @@ class HighlightModeWidget(QWidget):
         self._tool = tool
         # Reflect the tool's current relation in the label.
         from protoboard.gui.tools.gui_tools import SelectTool
+
         if isinstance(tool, SelectTool):
-            self._btn.setText(RELATION_LABELS.get(tool.relation, tool.relation.name) + " ▾")
+            self._btn.setText(
+                RELATION_LABELS.get(tool.relation, tool.relation.name) + " ▾"
+            )
         self._rebuild_menu()
 
     def on_highlight_mode_changed(self, label: str) -> None:
@@ -67,12 +70,11 @@ class HighlightModeWidget(QWidget):
                 lambda checked=False, r=relation: self._select_relation(r)
             )
         if not self._btn.text():
-            self._btn.setText(
-                RELATION_LABELS[RelationClass.SAME_LOGICAL_NET] + " ▾"
-            )
+            self._btn.setText(RELATION_LABELS[RelationClass.SAME_LOGICAL_NET] + " ▾")
 
     def _select_relation(self, relation: RelationClass) -> None:
         from protoboard.gui.tools.gui_tools import SelectTool
+
         if isinstance(self._tool, SelectTool):
             self._tool.set_relation(relation)
         self._btn.setText(RELATION_LABELS.get(relation, relation.name) + " ▾")

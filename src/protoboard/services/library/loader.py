@@ -34,9 +34,9 @@ from protoboard.domain.components.package import (
     PackageDefError,
     PackageFamily,
     PackageVariant,
-    package_to_footprint,
     Prism,
     build_package,
+    package_to_footprint,
     resolve_extends,
     resolve_variant,
 )
@@ -87,17 +87,11 @@ def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
 def _component_pin_count(data: dict[str, Any]) -> int | None:
     """The component's declared pin count, or ``None``.
 
-    Accepts ``pins: {count: N}`` (with optional ``names:``) or a bare ``pins: N``.
-    This is the logical-identity pin count a ``kind:`` package is parameterized
-    by; legacy parts without ``pins:`` derive it from the footprint instead.
+    ``meta_pins`` is the source of truth. A missing list denotes a parametric
+    component whose count is chosen during placement.
     """
-    pins = data.get("pins")
-    if pins is None:
-        return None
-    if isinstance(pins, dict):
-        count = pins.get("count")
-        return None if count is None else int(count)
-    return int(pins)
+    meta_pins = data.get("meta_pins")
+    return len(meta_pins) if isinstance(meta_pins, list) else None
 
 
 def _geometry_from_option(
@@ -141,7 +135,7 @@ def _register_component_package(
     return f"{family_id}/{_INLINE_VARIANT}"
 
 
-def _parse_footprints(
+def _parse_package_options(
     data: dict[str, Any],
     pin_count: int | None,
     source: Path,
@@ -149,18 +143,16 @@ def _parse_footprints(
     contributed_families: dict[str, PackageFamily],
     generics: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[PackageOption, ...]:
-    """Parse a component's ``footprints:`` list into ``PackageOption``s.
+    """Parse a component's ``package_options:`` into runtime options.
 
-    Each entry is either a reference (``ref: "family/variant"`` — or a bare
-    string) or an inline ``package:`` block (built via the kind/extends machinery,
-    parameterized by *pin_count*). A list-wide ``footprint_style:`` default is
-    overlaid by a per-entry ``style:``. ``name`` defaults to the ref/family token.
+    Every reference uses an authoring prefix (``@``, ``#``, or ``$``). Inline
+    ``package:`` entries are built through the same package machinery.
     """
-    raw_list = data.get("package_options", data.get("footprints"))
+    raw_list = data.get("package_options")
     if raw_list is None:
         return ()
     if not isinstance(raw_list, list):
-        raise SerializationError(f"{source}: 'footprints' must be a list")
+        raise SerializationError(f"{source}: 'package_options' must be a list")
     cname = data["name"]
     try:
         list_style = parse_style(
@@ -179,10 +171,9 @@ def _parse_footprints(
         if isinstance(entry, str):
             ref = entry
             name_raw = entry
+            has_explicit_name = False
         elif isinstance(entry, dict):
-            pin_map = _parse_pin_map(
-                entry.get("pin_map"), source, component_name=cname
-            )
+            pin_map = _parse_pin_map(entry.get("pin_map"), source, component_name=cname)
             if isinstance(entry.get("package"), dict):
                 built = _build_component_package(
                     cname, entry["package"], pin_count, generics
@@ -217,6 +208,7 @@ def _parse_footprints(
                     f"'package'"
                 )
             name_raw = entry.get("name", ref)
+            has_explicit_name = "name" in entry
             try:
                 entry_style = parse_style(
                     entry.get("style"), ctx=f"{cname} footprint style"
@@ -229,8 +221,33 @@ def _parse_footprints(
                 f"mapping"
             )
         name = str(name_raw) if name_raw is not None else ""
+        if ref is not None:
+            prefix, target = ref[:1], ref[1:]
+            if prefix not in {"@", "#", "$"} or not target:
+                raise SerializationError(
+                    f"{source}: package option ref {ref!r} must use @, #, or $"
+                )
+            if prefix == "@":
+                ref = target
+                if not has_explicit_name:
+                    name = ref
+                if resolve_variant(families, ref) is None:
+                    raise SerializationError(
+                        f"{source}: package option ref @{ref} did not resolve"
+                    )
+            else:
+                package_raw = {"extends": target} if prefix == "#" else {"kind": target}
+                built = _build_component_package(
+                    cname, package_raw, pin_count, generics
+                )
+                if isinstance(built, ResidualKind):
+                    raise SerializationError(
+                        f"{source}: package option ref {ref!r} requires "
+                        "additional generator parameters"
+                    )
+                package = built
         if package is not None:
-            family_id = f"{cname}-{name}-package"
+            family_id = f"{cname}-{name.lstrip('@#$')}-package"
             ref = _register_component_package(
                 package,
                 family_id=family_id,
@@ -276,9 +293,7 @@ def _parse_pin_map(
                 f"{source}: pin_map MetaPin index must be positive"
             )
         if not isinstance(raw_package_pins, list):
-            raise SerializationError(
-                f"{source}: pin_map[{meta_index}] must be a list"
-            )
+            raise SerializationError(f"{source}: pin_map[{meta_index}] must be a list")
         try:
             parsed[meta_index] = tuple(int(pin) for pin in raw_package_pins)
         except (TypeError, ValueError) as exc:
@@ -483,9 +498,7 @@ class ComponentLibrary:
             resolve_parametric_name,
         )
 
-        synth = resolve_parametric_name(
-            self._by_name, name, self.package_families
-        )
+        synth = resolve_parametric_name(self._by_name, name, self.package_families)
         if synth is None:
             raise KeyError(name)
         self._by_name[synth.name] = synth
@@ -515,7 +528,7 @@ def load_library(
     Builtins win on a name clash. The library-contributed families ride on
     the returned ``ComponentLibrary.package_families``.
 
-    *package_families* is the package-family catalogue. A ``footprints:``
+    *package_families* is the package-family catalogue. A ``package_options:``
     reference to a rigid package (an SMD chip, a DIP — fixed pin geometry)
     derives its footprint from that package and drops bendable leads, so the
     body fixes the pad spacing. When ``None`` (the default), the full shipped
@@ -738,11 +751,6 @@ def _resolve_extends(
     # Child fields override parent; 'extends' key is dropped.
     merged: dict[str, Any] = {**resolved_parent, **raw}
     merged.pop("extends", None)
-    # pin_names: child overrides individual entries (not whole dict replacement).
-    parent_pins: dict[str, Any] = resolved_parent.get("pin_names") or {}
-    child_pins: dict[str, Any] = raw.get("pin_names") or {}
-    if parent_pins or child_pins:
-        merged["pin_names"] = {**parent_pins, **child_pins}
     return merged
 
 
@@ -757,10 +765,24 @@ def _component_from_dict(
         raise SerializationError(f"{source}: each component must be a mapping")
     if "name" not in data or not isinstance(data["name"], str):
         raise SerializationError(f"{source}: component requires string 'name'")
+    legacy_fields = {
+        "pins",
+        "pin" + "_names",
+        "footprints",
+        "package_family" + "_ref",
+    }.intersection(data)
+    if legacy_fields:
+        field = sorted(legacy_fields)[0]
+        raise SerializationError(
+            f"{source}: component {data['name']!r} uses removed field {field!r}"
+        )
     family_catalogue = families if families is not None else {}
-    contributed = (
-        contributed_families if contributed_families is not None else {}
-    )
+    contributed = contributed_families if contributed_families is not None else {}
+    if "package" in data and "package_options" in data:
+        raise SerializationError(
+            f"{source}: component {data['name']!r} cannot declare both "
+            "'package' and 'package_options'"
+        )
 
     # Parametric package (docs/footprints/package-model.md). When present, it
     # is the source of geometry (it implements the Footprint protocol directly).
@@ -797,10 +819,10 @@ def _component_from_dict(
         else:
             package_obj = built
 
-    # The available footprints (the picker offers these). The default/first entry
+    # The available packages (the picker offers these). The default/first entry
     # is the singular geometry source when there is no inline ``package``
     # block, so instance-less consumers see one default geometry.
-    footprints = _parse_footprints(
+    package_options = _parse_package_options(
         data,
         comp_pin_count,
         source,
@@ -809,24 +831,16 @@ def _component_from_dict(
         generics,
     )
 
-    if "package_family_ref" in data:
-        raise PackageDefError(
-            f"{data['name']}: 'package_family_ref:' was removed — declare "
-            "catalogue geometry with 'footprints: [{name: ..., ref: "
-            "family/variant}]'"
-        )
-
     # The removed legacy field. A loud, actionable error — raised as
     # PackageDefError so ONE legacy part is skipped (with the migration hint
     # in the log) instead of sinking the whole library load.
     if "footprint" in data:
         raise PackageDefError(
             f"{data['name']}: the 'footprint:' field was removed — declare "
-            f"geometry via 'package:' (inline or kind:), 'footprints:' "
-            "(catalogue refs)"
+            f"geometry via 'package:' or 'package_options:'"
         )
 
-    options = list(footprints)
+    options = list(package_options)
     if package_obj is not None:
         ref = _register_component_package(
             package_obj,
@@ -869,8 +883,8 @@ def _component_from_dict(
 
     if not options:
         raise SerializationError(
-            f"{source}: component {data.get('name')!r} requires 'pins', "
-            "'package', or 'footprints'"
+            f"{source}: component {data.get('name')!r} requires 'package' "
+            "or 'package_options'"
         )
     default_package, _ = _geometry_from_option(options[0], family_catalogue)
     if default_package is None:
@@ -879,46 +893,15 @@ def _component_from_dict(
             f"{options[0].ref!r} did not resolve"
         )
     pin_count = comp_pin_count or default_package.pin_count()
-    if default_package.pin_count() != pin_count:
-        raise PackageDefError(
-            f"{source}: component {data['name']!r} declares {pin_count} pins "
-            f"but default package has {default_package.pin_count()}"
-        )
 
-    pin_names_raw = data.get("pin_names") or {}
-    if not isinstance(pin_names_raw, dict):
+    if "meta_pins" not in data and not parametric_pins:
         raise SerializationError(
-            f"{source}: pin_names for {data['name']!r} must be a mapping"
+            f"{source}: component {data['name']!r} requires 'meta_pins'"
         )
-    pin_names: dict[int, str] = {}
-    for k, v in pin_names_raw.items():
-        try:
-            pin_names[int(k)] = str(v)
-        except (TypeError, ValueError) as exc:
-            raise SerializationError(
-                f"{source}: pin_names key {k!r} is not an integer"
-            ) from exc
-    for pin_number in pin_names:
-        if not 1 <= pin_number <= pin_count:
-            raise SerializationError(
-                f"{source}: pin_names references pin {pin_number} outside "
-                f"1..{pin_count}"
-            )
-    pin_names = {
-        pin_number: pin_names.get(pin_number, f"P{pin_number}")
-        for pin_number in range(1, pin_count + 1)
-    }
-
-    has_meta_pins = "meta_pins" in data
     meta_pins = (
-        _parse_meta_pins(
-            data["meta_pins"], source, component_name=data["name"]
-        )
-        if has_meta_pins
-        else tuple(
-            MetaPin((pin_names[index],))
-            for index in range(1, len(pin_names) + 1)
-        )
+        _parse_meta_pins(data["meta_pins"], source, component_name=data["name"])
+        if "meta_pins" in data
+        else tuple(MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1))
     )
     if package_obj is not None and options:
         options[0] = dataclasses.replace(
@@ -932,16 +915,6 @@ def _component_from_dict(
         if option_package is None:
             raise SerializationError(
                 f"{source}: package option {option.ref!r} did not resolve"
-            )
-        if not has_meta_pins and not option.pin_map:
-            options[index] = dataclasses.replace(
-                option,
-                pin_map={
-                    pin: (pin,)
-                    for pin in range(
-                        1, min(len(meta_pins), option_package.pin_count()) + 1
-                    )
-                },
             )
         _validate_pin_map(
             options[index], len(meta_pins), option_package.pin_count(), source

@@ -20,7 +20,10 @@ from protoboard.geometry import Point
 
 def _placement(cid: uuid.UUID, x: float, y: float) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=cid, position=Point(x, y), rotation=0, side="top",
+        component_id=cid,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
 
 
@@ -42,9 +45,7 @@ def test_preview_wire_transform_does_not_alias_live_geometry() -> None:
 
     preview = live.preview_copy()
     # Translate the preview's copy of the wire by (10, 10).
-    transform_wire_geometry(
-        preview.wires[wid], lambda p: Point(p.x + 10.0, p.y + 10.0)
-    )
+    transform_wire_geometry(preview.wires[wid], lambda p: Point(p.x + 10.0, p.y + 10.0))
 
     assert preview.wires[wid].path[0] == Point(10.0, 10.0)
     # The live wire's path (and its fragments) are unchanged — no shared list.

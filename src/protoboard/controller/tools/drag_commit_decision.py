@@ -68,7 +68,7 @@ class DragCommitDecision:
     # ``DragSnapshot``.  When None / empty, ``SelectTool`` falls back
     # to the legacy ``auto_remove_wire_ids`` pipeline.
 
-    wire_classification: "DragWireClassification | None" = None
+    wire_classification: DragWireClassification | None = None
     """Full 5-way partition of wires under the drag; None when caller did
     not provide drag_set_members (legacy fallback path)."""
 

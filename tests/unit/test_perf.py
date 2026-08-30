@@ -57,6 +57,7 @@ class TestStopwatch:
 class TestElapsed:
     def test_is_frozen(self) -> None:
         import dataclasses
+
         e = Elapsed(ms=1.0, label="a", start_time=0.0)
         try:
             e.ms = 2.0  # type: ignore[misc]

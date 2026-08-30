@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 from typing import cast
 
+from protoboard.controller.editing import EditController, EditState, HeadlessSession
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.commands.component_cmds import (
@@ -22,7 +23,6 @@ from protoboard.domain.commands.component_cmds import (
 )
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.controller.editing import EditController, EditState, HeadlessSession
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"

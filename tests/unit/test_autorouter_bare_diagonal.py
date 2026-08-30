@@ -9,7 +9,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -18,8 +17,8 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import autoroute
-
 from tests.instance_utils import bind
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _perfboard(rows: int, cols: int) -> Board:
@@ -41,12 +40,16 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _sil2() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
-    )
+    return make_sil("COMP")
 
 
-def _place(cid: uuid.UUID, x: float, y: float, rotation: int = 90) -> ComponentPlacement:
+def _bind(inst: ComponentInstance, defn: ComponentDefinition) -> ComponentInstance:
+    return bind(inst, defn, sil_families(defn))
+
+
+def _place(
+    cid: uuid.UUID, x: float, y: float, rotation: int = 90
+) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=cid, position=Point(x, y), rotation=rotation, side="top"
     )
@@ -57,7 +60,7 @@ def _all_bare(wires) -> bool:
 
 
 def _routed_path_kinds(wires) -> set[str]:
-    """Return the set of step kinds present across all wires: ortho/diag_pos/diag_neg."""
+    """Return the set of step kinds present across all wires: ortho/diag_pos/diag_neg."""  # noqa: E501
     kinds: set[str] = set()
     for w in wires:
         for a, b in zip(w.path, w.path[1:]):
@@ -74,18 +77,28 @@ def _routed_path_kinds(wires) -> set[str]:
 class TestBareDiagonalMode:
     def test_simple_diagonal_route(self) -> None:
         """Two SIL2 components placed diagonally — bare_diagonal mode should connect them
-        without insulated wires, using diagonal A* steps."""
+        without insulated wires, using diagonal A* steps."""  # noqa: E501
         board = _perfboard(5, 5)
         defn = _sil2()
         cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-        inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
-        inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
+        inst_a = _bind(
+            ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""),
+            defn,
+        )
+        inst_b = _bind(
+            ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""),
+            defn,
+        )
         # R1 horizontal at (0.5,0.5): pin2 = (1.5, 0.5)  → parity (1+0)=1 → "\"
         # R2 horizontal at (3.5,3.5): pin1 = (3.5, 3.5)  → parity (3+3)=0 → "/"
-        layout = Layout(placements=PlacementCollection({
-            cid_a: _place(cid_a, 0.5, 0.5),
-            cid_b: _place(cid_b, 3.5, 3.5),
-        }))
+        layout = Layout(
+            placements=PlacementCollection(
+                {
+                    cid_a: _place(cid_a, 0.5, 0.5),
+                    cid_b: _place(cid_b, 3.5, 3.5),
+                }
+            )
+        )
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)
         net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -93,7 +106,10 @@ class TestBareDiagonalMode:
 
         rs = RoutingSettings(wire_mode="bare_diagonal")
         result = autoroute(
-            board, layout, schematic, {"COMP": defn},
+            board,
+            layout,
+            schematic,
+            {"COMP": defn},
             {cid_a: inst_a, cid_b: inst_b},
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
@@ -114,33 +130,67 @@ class TestBareDiagonalMode:
         # NET2: odd-parity diagonal C→D from (0.5,3.5) to (3.5,0.5).
         # These naturally want to cross at (2.0, 2.0).
         insts = {
-            ids[0]: bind(ComponentInstance(id=ids[0], definition_ref="COMP", refdes="R1", value=""), defn, {}),
-            ids[1]: bind(ComponentInstance(id=ids[1], definition_ref="COMP", refdes="R2", value=""), defn, {}),
-            ids[2]: bind(ComponentInstance(id=ids[2], definition_ref="COMP", refdes="R3", value=""), defn, {}),
-            ids[3]: bind(ComponentInstance(id=ids[3], definition_ref="COMP", refdes="R4", value=""), defn, {}),
+            ids[0]: _bind(
+                ComponentInstance(
+                    id=ids[0], definition_ref="COMP", refdes="R1", value=""
+                ),
+                defn,
+            ),
+            ids[1]: _bind(
+                ComponentInstance(
+                    id=ids[1], definition_ref="COMP", refdes="R2", value=""
+                ),
+                defn,
+            ),
+            ids[2]: _bind(
+                ComponentInstance(
+                    id=ids[2], definition_ref="COMP", refdes="R3", value=""
+                ),
+                defn,
+            ),
+            ids[3]: _bind(
+                ComponentInstance(
+                    id=ids[3], definition_ref="COMP", refdes="R4", value=""
+                ),
+                defn,
+            ),
         }
         # Place so that pin1 sits exactly at the desired endpoints.
-        layout = Layout(placements=PlacementCollection({
-            ids[0]: _place(ids[0], 0.5, 0.5),  # pin1=(0.5,0.5)
-            ids[1]: _place(ids[1], 3.5, 3.5),  # pin1=(3.5,3.5)
-            ids[2]: _place(ids[2], 0.5, 3.5),  # pin1=(0.5,3.5)
-            ids[3]: _place(ids[3], 3.5, 0.5),  # pin1=(3.5,0.5)
-        }))
+        layout = Layout(
+            placements=PlacementCollection(
+                {
+                    ids[0]: _place(ids[0], 0.5, 0.5),  # pin1=(0.5,0.5)
+                    ids[1]: _place(ids[1], 3.5, 3.5),  # pin1=(3.5,3.5)
+                    ids[2]: _place(ids[2], 0.5, 3.5),  # pin1=(0.5,3.5)
+                    ids[3]: _place(ids[3], 3.5, 0.5),  # pin1=(3.5,0.5)
+                }
+            )
+        )
         net1 = Net(
-            id=uuid.uuid4(), name="N1",
-            pins={PinRef(component_id=ids[0], pin_number=1),
-                  PinRef(component_id=ids[1], pin_number=1)},
+            id=uuid.uuid4(),
+            name="N1",
+            pins={
+                PinRef(component_id=ids[0], pin_number=1),
+                PinRef(component_id=ids[1], pin_number=1),
+            },
         )
         net2 = Net(
-            id=uuid.uuid4(), name="N2",
-            pins={PinRef(component_id=ids[2], pin_number=1),
-                  PinRef(component_id=ids[3], pin_number=1)},
+            id=uuid.uuid4(),
+            name="N2",
+            pins={
+                PinRef(component_id=ids[2], pin_number=1),
+                PinRef(component_id=ids[3], pin_number=1),
+            },
         )
         schematic = Schematic(nets={net1.id: net1, net2.id: net2})
 
         rs = RoutingSettings(wire_mode="bare_diagonal")
         result = autoroute(
-            board, layout, schematic, {"COMP": defn}, insts,
+            board,
+            layout,
+            schematic,
+            {"COMP": defn},
+            insts,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
         )
@@ -153,6 +203,4 @@ class TestBareDiagonalMode:
         kinds = _routed_path_kinds(result.wires)
         # At least one diagonal step should appear — straight ortho between
         # the diagonal endpoints would defeat the whole point.
-        assert kinds & {"diag_pos", "diag_neg"}, (
-            f"expected diagonal steps, got {kinds}"
-        )
+        assert kinds & {"diag_pos", "diag_neg"}, f"expected diagonal steps, got {kinds}"

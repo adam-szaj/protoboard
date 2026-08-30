@@ -145,7 +145,7 @@ Layers are addressed by `LayerId` strings: `"top"`, `"bottom"`, and (future)
 `"tape:top+1"`, `"tape:bottom+1"` for kapton-tape layers. The MVP only uses
 `"top"` and `"bottom"`.
 
-## 4. Components and footprints
+## 4. Components and packages
 
 Full geometry — including rotation, flip and bbox — is documented in
 [geometry.md](geometry.md). The package model a definition *points at* (bodies,
@@ -155,35 +155,35 @@ guide in [footprints/authoring.md](footprints/authoring.md).
 
 ```python
 @dataclass(frozen=True, slots=True)
+class MetaPin:
+    labels: tuple[str, ...]
+
+@dataclass(frozen=True, slots=True)
+class PackageOption:
+    name: str
+    ref: str
+    pin_map: dict[int, tuple[int, ...]]
+
+@dataclass(frozen=True, slots=True)
 class ComponentDefinition:
-    name: str                          # "LM358"
-    package: Package                   # the DEFAULT body — always set (loader
-                                       # synthesizes a generic bbox package when
-                                       # the YAML declares none)
-    pin_names: dict[int, str]          # {1: "OUT_A", 2: "IN-_A", ...}
-    description: str = ""
-    component_class: ComponentClass = ComponentClass.OTHER
-    body_blocks_routing: bool = False  # SMD / tight-fit packages set this True
-    # Package model (see footprints/package-model.md):
-    package_options: tuple[PackageOption, ...] = ()  # picker choices (first = default)
-    symbol: str | None = None          # refdes prefix + picker label root
-    variants: tuple[PinVariant, ...] = ()      # alt pin-name mappings
-    appearance: Appearance | None = None       # visual-only override (colour/radius)
-    metadata: dict[str, Any] = field(default_factory=dict)
+    name: str
+    meta_pins: tuple[MetaPin, ...]
+    package_options: tuple[PackageOption, ...]
+    # classification, metadata and visual defaults omitted here
 
 @dataclass(frozen=True, slots=True)
 class ComponentInstance:
     id: UUID
-    definition_ref: str                # name from the library
-    refdes: str                        # "U1", "R5"
-    value: str                         # "LM358", "10k"
-    package_variant: str | None = None # per-instance override of the family variant
-    pin_variant: str | None = None     # per-instance pin-name variant
-    appearance: Appearance | None = None
-    # Live back-references, bound by `bind()`, NEVER serialized (see below):
-    definition: ComponentDefinition | None = None
-    families: dict[str, PackageFamily] | None = None
+    definition_ref: str
+    refdes: str
+    value: str
+    package_variant: str | None = None
 ```
+
+MetaPins express logical terminals and aliases. They have ordinals, not
+physical package numbers. Every package option contains the complete mapping
+for that physical variant. A logical terminal may map to zero or many physical
+pins; a physical pin may map to only one logical terminal.
 
 Library: a `library/` directory of YAML files (`opamps.yaml`,
 `transistors.yaml`, `connectors.yaml`). Custom user library:
@@ -191,23 +191,9 @@ Library: a `library/` directory of YAML files (`opamps.yaml`,
 
 ### 4.1 Placement geometry — the source of truth (decided 2026-06-28)
 
-A **placed** component always resolves its concrete package/footprint through its
-*instance*, never through the definition default. The definition's `package` is
-the *default variant's* body, which is the wrong geometry whenever the instance
-chose another variant (e.g. an `R` placed as `SMD-0805`: the default axial
-3.2-hole pitch vs the SMD 1-hole pitch). Every "components drift / pin-pad
-highlight off / reach ring wrong / can't place" bug in this area was the same
-root: a consumer read the definition default instead of the resolved variant.
-
-**There is no `defn.footprint` field** (removed 2026-07-04, after the 7th
-incarnation of that bug class): its innocent name kept inviting placement-path
-misuse. Topology (`defn.pin_count`, `pin_names` validation) derives from
-`defn.package`; instance-less contexts that genuinely need the default geometry
-(library preview, pre-placement ghost, BOM fallback) call
-`defn.default_footprint()` — the "default" in the name makes the intent
-auditable at every call site. `ComponentDefinition.from_footprint(...)`
-constructs a definition from a bare pin cloud (synthesizing the generic
-package), for YAML `footprint:`-only parts and test fixtures.
+A **placed** component resolves geometry through its instance selection, never
+by inferring a package from logical pin count. Instance-less previews may call
+`default_footprint()`, which resolves the first declared option.
 
 **The mechanism — the instance carries its definition.** Rather than thread a
 `families` catalogue through a dozen signatures, a placed instance holds a live
@@ -224,15 +210,14 @@ session catalogue. So the instance can resolve its own variant geometry:
   instance *is* bound but no variant/family resolves, the definition's `package`
   is its genuine default geometry — not a fallback — so it is returned.
 
-**Resolution precedence** (`resolve_component_package`, in
-`domain/components/package/component_package.py`):
+**Resolution precedence** (`resolve_component_package`):
 
 ```
-instance.package_variant  →  defn.package_options[0]  →  defn.package (default body — always set)
+instance.package_variant  →  first declared PackageOption
 ```
 
-The first two resolve via the catalogue; the last rung always exists, so
-resolution never returns `None` for a loaded part.
+Both addresses must resolve through the package-family catalogue and the
+selected address must have been explicitly offered by the definition.
 
 ## 5. Schematic — the logical graph (netlist)
 

@@ -489,18 +489,26 @@ class TestSameNetWireTermination:
 
 
 class TestValidNodesByCache:
-    """valid_nodes_by_side() must be consistent with find_paths and invalidated on wire mutations."""
+    """valid_nodes_by_side() must be consistent with find_paths and invalidated on wire mutations."""  # noqa: E501
 
     def test_cache_returns_same_object(self) -> None:
         board = _perfboard(3, 3)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
+        graph = ConnectivityGraph(
+            board=board,
+            layout=Layout(placements=PlacementCollection({}), wires=WireCollection()),
+            components={},
+        )
         a = graph.valid_nodes_by_side()
         b = graph.valid_nodes_by_side()
         assert a is b
 
     def test_cache_invalidated_after_add_wire(self) -> None:
         board = _perfboard(3, 3)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
+        graph = ConnectivityGraph(
+            board=board,
+            layout=Layout(placements=PlacementCollection({}), wires=WireCollection()),
+            components={},
+        )
         before = graph.valid_nodes_by_side()
         wire = Wire(
             id=uuid.uuid4(),
@@ -520,7 +528,13 @@ class TestValidNodesByCache:
             insulated=True,
             side="top",
         )
-        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection([wire])), components={})
+        graph = ConnectivityGraph(
+            board=board,
+            layout=Layout(
+                placements=PlacementCollection({}), wires=WireCollection([wire])
+            ),
+            components={},
+        )
         graph.valid_nodes_by_side()  # warm cache
         graph.remove_wire(wire)
         # After remove, cache must be cleared — accessing it rebuilds.
@@ -529,7 +543,11 @@ class TestValidNodesByCache:
 
     def test_valid_nodes_contains_board_pads(self) -> None:
         board = _perfboard(2, 2)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
+        graph = ConnectivityGraph(
+            board=board,
+            layout=Layout(placements=PlacementCollection({}), wires=WireCollection()),
+            components={},
+        )
         vn = graph.valid_nodes_by_side()
         # 2×2 perfboard: pads at (0.5,0.5), (1.5,0.5), (0.5,1.5), (1.5,1.5)
         assert Point(0.5, 0.5) in vn["top"]
@@ -541,7 +559,11 @@ class TestValidNodesByCache:
     def test_find_paths_uses_cache(self) -> None:
         # Routing twice on the same graph should hit the cache (same object returned).
         board = _perfboard(1, 5)
-        graph = ConnectivityGraph(board=board, layout=Layout(placements=PlacementCollection({}), wires=WireCollection()), components={})
+        graph = ConnectivityGraph(
+            board=board,
+            layout=Layout(placements=PlacementCollection({}), wires=WireCollection()),
+            components={},
+        )
         cm = RoutingCostModel()
         src = Point(0.5, 0.5)
         tgt = Point(4.5, 0.5)

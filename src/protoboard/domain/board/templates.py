@@ -72,9 +72,12 @@ def make_breadboard(cols: int = 30) -> Board:
 
     def _power_rail(label: str) -> HBox:
         seg = StripAtom(
-            width_policy=_HUG, height_policy=_HUG,
-            length=cols, orientation="horizontal",
-            layers=_BOTTOM, label=label,
+            width_policy=_HUG,
+            height_policy=_HUG,
+            length=cols,
+            orientation="horizontal",
+            layers=_BOTTOM,
+            label=label,
         )
         return HBox(width_policy=_HUG, height_policy=_HUG, children=[seg], gap=0.0)
 
@@ -87,14 +90,17 @@ def make_breadboard(cols: int = 30) -> Board:
         # put all *cols* StripAtoms in a single HBox (they each occupy 5 rows).
         atoms: list[Box] = [
             StripAtom(
-                width_policy=_HUG, height_policy=_HUG,
-                length=5, orientation="vertical",
+                width_policy=_HUG,
+                height_policy=_HUG,
+                length=5,
+                orientation="vertical",
                 layers=_BOTTOM,
             )
             for _ in range(cols)
         ]
         return VBox(
-            width_policy=_HUG, height_policy=_HUG,
+            width_policy=_HUG,
+            height_policy=_HUG,
             children=[
                 HBox(width_policy=_HUG, height_policy=_HUG, children=atoms, gap=0.0)
             ],
@@ -103,9 +109,8 @@ def make_breadboard(cols: int = 30) -> Board:
 
     def _gap(height: float) -> GapAtom:
         from protoboard.domain.board.boxes import SizePolicy as SP
-        return GapAtom(
-            width_policy=SP.HUG, height_policy=SP.FIXED, height=height
-        )
+
+        return GapAtom(width_policy=SP.HUG, height_policy=SP.FIXED, height=height)
 
     children: list[HBox | VBox | GapAtom] = [
         _power_rail("+"),
@@ -119,8 +124,10 @@ def make_breadboard(cols: int = 30) -> Board:
         _power_rail("+"),
     ]
     root = VBox(
-        width_policy=_HUG, height_policy=_HUG,
-        children=list(children), gap=0.0,
+        width_policy=_HUG,
+        height_policy=_HUG,
+        children=list(children),
+        gap=0.0,
     )
     return Board(root=root)
 

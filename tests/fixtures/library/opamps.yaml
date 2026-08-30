@@ -1,14 +1,6 @@
 components:
   - name: LM358
     description: "Dual op-amp"
-    pins: {count: 8}
     package: {kind: dip_ic}
-    pin_names:
-      1: OUT_A
-      2: IN-_A
-      3: IN+_A
-      4: VEE
-      5: IN+_B
-      6: IN-_B
-      7: OUT_B
-      8: VCC
+    meta_pins: [OUT_A, IN-_A, IN+_A, VEE, IN+_B, IN-_B, OUT_B, VCC]
+    pin_map: {1: [1], 2: [2], 3: [3], 4: [4], 5: [5], 6: [6], 7: [7], 8: [8]}

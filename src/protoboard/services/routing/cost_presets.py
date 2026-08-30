@@ -14,8 +14,7 @@ may be created/edited/deleted from PreferencesDialog.
 from __future__ import annotations
 
 import math
-from typing import Mapping
-
+from collections.abc import Mapping
 
 # ---------------------------------------------------------------------------
 # Built-in presets — read-only, always available.

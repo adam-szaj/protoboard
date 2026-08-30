@@ -35,19 +35,18 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.layout.pin_pad_classification import (
     ModifierShape,
     PinPadClass,
     PinPadInfo,
 )
 from protoboard.gui.layer_state import (
-    LayerState,
     Z_PIN_MODIFIERS,
     Z_PIN_PADS,
+    LayerState,
 )
-from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.services.debug_trace import traced
-
 
 # ---------------------------------------------------------------------------
 # Shape geometry
@@ -65,7 +64,7 @@ def _diamond_path(cx: float, cy: float, r: float) -> QPainterPath:
     """Square rotated 45° — vertices at (cx±r, cy) and (cx, cy±r)."""
     path = QPainterPath()
     # make diamond have the same area as a square (2r)^2: r = r * sqrt(2)
-    r = r*1.4142 
+    r = r * 1.4142
     path.moveTo(cx, cy - r)
     path.lineTo(cx + r, cy)
     path.lineTo(cx, cy + r)
@@ -84,12 +83,16 @@ def _star_path(cx: float, cy: float, r: float) -> QPainterPath:
 def _circle_path(cx: float, cy: float, r: float) -> QPainterPath:
     path = QPainterPath()
     # make circle have the same area as a square (2r)^2: r = r * 2*sqrt(1/pi)
-    r = r*1.13
+    r = r * 1.13
     path.addEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     return path
 
+
 def _modifier_path(
-    shape: ModifierShape, cx: float, cy: float, r: float,
+    shape: ModifierShape,
+    cx: float,
+    cy: float,
+    r: float,
 ) -> QPainterPath | None:
     """Return the modifier shape, or None for CIRCLE (no carve / no glyph)."""
     if shape == ModifierShape.SQUARE:
@@ -150,7 +153,7 @@ def render_pin_pads(
     Returns a list of every scene item created.
     """
     pad_r = theme.pad_radius
-    mod_r = pad_r * theme.pin_pad_modifier_radius_factor*0.5
+    mod_r = pad_r * theme.pin_pad_modifier_radius_factor * 0.5
     bg = QColor(theme.board_bg)
     out: list[QGraphicsItem] = []
 
@@ -189,7 +192,9 @@ def render_pin_pads(
         # Non-FREE classes always carry a net id (FREE handled + continued above).
         assert info.net_id is not None
         color = _resolve_color(
-            info.net_id, net_color_map, theme,
+            info.net_id,
+            net_color_map,
+            theme,
             routing_target_net_id=routing_target_net_id,
         )
         _alpha = color.alphaF() * alpha
@@ -213,9 +218,9 @@ def render_pin_pads(
                 # colour keeps the modifier visually consistent with the
                 # plain pad hole around it.
                 carve_color = QColor(bg)
-                carve_color.setAlphaF(_alpha*0.3)
+                carve_color.setAlphaF(_alpha * 0.3)
                 outline_color = QColor(theme.pad_outline_color)
-                outline_color.setAlphaF(_alpha*0.3)
+                outline_color.setAlphaF(_alpha * 0.3)
                 carved = QGraphicsPathItem(carve)
                 carved.setBrush(QBrush(carve_color))
                 carved.setPen(QPen(outline_color, theme.pad_outline_width))
@@ -258,7 +263,7 @@ def render_pin_modifiers(
     CONTACT_ONLY is skipped: it has no pin of its own, just net presence.
     """
     pad_r = theme.pad_radius
-    mod_r = pad_r * theme.pin_pad_modifier_radius_factor*0.5
+    mod_r = pad_r * theme.pin_pad_modifier_radius_factor * 0.5
     out: list[QGraphicsItem] = []
 
     for info in classifications:
@@ -272,7 +277,9 @@ def render_pin_modifiers(
         if path is None:
             continue
         color = _resolve_color(
-            info.net_id, net_color_map, theme,
+            info.net_id,
+            net_color_map,
+            theme,
             routing_target_net_id=routing_target_net_id,
         )
         color.setAlphaF(color.alphaF() * alpha)

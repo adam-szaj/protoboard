@@ -21,11 +21,11 @@ class SilGenerator(PackageGenerator):
         n = ctx.pin_count
         if n < 2:
             raise PackageDefError(
-                f"kind 'sil' cannot build a body for {n} pins (needs >= 2)")
+                f"kind 'sil' cannot build a body for {n} pins (needs >= 2)"
+            )
         pkg = prism_from_footprint(SIL(n=n))
         if pkg is None:
-            raise PackageDefError(
-                f"kind 'sil' cannot build a body for {n} pins")
+            raise PackageDefError(f"kind 'sil' cannot build a body for {n} pins")
         return ctx.with_package(pkg)
 
     def offered_family_ids(self, pin_count: int) -> list[str]:

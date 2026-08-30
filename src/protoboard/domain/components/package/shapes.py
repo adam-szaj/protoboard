@@ -8,7 +8,7 @@ module knows nothing about YAML syntax.
 
 Two domains (spec): pin positions live on the grid (holes), board_offset_range
 is in mm (physics). Conversion is the consumer's job.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
@@ -19,13 +19,13 @@ from types import MappingProxyType
 from typing import Any
 
 from protoboard.domain.components.footprints import Footprint
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
     MountStyle,
 )
-from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.offsets import cumulative_positions
 from protoboard.domain.components.package.schema import ParamSchema
 from protoboard.domain.components.package.solver import (
@@ -51,7 +51,7 @@ def _empty_bendable_pins() -> Mapping[int, PinBendSpec]:
     return MappingProxyType({})
 
 
-from protoboard.services.debug_trace import traced
+from protoboard.services.debug_trace import traced  # noqa: E402
 
 # Sentinels for board_offset source (see spec): a literal list of step vectors,
 # or one of these strings.

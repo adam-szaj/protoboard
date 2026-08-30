@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 """FlipWireSideCommand toggles each fragment's side (mixed wire stays mixed)."""
+
 import uuid
 
 from protoboard.domain.commands.component_cmds import FlipWireSideCommand

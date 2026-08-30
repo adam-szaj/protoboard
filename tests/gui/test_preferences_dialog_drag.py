@@ -14,7 +14,8 @@ from protoboard.gui.dialogs.preferences_dialog import _DragPage
 
 @pytest.fixture
 def isolated_app_settings(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> Path:
     target = tmp_path / "app_settings.yaml"
     monkeypatch.setattr(app_settings_mod, "_CONFIG_PATH", target)
@@ -23,7 +24,9 @@ def isolated_app_settings(
 
 class TestDragPage:
     def test_combos_reflect_initial_settings(
-        self, isolated_app_settings: Path, qtbot,
+        self,
+        isolated_app_settings: Path,
+        qtbot,
     ) -> None:
         s = AppSettings()
         s.drag_free_wire_conflict = "ask-remove"
@@ -36,7 +39,9 @@ class TestDragPage:
         assert page._disconnect_combo.currentData() == "auto-reroute"
 
     def test_apply_persists_combos_to_settings(
-        self, isolated_app_settings: Path, qtbot,
+        self,
+        isolated_app_settings: Path,
+        qtbot,
     ) -> None:
         s = AppSettings()
         page = _DragPage(s)
@@ -59,12 +64,16 @@ class TestDragPage:
         assert s.drag_default_lock_internal_wires is True
 
     def test_all_combo_options_available(
-        self, isolated_app_settings: Path, qtbot,
+        self,
+        isolated_app_settings: Path,
+        qtbot,
     ) -> None:
         page = _DragPage(AppSettings())
         qtbot.addWidget(page)
         for combo in (
-            page._free_combo, page._sgroup_combo, page._disconnect_combo,
+            page._free_combo,
+            page._sgroup_combo,
+            page._disconnect_combo,
         ):
             values = {combo.itemData(i) for i in range(combo.count())}
             assert values == {

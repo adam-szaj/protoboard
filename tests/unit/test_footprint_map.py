@@ -10,7 +10,7 @@ import pytest
 
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.services.kicad.footprint_map import FootprintEntry, FootprintMap
-from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
+from protoboard.services.kicad.importer import KiCadNetlistImporter
 
 _FIXTURES = Path(__file__).parent.parent / "fixtures" / "kicad_samples"
 
@@ -30,11 +30,13 @@ class TestFootprintEntry:
 
 class TestFootprintMap:
     def _make_map(self) -> FootprintMap:
-        return FootprintMap.from_entries([
-            FootprintEntry("Lib:A", "def_a", 2),
-            FootprintEntry("Lib:B", "", 4),
-            FootprintEntry("Lib:C", "", 0),
-        ])
+        return FootprintMap.from_entries(
+            [
+                FootprintEntry("Lib:A", "def_a", 2),
+                FootprintEntry("Lib:B", "", 4),
+                FootprintEntry("Lib:C", "", 0),
+            ]
+        )
 
     def test_get_existing(self) -> None:
         fm = self._make_map()
@@ -59,10 +61,12 @@ class TestFootprintMap:
         assert not fm.all_resolved()
 
     def test_all_resolved_true_when_all_have_pin_count(self) -> None:
-        fm = FootprintMap.from_entries([
-            FootprintEntry("Lib:A", "def_a", 2),
-            FootprintEntry("Lib:B", "", 3),
-        ])
+        fm = FootprintMap.from_entries(
+            [
+                FootprintEntry("Lib:A", "def_a", 2),
+                FootprintEntry("Lib:B", "", 3),
+            ]
+        )
         assert fm.all_resolved()
 
     def test_merge_user_overrides_auto(self) -> None:
@@ -70,7 +74,7 @@ class TestFootprintMap:
         user = FootprintMap.from_entries([FootprintEntry("Lib:A", "my_resistor", 2)])
         merged = auto.merge(user)
         assert merged.get("Lib:A").definition_ref == "my_resistor"  # type: ignore[union-attr]
-        assert merged.get("Lib:A").pin_count == 2                   # type: ignore[union-attr]
+        assert merged.get("Lib:A").pin_count == 2  # type: ignore[union-attr]
 
     def test_merge_keeps_auto_when_user_has_no_entry(self) -> None:
         auto = FootprintMap.from_entries([FootprintEntry("Lib:A", "auto_def", 2)])
@@ -91,9 +95,11 @@ class TestFootprintMap:
         assert a.pin_count == 2
 
     def test_save_yaml_is_human_readable(self, tmp_path: Path) -> None:
-        fm = FootprintMap.from_entries([
-            FootprintEntry("Resistor_SMD:R_0603", "R_0603", 2),
-        ])
+        fm = FootprintMap.from_entries(
+            [
+                FootprintEntry("Resistor_SMD:R_0603", "R_0603", 2),
+            ]
+        )
         path = tmp_path / "footprint_map.yaml"
         fm.save(path)
         text = path.read_text()
@@ -188,9 +194,7 @@ class TestImportFull:
         result = imp.import_full_from_string(_MINIMAL_SEXP)
         r1 = result.instances["R1"]
         all_comp_ids = {
-            p.component_id
-            for net in result.schematic.nets.values()
-            for p in net.pins
+            p.component_id for net in result.schematic.nets.values() for p in net.pins
         }
         assert r1.id in all_comp_ids
 
@@ -204,9 +208,12 @@ class TestImportFull:
         imp = KiCadNetlistImporter()
         result = imp.import_full_from_string(_MINIMAL_SEXP)
         assert result.footprint_map.get("Resistor_SMD:R_0603_1608Metric") is not None
-        assert result.footprint_map.get(
-            "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
-        ) is not None
+        assert (
+            result.footprint_map.get(
+                "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+            )
+            is not None
+        )
 
     def test_no_unresolved_when_all_known(self) -> None:
         imp = KiCadNetlistImporter()
@@ -241,25 +248,29 @@ class TestImportFullWithMap:
     """Tests for the footprint_map parameter (re-import workflow)."""
 
     def test_user_map_overrides_definition_ref(self) -> None:
-        user_map = FootprintMap.from_entries([
-            FootprintEntry(
-                kicad_fp="Resistor_SMD:R_0603_1608Metric",
-                definition_ref="my_custom_resistor",
-                pin_count=2,
-            )
-        ])
+        user_map = FootprintMap.from_entries(
+            [
+                FootprintEntry(
+                    kicad_fp="Resistor_SMD:R_0603_1608Metric",
+                    definition_ref="my_custom_resistor",
+                    pin_count=2,
+                )
+            ]
+        )
         imp = KiCadNetlistImporter()
         result = imp.import_full_from_string(_MINIMAL_SEXP, footprint_map=user_map)
         assert result.instances["R1"].definition_ref == "my_custom_resistor"
 
     def test_user_map_resolves_previously_unknown(self) -> None:
-        user_map = FootprintMap.from_entries([
-            FootprintEntry(
-                kicad_fp="Exotic:SomeChip",
-                definition_ref="my_chip",
-                pin_count=8,
-            )
-        ])
+        user_map = FootprintMap.from_entries(
+            [
+                FootprintEntry(
+                    kicad_fp="Exotic:SomeChip",
+                    definition_ref="my_chip",
+                    pin_count=8,
+                )
+            ]
+        )
         imp = KiCadNetlistImporter()
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
@@ -268,13 +279,15 @@ class TestImportFullWithMap:
         assert result.unresolved_fps == []
 
     def test_partial_user_map_leaves_others_auto_resolved(self) -> None:
-        user_map = FootprintMap.from_entries([
-            FootprintEntry(
-                kicad_fp="Resistor_SMD:R_0603_1608Metric",
-                definition_ref="R_smd_0603",
-                pin_count=2,
-            )
-        ])
+        user_map = FootprintMap.from_entries(
+            [
+                FootprintEntry(
+                    kicad_fp="Resistor_SMD:R_0603_1608Metric",
+                    definition_ref="R_smd_0603",
+                    pin_count=2,
+                )
+            ]
+        )
         imp = KiCadNetlistImporter()
         result = imp.import_full_from_string(_MINIMAL_SEXP, footprint_map=user_map)
         # J1 uses PinHeader — auto-resolved, should still have a definition
@@ -328,7 +341,9 @@ class TestFootprintMapSaveAndReimport:
         loaded_map = FootprintMap.load(map_path)
         with warnings.catch_warnings(record=True):
             warnings.simplefilter("always")
-            result2 = imp.import_full_from_string(_UNKNOWN_SEXP, footprint_map=loaded_map)
+            result2 = imp.import_full_from_string(
+                _UNKNOWN_SEXP, footprint_map=loaded_map
+            )
         assert not result2.has_unresolved
         assert result2.instances["U1"].definition_ref == "my_exotic_chip"
 

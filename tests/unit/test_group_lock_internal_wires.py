@@ -15,8 +15,6 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import find_owned_wires
@@ -27,12 +25,14 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 class TestDefault:
     def test_default_is_false(self) -> None:
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(),
         )
         assert g.lock_internal_wires is False
@@ -44,12 +44,14 @@ class TestOwnershipUnaffected:
         # lock_internal_wires.  Flag only affects DragDetector behaviour.
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         g_open = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({c1, c2}),
             lock_internal_wires=False,
         )
         g_locked = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({c1, c2}),
             lock_internal_wires=True,
         )
@@ -65,14 +67,16 @@ class TestOwnershipUnaffected:
         sch = Schematic(nets={})
 
         owned_open = find_owned_wires(
-            [w], g_open,
+            [w],
+            g_open,
             wire_net_map={},
             knots=knots,  # type: ignore[arg-type]
             group_comp_ids=frozenset({c1, c2}),
             schematic=sch,
         )
         owned_locked = find_owned_wires(
-            [w], g_locked,
+            [w],
+            g_locked,
             wire_net_map={},
             knots=knots,  # type: ignore[arg-type]
             group_comp_ids=frozenset({c1, c2}),
@@ -84,13 +88,16 @@ class TestOwnershipUnaffected:
 class TestYamlRoundTrip:
     def test_lock_internal_wires_roundtrips(self) -> None:
         from protoboard.services.persistence.project_yaml import (
-            _layout_to_yaml, _yaml,
+            _layout_to_yaml,
+            _yaml,
         )
+
         layout = Layout()
         layout.ensure_root_group()
         gid = uuid.uuid4()
         layout.groups[gid] = ComponentGroup(
-            id=gid, name="LockedG",
+            id=gid,
+            name="LockedG",
             component_ids=frozenset({uuid.uuid4()}),
             lock_internal_wires=True,
         )
@@ -111,11 +118,13 @@ class TestYamlRoundTrip:
     def test_unlocked_default_omits_field(self) -> None:
         # lock_internal_wires=False should not bloat the YAML.
         from protoboard.services.persistence.project_yaml import _layout_to_yaml
+
         layout = Layout()
         layout.ensure_root_group()
         gid = uuid.uuid4()
         layout.groups[gid] = ComponentGroup(
-            id=gid, name="OpenG",
+            id=gid,
+            name="OpenG",
             component_ids=frozenset({uuid.uuid4()}),
         )
         yaml_str = _layout_to_yaml(layout)
@@ -151,26 +160,33 @@ class TestDragDetectorLockPromotion:
         # joint at (3.5, 0.5).  Foreign comp c_drag dragged so pin1
         # lands on (3.5, 0.5).  Detector should set severity=HARD via
         # hard_locked_wire_pads.
+        from protoboard.controller.tools.drag_commit_decision import DragSeverity
         from protoboard.domain.board.pad_state import PadIndex
         from protoboard.services.drag_detector import (
-            DragDetector, DragSnapshot,
+            DragDetector,
+            DragSnapshot,
         )
         from protoboard.services.pad_strategy import DRCEnforcingStrategy
-        from protoboard.controller.tools.drag_commit_decision import DragSeverity
 
-        defn = ComponentDefinition.from_footprint(
-            name="R", footprint=SIL(2),
-            pin_names={i: str(i) for i in (1, 2)},
+        defn = make_sil("R", 2)
+        families = sil_families(defn)
+        inst_g = ComponentInstance.new(definition_ref="R", refdes="Rg", value="").bind(
+            defn, families
         )
-        inst_g = ComponentInstance.new(definition_ref="R", refdes="Rg", value="").bind(defn, {})
-        inst_drag = ComponentInstance.new(definition_ref="R", refdes="Rd", value="").bind(defn, {})
+        inst_drag = ComponentInstance.new(
+            definition_ref="R", refdes="Rd", value=""
+        ).bind(defn, families)
         pl_g = ComponentPlacement(
-            component_id=inst_g.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_g.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_drag = ComponentPlacement(
-            component_id=inst_drag.id, position=Point(3.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_drag.id,
+            position=Point(3.5, 0.5),
+            rotation=0,
+            side="top",
         )
         ka = PinKnot(id=uuid.uuid4(), pin=PinRef(inst_g.id, 1))
         joint = JointKnot(id=uuid.uuid4(), position=Point(3.5, 0.5))
@@ -182,7 +198,8 @@ class TestDragDetectorLockPromotion:
         )
         net = Net(id=uuid.uuid4(), name="N", pins={PinRef(inst_g.id, 1)})
         group_locked = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({inst_g.id}),
             lock_internal_wires=True,
         )
@@ -217,7 +234,8 @@ class TestDragDetectorLockPromotion:
             stationary_locked_groups=[group_locked],
         )
         decision = DragDetector(DRCEnforcingStrategy()).classify(
-            snap, {inst_drag.id},
+            snap,
+            {inst_drag.id},
         )
         assert decision.severity is DragSeverity.HARD
         assert len(decision.hard_locked_wire_pads) > 0

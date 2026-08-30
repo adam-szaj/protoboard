@@ -40,6 +40,7 @@ _COORD_ROUNDING_DIGITS = 4
 
 def norm(x: float, y: float, z: float) -> float:
     from math import sqrt
+
     return sqrt(x * x + y * y + z * z)
 
 
@@ -68,12 +69,10 @@ class Point:
         return Point(self.x + v.dx, self.y + v.dy)
 
     @overload
-    def __sub__(self, o: Point) -> Vector:
-        ...
+    def __sub__(self, o: Point) -> Vector: ...
 
     @overload
-    def __sub__(self, o: Vector) -> Point:
-        ...
+    def __sub__(self, o: Vector) -> Point: ...
 
     def __sub__(self, o: Point | Vector) -> Point | Vector:
         if isinstance(o, Point):
@@ -140,11 +139,13 @@ class Vector:
         returns ``0.0`` (atan2's convention).
         """
         from math import atan2
+
         return atan2(self.dy, self.dx)
 
     def angle_deg(self) -> float:
         """Direction of the vector in degrees, measured CCW from +x."""
         from math import degrees
+
         return degrees(self.angle())
 
     def with_dz(self, dz: float = 0.0) -> Vector3D:
@@ -164,12 +165,10 @@ class Point3D:
         return Point3D(self.x + v.dx, self.y + v.dy, self.z + v.dz)
 
     @overload
-    def __sub__(self, o: Point3D) -> Vector3D:
-        ...
+    def __sub__(self, o: Point3D) -> Vector3D: ...
 
     @overload
-    def __sub__(self, o: Vector3D) -> Point3D:
-        ...
+    def __sub__(self, o: Vector3D) -> Point3D: ...
 
     def __sub__(self, o: Point3D | Vector3D) -> Point3D | Vector3D:
         if isinstance(o, Point3D):
@@ -184,8 +183,10 @@ class Point3D:
 
 
 ROTATE2D_TRANSFORM: list = [
-    lambda v: v, lambda v: Vector(v.dy, -v.dx), lambda v: Vector(-v.dx, -v.dy),
-    lambda v: Vector(-v.dy, v.dx)
+    lambda v: v,
+    lambda v: Vector(v.dy, -v.dx),
+    lambda v: Vector(-v.dx, -v.dy),
+    lambda v: Vector(-v.dy, v.dx),
 ]
 
 
@@ -239,10 +240,12 @@ class Transform2D:
         Matches the legacy ``_rotate``: one step sends ``(x, y) → (y, -x)``.
         """
         # Column images of (x̂, ŷ) under CW 90°·steps, exact integers.
-        a, b, c, d = ((1.0, 0.0, 0.0, 1.0),
-                      (0.0, 1.0, -1.0, 0.0),
-                      (-1.0, 0.0, 0.0, -1.0),
-                      (0.0, -1.0, 1.0, 0.0))[steps % 4]
+        a, b, c, d = (
+            (1.0, 0.0, 0.0, 1.0),
+            (0.0, 1.0, -1.0, 0.0),
+            (-1.0, 0.0, 0.0, -1.0),
+            (0.0, -1.0, 1.0, 0.0),
+        )[steps % 4]
         return Transform2D(a, b, c, d, 0.0, 0.0)
 
     @staticmethod
@@ -281,10 +284,11 @@ class Transform2D:
         a ``Vector`` is a displacement, so only the linear part applies.
         """
         if isinstance(p, Point):
-            return Point(self.a * p.x + self.b * p.y + self.tx,
-                         self.c * p.x + self.d * p.y + self.ty)
-        return Vector(self.a * p.dx + self.b * p.dy,
-                      self.c * p.dx + self.d * p.dy)
+            return Point(
+                self.a * p.x + self.b * p.y + self.tx,
+                self.c * p.x + self.d * p.y + self.ty,
+            )
+        return Vector(self.a * p.dx + self.b * p.dy, self.c * p.dx + self.d * p.dy)
 
     def compose(self, other: Transform2D) -> Transform2D:
         """Return ``self ∘ other`` — apply *other* first, then *self*.
@@ -394,14 +398,18 @@ def transform_vectors(rotate: Rotate2D, vectors: Iterable[Vector]) -> VectorList
     return list(_transform_vectors(rotate, vectors))
 
 
-def _transform_points(rotate: Rotate2D, pivot: Point,
-                      points: Iterable[Point]) -> Iterator[Point]:
-    return map(lambda v: pivot + v,
-               _transform_vectors(rotate, map(lambda p: p - pivot, points)))
+def _transform_points(
+    rotate: Rotate2D, pivot: Point, points: Iterable[Point]
+) -> Iterator[Point]:
+    return map(
+        lambda v: pivot + v,
+        _transform_vectors(rotate, map(lambda p: p - pivot, points)),
+    )
 
 
-def transform_points(rotate: Rotate2D, pivot: Point,
-                     points: Iterable[Point]) -> PointList:
+def transform_points(
+    rotate: Rotate2D, pivot: Point, points: Iterable[Point]
+) -> PointList:
     return list(_transform_points(rotate, pivot, points))
 
 
@@ -461,13 +469,13 @@ Vector3DList = list[Vector3D]
 
 
 @overload
-def _make_points_from_offsets(point, offsets: Iterable[Vector]) -> Iterator[Point]:
-    ...
+def _make_points_from_offsets(point, offsets: Iterable[Vector]) -> Iterator[Point]: ...
 
 
 @overload
-def _make_points_from_offsets(point, offsets: Iterable[Vector3D]) -> Iterator[Point3D]:
-    ...
+def _make_points_from_offsets(
+    point, offsets: Iterable[Vector3D]
+) -> Iterator[Point3D]: ...
 
 
 def _make_points_from_offsets(point, offsets) -> Iterable[Point3D] | Iterator[Point]:
@@ -475,14 +483,13 @@ def _make_points_from_offsets(point, offsets) -> Iterable[Point3D] | Iterator[Po
 
 
 @overload
-def make_points_from_offsets(point: Point, offsets: Iterable[Vector]) -> PointList:
-    ...
+def make_points_from_offsets(point: Point, offsets: Iterable[Vector]) -> PointList: ...
 
 
 @overload
-def make_points_from_offsets(point: Point3D,
-                             offsets: Iterable[Vector3D]) -> Point3DList:
-    ...
+def make_points_from_offsets(
+    point: Point3D, offsets: Iterable[Vector3D]
+) -> Point3DList: ...
 
 
 def make_points_from_offsets(point, offsets) -> Point3DList | PointList:
@@ -490,28 +497,25 @@ def make_points_from_offsets(point, offsets) -> Point3DList | PointList:
 
 
 @overload
-def _make_offsets_from_points(points: Iterable[Point]) -> Iterator[Vector]:
-    ...
+def _make_offsets_from_points(points: Iterable[Point]) -> Iterator[Vector]: ...
 
 
 @overload
-def _make_offsets_from_points(points: Iterable[Point3D]) -> Iterator[Vector3D]:
-    ...
+def _make_offsets_from_points(points: Iterable[Point3D]) -> Iterator[Vector3D]: ...
 
 
 def _make_offsets_from_points(points) -> Iterator[Vector] | Iterator[Vector3D]:
     from itertools import pairwise
+
     return map(lambda pw: pw[1] - pw[0], pairwise(points))
 
 
 @overload
-def make_offsets_from_points(points: Iterable[Point]) -> VectorList:
-    ...
+def make_offsets_from_points(points: Iterable[Point]) -> VectorList: ...
 
 
 @overload
-def make_offsets_from_points(points: Iterable[Point3D]) -> Vector3DList:
-    ...
+def make_offsets_from_points(points: Iterable[Point3D]) -> Vector3DList: ...
 
 
 def make_offsets_from_points(points) -> VectorList | Vector3DList:
@@ -630,8 +634,7 @@ class Rect:
 
     @staticmethod
     def from_center(center: Point, size: Size) -> Rect:
-        return Rect(
-            Point(center.x - size.lx / 2.0, center.y - size.ly / 2.0), size)
+        return Rect(Point(center.x - size.lx / 2.0, center.y - size.ly / 2.0), size)
 
     @property
     def x(self) -> float:
@@ -651,13 +654,13 @@ class Rect:
 
     @property
     def bottom_right(self) -> Point:
-        return Point(self.origin.x + self.size.lx,
-                     self.origin.y + self.size.ly)
+        return Point(self.origin.x + self.size.lx, self.origin.y + self.size.ly)
 
     @property
     def center(self) -> Point:
-        return Point(self.origin.x + self.size.lx / 2.0,
-                     self.origin.y + self.size.ly / 2.0)
+        return Point(
+            self.origin.x + self.size.lx / 2.0, self.origin.y + self.size.ly / 2.0
+        )
 
     def corners(self) -> tuple[Point, Point, Point, Point]:
         """The four corners, starting at ``origin``, in ring order."""
@@ -667,15 +670,19 @@ class Rect:
 
     def contains(self, point: Point) -> bool:
         """Half-open containment: top/left inclusive, bottom/right exclusive."""
-        return (self.origin.x <= point.x < self.origin.x + self.size.lx
-                and self.origin.y <= point.y < self.origin.y + self.size.ly)
+        return (
+            self.origin.x <= point.x < self.origin.x + self.size.lx
+            and self.origin.y <= point.y < self.origin.y + self.size.ly
+        )
 
     def intersects(self, other: Rect) -> bool:
         """Strict overlap; touching edges do not count as intersection."""
-        return (self.origin.x < other.origin.x + other.size.lx
-                and other.origin.x < self.origin.x + self.size.lx
-                and self.origin.y < other.origin.y + other.size.ly
-                and other.origin.y < self.origin.y + self.size.ly)
+        return (
+            self.origin.x < other.origin.x + other.size.lx
+            and other.origin.x < self.origin.x + self.size.lx
+            and self.origin.y < other.origin.y + other.size.ly
+            and other.origin.y < self.origin.y + self.size.ly
+        )
 
     def inflate(self, insets: Insets) -> Rect:
         """Grow the rect by the insets. Negative insets shrink it."""

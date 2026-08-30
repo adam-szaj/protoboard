@@ -20,10 +20,10 @@ from protoboard.services.routing.astar import (
 )
 from protoboard.services.routing.cost_model import RoutingCostModel
 
-
 # ---------------------------------------------------------------------------
 # _segs_cross — pure geometry
 # ---------------------------------------------------------------------------
+
 
 class TestSegsCross:
     def test_perpendicular_orthogonals_cross(self) -> None:
@@ -31,46 +31,35 @@ class TestSegsCross:
         assert _segs_cross(Point(0, 1), Point(2, 1), Point(1, 0), Point(1, 2))
 
     def test_parallel_orthogonals_dont_cross(self) -> None:
-        assert not _segs_cross(
-            Point(0, 0), Point(2, 0), Point(0, 1), Point(2, 1)
-        )
+        assert not _segs_cross(Point(0, 0), Point(2, 0), Point(0, 1), Point(2, 1))
 
     def test_two_perpendicular_diagonals_cross(self) -> None:
         # (2,2)→(3,3) (slope +1) and (2,3)→(3,2) (slope -1) cross at (2.5, 2.5).
         # This was the silent-short bug — now must be detected.
-        assert _segs_cross(
-            Point(2, 2), Point(3, 3), Point(2, 3), Point(3, 2)
-        )
+        assert _segs_cross(Point(2, 2), Point(3, 3), Point(2, 3), Point(3, 2))
 
     def test_two_parallel_diagonals_dont_cross(self) -> None:
         # Both slope +1, offset by 1 → never meet.
-        assert not _segs_cross(
-            Point(0, 0), Point(3, 3), Point(0, 1), Point(3, 4)
-        )
+        assert not _segs_cross(Point(0, 0), Point(3, 3), Point(0, 1), Point(3, 4))
 
     def test_diagonal_crosses_orthogonal(self) -> None:
         # Diagonal (0,0)→(4,4) crosses horizontal (0,2)→(4,2) at (2,2).
-        assert _segs_cross(
-            Point(0, 0), Point(4, 4), Point(0, 2), Point(4, 2)
-        )
+        assert _segs_cross(Point(0, 0), Point(4, 4), Point(0, 2), Point(4, 2))
 
     def test_endpoint_touch_is_not_crossing(self) -> None:
         # T-junction at endpoint: the orientation test returns 0 → not strict.
-        assert not _segs_cross(
-            Point(0, 0), Point(2, 0), Point(2, 0), Point(2, 2)
-        )
+        assert not _segs_cross(Point(0, 0), Point(2, 0), Point(2, 0), Point(2, 2))
 
     def test_collinear_overlap_is_not_crossing(self) -> None:
         # Collinear overlap is handled by the wire-occupancy map upstream;
         # _segs_cross deliberately returns False for it.
-        assert not _segs_cross(
-            Point(0, 0), Point(4, 0), Point(2, 0), Point(6, 0)
-        )
+        assert not _segs_cross(Point(0, 0), Point(4, 0), Point(2, 0), Point(6, 0))
 
 
 # ---------------------------------------------------------------------------
 # _crossing_cost — integrates with cost model + bare-seg index
 # ---------------------------------------------------------------------------
+
 
 def _idx(*segs: tuple[Point, Point, str]):
     return _build_bare_seg_index(set(segs))
@@ -146,14 +135,14 @@ class TestCrossingCost:
     def test_insulated_x_bare_uses_jumper_cost(self) -> None:
         # Intersection of step (0,1)→(2,1) with bare (1,0)→(1,2) lands at
         # (1.0, 1.0) — integer coords, i.e. off_pad / mid-cell.
-        cm = RoutingCostModel(weights={
-            "crossing_ib_off_pad_same_side": 5.0,
-            "crossing_ib_at_pad_same_side": 12.0,
-        })
-        bare = _idx((Point(1, 0), Point(1, 2), "top"))
-        cost = _crossing_cost(
-            Point(0, 1), Point(2, 1), "top", bare, cm, insulated=True
+        cm = RoutingCostModel(
+            weights={
+                "crossing_ib_off_pad_same_side": 5.0,
+                "crossing_ib_at_pad_same_side": 12.0,
+            }
         )
+        bare = _idx((Point(1, 0), Point(1, 2), "top"))
+        cost = _crossing_cost(Point(0, 1), Point(2, 1), "top", bare, cm, insulated=True)
         assert cost == 5.0
 
     def test_other_layer_segments_ignored(self) -> None:
@@ -168,6 +157,7 @@ class TestCrossingCost:
 # ---------------------------------------------------------------------------
 # _is_perpendicular_diagonal_crossing — predicate used by _crossing_cost
 # ---------------------------------------------------------------------------
+
 
 class TestPerpendicularDiagonalCrossing:
     def test_classic_pair(self) -> None:

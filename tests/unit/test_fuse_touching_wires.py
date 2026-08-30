@@ -22,29 +22,37 @@ from protoboard.domain.commands.component_cmds import (
     FuseTouchingWiresCommand,
 )
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-    pin_world_position,
     PlacementCollection,
+    pin_world_position,
 )
 from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=20, cols=20, row_gap=0.0, col_gap=0.0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=20,
+            cols=20,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @dataclass
@@ -53,11 +61,20 @@ class _State:
     board: Board = field(default_factory=_board)
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
+    package_families: dict[str, PackageFamily] = field(default_factory=dict)
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
 
 
+def _definition() -> tuple[ComponentDefinition, dict[str, PackageFamily]]:
+    defn = make_sil("CONN")
+    return defn, sil_families(defn)
+
+
 def _two_wires_sharing_joint(
-    *, insulated_a: bool, insulated_b: bool, side: str = "top",
+    *,
+    insulated_a: bool,
+    insulated_b: bool,
+    side: str = "top",
 ) -> tuple[_State, uuid.UUID, uuid.UUID, uuid.UUID]:
     """Build a layout with two wires sharing a single 2-degree JointKnot
     at an off-pin pad.
@@ -67,21 +84,30 @@ def _two_wires_sharing_joint(
 
     Returns (state, wire1_id, wire2_id, joint_id).
     """
-    defn = ComponentDefinition.from_footprint(
-        name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
-    )
+    defn, families = _definition()
     layout = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
-    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="")
-    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="")
+    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="").bind(
+        defn, families
+    )
+    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="").bind(
+        defn, families
+    )
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
     layout.placements[inst_a.id] = ComponentPlacement(
-        component_id=inst_a.id, position=Point(3.0, 5.0), rotation=0, side="top",
+        component_id=inst_a.id,
+        position=Point(3.0, 5.0),
+        rotation=0,
+        side="top",
     )
     layout.placements[inst_b.id] = ComponentPlacement(
-        component_id=inst_b.id, position=Point(8.0, 5.0), rotation=0, side="top",
+        component_id=inst_b.id,
+        position=Point(8.0, 5.0),
+        rotation=0,
+        side="top",
     )
-    pa = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 1)
-    pb = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
+    footprint = defn.default_footprint(families)
+    pa = pin_world_position(footprint, layout.placements[inst_a.id], 1)
+    pb = pin_world_position(footprint, layout.placements[inst_b.id], 1)
     # Off-pin meeting point right between J1.pin1 and J2.pin1.
     hub = Point(round((pa.x + pb.x) / 2), pa.y)
 
@@ -91,21 +117,28 @@ def _two_wires_sharing_joint(
 
     w1 = Wire(
         id=uuid.uuid4(),
-        path=[pa, hub], side=side,  # type: ignore[arg-type]
+        path=[pa, hub],
+        side=side,  # type: ignore[arg-type]
         insulated=insulated_a,
-        a=KnotRef(id=pka.id), b=KnotRef(id=jk.id),
+        a=KnotRef(id=pka.id),
+        b=KnotRef(id=jk.id),
     )
     layout.add_wire(w1)
     w2 = Wire(
         id=uuid.uuid4(),
-        path=[hub, pb], side=side,  # type: ignore[arg-type]
+        path=[hub, pb],
+        side=side,  # type: ignore[arg-type]
         insulated=insulated_b,
-        a=KnotRef(id=jk.id), b=KnotRef(id=pkb.id),
+        a=KnotRef(id=jk.id),
+        b=KnotRef(id=pkb.id),
     )
     layout.add_wire(w2)
 
     state = _State(
-        layout=layout, instances=instances, components={"CONN": defn},
+        layout=layout,
+        instances=instances,
+        components={"CONN": defn},
+        package_families=families,
     )
     return state, w1.id, w2.id, jk.id
 
@@ -113,7 +146,8 @@ def _two_wires_sharing_joint(
 class TestFuseTouchingWires:
     def test_fuses_two_bare_wires_meeting_at_joint(self) -> None:
         state, w1_id, w2_id, joint_id = _two_wires_sharing_joint(
-            insulated_a=False, insulated_b=False,
+            insulated_a=False,
+            insulated_b=False,
         )
         assert len(state.layout.wires) == 2
 
@@ -128,7 +162,8 @@ class TestFuseTouchingWires:
 
     def test_fuses_two_insulated_wires(self) -> None:
         state, _, _, joint_id = _two_wires_sharing_joint(
-            insulated_a=True, insulated_b=True,
+            insulated_a=True,
+            insulated_b=True,
         )
         cmd = FuseTouchingWiresCommand()
         cmd.apply(state)
@@ -137,7 +172,8 @@ class TestFuseTouchingWires:
 
     def test_mismatched_insulation_not_fused(self) -> None:
         state, _, _, joint_id = _two_wires_sharing_joint(
-            insulated_a=False, insulated_b=True,
+            insulated_a=False,
+            insulated_b=True,
         )
         cmd = FuseTouchingWiresCommand()
         cmd.apply(state)
@@ -148,7 +184,8 @@ class TestFuseTouchingWires:
 
     def test_revert_reinstates_both_source_wires(self) -> None:
         state, w1_id, w2_id, joint_id = _two_wires_sharing_joint(
-            insulated_a=False, insulated_b=False,
+            insulated_a=False,
+            insulated_b=False,
         )
         original_ids = {w1_id, w2_id}
 
@@ -163,6 +200,7 @@ class TestFuseTouchingWires:
         # Shared joint reappears as 2-degree.
         assert joint_id in state.layout.knots
         from protoboard.domain.layout.knot import JointKnot
+
         jk = state.layout.knots[joint_id]
         assert isinstance(jk, JointKnot)
         assert len(jk.wire_ids) == 2
@@ -171,7 +209,8 @@ class TestFuseTouchingWires:
         """When ``wire_ids`` is set, only joints between two scope-member
         wires get fused — unrelated touching pairs stay apart."""
         state, w1_id, w2_id, joint_id = _two_wires_sharing_joint(
-            insulated_a=False, insulated_b=False,
+            insulated_a=False,
+            insulated_b=False,
         )
 
         # Scope excludes wire2 — fuse must not happen.
@@ -190,21 +229,30 @@ class TestFuseTouchingWires:
         the internal ``progress`` loop to fire more than once."""
         # Build three wires in a row: P1—J1—J2—P2 split as
         #   w_a: P1→J1, w_b: J1→J2, w_c: J2→P2
-        defn = ComponentDefinition.from_footprint(
-            name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
-        )
+        defn, families = _definition()
         layout = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
-        inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="")
-        inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="")
+        inst_a = ComponentInstance.new(
+            definition_ref="CONN", refdes="J1", value=""
+        ).bind(defn, families)
+        inst_b = ComponentInstance.new(
+            definition_ref="CONN", refdes="J2", value=""
+        ).bind(defn, families)
         instances = {inst_a.id: inst_a, inst_b.id: inst_b}
         layout.placements[inst_a.id] = ComponentPlacement(
-            component_id=inst_a.id, position=Point(2.0, 5.0), rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(2.0, 5.0),
+            rotation=0,
+            side="top",
         )
         layout.placements[inst_b.id] = ComponentPlacement(
-            component_id=inst_b.id, position=Point(10.0, 5.0), rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(10.0, 5.0),
+            rotation=0,
+            side="top",
         )
-        pa = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 1)
-        pb = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
+        footprint = defn.default_footprint(families)
+        pa = pin_world_position(footprint, layout.placements[inst_a.id], 1)
+        pb = pin_world_position(footprint, layout.placements[inst_b.id], 1)
         hub1 = Point(5.0, pa.y)
         hub2 = Point(8.0, pa.y)
         pka = layout.get_or_create_pin_knot(PinRef(inst_a.id, 1))
@@ -218,14 +266,20 @@ class TestFuseTouchingWires:
             ([hub2, pb], j2.id, pkb.id),
         ):
             w = Wire(
-                id=uuid.uuid4(), path=path, side="top",
+                id=uuid.uuid4(),
+                path=path,
+                side="top",
                 insulated=False,
-                a=KnotRef(id=a), b=KnotRef(id=b),
+                a=KnotRef(id=a),
+                b=KnotRef(id=b),
             )
             layout.add_wire(w)
 
         state = _State(
-            layout=layout, instances=instances, components={"CONN": defn},
+            layout=layout,
+            instances=instances,
+            components={"CONN": defn},
+            package_families=families,
         )
         cmd = FuseTouchingWiresCommand()
         cmd.apply(state)
@@ -239,29 +293,39 @@ class TestFuseTouchingWires:
         only one neighbouring wire.  The wire stays distinct."""
         # Single wire pin1 → pin2.  No 2-degree off-pin joint exists,
         # so the command should record zero collapses.
-        defn = ComponentDefinition.from_footprint(
-            name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
-        )
+        defn, families = _definition()
         layout = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
         inst = ComponentInstance.new(
-            definition_ref="CONN", refdes="J1", value="",
-        )
+            definition_ref="CONN",
+            refdes="J1",
+            value="",
+        ).bind(defn, families)
         instances = {inst.id: inst}
         layout.placements[inst.id] = ComponentPlacement(
-            component_id=inst.id, position=Point(3.0, 5.0), rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(3.0, 5.0),
+            rotation=0,
+            side="top",
         )
-        p1 = pin_world_position(defn.default_footprint(), layout.placements[inst.id], 1)
-        p2 = pin_world_position(defn.default_footprint(), layout.placements[inst.id], 2)
+        footprint = defn.default_footprint(families)
+        p1 = pin_world_position(footprint, layout.placements[inst.id], 1)
+        p2 = pin_world_position(footprint, layout.placements[inst.id], 2)
         pk1 = layout.get_or_create_pin_knot(PinRef(inst.id, 1))
         pk2 = layout.get_or_create_pin_knot(PinRef(inst.id, 2))
         w = Wire(
-            id=uuid.uuid4(), path=[p1, p2], side="top",
+            id=uuid.uuid4(),
+            path=[p1, p2],
+            side="top",
             insulated=False,
-            a=KnotRef(id=pk1.id), b=KnotRef(id=pk2.id),
+            a=KnotRef(id=pk1.id),
+            b=KnotRef(id=pk2.id),
         )
         layout.add_wire(w)
         state = _State(
-            layout=layout, instances=instances, components={"CONN": defn},
+            layout=layout,
+            instances=instances,
+            components={"CONN": defn},
+            package_families=families,
         )
         cmd = FuseTouchingWiresCommand()
         cmd.apply(state)

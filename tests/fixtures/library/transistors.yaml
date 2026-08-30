@@ -1,9 +1,9 @@
 components:
   - name: _TO92_NPN_CBE
     component_class: transistor_npn
-    footprints:
-      - {name: TO92, ref: "TO-92"}
-    pin_names: {1: C, 2: B, 3: E}
+    package_options:
+      - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
+    meta_pins: [C, B, E]
 
   - name: BC547
     extends: _TO92_NPN_CBE

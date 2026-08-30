@@ -6,10 +6,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from pytestqt.qtbot import QtBot
-
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QImage, QPainter
+from pytestqt.qtbot import QtBot
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
@@ -32,29 +31,52 @@ from protoboard.services.export.snapshot import BoardSnapshot
 
 
 def _empty_snapshot() -> BoardSnapshot:
-    board = Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                     layers=PadLayers(top=True, bottom=True, plated_through=True)),
-        rows=3, cols=3, row_gap=0, col_gap=0,
-    ))
+    board = Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=3,
+            cols=3,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
     lay = Layout()
     lay.ensure_root_group()
     sch = Schematic(nets={})
     idx = PadIndex(board, lay, sch, {}, {})
     return BoardSnapshot(
-        board=board, layout=lay, components={}, instances={},
-        schematic=sch, pad_index=idx, package_families={},
+        board=board,
+        layout=lay,
+        components={},
+        instances={},
+        schematic=sch,
+        pad_index=idx,
+        package_families={},
     )
 
 
 def _snapshot_with_resistor() -> BoardSnapshot:
-    board = Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                     layers=PadLayers(top=True, bottom=True, plated_through=True)),
-        rows=2, cols=4, row_gap=0, col_gap=0,
-    ))
+    board = Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=2,
+            cols=4,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
     family = sil_family(2)
     assert family is not None
     families = {family.family_id: family}
@@ -69,26 +91,35 @@ def _snapshot_with_resistor() -> BoardSnapshot:
             ),
         ),
     )
-    inst = ComponentInstance.new(
-        definition_ref="R", refdes="R1", value=""
-    ).bind(defn, families)
+    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+        defn, families
+    )
     pl = ComponentPlacement(
-        component_id=inst.id, position=Point(0.5, 0.5),
-        rotation=90, side="top",
+        component_id=inst.id,
+        position=Point(0.5, 0.5),
+        rotation=90,
+        side="top",
     )
     lay = Layout()
     lay.ensure_root_group()
     lay.placements[inst.id] = pl
     n1 = uuid.uuid4()
-    sch = Schematic(nets={
-        n1: Net(id=n1, name="N1", pins={PinRef(component_id=inst.id, pin_number=1)}),
-    })
+    sch = Schematic(
+        nets={
+            n1: Net(
+                id=n1, name="N1", pins={PinRef(component_id=inst.id, pin_number=1)}
+            ),
+        }
+    )
     idx = PadIndex(board, lay, sch, {"R": defn}, {inst.id: inst})
     return BoardSnapshot(
-        board=board, layout=lay,
+        board=board,
+        layout=lay,
         components={"R": defn},
         instances={inst.id: inst},
-        schematic=sch, pad_index=idx, package_families=families,
+        schematic=sch,
+        pad_index=idx,
+        package_families=families,
     )
 
 
@@ -179,7 +210,11 @@ class TestExportPng:
         snap = _snapshot_with_resistor()
         out = tmp_path / "board2.png"
         export_png(
-            out, snap.board, snap.layout, snap.components, snap.instances,
+            out,
+            snap.board,
+            snap.layout,
+            snap.components,
+            snap.instances,
             schematic=snap.schematic,
             package_families=snap.package_families,
         )

@@ -49,7 +49,7 @@ def test_l_shape_horizontal_first_excludes_endpoints() -> None:
     a = Point(0.5, 0.5)
     b = Point(3.5, 2.5)
     cells = _l_shape_cells(a, b, horizontal_first=True)
-    # Path: (0.5,0.5) → (1.5,0.5) → (2.5,0.5) → (3.5,0.5) [corner] → (3.5,1.5) → (3.5,2.5)
+    # Path: (0.5,0.5) → (1.5,0.5) → (2.5,0.5) → (3.5,0.5) [corner] → (3.5,1.5) → (3.5,2.5)  # noqa: E501
     # Excluding endpoints a and b → 4 transit cells (corner included).
     assert a not in cells
     assert b not in cells

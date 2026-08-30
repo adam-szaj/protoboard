@@ -13,16 +13,16 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId
+from protoboard.controller.tools.base import ControllerTool
+from protoboard.controller.tools.select_tool import SelectTool
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.item_handle import ItemId
-from protoboard.controller.tools.base import ControllerTool
-from protoboard.controller.tools.select_tool import SelectTool
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -54,11 +54,16 @@ def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UU
     """Add an "R" instance + placement at (x, y); returns its component id."""
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id

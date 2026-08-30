@@ -11,9 +11,9 @@ from pytestqt.qtbot import QtBot
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _DefaultTool
+from protoboard.gui.qt_help_overlay import QtHelpOverlay
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
-from protoboard.gui.qt_help_overlay import QtHelpOverlay
 
 
 def _arm_wire_edit(board_view: BoardView) -> WireEditTool:
@@ -28,13 +28,16 @@ def _arm_wire_edit(board_view: BoardView) -> WireEditTool:
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5)],
-        insulated=True, side="top",
+        insulated=True,
+        side="top",
     )
     session.layout.wires.append(wire)
     session.invalidate_graph()
     board_view.set_tool(SelectTool())
     tool = WireEditTool(
-        WireRange.full_span(wire), wire.id, return_to=lambda: None,
+        WireRange.full_span(wire),
+        wire.id,
+        return_to=lambda: None,
     )
     board_view.set_tool(tool)
     return tool
@@ -74,6 +77,7 @@ class TestRefresh:
         board_view.refresh()
         board_view.paint._ensure_bg_cache()
         from protoboard.gui.renderers.board_renderer import BoardDisplayList
+
         assert isinstance(board_view.paint._bg_display_list, BoardDisplayList)
         # 5×5 = 25 pads expected for the test fixture board.
         assert len(board_view.paint._bg_display_list.pads) >= 25
@@ -148,15 +152,16 @@ class TestBoardSandwichCache:
         board_view.paint._back_cache_dirty = False
         board_view.paint._back_cache = object()  # opaque sentinel
         board_view.refresh()
-        assert board_view.paint._back_cache_dirty, (
-            "refresh() must invalidate _back_cache_dirty so the next paint rebuilds"
-        )
+        assert (
+            board_view.paint._back_cache_dirty
+        ), "refresh() must invalidate _back_cache_dirty so the next paint rebuilds"
 
     def test_back_cache_hides_back_items_after_render(
         self, board_view: BoardView, session: EditorSession, qtbot: QtBot
     ) -> None:
         # Add a back-side wire so we have a back item to cache.
         import uuid
+
         from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
 
@@ -176,7 +181,9 @@ class TestBoardSandwichCache:
         board_view.paint._ensure_back_cache()
 
         # Back-side group exists in scene but was hidden after rasterisation.
-        wire_group = cast(QGraphicsItemGroup, board_view.composer._wire_groups.get(wire.id))
+        wire_group = cast(
+            QGraphicsItemGroup, board_view.composer._wire_groups.get(wire.id)
+        )
         assert wire_group is not None
         # Cache may be None if no back items existed at viewport — but with
         # the wire we just added it should be present.
@@ -192,12 +199,14 @@ class TestBoardSandwichCache:
 
     def test_alpha_for_board_mid_default(self) -> None:
         from protoboard.gui.layer_state import LayerState
+
         ls = LayerState()
         # FULL → board_mid_alpha (default 0.10 from Theme propagation;
         # here we just use the LayerState default 0.10).
         assert ls.alpha_for_board_mid() == 0.10
         # HIDDEN → 0
         from protoboard.gui.layer_state import LayerVisibility
+
         ls.overrides.board = LayerVisibility.HIDDEN
         assert ls.alpha_for_board_mid() == 0.0
         # GHOST → 0
@@ -206,12 +215,13 @@ class TestBoardSandwichCache:
 
     def test_components_hidden_does_not_hide_labels(self) -> None:
         from protoboard.gui.layer_state import LayerState, LayerVisibility
+
         ls = LayerState()
         ls.overrides.components_top = LayerVisibility.HIDDEN
         assert ls.alpha_for_component("top") == 0.0
         # Labels independent.
         assert ls.alpha_for_label("top") == 1.0
-        assert ls.alpha_for_pin_names("top") == 1.0
+        assert ls.alpha_for_meta_pin_labels("top") == 1.0
 
 
 class TestShortcutsHelp:
@@ -249,6 +259,7 @@ class TestShortcutsHelp:
 
     def test_overlay_lists_tool_actions(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
+
         # reroute is a WireEditTool op after the Task-8 swap.
         _arm_wire_edit(board_view)
         board_view.tools._show_shortcuts_overlay()
@@ -263,17 +274,19 @@ class TestShortcutsHelp:
         # (ALL_ACTIONS + live KeyBindings), not a hand-maintained id list — so
         # actual app shortcuts (Save, Undo, DRC…) appear, grouped by menu.
         from PySide6.QtWidgets import QLabel
+
         board_view.set_tool(SelectTool())
         board_view.tools._show_shortcuts_overlay()
         ov = cast(QtHelpOverlay, board_view.help_overlay)._label
         assert isinstance(ov, QLabel)
         text = ov.text()
         assert "Save" in text and "Ctrl+S" in text  # File
-        assert "Undo" in text                        # Edit
+        assert "Undo" in text  # Edit
         assert "File" in text and "Analysis" in text  # menu-grouped headings
 
     def test_overlay_reflects_rebind(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
+
         board_view.keymap.set_override("select-tool.action.reroute", "Q")
         _arm_wire_edit(board_view)  # reroute is a WireEditTool op now
         board_view.tools._show_shortcuts_overlay()

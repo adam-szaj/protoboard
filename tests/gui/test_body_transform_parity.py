@@ -31,6 +31,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItemGroup
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import resolved_footprint
 from protoboard.domain.layout.placement import (
@@ -38,13 +39,12 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
 )
 from protoboard.geometry import Point
-from protoboard.types import Side
 from protoboard.gui.renderers.body_shapes import body_shape_for
-from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.services.library.loader import load_library
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
+from protoboard.types import Side
 
 _RED = QColor(200, 50, 50)
 _DARK = QColor(30, 30, 30)
@@ -55,16 +55,16 @@ _DARK = QColor(30, 30, 30)
 # Each entry is a NON-SQUARE part so a 90° rotation is observable.
 #   (label, definition_name, package_variant)
 _SAMPLES: list[tuple[str, str, str | None]] = [
-    ("cylinder_axial", "1N4001", None),          # 2-pin axial capsule
-    ("cylinder_radial_3p", "2N2222", None),      # TO-92 radial
-    ("disc_radial", "C", None),                  # 2-pin disc
-    ("smd_chip", "C", "SMD-0805/typ"),           # 2-pin surface-mount prism
+    ("cylinder_axial", "1N4001", None),  # 2-pin axial capsule
+    ("cylinder_radial_3p", "2N2222", None),  # TO-92 radial
+    ("disc_radial", "C", None),  # 2-pin disc
+    ("smd_chip", "C", "chip-smd/imperial/0805"),  # 2-pin surface-mount prism
     ("prism_sil_header", "PinHeader_1x05", None),  # single-row → bbox path
-    ("prism_sil_jst", "JST_PH_3pin", None),      # single-row connector → bbox
-    ("prism_sil_rnet", "R_Net_8", None),         # single-row network → bbox
-    ("prism_dip", "74HC00", None),               # two-column DIP → silhouette
-    ("prism_to220", "7805", None),               # 3-pin regulator prism
-    ("devboard", "Arduino_Nano", None),          # dev-board → bbox + rings
+    ("prism_sil_jst", "JST_PH_3pin", None),  # single-row connector → bbox
+    ("prism_sil_rnet", "R_Net_8", None),  # single-row network → bbox
+    ("prism_dip", "74HC00", None),  # two-column DIP → silhouette
+    ("prism_to220", "7805", None),  # 3-pin regulator prism
+    ("devboard", "Arduino_Nano", None),  # dev-board → bbox + rings
 ]
 
 
@@ -78,7 +78,11 @@ def _library() -> object:
 
 
 def _body_and_pins(
-    library: object, defn_name: str, variant: str | None, rot: int, side: Side,
+    library: object,
+    defn_name: str,
+    variant: str | None,
+    rot: int,
+    side: Side,
 ) -> tuple[str, float, float, Point, Point]:
     """Draw the body at *(rot, side)* and return
     ``(shape_name, body_w, body_h, body_centre, pin_cloud_centre)``.
@@ -86,22 +90,30 @@ def _body_and_pins(
     lib, fams = library  # type: ignore[misc]
     defn = lib.get(defn_name)
     inst = ComponentInstance(
-        id=uuid.uuid4(), definition_ref=defn_name, refdes="X1", value="v",
+        id=uuid.uuid4(),
+        definition_ref=defn_name,
+        refdes="X1",
+        value="v",
         package_variant=variant,
     )
     inst = inst.bind(defn, fams)
     fp = resolved_footprint(defn, inst, fams)
     pl = ComponentPlacement(
-        component_id=uuid.uuid4(), position=Point(20.0, 20.0),
-        rotation=rot, side=side,
+        component_id=uuid.uuid4(),
+        position=Point(20.0, 20.0),
+        rotation=rot,
+        side=side,
     )
-    positions = [
-        pin_world_position(fp, pl, n + 1) for n in range(fp.pin_count())
-    ]
+    positions = [pin_world_position(fp, pl, n + 1) for n in range(fp.pin_count())]
     shape = body_shape_for(defn, pl, inst, package_families=fams)
     group = QGraphicsItemGroup()
     body_items, label_items = shape.draw(
-        positions, _RED, _DARK, 1.0, 0.0, DEFAULT_THEME,
+        positions,
+        _RED,
+        _DARK,
+        1.0,
+        0.0,
+        DEFAULT_THEME,
     )
     for item in body_items + label_items:
         group.addToGroup(item)
@@ -114,19 +126,27 @@ def _body_and_pins(
 
 
 def _pin_span(
-    library: object, defn_name: str, variant: str | None, rot: int,
+    library: object,
+    defn_name: str,
+    variant: str | None,
+    rot: int,
 ) -> tuple[float, float]:
     lib, fams = library  # type: ignore[misc]
     defn = lib.get(defn_name)
     inst = ComponentInstance(
-        id=uuid.uuid4(), definition_ref=defn_name, refdes="X1", value="v",
+        id=uuid.uuid4(),
+        definition_ref=defn_name,
+        refdes="X1",
+        value="v",
         package_variant=variant,
     )
     inst = inst.bind(defn, fams)
     fp = resolved_footprint(defn, inst, fams)
     pl = ComponentPlacement(
-        component_id=uuid.uuid4(), position=Point(20.0, 20.0),
-        rotation=rot, side="top",
+        component_id=uuid.uuid4(),
+        position=Point(20.0, 20.0),
+        rotation=rot,
+        side="top",
     )
     pos = [pin_world_position(fp, pl, n + 1) for n in range(fp.pin_count())]
     xs = [p.x for p in pos]
@@ -141,11 +161,17 @@ class TestBodyFollowsPinsUnderRotation:
     regression in the silhouette / capsule paths."""
 
     @pytest.mark.parametrize(
-        "label,name,variant", _SAMPLES, ids=[s[0] for s in _SAMPLES],
+        "label,name,variant",
+        _SAMPLES,
+        ids=[s[0] for s in _SAMPLES],
     )
     def test_body_bbox_swaps_wh_on_90(
-        self, qtbot: QtBot, _library: object,
-        label: str, name: str, variant: str | None,
+        self,
+        qtbot: QtBot,
+        _library: object,
+        label: str,
+        name: str,
+        variant: str | None,
     ) -> None:
         # Only meaningful when the pin cloud itself is non-square.
         pin_w0, pin_h0 = _pin_span(_library, name, variant, 0)
@@ -154,50 +180,63 @@ class TestBodyFollowsPinsUnderRotation:
 
         sh0, w0, h0, _bc0, _pc0 = _body_and_pins(_library, name, variant, 0, "top")
         sh90, w90, h90, _bc90, _pc90 = _body_and_pins(
-            _library, name, variant, 90, "top")
+            _library, name, variant, 90, "top"
+        )
 
         assert sh0 == sh90
         # The body turns with the pins: width/height swap within a tolerance
         # that absorbs asymmetric leads / markers.
-        assert w0 == pytest.approx(h90, abs=0.35), (
-            f"{label}: body did not rotate — rot0 w={w0:.2f} but rot90 h={h90:.2f}"
-        )
-        assert h0 == pytest.approx(w90, abs=0.35), (
-            f"{label}: body did not rotate — rot0 h={h0:.2f} but rot90 w={w90:.2f}"
-        )
+        assert w0 == pytest.approx(
+            h90, abs=0.35
+        ), f"{label}: body did not rotate — rot0 w={w0:.2f} but rot90 h={h90:.2f}"
+        assert h0 == pytest.approx(
+            w90, abs=0.35
+        ), f"{label}: body did not rotate — rot0 h={h0:.2f} but rot90 w={w90:.2f}"
 
     @pytest.mark.parametrize(
-        "label,name,variant", _SAMPLES, ids=[s[0] for s in _SAMPLES],
+        "label,name,variant",
+        _SAMPLES,
+        ids=[s[0] for s in _SAMPLES],
     )
     def test_body_bbox_preserved_on_180(
-        self, qtbot: QtBot, _library: object,
-        label: str, name: str, variant: str | None,
+        self,
+        qtbot: QtBot,
+        _library: object,
+        label: str,
+        name: str,
+        variant: str | None,
     ) -> None:
-        _sh0, w0, h0, _bc0, _pc0 = _body_and_pins(
-            _library, name, variant, 0, "top")
+        _sh0, w0, h0, _bc0, _pc0 = _body_and_pins(_library, name, variant, 0, "top")
         _sh180, w180, h180, _bc180, _pc180 = _body_and_pins(
-            _library, name, variant, 180, "top")
+            _library, name, variant, 180, "top"
+        )
         # A 180° turn maps the bbox onto itself.
         assert w0 == pytest.approx(w180, abs=0.35)
         assert h0 == pytest.approx(h180, abs=0.35)
 
     @pytest.mark.parametrize(
-        "label,name,variant", _SAMPLES, ids=[s[0] for s in _SAMPLES],
+        "label,name,variant",
+        _SAMPLES,
+        ids=[s[0] for s in _SAMPLES],
     )
     @pytest.mark.parametrize("rot", [0, 90, 180, 270])
     def test_body_centre_tracks_pin_centre(
-        self, qtbot: QtBot, _library: object,
-        label: str, name: str, variant: str | None, rot: int,
+        self,
+        qtbot: QtBot,
+        _library: object,
+        label: str,
+        name: str,
+        variant: str | None,
+        rot: int,
     ) -> None:
         # The body stays centred on its pins at every orientation (no drift).
-        _sh, _w, _h, body_c, pin_c = _body_and_pins(
-            _library, name, variant, rot, "top")
-        assert body_c.x == pytest.approx(pin_c.x, abs=0.6), (
-            f"{label} rot={rot}: body cx {body_c.x:.2f} != pin cx {pin_c.x:.2f}"
-        )
-        assert body_c.y == pytest.approx(pin_c.y, abs=0.6), (
-            f"{label} rot={rot}: body cy {body_c.y:.2f} != pin cy {pin_c.y:.2f}"
-        )
+        _sh, _w, _h, body_c, pin_c = _body_and_pins(_library, name, variant, rot, "top")
+        assert body_c.x == pytest.approx(
+            pin_c.x, abs=0.6
+        ), f"{label} rot={rot}: body cx {body_c.x:.2f} != pin cx {pin_c.x:.2f}"
+        assert body_c.y == pytest.approx(
+            pin_c.y, abs=0.6
+        ), f"{label} rot={rot}: body cy {body_c.y:.2f} != pin cy {pin_c.y:.2f}"
 
 
 class TestBodyFollowsPinsOnFlip:
@@ -205,14 +244,21 @@ class TestBodyFollowsPinsOnFlip:
     (the bottom-side reflection is part of the shared transform)."""
 
     @pytest.mark.parametrize(
-        "label,name,variant", _SAMPLES, ids=[s[0] for s in _SAMPLES],
+        "label,name,variant",
+        _SAMPLES,
+        ids=[s[0] for s in _SAMPLES],
     )
     def test_body_centre_tracks_pins_on_bottom(
-        self, qtbot: QtBot, _library: object,
-        label: str, name: str, variant: str | None,
+        self,
+        qtbot: QtBot,
+        _library: object,
+        label: str,
+        name: str,
+        variant: str | None,
     ) -> None:
         _sh, _w, _h, body_c, pin_c = _body_and_pins(
-            _library, name, variant, 0, "bottom")
+            _library, name, variant, 0, "bottom"
+        )
         assert body_c.x == pytest.approx(pin_c.x, abs=0.6)
         assert body_c.y == pytest.approx(pin_c.y, abs=0.6)
 
@@ -235,7 +281,9 @@ class TestBodyPlacementFallbackIsIdentityRotation:
     identity linear part)."""
 
     def test_fallback_angle_is_zero_for_x_and_y_pin_rows(
-        self, qtbot: QtBot, _library: object,
+        self,
+        qtbot: QtBot,
+        _library: object,
     ) -> None:
         import math
 

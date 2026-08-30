@@ -34,9 +34,7 @@ def test_combine_sum_accumulates_while_keeping_latest_pivot() -> None:
     # The wheel-zoom shape: accumulate the delta, keep the latest pivot.
     fired: list[tuple[int, str]] = []
 
-    def combine(
-        old: tuple[int, str], new: tuple[int, str]
-    ) -> tuple[int, str]:
+    def combine(old: tuple[int, str], new: tuple[int, str]) -> tuple[int, str]:
         return (old[0] + new[0], new[1])
 
     t: ParkLatestThrottle[tuple[int, str]] = ParkLatestThrottle(

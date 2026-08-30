@@ -81,6 +81,7 @@ class TestRouterProtocol:
     def test_runtime_check_rejects_non_router(self) -> None:
         class _NotARouter:
             pass
+
         assert not isinstance(_NotARouter(), Router)
 
 
@@ -108,6 +109,7 @@ class TestRegistry:
         class _Anon:
             name = ""
             display_name = "x"
+
         reg = _Registry()
         with pytest.raises(ValueError):
             reg.register(_Anon())  # type: ignore[arg-type]
@@ -116,15 +118,26 @@ class TestRegistry:
         reg = _Registry()
 
         class _A:
-            name = "zebra"; display_name = "Z"
+            name = "zebra"
+            display_name = "Z"
+
             def route(self, *_a, **_k): ...
-            def capabilities(self): return RouterCapabilities()
-            def supported_cost_keys(self): return frozenset()
+            def capabilities(self):
+                return RouterCapabilities()
+
+            def supported_cost_keys(self):
+                return frozenset()
+
         class _B:
-            name = "alpha"; display_name = "A"
+            name = "alpha"
+            display_name = "A"
+
             def route(self, *_a, **_k): ...
-            def capabilities(self): return RouterCapabilities()
-            def supported_cost_keys(self): return frozenset()
+            def capabilities(self):
+                return RouterCapabilities()
+
+            def supported_cost_keys(self):
+                return frozenset()
 
         reg.register(_A())  # type: ignore[arg-type]
         reg.register(_B())  # type: ignore[arg-type]
@@ -140,15 +153,26 @@ class TestRegistry:
         reg = _Registry()
 
         class _Beta:
-            name = "beta"; display_name = "B"
+            name = "beta"
+            display_name = "B"
+
             def route(self, *_a, **_k): ...
-            def capabilities(self): return RouterCapabilities()
-            def supported_cost_keys(self): return frozenset()
+            def capabilities(self):
+                return RouterCapabilities()
+
+            def supported_cost_keys(self):
+                return frozenset()
+
         class _Alpha:
-            name = "alpha"; display_name = "A"
+            name = "alpha"
+            display_name = "A"
+
             def route(self, *_a, **_k): ...
-            def capabilities(self): return RouterCapabilities()
-            def supported_cost_keys(self): return frozenset()
+            def capabilities(self):
+                return RouterCapabilities()
+
+            def supported_cost_keys(self):
+                return frozenset()
 
         reg.register(_Beta())  # type: ignore[arg-type]
         reg.register(_Alpha())  # type: ignore[arg-type]
@@ -164,10 +188,12 @@ class TestGlobalRegistry:
     def test_builtin_astar_is_registered(self) -> None:
         # builtin module is imported here to ensure side-effect ran.
         import protoboard.services.routing.builtin  # noqa: F401
+
         assert "astar" in registry.list_available()
 
     def test_global_default_is_astar(self) -> None:
         import protoboard.services.routing.builtin  # noqa: F401
+
         assert registry.default().name == "astar"
 
 
@@ -194,6 +220,7 @@ class TestProgressSink:
 
     def test_cancelled_reflects_flag(self) -> None:
         import threading
+
         ev = threading.Event()
         sink = ProgressSink(cancel_flag=ev)
         assert not sink.cancelled()

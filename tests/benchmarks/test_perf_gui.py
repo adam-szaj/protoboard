@@ -12,6 +12,7 @@ Fixtures come from ``tests/benchmarks/conftest.py``:
   synthetic_medium_*         — 50 components, no wires (placement/refresh bench)
   synthetic_medium_routed_*  — same, but with autoroute applied (wire bench)
 """
+
 from __future__ import annotations
 
 import pytest
@@ -20,13 +21,16 @@ import pytest
 # BoardView.refresh() — warm path (nothing changed)
 # ---------------------------------------------------------------------------
 
+
 def test_bench_refresh_warm_nothing_changed(benchmark, synthetic_medium_board_view):
     """Warm refresh when layout is unchanged — should reuse all groups."""
     benchmark(synthetic_medium_board_view.refresh)
 
 
 def test_bench_refresh_warm_one_comp_moved(
-    benchmark, synthetic_medium_board_view, synthetic_medium_session,
+    benchmark,
+    synthetic_medium_board_view,
+    synthetic_medium_session,
 ):
     """Warm refresh after moving one component — only that group rebuilds."""
     layout = synthetic_medium_session.layout
@@ -43,7 +47,8 @@ def test_bench_refresh_warm_one_comp_moved(
         toggle[0] = not toggle[0]
         dx = 1 if toggle[0] else -1
         layout.placements[cid] = replace(
-            pl, position=Point(pl.position.x + dx, pl.position.y),
+            pl,
+            position=Point(pl.position.x + dx, pl.position.y),
         )
         synthetic_medium_session.invalidate_graph()
         synthetic_medium_board_view.refresh()
@@ -55,8 +60,11 @@ def test_bench_refresh_warm_one_comp_moved(
 # set_highlighted_net — opacity-only path, no rebuild
 # ---------------------------------------------------------------------------
 
+
 def test_bench_set_highlighted_net(
-    benchmark, synthetic_medium_routed_board_view, synthetic_medium_routed_session,
+    benchmark,
+    synthetic_medium_routed_board_view,
+    synthetic_medium_routed_session,
 ):
     """Switching highlighted net must be O(N) setOpacity calls, not rebuilds."""
     from collections import Counter
@@ -77,6 +85,7 @@ def test_bench_set_highlighted_net(
 # Spatial index — hit-test on click
 # ---------------------------------------------------------------------------
 
+
 def _medium_hit_tester(session, board_view):
     """A HitTester bound to the medium fixture (v2's hit-test home)."""
     from typing import cast
@@ -89,7 +98,9 @@ def _medium_hit_tester(session, board_view):
 
 
 def test_bench_hit_test_component(
-    benchmark, synthetic_medium_board_view, synthetic_medium_session,
+    benchmark,
+    synthetic_medium_board_view,
+    synthetic_medium_session,
 ):
     """HitTester.hit should be fast via spatial index (not O(C×P) brute force)."""
     tester, filters = _medium_hit_tester(
@@ -105,13 +116,16 @@ def test_bench_hit_test_component(
     if defn is None:
         pytest.skip("no component definition")
     from protoboard.domain.layout.placement import pin_world_position
+
     pos = pin_world_position(defn.default_footprint(), pl, 1)
 
     benchmark(tester.hit, pos.x, pos.y, filters)
 
 
 def test_bench_hit_test_wire(
-    benchmark, synthetic_medium_routed_board_view, synthetic_medium_routed_session,
+    benchmark,
+    synthetic_medium_routed_board_view,
+    synthetic_medium_routed_session,
 ):
     """HitTester wire hit-test via spatial index."""
     tester, filters = _medium_hit_tester(
@@ -129,15 +143,20 @@ def test_bench_hit_test_wire(
 # ConnectivityGraph build
 # ---------------------------------------------------------------------------
 
+
 def test_bench_connectivity_graph_build(benchmark, synthetic_medium_project):
     """Full connectivity graph build from scratch."""
-    board, layout, _schematic, instances, _routing, _lib, components = synthetic_medium_project
+    board, layout, _schematic, instances, _routing, _lib, components = (
+        synthetic_medium_project
+    )
     from protoboard.domain.connectivity.graph import ConnectivityGraph
 
     def build():
         ConnectivityGraph(
-            board=board, layout=layout,
-            components=components, instances=instances,
+            board=board,
+            layout=layout,
+            components=components,
+            instances=instances,
         )
 
     benchmark(build)
@@ -158,8 +177,10 @@ def test_bench_session_connectivity_graph_cached(benchmark, synthetic_medium_ses
 # Spatial index build
 # ---------------------------------------------------------------------------
 
+
 def test_bench_spatial_index_build(benchmark, synthetic_medium_session):
-    """Building comp+wire spatial indexes from scratch (happens after layout_changed)."""
+    """Building comp+wire spatial indexes from scratch (happens after layout_changed)."""  # noqa: E501
+
     def build():
         synthetic_medium_session._comp_spatial_index = None
         synthetic_medium_session._wire_spatial_index = None

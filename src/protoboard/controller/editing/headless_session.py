@@ -28,14 +28,14 @@ from typing import TYPE_CHECKING
 import structlog as _structlog
 
 if TYPE_CHECKING:
+    from protoboard.controller.editing.controller import EditController
+    from protoboard.controller.editing.item_handle import ItemId
+    from protoboard.controller.selection.service import SelectionService
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
-    from protoboard.controller.editing.controller import EditController
-    from protoboard.controller.editing.item_handle import ItemId
-    from protoboard.controller.selection.service import SelectionService
 
 from protoboard.controller.highlight_stack import HighlightStackBase
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
@@ -46,8 +46,8 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
@@ -68,6 +68,7 @@ def _build_comp_spatial_index(
 ) -> dict[tuple[int, int], list[uuid.UUID]]:
     """Build grid-cell → comp_id index from current placements."""
     from protoboard.domain.components.package import resolved_footprint
+
     idx: dict[tuple[int, int], list[uuid.UUID]] = defaultdict(list)
     for comp_id, placement in layout.placements.items():
         inst = instances.get(comp_id)
@@ -115,6 +116,7 @@ class HeadlessSession:
         # (PinHeader_1x05) on miss, so instance refs from loaded projects and
         # the placement dialog resolve transparently.
         from protoboard.services.library.parametric import ComponentCatalog
+
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Package-family body catalogue, keyed by family id: the authored
         # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
@@ -190,6 +192,7 @@ class HeadlessSession:
         """The session's :class:`EditController` (built once, on first use)."""
         if self._edit_controller is None:
             from protoboard.controller.editing.controller import EditController
+
             self._edit_controller = EditController(self)
         return self._edit_controller
 
@@ -285,18 +288,15 @@ class HeadlessSession:
         self._wire_resolver_to(value)
 
     def _wire_resolver_to(self, layout: Layout) -> None:
-        layout.set_pin_resolver(
-            lambda pin: self._resolve_pin_for_knot(pin)
-        )
+        layout.set_pin_resolver(lambda pin: self._resolve_pin_for_knot(pin))
         layout.set_footprint_resolver(self._resolve_footprint_for_flip)
 
-    def _resolve_footprint_for_flip(
-        self, comp_id: uuid.UUID
-    ) -> Footprint | None:
+    def _resolve_footprint_for_flip(self, comp_id: uuid.UUID) -> Footprint | None:
         """Resolve *comp_id*'s chosen-variant footprint for the seam's group-flip
         compose branch.  Returns None (a flipped group then raises loudly) when
         the chain instance→definition→footprint can't be resolved."""
         from protoboard.domain.components.package import resolved_footprint
+
         inst = self.instances.get(comp_id)
         if inst is None:
             return None
@@ -366,8 +366,12 @@ class HeadlessSession:
             from protoboard.services.routing.cost_analyzer import (
                 _under_component_pads,
             )
+
             cache = _under_component_pads(
-                self.board, self.layout, self.components, self.instances,
+                self.board,
+                self.layout,
+                self.components,
+                self.instances,
             )
             self._under_component_pads_cache = cache
         return cache
@@ -398,6 +402,7 @@ class HeadlessSession:
             from protoboard.domain.connectivity.wire_net_map import (
                 build_wire_net_map,
             )
+
             cache = build_wire_net_map(
                 self.schematic, self.layout, self.connectivity_graph()
             )
@@ -421,6 +426,7 @@ class HeadlessSession:
             from protoboard.services.routing.cost_analyzer import (
                 _plated_through_pads,
             )
+
             cache = _plated_through_pads(self.board)
             self._plated_through_pads_cache = cache
         return cache
@@ -461,6 +467,7 @@ class HeadlessSession:
         """
         if self._pad_index is None:
             from protoboard.domain.board.pad_state import PadIndex
+
             t0 = time.monotonic()
             self._pad_index = PadIndex(
                 board=self.board,
@@ -476,7 +483,9 @@ class HeadlessSession:
         """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""
         if self._comp_spatial_index is None:
             self._comp_spatial_index = _build_comp_spatial_index(
-                self.layout, self.instances, self.components,
+                self.layout,
+                self.instances,
+                self.components,
                 self.package_families,
             )
         return self._comp_spatial_index
@@ -503,9 +512,7 @@ class HeadlessSession:
 
         return GroupTree(self._layout.groups)
 
-    def conflict_scanner(
-        self, *, pad_index: PadIndex | None = None
-    ) -> ConflictScanner:
+    def conflict_scanner(self, *, pad_index: PadIndex | None = None) -> ConflictScanner:
         """A :class:`ConflictScanner` over this session's live layout context.
 
         The convenient entry point for pad/wire-conflict queries
@@ -546,6 +553,7 @@ class HeadlessSession:
             StrategyConfig,
             make_strategy,
         )
+
         cfg = StrategyConfig.from_session(self, subsystem)  # type: ignore[arg-type]
         return make_strategy(subsystem, cfg)  # type: ignore[arg-type]
 
@@ -598,8 +606,10 @@ class HeadlessSession:
         from protoboard.domain.layout.placement import (
             resolve_pin_world_position,
         )
+
         return resolve_pin_world_position(
-            comp_id, pin_number,
+            comp_id,
+            pin_number,
             placements=self.layout.placements,
             instances=self.instances,
             components=self.components,
@@ -620,8 +630,11 @@ class HeadlessSession:
         from protoboard.domain.layout.placement import (
             resolve_pin_world_position,
         )
+
         inst = self.instances.get(comp_id)
         if inst is None:
+            return []
+        if comp_id not in self.layout.placements:
             return []
         defn = self.components.get(inst.definition_ref)
         if defn is None:
@@ -630,7 +643,8 @@ class HeadlessSession:
         for n in range(resolved_footprint_or_default(defn, inst).pin_count()):
             pin_num = n + 1
             pos = resolve_pin_world_position(
-                comp_id, pin_num,
+                comp_id,
+                pin_num,
                 placements=self.layout.placements,
                 instances=self.instances,
                 components=self.components,
@@ -667,6 +681,7 @@ class HeadlessSession:
         """
         from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import component_bbox
+
         placement = self.layout.placements.get(comp_id)
         if placement is None:
             return None
@@ -683,7 +698,8 @@ class HeadlessSession:
             return None
 
     def component_definition(
-        self, comp_id: uuid.UUID,
+        self,
+        comp_id: uuid.UUID,
     ) -> ComponentDefinition | None:
         """Return the ComponentDefinition for *comp_id*, or None.
 

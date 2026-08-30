@@ -21,6 +21,8 @@ from protoboard.geometry import Size3D, Vector, Vector3D
 from ..geometry_utils import _pt
 
 VectorList = list[Vector]
+
+
 def _two_pin_prism(steps_holes: list[Vector]) -> Prism:
     leads = Leads(
         direction=(Vector3D(0, 0, -1),) * (len(steps_holes) + 1),
@@ -79,6 +81,7 @@ def _dimless_prism():
     # Regression shape: no explicit dims and no margin, so ``bbox()`` raises —
     # placing such a part used to crash PadIndex via ``body_holes``.
     from protoboard.domain.components.package.loader import build_package
+
     return build_package(
         {
             "shape": "prism",
@@ -98,6 +101,7 @@ class TestDimlessBodyMask:
 
     def test_body_holes_is_empty(self) -> None:
         from protoboard.domain.components.package.mask import body_holes
+
         assert body_holes(_dimless_prism()) == []
 
     def test_pad_mask_carries_pins_only(self) -> None:
@@ -125,7 +129,8 @@ class TestMasksCollide:
         )
         # part at a pure-body hole (not a pin hole) from top — high standoff → ok
         body_only = [
-            hole for hole, b in body.items()
+            hole
+            for hole, b in body.items()
             if (b & PadCell.BODY_TOP) and not (b & PadCell.PIN)
         ]
         assert body_only
@@ -159,7 +164,9 @@ class TestRadialCylinderMask:
             board_offset=(Vector(1.0, 0.0),),
         )
         return Cylinder(
-            diameter_mm=2.5, length_mm=4.5, leads=leads,
+            diameter_mm=2.5,
+            length_mm=4.5,
+            leads=leads,
             arrangement=LeadArrangement.RADIAL,
         )
 

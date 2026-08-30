@@ -13,24 +13,24 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.group_ownership import _pin_endpoint_matches_path
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
-from protoboard.domain.layout.wire import WireCollection
-from protoboard.domain.layout.wire_utils import _pin_at, find_pin_at
 from protoboard.domain.layout.pin_pad_classification import (
     ModifierShape,
     _resolve_modifier,
 )
+from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
+from protoboard.domain.layout.wire import WireCollection
+from protoboard.domain.layout.wire_utils import _pin_at, find_pin_at
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.renderers.component_renderer import _compact_package_pin_label
-from protoboard.gui.renderers.board_renderer import build_pad_net_map
-from protoboard.gui.renderers.wire_renderer import _placed_pin_positions
 from protoboard.gui.panels.properties_panel import _package_pin_detail_label
+from protoboard.gui.renderers.board_renderer import build_pad_net_map
+from protoboard.gui.renderers.component_renderer import _compact_package_pin_label
+from protoboard.gui.renderers.wire_renderer import _placed_pin_positions
 from protoboard.services.routing.autorouter import _build_pin_positions
 
 
@@ -143,9 +143,7 @@ def test_wire_renderer_expands_metapin_to_all_mapped_package_pins() -> None:
     definition, instance, layout = _placed_component()
     definition = replace(
         definition,
-        package_options=(
-            replace(definition.package_options[0], pin_map={1: (1, 2)}),
-        ),
+        package_options=(replace(definition.package_options[0], pin_map={1: (1, 2)}),),
     )
 
     positions = _placed_pin_positions(

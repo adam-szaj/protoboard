@@ -13,7 +13,6 @@ import uuid
 from dataclasses import dataclass
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -22,26 +21,31 @@ from protoboard.domain.layout.wire_utils import WireNetResolver, _wire_net_id
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
-
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _inst(refdes: str = "R1") -> ComponentInstance:
-    return ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="10k"
-    ).bind(_defn(), {})
+    defn = _defn()
+    return ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k").bind(
+        defn, sil_families(defn)
+    )
 
 
 def _placement(comp_id: uuid.UUID, x: float, y: float) -> ComponentPlacement:
     # SIL(2) rot=90 → pin1 at (x, y), pin2 at (x+1, y).
     return ComponentPlacement(
-        component_id=comp_id, position=Point(x, y), rotation=90, side="top",
+        component_id=comp_id,
+        position=Point(x, y),
+        rotation=90,
+        side="top",
         shared_pins=frozenset(),
     )
 
@@ -58,6 +62,7 @@ def _wire(*pts: tuple[float, float]) -> Wire:
 @dataclass
 class _FakeState:
     """Minimal ComponentState-like duck for WireNetResolver.from_state."""
+
     layout: Layout
     instances: dict[uuid.UUID, ComponentInstance]
     components: dict[str, ComponentDefinition]
@@ -68,6 +73,7 @@ class _FakeState:
 # Equivalence
 # ---------------------------------------------------------------------------
 
+
 class TestWireNetResolverEquivalence:
     def test_netted_pin_matches_free_function(self) -> None:
         net_id = uuid.uuid4()
@@ -77,19 +83,24 @@ class TestWireNetResolverEquivalence:
         layout = Layout(placements=PlacementCollection({r1.id: pl}))
         instances = {r1.id: r1}
         components = {"R": defn}
-        sch = Schematic(nets={
-            net_id: Net(
-                id=net_id, name="N1",
-                pins={PinRef(component_id=r1.id, pin_number=1)},
-            )
-        })
+        sch = Schematic(
+            nets={
+                net_id: Net(
+                    id=net_id,
+                    name="N1",
+                    pins={PinRef(component_id=r1.id, pin_number=1)},
+                )
+            }
+        )
         # Wire terminating on pin1's pad.
         wire = _wire((2.0, 2.0), (2.0, 5.0))
 
         expected = _wire_net_id(wire, sch, layout, instances, components)
         resolver = WireNetResolver(
-            schematic=sch, layout=layout,
-            instances=instances, components=components,
+            schematic=sch,
+            layout=layout,
+            instances=instances,
+            components=components,
         )
         got = resolver.net_id(wire)
 
@@ -108,8 +119,10 @@ class TestWireNetResolverEquivalence:
 
         expected = _wire_net_id(wire, sch, layout, instances, components)
         resolver = WireNetResolver(
-            schematic=sch, layout=layout,
-            instances=instances, components=components,
+            schematic=sch,
+            layout=layout,
+            instances=instances,
+            components=components,
         )
         assert resolver.net_id(wire) == expected is None
 
@@ -125,8 +138,10 @@ class TestWireNetResolverEquivalence:
 
         expected = _wire_net_id(wire, sch, layout, instances, components)
         resolver = WireNetResolver(
-            schematic=sch, layout=layout,
-            instances=instances, components=components,
+            schematic=sch,
+            layout=layout,
+            instances=instances,
+            components=components,
         )
         assert resolver.net_id(wire) == expected is None
 
@@ -134,6 +149,7 @@ class TestWireNetResolverEquivalence:
 # ---------------------------------------------------------------------------
 # from_state
 # ---------------------------------------------------------------------------
+
 
 class TestFromState:
     def test_from_state_reads_context(self) -> None:
@@ -146,8 +162,10 @@ class TestFromState:
         sch = Schematic(nets={})
         board_sentinel = object()
         state = _FakeState(
-            layout=layout, instances=instances,
-            components=components, board=board_sentinel,
+            layout=layout,
+            instances=instances,
+            components=components,
+            board=board_sentinel,
         )
 
         resolver = WireNetResolver.from_state(state, sch)
@@ -162,20 +180,28 @@ class TestFromState:
     def test_from_state_forwards_pad_index(self) -> None:
         defn = _defn()
         r1 = _inst()
-        layout = Layout(placements=PlacementCollection({r1.id: _placement(r1.id, 2.0, 2.0)}))
+        layout = Layout(
+            placements=PlacementCollection({r1.id: _placement(r1.id, 2.0, 2.0)})
+        )
         state = _FakeState(
-            layout=layout, instances={r1.id: r1}, components={"R": defn},
+            layout=layout,
+            instances={r1.id: r1},
+            components={"R": defn},
         )
         sentinel = object()
         resolver = WireNetResolver.from_state(
-            state, Schematic(nets={}), pad_index=sentinel,  # type: ignore[arg-type]
+            state,
+            Schematic(nets={}),
+            pad_index=sentinel,  # type: ignore[arg-type]
         )
         assert resolver.pad_index is sentinel
 
     def test_from_state_missing_board_defaults_none(self) -> None:
         defn = _defn()
         r1 = _inst()
-        layout = Layout(placements=PlacementCollection({r1.id: _placement(r1.id, 2.0, 2.0)}))
+        layout = Layout(
+            placements=PlacementCollection({r1.id: _placement(r1.id, 2.0, 2.0)})
+        )
 
         @dataclass
         class _NoBoard:
@@ -184,7 +210,9 @@ class TestFromState:
             components: dict[str, ComponentDefinition]
 
         state = _NoBoard(
-            layout=layout, instances={r1.id: r1}, components={"R": defn},
+            layout=layout,
+            instances={r1.id: r1},
+            components={"R": defn},
         )
         resolver = WireNetResolver.from_state(state, Schematic(nets={}))
         assert resolver.board is None

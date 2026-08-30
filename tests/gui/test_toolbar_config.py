@@ -13,7 +13,6 @@ from protoboard.gui.toolbar_config import (
     save_toolbar_config,
 )
 
-
 _VALID_YAML = """
 view:
   - camera_toggle
@@ -101,7 +100,15 @@ class TestSaveToolbarConfig:
         user = tmp_path / "u.yaml"
         save_toolbar_config({"view": ["camera_toggle"]}, user_path=user)  # type: ignore[arg-type]
         text = user.read_text(encoding="utf-8")
-        for group in ("tools", "selection", "view", "zoom", "wire", "component", "analysis"):
+        for group in (
+            "tools",
+            "selection",
+            "view",
+            "zoom",
+            "wire",
+            "component",
+            "analysis",
+        ):
             assert f"{group}:" in text
 
 
@@ -141,4 +148,5 @@ class TestLoadDefaults:
         # present, all keys in KNOWN_GROUPS.
         assert isinstance(out, dict)
         from protoboard.gui.toolbar_config import KNOWN_GROUPS
+
         assert set(out.keys()) <= KNOWN_GROUPS

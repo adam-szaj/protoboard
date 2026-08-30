@@ -67,12 +67,12 @@ class DRCWorker(QThread):
     def __init__(
         self,
         *,
-        board: "Board",
-        layout_snap: "LayoutSnapshot",
-        schematic_snap: "SchematicSnapshot",
-        components: dict[str, "ComponentDefinition"],
-        instances: dict[uuid.UUID, "ComponentInstance"],
-        axis_labels: "AxisLabelSettings | None" = None,
+        board: Board,
+        layout_snap: LayoutSnapshot,
+        schematic_snap: SchematicSnapshot,
+        components: dict[str, ComponentDefinition],
+        instances: dict[uuid.UUID, ComponentInstance],
+        axis_labels: AxisLabelSettings | None = None,
     ) -> None:
         super().__init__()
         self._board = board

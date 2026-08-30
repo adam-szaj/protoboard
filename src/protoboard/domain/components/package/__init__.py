@@ -16,13 +16,13 @@ Public API::
     )
 """
 
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
     MountStyle,
 )
-from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.component_package import (
     package_to_footprint,
     resolve_component_package,

@@ -7,12 +7,12 @@ formulas mirror the ones displayed live in
 `src/protoboard/gui/panels/net_inspector_panel.py` so the GUI and the
 offline benchmark agree on what "wire/MST ratio" or "hull ratio" mean.
 """
+
 from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from protoboard.domain.board.board import Board
@@ -25,7 +25,6 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.net_status import net_is_complete
 
-
 # ---------------------------------------------------------------------------
 # Per-net + per-run dataclasses
 # ---------------------------------------------------------------------------
@@ -34,14 +33,14 @@ from protoboard.services.routing.net_status import net_is_complete
 @dataclass(frozen=True)
 class NetMetrics:
     name: str
-    pin_count: int               # pins listed in schematic
-    placed_pin_count: int        # pins whose component is placed on the board
-    connected_pin_count: int     # pins in the same electric set (largest cluster)
-    is_routed: bool              # all placed pins in one set
+    pin_count: int  # pins listed in schematic
+    placed_pin_count: int  # pins whose component is placed on the board
+    connected_pin_count: int  # pins in the same electric set (largest cluster)
+    is_routed: bool  # all placed pins in one set
     wire_count: int
-    redundant_wires: int         # wires whose removal still leaves their ends connected
-    length: float                # total Manhattan length of all wires
-    mst_length: float            # MST of the placed pins (lower bound)
+    redundant_wires: int  # wires whose removal still leaves their ends connected
+    length: float  # total Manhattan length of all wires
+    mst_length: float  # MST of the placed pins (lower bound)
     wire_mst_ratio: float | None
     wire_hull_area: float
     pin_hull_area: float
@@ -59,7 +58,7 @@ class RunSummary:
     unrouted_nets: int
     total_pins: int
     placed_pins: int
-    connected_pins: int          # summed across nets (multi-pin nets only)
+    connected_pins: int  # summed across nets (multi-pin nets only)
     total_wires: int
     redundant_wires_total: int
     total_length: float
@@ -109,8 +108,9 @@ def _mst_manhattan(points: list[Point]) -> float:
         for j in range(n):
             if j in in_tree:
                 continue
-            d = (abs(points[next_j].x - points[j].x)
-                 + abs(points[next_j].y - points[j].y))
+            d = abs(points[next_j].x - points[j].x) + abs(
+                points[next_j].y - points[j].y
+            )
             if d < min_dist[j]:
                 min_dist[j] = d
     return total
@@ -151,8 +151,7 @@ def _pin_hull_area(points: list[Point]) -> float:
     if n == 1:
         return 1.0
     if n == 2:
-        return (abs(points[0].x - points[1].x)
-                + abs(points[0].y - points[1].y))
+        return abs(points[0].x - points[1].x) + abs(points[0].y - points[1].y)
     return _convex_hull_area(points)
 
 
@@ -164,11 +163,11 @@ def _pin_hull_area(points: list[Point]) -> float:
 def compute_metrics(
     *,
     board: Board,
-    layout: Layout,           # without autoroute wires (pre-routing layout)
+    layout: Layout,  # without autoroute wires (pre-routing layout)
     schematic: Schematic,
     components: dict[str, ComponentDefinition],
     instances: dict,
-    wires: list[Wire], # autoroute output wires
+    wires: list[Wire],  # autoroute output wires
     wire_mode: str,
     max_rip_up_passes: int,
     max_optimize_iterations: int,
@@ -179,8 +178,10 @@ def compute_metrics(
 
     final_layout = replace(layout, wires=list(layout.wires) + list(wires))
     graph = ConnectivityGraph(
-        board=board, layout=final_layout,
-        components=components, instances=instances,
+        board=board,
+        layout=final_layout,
+        components=components,
+        instances=instances,
     )
 
     # Group autoroute wires per net by inspecting which electric set each wire
@@ -188,6 +189,7 @@ def compute_metrics(
     # pins (or none, if the wire is a free-floating router scratch — should
     # not happen in autoroute output).
     from protoboard.domain.schematic.net import PinRef as _PinRef  # local alias
+
     pin_world: dict[_PinRef, Point] = {}
     net_canonicals: dict[object, list[_PinRef]] = defaultdict(list)
     for net in schematic.nets.values():
@@ -263,34 +265,37 @@ def compute_metrics(
         if net_wires:
             for w in net_wires:
                 rest = [
-                    ww for ww in (list(layout.wires) + list(wires))
-                    if ww.id != w.id
+                    ww for ww in (list(layout.wires) + list(wires)) if ww.id != w.id
                 ]
                 test_layout = replace(layout, wires=rest)
                 g2 = ConnectivityGraph(
-                    board=board, layout=test_layout,
-                    components=components, instances=instances,
+                    board=board,
+                    layout=test_layout,
+                    components=components,
+                    instances=instances,
                 )
                 if g2.are_connected(w.path[0], w.side, w.path[-1], w.side):
                     red += 1
         redundant_total += red
 
         is_routed = net_is_complete(net, graph)
-        per_net.append(NetMetrics(
-            name=net.name,
-            pin_count=len(net.pins),
-            placed_pin_count=len(placed_refs),
-            connected_pin_count=biggest_size,
-            is_routed=is_routed,
-            wire_count=len(net_wires),
-            redundant_wires=red,
-            length=length,
-            mst_length=mst,
-            wire_mst_ratio=ratio,
-            wire_hull_area=wire_hull,
-            pin_hull_area=pin_hull,
-            hull_ratio=hull_ratio,
-        ))
+        per_net.append(
+            NetMetrics(
+                name=net.name,
+                pin_count=len(net.pins),
+                placed_pin_count=len(placed_refs),
+                connected_pin_count=biggest_size,
+                is_routed=is_routed,
+                wire_count=len(net_wires),
+                redundant_wires=red,
+                length=length,
+                mst_length=mst,
+                wire_mst_ratio=ratio,
+                wire_hull_area=wire_hull,
+                pin_hull_area=pin_hull,
+                hull_ratio=hull_ratio,
+            )
+        )
 
     routed_nets = sum(1 for nm in per_net if nm.is_routed)
 
@@ -312,5 +317,3 @@ def compute_metrics(
         mean_hull_ratio=(sum(hull_ratios) / len(hull_ratios)) if hull_ratios else None,
         per_net=per_net,
     )
-
-

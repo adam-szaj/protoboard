@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import structlog
+
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.placement import (
@@ -17,7 +18,11 @@ from protoboard.domain.layout.placement import (
     compose_placement,
 )
 from protoboard.domain.layout.wire import (
-    Fragment, Wire, WireCollection,
+    Fragment,
+    Wire,
+    WireCollection,
+)
+from protoboard.domain.layout.wire import (
     flatten_fragments as _flatten_fragments,
 )
 from protoboard.domain.schematic.net import PinRef
@@ -69,9 +74,7 @@ class Layout:
     # (det<0) compose branch.  ``None`` until ``set_footprint_resolver`` runs;
     # while it is None a flipped group raises on read (a flip needs the axis).
     # A non-flipped layout never calls it (identity / rotation fast-paths).
-    _footprint_resolver: "FootprintResolver | None" = field(
-        default=None, repr=False
-    )
+    _footprint_resolver: FootprintResolver | None = field(default=None, repr=False)
 
     # Lazy spatial index of wire interior vertices.  Built on first
     # access; invalidated by any wire mutation (add/remove).  Maps
@@ -83,8 +86,11 @@ class Layout:
     # The bucket coordinate is the rounded integer (x, y) since pad
     # centres sit at integer + 0.5; rounding produces a stable key
     # that survives sub-pixel float noise.
-    _interior_vertex_index: "dict[tuple[int, int], list[tuple[uuid.UUID, int]]] | None" = field(
-        default=None, repr=False,
+    _interior_vertex_index: (
+        dict[tuple[int, int], list[tuple[uuid.UUID, int]]] | None
+    ) = field(
+        default=None,
+        repr=False,
     )
 
     def __post_init__(self) -> None:
@@ -121,7 +127,7 @@ class Layout:
     def set_pin_resolver(self, resolver: PinResolver) -> None:
         self._pin_resolver = resolver
 
-    def set_footprint_resolver(self, resolver: "FootprintResolver") -> None:
+    def set_footprint_resolver(self, resolver: FootprintResolver) -> None:
         """Register the footprint resolver used by the seam's group-flip branch.
 
         The session injects it (mirrors :meth:`set_pin_resolver`) so a flipped
@@ -129,7 +135,7 @@ class Layout:
         component definitions."""
         self._footprint_resolver = resolver
 
-    def preview_copy(self) -> "Layout":
+    def preview_copy(self) -> Layout:
         """A scratch layout that shares structure but owns its own pose.
 
         The armed transform mutates a *preview* layout instead of the live one,
@@ -187,8 +193,7 @@ class Layout:
 
         # Any non-root group not referenced by anyone is an orphan → attach to root.
         orphans = frozenset(
-            gid for gid in self.groups
-            if gid != ROOT_GROUP_ID and gid not in referenced
+            gid for gid in self.groups if gid != ROOT_GROUP_ID and gid not in referenced
         )
         if orphans:
             _log.warning(
@@ -284,7 +289,7 @@ class Layout:
 
     def interior_vertex_index(
         self,
-    ) -> "dict[tuple[int, int], list[tuple[uuid.UUID, int]]]":
+    ) -> dict[tuple[int, int], list[tuple[uuid.UUID, int]]]:
         """Return the lazy-built interior-vertex index.
 
         Maps rounded ``(x, y)`` cell → list of ``(wire_id, vertex_idx)``
@@ -345,10 +350,7 @@ class Layout:
             # incident wire are deleted.  Rule for WirePinKnot: lifetime is
             # strictly tied to the owning wire — when the wire goes, the
             # wire-pin goes (docs/archive/wire-pin-implementation.md §2.1).
-            if (
-                isinstance(updated, (JointKnot, WirePinKnot))
-                and not updated.wire_ids
-            ):
+            if isinstance(updated, (JointKnot, WirePinKnot)) and not updated.wire_ids:
                 del self.knots[ref.id]
                 removed.append(ref.id)
             else:
@@ -389,16 +391,14 @@ class Layout:
                         pin_pos = self._pin_resolver(pk.pin)
                     except RuntimeError:
                         continue
-                    if (
-                        abs(pin_pos.x - pos.x) < 1e-6
-                        and abs(pin_pos.y - pos.y) < 1e-6
-                    ):
+                    if abs(pin_pos.x - pos.x) < 1e-6 and abs(pin_pos.y - pos.y) < 1e-6:
                         matched_id = knot_id
                         break
             if matched_id is None:
                 jk = self.create_joint_knot(pos)
                 matched_id = jk.id
             from protoboard.domain.layout.wire import KnotRef as _KnotRef
+
             setattr(wire, attr, _KnotRef(id=matched_id))
         for ref in (wire.a, wire.b):
             if ref is None:
@@ -448,6 +448,7 @@ class Layout:
             raise ValueError("replace_wire_fragments requires a Wire with both knots")
         a_knot = self.knots[existing.a.id]
         b_knot = self.knots[existing.b.id]
+
         # Endpoint validation.  A ``JointKnot`` whose only incident wire is
         # the one being edited is free to follow the wire — wire-only drag
         # moves a free joint along with its sole wire.  Shared joints (>=2
@@ -455,15 +456,17 @@ class Layout:
         # other wires too; ditto PinKnots whose position comes from the
         # placement, not the joint.
         def _resolve_endpoint(
-            knot: Knot, wire_id_: uuid.UUID, new_pos: Point, label: str,
+            knot: Knot,
+            wire_id_: uuid.UUID,
+            new_pos: Point,
+            label: str,
         ) -> None:
             cur = _knot_position(knot, self)
             if cur == new_pos:
                 return
-            if (
-                isinstance(knot, (JointKnot, WirePinKnot))
-                and knot.wire_ids == frozenset({wire_id_})
-            ):
+            if isinstance(
+                knot, (JointKnot, WirePinKnot)
+            ) and knot.wire_ids == frozenset({wire_id_}):
                 # Free-position sole-owner knot (orphan joint or wire-pin):
                 # slide along with the wire.  Wire-pin's pad-coincidence
                 # invariant is rechecked at the next DRC pass — the
@@ -480,11 +483,17 @@ class Layout:
                 return
             # No branch accepted the mismatch — log full diagnostics and raise.
             raise _endpoint_mismatch_error(
-                self, knot, wire_id_, new_pos, cur, label,
+                self,
+                knot,
+                wire_id_,
+                new_pos,
+                cur,
+                label,
                 frag_list=frag_list,
                 existing=existing,
                 skip_pin_knot_validation=skip_pin_knot_validation,
             )
+
         _resolve_endpoint(a_knot, wire_id, a_pos, "path[0]")
         _resolve_endpoint(b_knot, wire_id, b_pos, "path[-1]")
         # Mutate in place — Wire is mutable now, identity is by id.
@@ -519,23 +528,29 @@ class Layout:
         """
         joint = self.knots.get(knot_id)
         if not isinstance(joint, JointKnot):
-            _log.debug("collapse_joint.skip",
-                       reason="not_jointknot", knot_id=str(knot_id)[:8])
+            _log.debug(
+                "collapse_joint.skip", reason="not_jointknot", knot_id=str(knot_id)[:8]
+            )
             return None
         if len(joint.wire_ids) != 2:
-            _log.debug("collapse_joint.skip",
-                       reason="degree_neq_2",
-                       knot_id=str(knot_id)[:8],
-                       degree=len(joint.wire_ids))
+            _log.debug(
+                "collapse_joint.skip",
+                reason="degree_neq_2",
+                knot_id=str(knot_id)[:8],
+                degree=len(joint.wire_ids),
+            )
             return None
         w1_id, w2_id = tuple(joint.wire_ids)
         w1 = self.wires[w1_id]
         w2 = self.wires[w2_id]
         if w1.insulated != w2.insulated:
-            _log.debug("collapse_joint.skip",
-                       reason="insulation_mismatch",
-                       knot_id=str(knot_id)[:8],
-                       w1_ins=w1.insulated, w2_ins=w2.insulated)
+            _log.debug(
+                "collapse_joint.skip",
+                reason="insulation_mismatch",
+                knot_id=str(knot_id)[:8],
+                w1_ins=w1.insulated,
+                w2_ins=w2.insulated,
+            )
             return None
         # Orient w1 so its `b` is the joint; orient w2 so its `a` is the joint.
         w1o = _orient_wire_toward(w1, knot_id, end_at_b=True)
@@ -545,8 +560,10 @@ class Layout:
                 "collapse_joint.skip",
                 reason="orientation_failed",
                 knot_id=str(knot_id)[:8],
-                w1_ok=(w1o is not None), w2_ok=(w2o is not None),
-                w1=str(w1.id)[:8], w2=str(w2.id)[:8],
+                w1_ok=(w1o is not None),
+                w2_ok=(w2o is not None),
+                w1=str(w1.id)[:8],
+                w2=str(w2.id)[:8],
                 joint_pos=(joint.position.x, joint.position.y),
                 w1_a=(None if w1.a is None else str(w1.a.id)[:8]),
                 w1_b=(None if w1.b is None else str(w1.b.id)[:8]),
@@ -558,15 +575,15 @@ class Layout:
         first = w2o.fragments[0]
         sides_match = last.side == first.side
         is_plated = (
-            plated_through_pads is not None
-            and joint.position in plated_through_pads
+            plated_through_pads is not None and joint.position in plated_through_pads
         )
         if not sides_match and not is_plated:
             _log.info(
                 "collapse_joint.skip",
                 reason="cross_side_not_plated",
                 knot_id=str(knot_id)[:8],
-                w1_last_side=last.side, w2_first_side=first.side,
+                w1_last_side=last.side,
+                w2_first_side=first.side,
                 joint_pos=(joint.position.x, joint.position.y),
                 plated_through_pads_given=(plated_through_pads is not None),
             )
@@ -643,6 +660,7 @@ def _knot_position(knot: Knot, layout: Layout) -> Point:
     backed by ``layout``. Only ``PinKnot`` invokes the resolver; for it a
     missing resolver is a programmer error and raises ``RuntimeError``.
     """
+
     def _resolve(pin: PinRef) -> Point:
         resolver = layout._pin_resolver
         if resolver is None:
@@ -679,28 +697,25 @@ def _endpoint_mismatch_error(
     didn't fire.  Returns the ``ValueError`` for the caller to ``raise``.
     """
     knot_kind = (
-        "PinKnot" if isinstance(knot, PinKnot)
-        else "WirePinKnot" if isinstance(knot, WirePinKnot)
-        else "JointKnot" if isinstance(knot, JointKnot)
-        else type(knot).__name__
+        "PinKnot"
+        if isinstance(knot, PinKnot)
+        else (
+            "WirePinKnot"
+            if isinstance(knot, WirePinKnot)
+            else "JointKnot" if isinstance(knot, JointKnot) else type(knot).__name__
+        )
     )
     pin_ref = (
         f"{str(knot.pin.component_id)[:8]}/pin{knot.pin.pin_number}"
-        if isinstance(knot, PinKnot) else None
+        if isinstance(knot, PinKnot)
+        else None
     )
     other_label = "path[-1]" if label == "path[0]" else "path[0]"
-    other_pos = (
-        frag_list[-1].path[-1] if label == "path[0]"
-        else frag_list[0].path[0]
-    )
+    other_pos = frag_list[-1].path[-1] if label == "path[0]" else frag_list[0].path[0]
     other_ref = existing.b if label == "path[0]" else existing.a
-    other_knot = (
-        layout.knots.get(other_ref.id) if other_ref is not None else None
-    )
+    other_knot = layout.knots.get(other_ref.id) if other_ref is not None else None
     other_kind = type(other_knot).__name__ if other_knot is not None else None
-    other_cur = (
-        _knot_position(other_knot, layout) if other_knot is not None else None
-    )
+    other_cur = _knot_position(other_knot, layout) if other_knot is not None else None
     delta = new_pos - cur  # Point − Point → Vector
     _log.error(
         "replace_wire_fragments.endpoint_mismatch",
@@ -716,9 +731,7 @@ def _endpoint_mismatch_error(
         other_endpoint=other_label,
         other_new_pos=(other_pos.x, other_pos.y),
         other_knot_kind=other_kind,
-        other_knot_pos=(
-            (other_cur.x, other_cur.y) if other_cur is not None else None
-        ),
+        other_knot_pos=((other_cur.x, other_cur.y) if other_cur is not None else None),
         delta=(delta.dx, delta.dy),
         skip_pin_knot_validation=skip_pin_knot_validation,
     )

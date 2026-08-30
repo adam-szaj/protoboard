@@ -21,11 +21,11 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.generators.base import (
     PackageGenerator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
-from protoboard.domain.components.package.family import PackageFamily
 from protoboard.services.library.parametric import concretize
 
 #: Sanity bound for the pin-count spin box (a 2×32 header is 64 pins).
@@ -78,8 +78,7 @@ class ParametricPinsDialog(QDialog):
         layout.addWidget(self._error)
 
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel,
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
         buttons.accepted.connect(self._try_accept)

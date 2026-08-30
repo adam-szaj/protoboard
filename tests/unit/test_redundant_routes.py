@@ -13,6 +13,7 @@ This test loads a hand-crafted project at
 produced by autoroute is essential (its removal disconnects its
 endpoints in the connectivity graph).
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -24,13 +25,11 @@ from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import load_project
 from protoboard.services.routing.autorouter import autoroute
-
 from tests.instance_utils import bind
 from tests.unit._autoroute_invariants import (
     assert_no_net_fusion,
     assert_no_redundant_routes,
 )
-
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "redundant_route_steiner"
 
@@ -56,7 +55,11 @@ class TestRedundantRoutes:
         # test exercises greedy autoroute deterministically.
         clean = replace(layout, wires=[])
         result = autoroute(
-            board, clean, schematic, components, instances,
+            board,
+            clean,
+            schematic,
+            components,
+            instances,
             cost_model=routing.cost_model(),
             wire_mode=routing.wire_mode,
             max_rip_up_passes=routing.max_rip_up_passes,
@@ -65,10 +68,17 @@ class TestRedundantRoutes:
 
         # Two invariants, severity order.
         assert_no_net_fusion(
-            board, clean, list(result.wires),
-            schematic, components, instances,
+            board,
+            clean,
+            list(result.wires),
+            schematic,
+            components,
+            instances,
         )
         assert_no_redundant_routes(
-            board, clean, list(result.wires),
-            components, instances,
+            board,
+            clean,
+            list(result.wires),
+            components,
+            instances,
         )

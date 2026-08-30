@@ -32,16 +32,13 @@ class Footprint(ABC):
     """
 
     @abstractmethod
-    def pin_positions(self) -> list[Point]:
-        ...
+    def pin_positions(self) -> list[Point]: ...
 
     @abstractmethod
-    def pin_count(self) -> int:
-        ...
+    def pin_count(self) -> int: ...
 
     @abstractmethod
-    def rotate(self, cw: int):
-        ...
+    def rotate(self, cw: int): ...
 
     def is_rigid(self) -> bool | None:
         """Whether this footprint fixes its pin spacing, if it knows that."""
@@ -86,8 +83,9 @@ def DIL(n: int, pitch: float = 1.0, rows_spacing: float = 3.0) -> Footprint:
     if n <= 0 or n % 2 != 0:
         raise ValueError(f"DIP requires a positive even pin count; got {n}")
     m = (n // 2) - 1
-    offsets = [Vector(0.0, pitch)] * m + [Vector(rows_spacing)
-                                          ] + [Vector(0.0, -pitch)] * m
+    offsets = (
+        [Vector(0.0, pitch)] * m + [Vector(rows_spacing)] + [Vector(0.0, -pitch)] * m
+    )
     return GenericFootprint(offsets)
 
 

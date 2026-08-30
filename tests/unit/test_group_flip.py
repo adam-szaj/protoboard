@@ -22,9 +22,13 @@ from protoboard.domain.commands.group_cmds import (
     FlipGroupCommand,
     _reflection_about,
 )
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import (
@@ -35,19 +39,37 @@ from protoboard.geometry import Point
 
 
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=100,
+            cols=100,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
+
+
+_FAMILY = sil_family(3)
+assert _FAMILY is not None
+_FAMILIES = {_FAMILY.family_id: _FAMILY}
+_DEFN = ComponentDefinition(
+    name="R",
+    meta_pins=(MetaPin(("A",)), MetaPin(("B",)), MetaPin(("C",))),
+    package_options=(
+        PackageOption(
+            name="SIL-3",
+            ref="sil-3/std",
+            pin_map={1: (1,), 2: (2,), 3: (3,)},
         ),
-        rows=100, cols=100, row_gap=0.0, col_gap=0.0,
-    ))
-
-
-_DEFN = ComponentDefinition.from_footprint(name="R", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"})
+    ),
+)
 
 
 @dataclass
@@ -69,19 +91,24 @@ def _make_state() -> _State:
         inst = st.instances.get(cid)
         if inst is None:
             return None
-        return _DEFN.default_footprint()
+        return _DEFN.default_footprint(_FAMILIES)
 
     layout.set_footprint_resolver(_resolve)
     return st
 
 
-def _place(st: _State, x: float, y: float, rot: int = 0, side: str = "top") -> uuid.UUID:
+def _place(
+    st: _State, x: float, y: float, rot: int = 0, side: str = "top"
+) -> uuid.UUID:
     inst = ComponentInstance.new(
         definition_ref="R", refdes=f"R{len(st.instances)}", value="1k"
-    ).bind(_DEFN, {})
+    ).bind(_DEFN, _FAMILIES)
     st.instances[inst.id] = inst
     st.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=rot, side=side,  # type: ignore[arg-type]
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=rot,
+        side=side,  # type: ignore[arg-type]
     )
     return inst.id
 
@@ -96,12 +123,16 @@ def _attach_group(st: _State, comp_ids: frozenset[uuid.UUID]) -> uuid.UUID:
     return g.id
 
 
-def _world(st: _State, cids: list[uuid.UUID]) -> dict[uuid.UUID, list[tuple[float, float]]]:
-    fp = _DEFN.default_footprint()
+def _world(
+    st: _State, cids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[tuple[float, float]]]:
+    fp = _DEFN.default_footprint(_FAMILIES)
     return {
         cid: [
-            (round(pin_world_position(fp, st.layout.placements[cid], n).x, 4),
-             round(pin_world_position(fp, st.layout.placements[cid], n).y, 4))
+            (
+                round(pin_world_position(fp, st.layout.placements[cid], n).x, 4),
+                round(pin_world_position(fp, st.layout.placements[cid], n).y, 4),
+            )
             for n in range(1, fp.pin_count() + 1)
         ]
         for cid in cids
@@ -167,9 +198,10 @@ class TestFlipGroupCommand:
         assert _world(st, [a, b]) != before
         cmd.revert(st)
         assert _world(st, [a, b]) == before
-        assert st.layout.groups[gid].transform == ComponentGroup(
-            id=gid, name="G"
-        ).transform  # back to identity
+        assert (
+            st.layout.groups[gid].transform
+            == ComponentGroup(id=gid, name="G").transform
+        )  # back to identity
 
     def test_undo_stores_no_member_placements(self) -> None:
         """Group flip snapshots NO per-member placement — the scene-graph
@@ -187,9 +219,7 @@ class TestFlipGroupCommand:
         b = _place(st, 14.0, 13.0, rot=90)
         gid = _attach_group(st, frozenset({a, b}))
 
-        local_before = {
-            cid: st.layout.placements.local_get(cid) for cid in (a, b)
-        }
+        local_before = {cid: st.layout.placements.local_get(cid) for cid in (a, b)}
 
         cmd = FlipGroupCommand(group_id=gid, axis="v")
         cmd.apply(st)
@@ -218,7 +248,9 @@ class TestFlipGroupCommand:
         gid = _attach_group(st, frozenset({a}))
         # Vertical flip about x=0 → pin1 world x negates.
         FlipGroupCommand(group_id=gid, axis="v", pivot=Point(0.0, 0.0)).apply(st)
-        p1 = pin_world_position(_DEFN.default_footprint(), st.layout.placements[a], 1)
+        p1 = pin_world_position(
+            _DEFN.default_footprint(_FAMILIES), st.layout.placements[a], 1
+        )
         assert p1.x == pytest.approx(-10.0)
 
     def test_nested_group_flip_propagates(self) -> None:

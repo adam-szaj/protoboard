@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 
 def bound_instance(
-    defn: "ComponentDefinition",
+    defn: ComponentDefinition,
     *,
     refdes: str,
     value: str = "",
-    families: "dict[str, PackageFamily] | None" = None,
+    families: dict[str, PackageFamily] | None = None,
     **kwargs: object,
 ) -> ComponentInstance:
     """A fresh ComponentInstance bound to *defn* (and *families*).
@@ -37,7 +37,9 @@ def bound_instance(
     test exercises a chosen variant.
     """
     inst = ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value=value,
+        definition_ref=defn.name,
+        refdes=refdes,
+        value=value,
         **kwargs,  # type: ignore[arg-type]
     )
     return inst.bind(defn, families or {})
@@ -45,8 +47,8 @@ def bound_instance(
 
 def bind(
     inst: ComponentInstance,
-    defn: "ComponentDefinition",
-    families: "dict[str, PackageFamily] | None" = None,
+    defn: ComponentDefinition,
+    families: dict[str, PackageFamily] | None = None,
 ) -> ComponentInstance:
     """Bind an already-constructed *inst* to *defn* (+ *families*).
 

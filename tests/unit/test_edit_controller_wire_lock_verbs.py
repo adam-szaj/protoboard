@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 """EditController wire/lock verbs unify the multi-entry ops (one code path)."""
+
 import uuid
 
 from protoboard.domain.layout.wire import Fragment, Wire

@@ -30,6 +30,7 @@ from protoboard.controller.selection.wire_edit import (
     AddWireFactory,
     WireEditState,
     WireRangeEdit,
+    _default_add_factory,
     autoroute_fragment_path,
     build_delete_command,
     build_delete_range_edit,
@@ -37,7 +38,6 @@ from protoboard.controller.selection.wire_edit import (
     build_reroute_command,
     build_set_insulated_range_command,
     build_simplify_range_command,
-    _default_add_factory,
 )
 
 if TYPE_CHECKING:
@@ -129,9 +129,7 @@ class WireEditArm:
         state: WireEditState,
     ) -> Command[ComponentState] | None:
         """Build the delete command; surviving halves go through the factory."""
-        return build_delete_command(
-            wires, wire_net_map, state, self._add_factory
-        )
+        return build_delete_command(wires, wire_net_map, state, self._add_factory)
 
     def set_insulated(
         self,
@@ -139,7 +137,7 @@ class WireEditArm:
         wire_net_map: dict[uuid.UUID, uuid.UUID],
         state: WireEditState,
         insulated: bool,
-    ) -> "WireRangeEdit | None":
+    ) -> WireRangeEdit | None:
         """Build the set-insulated range edit; split pieces go through the factory."""
         return build_set_insulated_range_command(
             wires, wire_net_map, state, insulated, self._add_factory
@@ -150,8 +148,6 @@ class WireEditArm:
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
         state: WireEditState,
-    ) -> "WireRangeEdit | None":
+    ) -> WireRangeEdit | None:
         """Delete as a ``WireRangeEdit`` (survivors surfaced for re-arm)."""
-        return build_delete_range_edit(
-            wires, wire_net_map, state, self._add_factory
-        )
+        return build_delete_range_edit(wires, wire_net_map, state, self._add_factory)

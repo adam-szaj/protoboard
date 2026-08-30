@@ -39,7 +39,8 @@ import re
 from dataclasses import dataclass
 
 _HEX_RE = re.compile(
-    r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\Z")
+    r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\Z"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,14 +62,10 @@ class Appearance:
         radii = self.corner_radius_mm
         if radii is not None:
             if not 1 <= len(radii) <= 4:
-                raise ValueError(
-                    f"corner-radius takes 1-4 values, got {len(radii)}"
-                )
+                raise ValueError(f"corner-radius takes 1-4 values, got {len(radii)}")
             for value in radii:
                 if value < 0:
-                    raise ValueError(
-                        f"corner-radius must be >= 0, got {value!r}"
-                    )
+                    raise ValueError(f"corner-radius must be >= 0, got {value!r}")
 
     @property
     def is_empty(self) -> bool:

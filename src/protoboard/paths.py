@@ -31,7 +31,7 @@ KEYBINDINGS_FILE: Path = CONFIG_DIR / "keybindings.yaml"
 # Namespaced, category-grouped keybindings (Stage 1 of the keybindings
 # redesign — lives alongside the legacy flat file until the migration stage).
 KEYBINDINGS_V2_FILE: Path = CONFIG_DIR / "keybindings_v2.yaml"
-THEME_FILE: Path        = CONFIG_DIR / "theme.yaml"
+THEME_FILE: Path = CONFIG_DIR / "theme.yaml"
 WINDOW_STATE_FILE: Path = CONFIG_DIR / "window_state.yaml"
 APP_SETTINGS_FILE: Path = CONFIG_DIR / "app_settings.yaml"
 RECENT_PROJECTS_FILE: Path = CONFIG_DIR / "recent.json"
@@ -55,6 +55,7 @@ USER_MODULES_DIR: Path = DATA_DIR / "modules"
 # Built-in read-only assets (shipped with the package)
 # ---------------------------------------------------------------------------
 
+
 def _find_package_root() -> Path:
     """Locate the directory that hosts built-in read-only assets.
 
@@ -64,6 +65,7 @@ def _find_package_root() -> Path:
          sibling appears.
     """
     import sys
+
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass is not None:
         return Path(meipass)
@@ -78,7 +80,7 @@ def _find_package_root() -> Path:
 _PKG_ROOT: Path = _find_package_root()
 
 BUILTIN_LIBRARY_DIR: Path = _PKG_ROOT / "library"
-BUILTIN_ASSETS_DIR: Path   = _PKG_ROOT / "assets"
+BUILTIN_ASSETS_DIR: Path = _PKG_ROOT / "assets"
 
 # Default toolbar layout shipped with the package — copied to
 # ``TOOLBARS_FILE`` on first start (when the user has no override).

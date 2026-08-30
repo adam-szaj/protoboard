@@ -25,6 +25,8 @@ from protoboard.domain.layout.knot import WirePinKnot
 from protoboard.domain.layout.pin_pad_classification import (
     classify_pin_pads,
 )
+from protoboard.geometry import Insets
+from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.board_renderer import (
     build_pad_net_map,
     render_board,
@@ -45,8 +47,6 @@ from protoboard.gui.renderers.wire_renderer import (
 )
 from protoboard.services.export.snapshot import BoardSnapshot
 from protoboard.services.routing.net_status import routed_net_ids
-from protoboard.gui.qt_geometry import to_qrectf
-from protoboard.geometry import Insets
 
 if TYPE_CHECKING:
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
@@ -94,8 +94,11 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
         net_color_map=pad_color_map,
     )
     render_board(
-        scene, snapshot.board,
-        theme=theme, layers=layers, pad_net_map=pad_net_map,
+        scene,
+        snapshot.board,
+        theme=theme,
+        layers=layers,
+        pad_net_map=pad_net_map,
     )
 
     # ── Back-side filter ────────────────────────────────────────────────────
@@ -120,8 +123,10 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     # ── Pin-pads layer (schematic-aware overlay above board) ────────────────
     classifications = classify_pin_pads(snapshot.pad_index, snapshot.layout)
     render_pin_pads(
-        scene, classifications,
-        theme=theme, layers=layers,
+        scene,
+        classifications,
+        theme=theme,
+        layers=layers,
         net_color_map=pad_color_map_opt,
         routing_target_net_id=snapshot.routing_net_id,
     )
@@ -129,9 +134,12 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     # ── Wires ───────────────────────────────────────────────────────────────
     graph, wire_net_map = _build_graph_and_wire_net_map(snapshot)
     render_wires_with_nets(
-        scene, list(snapshot.layout.wires), wire_net_map,
+        scene,
+        list(snapshot.layout.wires),
+        wire_net_map,
         net_color_map=pad_color_map_opt,
-        theme=theme, layers=layers,
+        theme=theme,
+        layers=layers,
         highlighted_net_id=None,
     )
 
@@ -143,9 +151,11 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     ]
     if wire_pins:
         render_wire_pins(
-            scene, wire_pins,
+            scene,
+            wire_pins,
             net_color_map=pad_color_map_opt,
-            theme=theme, layers=layers,
+            theme=theme,
+            layers=layers,
             routing_target_net_id=snapshot.routing_net_id,
         )
 
@@ -161,7 +171,8 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
         snapshot.components,
         schematic=snapshot.schematic if snapshot.schematic.nets else None,
         routed_nets=routed,
-        theme=theme, layers=layers,
+        theme=theme,
+        layers=layers,
         active_group_id=snapshot.active_group_id,
         layout=snapshot.layout,
         highlighted_net_id=None,
@@ -169,11 +180,15 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
 
     # ── Ratsnest + groups + axis labels (overlays) ──────────────────────────
     from protoboard.gui.layer_state import LayerVisibility
-    if (snapshot.schematic.nets
-            and snapshot.layer_overrides.ratsnest != LayerVisibility.HIDDEN
-            and graph is not None):
+
+    if (
+        snapshot.schematic.nets
+        and snapshot.layer_overrides.ratsnest != LayerVisibility.HIDDEN
+        and graph is not None
+    ):
         render_ratsnest(
-            scene, snapshot.schematic,
+            scene,
+            snapshot.schematic,
             snapshot.layout.placements,
             snapshot.instances,
             snapshot.components,
@@ -186,7 +201,8 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
 
     if snapshot.layout.groups:
         render_groups(
-            scene, snapshot.layout,
+            scene,
+            snapshot.layout,
             snapshot.layout.placements,
             snapshot.instances,
             snapshot.components,
@@ -200,8 +216,10 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
 
     # ── Pin-modifier overlay (topmost) ──────────────────────────────────────
     render_pin_modifiers(
-        scene, classifications,
-        theme=theme, layers=layers,
+        scene,
+        classifications,
+        theme=theme,
+        layers=layers,
         net_color_map=pad_color_map_opt,
         routing_target_net_id=snapshot.routing_net_id,
     )
@@ -216,7 +234,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
 
 def _build_graph_and_wire_net_map(
     snapshot: BoardSnapshot,
-) -> tuple["ConnectivityGraph | None", dict[uuid.UUID, uuid.UUID]]:
+) -> tuple[ConnectivityGraph | None, dict[uuid.UUID, uuid.UUID]]:
     """Build a ConnectivityGraph + wire-id → net-id map for *snapshot*.
 
     Both are needed by several renderers (wires, ratsnest, components);
@@ -232,9 +250,12 @@ def _build_graph_and_wire_net_map(
     if not snapshot.schematic.nets or not snapshot.layout.wires:
         return None, {}
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
+
     graph = ConnectivityGraph(
-        snapshot.board, snapshot.layout,
-        snapshot.components, snapshot.instances,
+        snapshot.board,
+        snapshot.layout,
+        snapshot.components,
+        snapshot.instances,
     )
     # canonical_key → net.id (one net per electric set with named pins).
     canonical_to_net: dict[object, uuid.UUID] = {}

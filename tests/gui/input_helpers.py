@@ -10,8 +10,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 
+from protoboard.controller.ports import (
+    LEFT_BUTTON,
+    KeyInput,
+    Mods,
+    PointerInput,
+    WheelInput,
+)
 from protoboard.geometry import Point
-from protoboard.controller.ports import LEFT_BUTTON, KeyInput, Mods, PointerInput, WheelInput
 from protoboard.gui.qt_inputs import mods_from_qt
 
 
@@ -34,9 +40,7 @@ def pointer(
 
 def wheel(delta_y: int, *, x: float = 0.0, y: float = 0.0) -> WheelInput:
     """A WheelInput with *delta_y* at view position (x, y), no modifiers."""
-    return WheelInput(
-        delta_y=delta_y, view_pos=Point(x, y), native_mods=0, mods=Mods()
-    )
+    return WheelInput(delta_y=delta_y, view_pos=Point(x, y), native_mods=0, mods=Mods())
 
 
 def key_inp(

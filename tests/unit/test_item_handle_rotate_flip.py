@@ -16,6 +16,8 @@ import uuid
 from pathlib import Path
 from typing import cast
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import ComponentHandle, ItemId
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.commands.base import ComponentState
@@ -24,8 +26,6 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.item_handle import ComponentHandle, ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -56,11 +56,16 @@ def _session() -> HeadlessSession:
 def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -69,14 +74,16 @@ def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UU
 def _make_group(session: HeadlessSession, member_ids: list[uuid.UUID]) -> uuid.UUID:
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G",
+        id=grp_id,
+        name="G",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,
@@ -245,7 +252,9 @@ def test_flip_no_args_operates_on_current_selection() -> None:
     session.edit_controller.flip()
     after = session.layout.placements[cid]
     assert (after.position, after.rotation, after.vertical_flipped) != (
-        before.position, before.rotation, before.vertical_flipped
+        before.position,
+        before.rotation,
+        before.vertical_flipped,
     )
 
 

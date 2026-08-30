@@ -12,8 +12,8 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Transform2D
 
 if TYPE_CHECKING:
-    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.schematic.schematic import Schematic
 
 
@@ -66,7 +66,7 @@ class ComponentGroup:
         """
         return (self.transform.rotation_steps() * 90) % 360
 
-    def replace(self, **changes: object) -> "ComponentGroup":
+    def replace(self, **changes: object) -> ComponentGroup:
         """Return a copy of this group with the given fields replaced.
 
         Thin wrapper over :func:`dataclasses.replace` so callers (commands,
@@ -102,8 +102,8 @@ def all_component_ids(
 def exposable_surface(
     groups: dict[uuid.UUID, ComponentGroup],
     group_id: uuid.UUID,
-    instances: dict[uuid.UUID, "ComponentInstance"],
-    definitions: dict[str, "ComponentDefinition"],
+    instances: dict[uuid.UUID, ComponentInstance],
+    definitions: dict[str, ComponentDefinition],
 ) -> frozenset[PinRef]:
     """Pins that may legally appear in ``G.exported_pins``.
 
@@ -143,7 +143,7 @@ def top_level_group_for(
 def external_pins_for_group(
     groups: dict[uuid.UUID, ComponentGroup],
     group_id: uuid.UUID,
-    schematic: "Schematic",
+    schematic: Schematic,
 ) -> frozenset[PinRef]:
     """Minimal re-export set for *group_id* satisfying encapsulation.
 
@@ -156,7 +156,7 @@ def external_pins_for_group(
 
 def internal_net_ids_for_components(
     component_ids: frozenset[uuid.UUID],
-    schematic: "Schematic",
+    schematic: Schematic,
 ) -> frozenset[uuid.UUID]:
     """IDs of nets fully internal to *component_ids*.
 
@@ -170,8 +170,8 @@ def internal_net_ids_for_components(
 
 def schematic_projection_for_group(
     component_ids: frozenset[uuid.UUID],
-    schematic: "Schematic",
-) -> "Schematic":
+    schematic: Schematic,
+) -> Schematic:
     """Projection of *schematic* keeping only pins on *component_ids*.
 
     Shim for :meth:`GroupTree.schematic_projection_for_group`.

@@ -12,16 +12,16 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
-from protoboard.geometry import Point, Rect
 from protoboard.controller.selection import HitTester, SelectionFilters
 from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     GroupSelectable,
     WireSelectable,
 )
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import Wire
+from protoboard.geometry import Point, Rect
 
 if TYPE_CHECKING:
     from protoboard.controller.selection.hit_test import HitContext

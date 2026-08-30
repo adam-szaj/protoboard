@@ -22,32 +22,42 @@ import pytest
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
+    MetaPin,
+    PackageOption,
 )
-from protoboard.domain.components.footprints import SIL
+
+
+def _definition(
+    name: str,
+    component_class: ComponentClass,
+    default_value: str = "",
+) -> ComponentDefinition:
+    return ComponentDefinition(
+        name=name,
+        meta_pins=(MetaPin(("1",)), MetaPin(("2",))),
+        component_class=component_class,
+        default_value=default_value,
+        package_options=(
+            PackageOption(
+                name="test",
+                ref="test/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
+    )
 
 
 class TestDefaultValueField:
     def test_default_is_empty_string(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="BC547", footprint=SIL(n=2),
-            pin_names={}, component_class=ComponentClass.TRANSISTOR_NPN,
-        )
+        defn = _definition("BC547", ComponentClass.TRANSISTOR_NPN)
         assert defn.default_value == ""
 
     def test_accepts_question_mark(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="R", footprint=SIL(n=2),
-            pin_names={}, component_class=ComponentClass.RESISTOR,
-            default_value="?",
-        )
+        defn = _definition("R", ComponentClass.RESISTOR, "?")
         assert defn.default_value == "?"
 
     def test_accepts_arbitrary_string(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="BC547", footprint=SIL(n=2),
-            pin_names={}, component_class=ComponentClass.TRANSISTOR_NPN,
-            default_value="BC547",
-        )
+        defn = _definition("BC547", ComponentClass.TRANSISTOR_NPN, "BC547")
         assert defn.default_value == "BC547"
 
 
@@ -59,29 +69,35 @@ class TestLibraryLoader:
 
     def test_yaml_default_value_parses(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: R
     component_class: resistor
-    pins: {count: 2}
+    meta_pins: [P1, P2]
     package: {kind: sil}
-    pin_names: {}
     default_value: "?"
-""")
+""",
+        )
         lib = load_library([tmp_path])
         defn = lib.get("R")
         assert defn.default_value == "?"
 
     def test_yaml_omitted_field_defaults_to_empty(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: BC547
     component_class: transistor_npn
-    pins: {count: 2}
+    meta_pins: [P1, P2]
     package: {kind: sil}
-    pin_names: {}
-""")
+""",
+        )
         lib = load_library([tmp_path])
         defn = lib.get("BC547")
         assert defn.default_value == ""
@@ -89,15 +105,18 @@ components:
     def test_yaml_non_string_raises(self, tmp_path: Path) -> None:
         from protoboard.errors import SerializationError
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: R
     component_class: resistor
-    pins: {count: 2}
+    meta_pins: [P1, P2]
     package: {kind: sil}
-    pin_names: {}
     default_value: 4711
-""")
+""",
+        )
         with pytest.raises(SerializationError, match="default_value"):
             load_library([tmp_path])
 
@@ -111,28 +130,43 @@ class TestBundledLibrary:
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         lib = load_library([Path("library")], load_full_package_catalogue())
         # C_Disc / R_SMD_* are consolidated into the generic R / C (their bodies
         # are now footprint options), so only the generic passives remain.
         for name in (
-            "R", "C", "C_POL", "L", "F", "Pot",
-            "R_Net_4", "R_Net_8",
+            "R",
+            "C",
+            "C_POL",
+            "L",
+            "F",
+            "Pot",
+            "R_Net_4",
+            "R_Net_8",
         ):
-            assert lib.get(name).default_value == "?", (
-                f"{name} should carry default_value '?'"
-            )
+            assert (
+                lib.get(name).default_value == "?"
+            ), f"{name} should carry default_value '?'"
 
     def test_concrete_parts_inherit_name(self) -> None:
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         lib = load_library([Path("library")], load_full_package_catalogue())
         for name in (
-            "BC547", "2N3904", "1N4148", "1N4007", "LED_2_5_Red",
-            "NE555", "ATmega328P", "AT24C02", "IRF540_N",
+            "BC547",
+            "2N3904",
+            "1N4148",
+            "1N4007",
+            "LED_2_5_Red",
+            "NE555",
+            "ATmega328P",
+            "AT24C02",
+            "IRF540_N",
             "XTAL_4MHz",
         ):
-            assert lib.get(name).default_value == "", (
-                f"{name} should fall back to defn.name (default_value '')"
-            )
+            assert (
+                lib.get(name).default_value == ""
+            ), f"{name} should fall back to defn.name (default_value '')"

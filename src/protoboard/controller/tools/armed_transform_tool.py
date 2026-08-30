@@ -23,20 +23,21 @@ tool stays active — the floating-conflict feel.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Callable, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, cast
 
-from protoboard.controller.tools.base import ControllerTool
 from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
+from protoboard.controller.tools.base import ControllerTool
 
 if TYPE_CHECKING:
-    from protoboard.geometry import Point
-    from protoboard.controller.ports import PointerInput, WheelInput
     from protoboard.controller.editing import EditState
+    from protoboard.controller.editing.armed_transform import ArmedTransform
+    from protoboard.controller.editing.controller import EditController
+    from protoboard.controller.ports import PointerInput, WheelInput
     from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
-    from protoboard.controller.editing.armed_transform import ArmedTransform
-    from protoboard.controller.editing.controller import EditController
+    from protoboard.geometry import Point
 
 
 # Own action namespace — the armed keys move off ``select-tool.action.*`` onto
@@ -68,9 +69,15 @@ _STEP_VECTORS: dict[str, tuple[float, float]] = {
 # Every action this tool owns — all claimed unconditionally (it is only ever
 # active while armed), so a global QAction on the same key never shadows it.
 _ARMED_ACTION_IDS: tuple[str, ...] = (
-    _ACT_ROTATE, _ACT_MOVE, _ACT_FLIP,
-    _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN,
-    _ACT_CONFIRM, _ACT_CANCEL,
+    _ACT_ROTATE,
+    _ACT_MOVE,
+    _ACT_FLIP,
+    _ACT_STEP_LEFT,
+    _ACT_STEP_RIGHT,
+    _ACT_STEP_UP,
+    _ACT_STEP_DOWN,
+    _ACT_CONFIRM,
+    _ACT_CANCEL,
 )
 
 
@@ -210,6 +217,7 @@ class ArmedTransformTool(ControllerTool):
             else:
                 controller.move_armed(dx, dy)
             return self._after_verb()
+
         return _cmd
 
     def accept(self) -> None:
@@ -319,8 +327,15 @@ class ArmedTransformTool(ControllerTool):
         resource owns them); this lists the same ops the old ``key_actions()``
         enumerated.
         """
-        return [_ACT_ROTATE, _ACT_MOVE, _ACT_FLIP,
-                _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN]
+        return [
+            _ACT_ROTATE,
+            _ACT_MOVE,
+            _ACT_FLIP,
+            _ACT_STEP_LEFT,
+            _ACT_STEP_RIGHT,
+            _ACT_STEP_UP,
+            _ACT_STEP_DOWN,
+        ]
 
     # -- mouse --------------------------------------------------------------
 

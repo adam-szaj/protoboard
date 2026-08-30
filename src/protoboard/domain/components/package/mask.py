@@ -31,11 +31,11 @@ class PadCell(IntFlag):
     only BODY_{side}, leaving the pin-side bits free.
     """
 
-    PIN         = 1 << 0   # a pad/pin occupies this hole (pin-pin: check net)
-    PIN_TOP     = 1 << 1   # pin mounted from the top side
-    PIN_BOTTOM  = 1 << 2   # pin mounted from the bottom side
-    BODY_TOP    = 1 << 3   # body mounted from the top side
-    BODY_BOTTOM = 1 << 4   # body mounted from the bottom side
+    PIN = 1 << 0  # a pad/pin occupies this hole (pin-pin: check net)
+    PIN_TOP = 1 << 1  # pin mounted from the top side
+    PIN_BOTTOM = 1 << 2  # pin mounted from the bottom side
+    BODY_TOP = 1 << 3  # body mounted from the top side
+    BODY_BOTTOM = 1 << 4  # body mounted from the bottom side
 
 
 def _pin_side_bit(side: LayerId) -> PadCell:

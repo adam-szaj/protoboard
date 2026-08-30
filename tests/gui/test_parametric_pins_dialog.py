@@ -48,7 +48,7 @@ class TestParametricPinsDialog:
         concrete = dlg.concrete_definition()
         assert concrete is not None
         assert concrete.name == "PinHeader_2x03"
-        assert concrete.pin_count == 6
+        assert len(concrete.meta_pins) == 6
         assert not concrete.parametric_pins
 
     def test_unrealisable_combination_keeps_dialog_open(self, qtbot) -> None:

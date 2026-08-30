@@ -25,17 +25,28 @@ class _FakeSession:
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
         from protoboard.domain.board.pads import PadLayers
 
-        self.board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                         layers=PadLayers()),
-            rows=1, cols=1, row_gap=0.0, col_gap=0.0,
-        ))
+        self.board = Board(
+            root=BoardGrid(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(),
+                ),
+                rows=1,
+                cols=1,
+                row_gap=0.0,
+                col_gap=0.0,
+            )
+        )
         self.layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         from protoboard.domain.components.definition import ComponentDefinition
+
         self.components: dict[str, ComponentDefinition] = {}
         from protoboard.domain.schematic.schematic import Schematic
+
         self.schematic = Schematic(nets={})
 
 
@@ -167,10 +178,14 @@ class TestMoveComponentNoOpRevert:
     """
 
     @staticmethod
-    def _placement(comp_id: uuid.UUID, pos: Point, *, locked: bool = False
-                   ) -> ComponentPlacement:
+    def _placement(
+        comp_id: uuid.UUID, pos: Point, *, locked: bool = False
+    ) -> ComponentPlacement:
         return ComponentPlacement(
-            component_id=comp_id, position=pos, rotation=0, side="top",
+            component_id=comp_id,
+            position=pos,
+            rotation=0,
+            side="top",
             locked=locked,
         )
 
@@ -181,6 +196,7 @@ class TestMoveComponentNoOpRevert:
         sess.layout.placements[comp_id] = locked_pl
 
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
+
         cmd = MoveComponentCommand(
             component_id=comp_id,
             new_placement=self._placement(comp_id, Point(9.0, 9.0)),
@@ -206,6 +222,7 @@ class TestMoveComponentNoOpRevert:
         sess.layout.placements[comp_id] = old_pl
 
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
+
         cmd = MoveComponentCommand(
             component_id=comp_id,
             new_placement=new_pl,
@@ -251,6 +268,7 @@ class TestRemoveComponentCommand:
     def test_removes_pins_from_nets(self) -> None:
         """Removing a component also removes its pins from all nets."""
         from protoboard.domain.schematic.net import Net, PinRef
+
         comp_id = uuid.uuid4()
         other_id = uuid.uuid4()
         pl = ComponentPlacement(
@@ -279,6 +297,7 @@ class TestRemoveComponentCommand:
     def test_removes_empty_net(self) -> None:
         """Net with only one component's pins is deleted entirely on remove."""
         from protoboard.domain.schematic.net import Net, PinRef
+
         comp_id = uuid.uuid4()
         pl = ComponentPlacement(
             component_id=comp_id, position=Point(1.0, 1.0), rotation=0, side="top"
@@ -307,6 +326,7 @@ class TestRemoveComponentCommand:
 
 class _FailingCmd(Command[_Counter]):
     """Sub-command whose apply() unconditionally raises."""
+
     description = "always fails"
 
     def apply(self, state: _Counter) -> None:
@@ -320,6 +340,7 @@ class _FailingCmd(Command[_Counter]):
 
 class _FailingRevertCmd(Command[_Counter]):
     """Sub-command whose revert() raises (used to test rollback-error logging)."""
+
     description = "revert fails"
 
     def __init__(self) -> None:
@@ -336,6 +357,7 @@ class _FailingRevertCmd(Command[_Counter]):
 class TestMacroCommandAtomic:
     def test_failure_rolls_back_already_applied(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
+
         counter = _Counter()
         # Two increments + one failing → after raise, counter should be 0.
         macro = MacroCommand(
@@ -348,9 +370,11 @@ class TestMacroCommandAtomic:
 
     def test_failure_at_first_command_no_rollback_needed(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
+
         counter = _Counter()
         macro = MacroCommand(
-            [_FailingCmd(), _IncrCmd()], description="test",
+            [_FailingCmd(), _IncrCmd()],
+            description="test",
         )
         with pytest.raises(RuntimeError):
             macro.apply(counter)
@@ -359,21 +383,25 @@ class TestMacroCommandAtomic:
 
     def test_success_path_unchanged(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
+
         counter = _Counter()
         macro = MacroCommand(
-            [_IncrCmd(), _IncrCmd(), _IncrCmd()], description="test",
+            [_IncrCmd(), _IncrCmd(), _IncrCmd()],
+            description="test",
         )
         macro.apply(counter)
         assert counter.value == 3
 
     def test_rollback_error_does_not_swallow_original_exception(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
+
         counter = _Counter()
         # One applied-but-revert-fails + one failing.  Rollback for the
         # first cmd will raise; the original RuntimeError must still
         # surface.
         macro = MacroCommand(
-            [_FailingRevertCmd(), _FailingCmd()], description="test",
+            [_FailingRevertCmd(), _FailingCmd()],
+            description="test",
         )
         with pytest.raises(RuntimeError, match="intentional failure"):
             macro.apply(counter)
@@ -385,13 +413,15 @@ class TestMacroCommandAtomic:
 
     def test_stack_does_not_record_failed_macro(self) -> None:
         from protoboard.domain.commands.base import CommandStack, MacroCommand
+
         counter = _Counter()
         stack: CommandStack[_Counter] = CommandStack()
         # Pre-load with a successful command so the undo stack is non-empty.
         stack.execute(_IncrCmd(), counter)
         assert counter.value == 1
         macro = MacroCommand(
-            [_IncrCmd(), _FailingCmd()], description="failing macro",
+            [_IncrCmd(), _FailingCmd()],
+            description="failing macro",
         )
         with pytest.raises(RuntimeError):
             stack.execute(macro, counter)

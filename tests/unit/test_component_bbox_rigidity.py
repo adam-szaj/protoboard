@@ -32,14 +32,17 @@ def _catalogue():  # type: ignore[no-untyped-def]
 
     families = load_full_package_catalogue()
     lib = load_library([BUILTIN_LIBRARY_DIR], families)
-    return lib, families
+    return lib, {**families, **lib.package_families}
 
 
 def _pl() -> ComponentPlacement:
     import uuid
 
     return ComponentPlacement(
-        component_id=uuid.uuid4(), position=Point(5.0, 5.0), rotation=0, side="top",
+        component_id=uuid.uuid4(),
+        position=Point(5.0, 5.0),
+        rotation=0,
+        side="top",
     )
 
 
@@ -53,7 +56,7 @@ class TestComponentBboxRigidity:
         """SMD-0805 R is a rigid chip → _BODY_MARGIN, despite class 'resistor'."""
         lib, families = _catalogue()
         defn = lib.get("R")
-        variant = resolve_variant(families, "SMD-0805/typ")
+        variant = resolve_variant(families, "chip-smd/imperial/0805")
         assert variant is not None
         fp = variant.package
         pl = _pl()
@@ -66,9 +69,9 @@ class TestComponentBboxRigidity:
 
     def test_axial_resistor_keeps_pad_margin(self) -> None:
         """The default axial R uses the BOARD_SOLVE solver → non-rigid → _PAD_MARGIN."""
-        lib, _families = _catalogue()
+        lib, families = _catalogue()
         defn = lib.get("R")
-        fp = defn.default_footprint()  # Package over the axial DIN package
+        fp = defn.default_footprint(families)
         pl = _pl()
 
         bbox = component_bbox(fp, pl, defn.component_class)
@@ -82,9 +85,9 @@ class TestComponentBboxRigidity:
 
     def test_dip_ic_gets_body_margin(self) -> None:
         """A DIP IC is rigid → _BODY_MARGIN (class 'ic' was already non-flexible)."""
-        lib, _families = _catalogue()
+        lib, families = _catalogue()
         defn = lib.get("74HC00")
-        fp = defn.default_footprint()
+        fp = defn.default_footprint(families)
         pl = _pl()
 
         bbox = component_bbox(fp, pl, defn.component_class)

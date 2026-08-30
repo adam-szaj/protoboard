@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING
 from protoboard.domain.components.footprints import DIL, SIL, Footprint
 
 if TYPE_CHECKING:
-    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.definition import (
+        ComponentDefinition,
+        PackageOption,
+    )
 from protoboard.domain.components.package.family import (
     PackageFamily,
     PackageVariant,
@@ -52,7 +55,9 @@ _SIL_COUNTS = range(3, 41)
 
 
 def _family(
-    family_id: str, label: str, footprint: Footprint,
+    family_id: str,
+    label: str,
+    footprint: Footprint,
     kind: str | None = None,
     dims_mm: tuple[float, float] | None = None,
 ) -> PackageFamily | None:
@@ -94,18 +99,21 @@ def dip_family(pins: int, *, wide: bool) -> PackageFamily | None:
     rows = _DIP_WIDE_ROWS if wide else _DIP_NARROW_ROWS
     fp = DIL(n=pins, rows_spacing=float(rows))
     prefix = "wdip" if wide else "dip"
-    width = "wide 0.6\"" if wide else "narrow 0.3\""
-    return _family(f"{prefix}-{pins}", f"DIP-{pins} ({width})", fp,
-                   kind="wdip_ic" if wide else "dip_ic",
-                   dims_mm=dip_body_dims_mm(pins, float(rows)))
+    width = 'wide 0.6"' if wide else 'narrow 0.3"'
+    return _family(
+        f"{prefix}-{pins}",
+        f"DIP-{pins} ({width})",
+        fp,
+        kind="wdip_ic" if wide else "dip_ic",
+        dims_mm=dip_body_dims_mm(pins, float(rows)),
+    )
 
 
 def sil_family(pins: int) -> PackageFamily | None:
     """The generated ``sil-N`` header family for *pins* (>= 2)."""
     if pins < 2:
         return None
-    return _family(f"sil-{pins}", f"SIL-{pins} header", SIL(n=pins),
-                   kind="sil")
+    return _family(f"sil-{pins}", f"SIL-{pins} header", SIL(n=pins), kind="sil")
 
 
 def generate_inline_families() -> dict[str, PackageFamily]:
@@ -144,61 +152,34 @@ def inline_family_ids_for_pins(pin_count: int, *, dual_row: bool) -> list[str]:
     return [f"sil-{pin_count}"]
 
 
-def _explicit_body(
-    defn: ComponentDefinition, families: dict[str, PackageFamily],
-) -> object | None:
-    """The component's *declared* body package, or ``None``.
+def offered_package_options(
+    defn: ComponentDefinition,
+    families: dict[str, PackageFamily],
+) -> list[PackageOption]:
+    """Return concrete choices derived only from *defn.package_options*.
 
-    Resolution mirrors the render path through the definition's default package
-    reference. Synthetic generic packages are excluded.
+    A family reference expands to each of that family's variants. A concrete
+    variant reference remains one leaf. Unknown references are not selectable.
     """
-    default_ref = defn.default_package_ref()
-    if default_ref:
-        from protoboard.domain.components.package.family import resolve_variant
-        variant = resolve_variant(families, default_ref)
-        if variant is not None:
-            return variant.package
-    return None
+    import dataclasses
 
+    from protoboard.domain.components.package.family import resolve_variant
 
-def offered_body_families(
-    defn: ComponentDefinition, families: dict[str, PackageFamily],
-) -> list[PackageFamily]:
-    """The package families a body-variant picker should offer for *defn*.
-
-    Derived from the component's **explicit body** — never from the footprint
-    (a footprint is only a pin cloud and does not determine a body; the same
-    SIL-3 fits a TO-92, a header or a trimmer):
-
-    * body built by a kind generator → the generator decides which generated
-      families are its pin-count-matching alternatives
-      (``PackageGenerator.offered_family_ids`` — a DIP-16 offers ``dip-16`` /
-      ``wdip-16``, never ``dip-8``);
-    * plain two-pin body (or a bare two-pin part with no declared body) →
-      every two-pin family in the catalogue (swap a resistor for a brick or a
-      ceramic disc for a tantalum drop);
-    * anything else → nothing (no body choice).
-
-    Returns the families in offer order; unknown ids are skipped.
-    """
-    body = _explicit_body(defn, families)
-    kind = getattr(body, "kind", None)
-    if isinstance(kind, str):
-        from protoboard.domain.components.package.generators import (
-            KIND_GENERATORS,
-        )
-        gen_cls = KIND_GENERATORS.get(kind)
-        if gen_cls is None:
-            return []
-        ids = gen_cls(kind).offered_family_ids(defn.pin_count)
-        return [families[i] for i in ids if i in families]
-    if defn.pin_count == 2:
-        return [
-            families[k]
-            for k in sorted(families)
-            if families[k].default_variant().package.pin_count() == 2
-        ]
-    return []
+    offered: list[PackageOption] = []
+    for option in defn.package_options:
+        family = families.get(option.ref)
+        if family is not None:
+            offered.extend(
+                dataclasses.replace(
+                    option,
+                    name=f"{option.name}/{variant.variant_id}",
+                    ref=family.address(variant.variant_id),
+                )
+                for variant in family.variants
+            )
+        elif resolve_variant(families, option.ref) is not None:
+            offered.append(option)
+    return offered
 
 
 __all__ = [
@@ -206,6 +187,6 @@ __all__ = [
     "dip_family",
     "generate_inline_families",
     "inline_family_ids_for_pins",
-    "offered_body_families",
+    "offered_package_options",
     "sil_family",
 ]

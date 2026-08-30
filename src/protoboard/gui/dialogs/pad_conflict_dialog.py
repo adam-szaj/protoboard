@@ -37,18 +37,21 @@ class PadConflictDialog(QDialog):
         layout = QVBoxLayout(self)
 
         _BLOCKED_KINDS = {
-            ConflictKind.DIFFERENT_NETS, ConflictKind.PIN_ON_WIRE_DIFFERENT_NET
+            ConflictKind.DIFFERENT_NETS,
+            ConflictKind.PIN_ON_WIRE_DIFFERENT_NET,
         }
         _AUTO_OK_KINDS = {ConflictKind.SAME_NET, ConflictKind.PIN_ON_WIRE_SAME_NET}
         _AUTO_WIRE_KINDS = {
-            ConflictKind.PIN_ON_WIRE_UNCONNECTED, ConflictKind.PIN_ON_WIRE_WITH_NET
+            ConflictKind.PIN_ON_WIRE_UNCONNECTED,
+            ConflictKind.PIN_ON_WIRE_WITH_NET,
         }
 
         # Classify conflicts.
         blocked = [c for c in conflicts if c.kind in _BLOCKED_KINDS]
         auto_ok = [c for c in conflicts if c.kind in _AUTO_OK_KINDS]
         needs_decision = [
-            c for c in conflicts
+            c
+            for c in conflicts
             if c.kind in (ConflictKind.ONE_UNCONNECTED, ConflictKind.BOTH_UNCONNECTED)
         ]
         auto_wire = [c for c in conflicts if c.kind in _AUTO_WIRE_KINDS]

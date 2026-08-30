@@ -19,23 +19,47 @@ from protoboard.domain.components.package import (
 )
 
 _CATALOGUE: list[dict] = [
-    {"name": "cylinder", "abstract": True, "shape": "cylinder",
-     "dims": {"diameter": None, "length": None, "edge_radius": 0.0}},
+    {
+        "name": "cylinder",
+        "abstract": True,
+        "shape": "cylinder",
+        "dims": {"diameter": None, "length": None, "edge_radius": 0.0},
+    },
     {"name": "prism", "abstract": True, "shape": "prism"},
-    {"name": "cylinder_axial", "abstract": True, "extends": "cylinder",
-     "leads": {"direction": [[0, 0, -1], [0, 0, 1]], "body_offset": 0,
-               "board_offset": "solve", "lead_length": None, "lead_r": None,
-               "body_eccentricity": 0.0}},
-    {"name": "prism_dil", "abstract": True, "extends": "prism",
-     "leads": {"direction": [0, 0, -1], "board_offset": "default"},
-     "bend": 0.0},
-    {"name": "R_Axial_DIN0207", "extends": "cylinder_axial",
-     "dims": {"diameter": 2.5, "length": 6.3},
-     "leads": {"lead_r": 0.27, "lead_length": 32.0}},
-    {"name": "DIP-8", "extends": "prism_dil",
-     "dims": {"ly": 6.25, "lx": 9.20, "lz": 4.0},
-     "leads": {"body_offset": {"unit": 2.5,
-               "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
+    {
+        "name": "cylinder_axial",
+        "abstract": True,
+        "extends": "cylinder",
+        "leads": {
+            "direction": [[0, 0, -1], [0, 0, 1]],
+            "body_offset": 0,
+            "board_offset": "solve",
+            "lead_length": None,
+            "lead_r": None,
+            "body_eccentricity": 0.0,
+        },
+    },
+    {
+        "name": "prism_dil",
+        "abstract": True,
+        "extends": "prism",
+        "leads": {"direction": [0, 0, -1], "board_offset": "default"},
+        "bend": 0.0,
+    },
+    {
+        "name": "R_Axial_DIN0207",
+        "extends": "cylinder_axial",
+        "dims": {"diameter": 2.5, "length": 6.3},
+        "leads": {"lead_r": 0.27, "lead_length": 32.0},
+    },
+    {
+        "name": "DIP-8",
+        "extends": "prism_dil",
+        "dims": {"ly": 6.25, "lx": 9.20, "lz": 4.0},
+        "leads": {
+            "body_offset": {"unit": 2.5, "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}
+        },
+    },
 ]
 
 

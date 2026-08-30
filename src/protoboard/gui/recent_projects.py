@@ -6,7 +6,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from protoboard.paths import CONFIG_DIR as _CONFIG_DIR, RECENT_PROJECTS_FILE as _RECENT_FILE
+from protoboard.paths import (
+    CONFIG_DIR as _CONFIG_DIR,
+)
+from protoboard.paths import (
+    RECENT_PROJECTS_FILE as _RECENT_FILE,
+)
 
 _MAX = 10
 

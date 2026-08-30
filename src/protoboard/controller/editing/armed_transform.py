@@ -41,27 +41,28 @@ it through the controller's verbs.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, cast
 
+from protoboard.controller.ports import WheelInput
+from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
 )
 from protoboard.geometry import Point, Vector
-from protoboard.controller.ports import WheelInput
-from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
 if TYPE_CHECKING:
-    from protoboard.domain.commands.base import Command, ComponentState
-    from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.layout.wire import Fragment
-    from protoboard.geometry import Transform2D
+    from protoboard.controller.editing.controller import EditState
     from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.ports import KeyInput
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.domain.commands.base import Command, ComponentState
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.layout.wire import Fragment
+    from protoboard.geometry import Transform2D
 
     SnapFn = Callable[[Point], "Point | None"]
     ExecuteFn = Callable[["Command[ComponentState]"], bool]
@@ -197,9 +198,7 @@ class ArmedTransform:
 
     # -- snapshot -----------------------------------------------------------
 
-    def _affected_wire_ids(
-        self, layout: Layout | None = None
-    ) -> frozenset[uuid.UUID]:
+    def _affected_wire_ids(self, layout: Layout | None = None) -> frozenset[uuid.UUID]:
         """Wires structurally owned by the members (rotated/translated as a unit).
 
         A wire is affected when *both* its endpoints anchor to members of this
@@ -531,9 +530,7 @@ class ArmedTransform:
         if decision is not None and not decision.can_commit:
             # Conditional disarm: a conflicting transform parks armed.
             if self._status is not None:
-                self._status(
-                    "Transform: conflict here — step to a clear spot or [Esc]"
-                )
+                self._status("Transform: conflict here — step to a clear spot or [Esc]")
             self._emit_preview()
             return
         if not self._is_transformed():
@@ -568,9 +565,7 @@ class ArmedTransform:
         from protoboard.domain.commands.drag_cmds import TransformDragSetCommand
 
         layout = self._layout
-        members: dict[
-            uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]
-        ] = {}
+        members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]] = {}
         # Local-frame diff — TransformDragSetCommand writes placements
         # verbatim (i.e. locals), so both ends of the snapshot must be local.
         for cid, old_pl in self._original.placements.items():
@@ -581,9 +576,7 @@ class ArmedTransform:
             return None
 
         wire_paths: dict[uuid.UUID, tuple[list[Point], list[Point]]] = {}
-        wire_fragments: dict[
-            uuid.UUID, tuple[list[Fragment], list[Fragment]]
-        ] = {}
+        wire_fragments: dict[uuid.UUID, tuple[list[Fragment], list[Fragment]]] = {}
         for wid, old_path in self._original.wire_paths.items():
             wire = layout.wires.get(wid)
             if wire is None:
@@ -591,7 +584,8 @@ class ArmedTransform:
             wire_paths[wid] = (list(old_path), list(wire.path))
             old_frags = self._original.wire_fragments.get(wid, [])
             wire_fragments[wid] = (
-                list(old_frags), list(wire.fragments) if wire.fragments else [],
+                list(old_frags),
+                list(wire.fragments) if wire.fragments else [],
             )
         knot_positions: dict[uuid.UUID, tuple[Point, Point]] = {}
         for kid, old_pos in self._original.knot_positions.items():

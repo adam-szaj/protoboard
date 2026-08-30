@@ -101,9 +101,9 @@ ACTION_MERGE_WIRES = "merge_wires"
 # through ACTION_MERGE_WIRES.
 ACTION_MERGE_WIRE_FRAGMENTS = ACTION_MERGE_WIRES
 
-ACTION_HIGHLIGHT_TOGGLE = "highlight_toggle"   # toggle highlight on/off
-ACTION_HIGHLIGHT_CYCLE  = "highlight_cycle"    # cycle through relation classes
-ACTION_CLEAR_HIGHLIGHT  = "clear_highlight"    # drop persistent stack entries
+ACTION_HIGHLIGHT_TOGGLE = "highlight_toggle"  # toggle highlight on/off
+ACTION_HIGHLIGHT_CYCLE = "highlight_cycle"  # cycle through relation classes
+ACTION_CLEAR_HIGHLIGHT = "clear_highlight"  # drop persistent stack entries
 
 # Selection filter toggles — which object types may be selected.
 ACTION_FILTER_TOGGLE_COMPONENTS = "filter_toggle_components"
@@ -402,7 +402,12 @@ DISPLAY_NAMES: dict[str, str] = {
 # Config path
 # ---------------------------------------------------------------------------
 
-from protoboard.paths import CONFIG_DIR as _CONFIG_DIR, KEYBINDINGS_FILE as _KEYBINDINGS_PATH
+from protoboard.paths import (  # noqa: E402
+    CONFIG_DIR as _CONFIG_DIR,
+)
+from protoboard.paths import (  # noqa: E402
+    KEYBINDINGS_FILE as _KEYBINDINGS_PATH,
+)
 
 # ---------------------------------------------------------------------------
 # KeyBindings class
@@ -425,12 +430,14 @@ class KeyBindings:
     # ------------------------------------------------------------------
 
     @classmethod
-    def load(cls) -> "KeyBindings":
+    def load(cls) -> KeyBindings:
         """Load from disk, falling back to defaults on any error."""
         bindings = dict(DEFAULTS)
         if _KEYBINDINGS_PATH.exists():
             try:
-                from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
+                from ruamel.yaml import (
+                    YAML,  # type: ignore[import-untyped,unused-ignore]
+                )
 
                 yaml = YAML()
                 raw = yaml.load(_KEYBINDINGS_PATH)
@@ -444,9 +451,7 @@ class KeyBindings:
 
     def save(self) -> None:
         """Persist only non-default entries to disk."""
-        overrides = {
-            k: v for k, v in self._bindings.items() if DEFAULTS.get(k) != v
-        }
+        overrides = {k: v for k, v in self._bindings.items() if DEFAULTS.get(k) != v}
         _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
 
@@ -454,23 +459,25 @@ class KeyBindings:
         yaml.default_flow_style = False
         with _KEYBINDINGS_PATH.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — keyboard shortcut overrides\n")
-            fh.write("# Format: action_id: \"Shortcut\"  (empty string = no shortcut)\n")
+            fh.write('# Format: action_id: "Shortcut"  (empty string = no shortcut)\n')
             fh.write("# Available action IDs and defaults: see keybindings.py\n")
             if overrides:
                 yaml.dump(overrides, fh)
 
     def generate_full_config(self) -> None:
-        """Write a complete keybindings.yaml with all actions and their current values."""
+        """Write a complete keybindings.yaml with all actions and their current values."""  # noqa: E501
         _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
-        from ruamel.yaml.comments import CommentedMap  # type: ignore[import-untyped,unused-ignore]
+        from ruamel.yaml.comments import (
+            CommentedMap,  # type: ignore[import-untyped,unused-ignore]
+        )
 
         cm: CommentedMap = CommentedMap()
         for action_id, default_shortcut in DEFAULTS.items():
             cm[action_id] = self._bindings.get(action_id, default_shortcut)
             display = DISPLAY_NAMES.get(action_id, action_id)
             cm.yaml_set_comment_before_after_key(
-                action_id, before=f" {display} (default: \"{default_shortcut}\")"
+                action_id, before=f' {display} (default: "{default_shortcut}")'
             )
 
         yaml = YAML()
@@ -478,7 +485,7 @@ class KeyBindings:
         with _KEYBINDINGS_PATH.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — keyboard shortcut overrides\n")
             fh.write("# Edit this file and restart the application to apply changes.\n")
-            fh.write("# Set a value to \"\" to disable the shortcut.\n\n")
+            fh.write('# Set a value to "" to disable the shortcut.\n\n')
             yaml.dump(cm, fh)
 
     # ------------------------------------------------------------------

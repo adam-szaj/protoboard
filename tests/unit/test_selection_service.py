@@ -246,9 +246,7 @@ class TestCorrectionPhase:
 
     def test_undo_noop_for_plain_count(self) -> None:
         svc = SelectionService()
-        session = svc.request_pick(
-            "pad", Stop.count(3), on_done=lambda xs: None
-        )
+        session = svc.request_pick("pad", Stop.count(3), on_done=lambda xs: None)
         session.feed(_sel(1))
         # Plain count is not revisable — undo is a no-op.
         assert session.undo() is False
@@ -287,9 +285,9 @@ class TestRequestPickAsync:
 
 class TestAdapters:
     def test_component_adapter(self) -> None:
+        from protoboard.controller.selection import ComponentSelectable
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.geometry import Point
-        from protoboard.controller.selection import ComponentSelectable
 
         cid = uuid.uuid4()
         pl = ComponentPlacement(
@@ -311,8 +309,8 @@ class TestAdapters:
         assert sel.to_hit() == Hit("wire", wid)
 
     def test_group_adapter(self) -> None:
-        from protoboard.domain.layout.group import ComponentGroup
         from protoboard.controller.selection import GroupSelectable
+        from protoboard.domain.layout.group import ComponentGroup
 
         gid = uuid.uuid4()
         sel = GroupSelectable(group=ComponentGroup(id=gid, name="G"))
@@ -320,8 +318,8 @@ class TestAdapters:
         assert sel.to_hit() == Hit("group", gid)
 
     def test_pin_adapter_bridges_to_component_hit(self) -> None:
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.controller.selection import PinSelectable
+        from protoboard.domain.schematic.net import PinRef
 
         cid = uuid.uuid4()
         sel = PinSelectable(pin=PinRef(component_id=cid, pin_number=2))

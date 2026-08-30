@@ -18,9 +18,10 @@ import uuid
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QRectF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsItemGroup, QGraphicsScene
 
+from protoboard.geometry import Insets, Rect
+from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.component_renderer import (
     render_groups,
     update_component_groups,
@@ -32,8 +33,6 @@ from protoboard.gui.renderers.wire_renderer import (
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.services.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
-from protoboard.geometry import Insets, Rect
-from protoboard.gui.qt_geometry import to_qrectf
 
 if TYPE_CHECKING:
     from protoboard.controller.theme import Theme
@@ -75,7 +74,7 @@ class SceneComposer:
         self._drag_orig_wire_pose: dict[uuid.UUID, Point] = {}
         # Board layer: rebuilt only when board geometry / theme / alpha changes.
         self._board_layer_dirty: bool = True
-        self._last_board_alpha: float = -1.0   # sentinel: never matches
+        self._last_board_alpha: float = -1.0  # sentinel: never matches
         # Connections (ratsnest) layer render mode — mirrors
         # ``AppSettings.ratsnest_mode``.  "full" = K_n graph per island;
         # "closest" = nearest-other-pin per pin.  MainWindow pushes
@@ -86,6 +85,7 @@ class SceneComposer:
         self._overlay_items: list[object] = []
         # Debounce refresh so rapid layout_changed bursts only redraw once.
         from protoboard.gui.throttle import TimerWrap
+
         self._refresh_timer = TimerWrap(16, self.refresh)  # ~1 frame, arm-if-idle
 
     # -- small state hooks --------------------------------------------------------
@@ -172,11 +172,15 @@ class SceneComposer:
 
         # Shared render inputs, computed once and passed down to the phases.
         from dataclasses import replace as _dc_replace
+
         layers = view.layer_state()
-        theme = _dc_replace(view.theme,
-                            raster_pitch_mm=session.board.raster_pitch_mm,
-                            package_families=session.package_families)
+        theme = _dc_replace(
+            view.theme,
+            raster_pitch_mm=session.board.raster_pitch_mm,
+            package_families=session.package_families,
+        )
         from protoboard.gui.renderers.net_color import build_net_color_map
+
         # Resolved per-net colour: manual ``net.color`` wins, then static
         # palette, then golden-ratio hue spin once palette is exhausted.
         # Same map drives wire colour AND pad colour so they always match.
@@ -185,35 +189,32 @@ class SceneComposer:
         )
         routed: set[uuid.UUID] | None = None
         if session.schematic.nets:
-            routed = routed_net_ids(
-                session.schematic, session.connectivity_graph()
-            )
+            routed = routed_net_ids(session.schematic, session.connectivity_graph())
 
         self._sync_board_layer(session, scene, layers)
         self._clear_overlay_items(scene)
-        self._render_wires(session, scene, render_layout, theme, layers,
-                           net_color_map)
-        self._render_wire_pins(session, scene, render_layout, theme, layers,
-                              net_color_map)
-        self._render_components(session, scene, render_layout, theme, layers,
-                               routed)
+        self._render_wires(session, scene, render_layout, theme, layers, net_color_map)
+        self._render_wire_pins(
+            session, scene, render_layout, theme, layers, net_color_map
+        )
+        self._render_components(session, scene, render_layout, theme, layers, routed)
         self._snapshot_drag_anchors(session)
-        pp_records = self._render_pin_pads(session, scene, theme, layers,
-                                           net_color_map)
-        self._render_overlays(session, scene, render_layout, theme, layers,
-                             routed)
+        pp_records = self._render_pin_pads(session, scene, theme, layers, net_color_map)
+        self._render_overlays(session, scene, render_layout, theme, layers, routed)
 
         # ── Scene rect ───────────────────────────────────────────────────────
         b = session.board.bounds
-        margin = Insets(top=b.ly * 0.5, right=b.lx * 0.5,
-                        bottom=b.ly * 0.5, left=b.lx * 0.5)
+        margin = Insets(
+            top=b.ly * 0.5, right=b.lx * 0.5, bottom=b.ly * 0.5, left=b.lx * 0.5
+        )
         scene.setSceneRect(to_qrectf(b.inflate(margin)))
 
         # ── Label visibility (hide text that would be too small to read) ────────
         view.apply_label_visibility()
 
-        self._render_pin_modifiers(session, scene, theme, layers, net_color_map,
-                                  pp_records)
+        self._render_pin_modifiers(
+            session, scene, theme, layers, net_color_map, pp_records
+        )
 
         # Scene contents changed — drop the back-side raster cache so the
         # next paint re-rasterises with current items.  Restores any items
@@ -256,7 +257,10 @@ class SceneComposer:
         return list(factory())
 
     def _sync_board_layer(
-        self, session: EditorSession, scene: QGraphicsScene, layers: LayerState,
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        layers: LayerState,
     ) -> None:
         """Invalidate the board-layer caches when its visual inputs change.
 
@@ -310,8 +314,13 @@ class SceneComposer:
         self._overlay_items.clear()
 
     def _render_wires(
-        self, session: EditorSession, scene: QGraphicsScene, render_layout: Layout,
-        theme: Theme, layers: LayerState, net_color_map: dict[uuid.UUID, str | None],
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        render_layout: Layout,
+        theme: Theme,
+        layers: LayerState,
+        net_color_map: dict[uuid.UUID, str | None],
     ) -> None:
         """Wires (group reuse) — unchanged wire groups survive untouched.
 
@@ -323,7 +332,7 @@ class SceneComposer:
             scene,
             list(render_layout.wires),
             session.cached_wire_net_map(),
-            self._wire_groups,        # type: ignore[arg-type]
+            self._wire_groups,  # type: ignore[arg-type]
             self._wire_fingerprints,
             net_color_map=net_color_map,
             theme=theme,
@@ -333,8 +342,13 @@ class SceneComposer:
         )
 
     def _render_wire_pins(
-        self, session: EditorSession, scene: QGraphicsScene, render_layout: Layout,
-        theme: Theme, layers: LayerState, net_color_map: dict[uuid.UUID, str | None],
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        render_layout: Layout,
+        theme: Theme,
+        layers: LayerState,
+        net_color_map: dict[uuid.UUID, str | None],
     ) -> None:
         """Wire-pin glyphs — rebuilt from scratch each refresh (tiny set)."""
         from protoboard.domain.layout.knot import WirePinKnot
@@ -346,20 +360,30 @@ class SceneComposer:
             if isinstance(k, WirePinKnot)
         ]
         self._wire_pin_items = self._rebuild_item_list(
-            scene, self._wire_pin_items,
-            lambda: render_wire_pins(
-                scene,
-                wire_pins,
-                net_color_map=net_color_map,
-                theme=theme,
-                layers=layers,
-                routing_target_net_id=session.routing_net_id,
-            ) if wire_pins else (),
+            scene,
+            self._wire_pin_items,
+            lambda: (
+                render_wire_pins(
+                    scene,
+                    wire_pins,
+                    net_color_map=net_color_map,
+                    theme=theme,
+                    layers=layers,
+                    routing_target_net_id=session.routing_net_id,
+                )
+                if wire_pins
+                else ()
+            ),
         )
 
     def _render_components(
-        self, session: EditorSession, scene: QGraphicsScene, render_layout: Layout,
-        theme: Theme, layers: LayerState, routed: set[uuid.UUID] | None,
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        render_layout: Layout,
+        theme: Theme,
+        layers: LayerState,
+        routed: set[uuid.UUID] | None,
     ) -> None:
         """Components (group reuse) — unchanged comp groups survive untouched."""
         update_component_groups(
@@ -367,7 +391,7 @@ class SceneComposer:
             render_layout.placements,
             session.instances,
             session.components,
-            self._comp_groups,        # type: ignore[arg-type]
+            self._comp_groups,  # type: ignore[arg-type]
             self._comp_fingerprints,
             schematic=session.schematic if session.schematic.nets else None,
             routed_nets=routed,
@@ -391,16 +415,19 @@ class SceneComposer:
         ``on_drag_moved`` compares current ``path[0]`` against this anchor.
         """
         self._drag_orig_group_pos = {
-            cid: pl.position
-            for cid, pl in session.layout.placements.items()
+            cid: pl.position for cid, pl in session.layout.placements.items()
         }
         self._drag_orig_wire_pose = {
             w.id: w.path[0] for w in session.layout.wires if w.path
         }
 
     def _render_pin_pads(
-        self, session: EditorSession, scene: QGraphicsScene, theme: Theme,
-        layers: LayerState, net_color_map: dict[uuid.UUID, str | None],
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        theme: Theme,
+        layers: LayerState,
+        net_color_map: dict[uuid.UUID, str | None],
     ) -> list[PinPadInfo]:
         """Pin-pads layer (schematic-aware overlay above board).
 
@@ -418,11 +445,16 @@ class SceneComposer:
             from protoboard.gui.renderers.pin_pad_renderer import (
                 render_pin_pads,
             )
-            pp_records = list(classify_pin_pads(
-                session.pad_index(), session.layout,
-            ))
+
+            pp_records = list(
+                classify_pin_pads(
+                    session.pad_index(),
+                    session.layout,
+                )
+            )
             self._pin_pad_items = self._rebuild_item_list(
-                scene, self._pin_pad_items,
+                scene,
+                self._pin_pad_items,
                 lambda: render_pin_pads(
                     scene,
                     pp_records,
@@ -444,62 +476,78 @@ class SceneComposer:
         return pp_records
 
     def _render_overlays(
-        self, session: EditorSession, scene: QGraphicsScene, render_layout: Layout,
-        theme: Theme, layers: LayerState, routed: set[uuid.UUID] | None,
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        render_layout: Layout,
+        theme: Theme,
+        layers: LayerState,
+        routed: set[uuid.UUID] | None,
     ) -> None:
         """Overlays — ratsnest + group outlines + axis labels (always recreated)."""
         new_overlays: list[object] = []
         from protoboard.gui.layer_state import LayerVisibility
+
         ratsnest_vis = self._view.layer_overrides.ratsnest
-        if (session.schematic.nets
-                and ratsnest_vis != LayerVisibility.HIDDEN):
+        if session.schematic.nets and ratsnest_vis != LayerVisibility.HIDDEN:
             # Ghost mode: only unrouted nets are drawn (current
             # legacy behaviour).  Full mode: every net gets at least
             # its missing-link or multi-island warning lines.
-            ghost_mode = (ratsnest_vis == LayerVisibility.GHOST)
-            new_overlays.extend(render_ratsnest(
-                scene,
-                session.schematic,
-                render_layout.placements,
-                session.instances,
-                session.components,
-                routed_nets=routed,
-                theme=theme,
-                graph=session.connectivity_graph(),
-                mode=self._ratsnest_mode,
-                ghost=ghost_mode,
-            ))
+            ghost_mode = ratsnest_vis == LayerVisibility.GHOST
+            new_overlays.extend(
+                render_ratsnest(
+                    scene,
+                    session.schematic,
+                    render_layout.placements,
+                    session.instances,
+                    session.components,
+                    routed_nets=routed,
+                    theme=theme,
+                    graph=session.connectivity_graph(),
+                    mode=self._ratsnest_mode,
+                    ghost=ghost_mode,
+                )
+            )
         if render_layout.groups:
-            new_overlays.extend(render_groups(
-                scene,
-                render_layout,
-                render_layout.placements,
-                session.instances,
-                session.components,
-                wires=list(render_layout.wires),
-                theme=theme,
-                active_group_id=self._view.active_group_id,
-                view_scale=GRID_PX,
-                wire_net_map=session.cached_wire_net_map(),
-                schematic=session.schematic,
-            ))
+            new_overlays.extend(
+                render_groups(
+                    scene,
+                    render_layout,
+                    render_layout.placements,
+                    session.instances,
+                    session.components,
+                    wires=list(render_layout.wires),
+                    theme=theme,
+                    active_group_id=self._view.active_group_id,
+                    view_scale=GRID_PX,
+                    wire_net_map=session.cached_wire_net_map(),
+                    schematic=session.schematic,
+                )
+            )
         if session.axis_label_settings.any_enabled():
             from protoboard.gui.renderers.axis_labels_renderer import (
                 render_axis_labels,
             )
-            new_overlays.extend(render_axis_labels(
-                scene,
-                session.board,
-                session.axis_label_settings,
-                theme=theme,
-                alpha=layers.alpha_for_axis_labels(),
-                view_scale=GRID_PX,
-            ))
+
+            new_overlays.extend(
+                render_axis_labels(
+                    scene,
+                    session.board,
+                    session.axis_label_settings,
+                    theme=theme,
+                    alpha=layers.alpha_for_axis_labels(),
+                    view_scale=GRID_PX,
+                )
+            )
         self._overlay_items = new_overlays
 
     def _render_pin_modifiers(
-        self, session: EditorSession, scene: QGraphicsScene, theme: Theme,
-        layers: LayerState, net_color_map: dict[uuid.UUID, str | None],
+        self,
+        session: EditorSession,
+        scene: QGraphicsScene,
+        theme: Theme,
+        layers: LayerState,
+        net_color_map: dict[uuid.UUID, str | None],
         pp_records: list[PinPadInfo],
     ) -> None:
         """Pin modifiers (top-most overlay).
@@ -514,7 +562,9 @@ class SceneComposer:
         # ``is_wire_editing`` is WireEditTool-specific — not on the _Tool
         # protocol; probe it dynamically (a non-wire tool simply lacks it).
         _is_wire_editing = getattr(tool, "is_wire_editing", None)
-        _wire_editing = bool(_is_wire_editing() if callable(_is_wire_editing) else False)
+        _wire_editing = bool(
+            _is_wire_editing() if callable(_is_wire_editing) else False
+        )
         if not (pp_records and not _wire_editing):
             self._rebuild_item_list(scene, self._pin_modifier_items, tuple)
             self._pin_modifier_items = []
@@ -523,8 +573,10 @@ class SceneComposer:
             from protoboard.gui.renderers.pin_pad_renderer import (
                 render_pin_modifiers,
             )
+
             self._pin_modifier_items = self._rebuild_item_list(
-                scene, self._pin_modifier_items,
+                scene,
+                self._pin_modifier_items,
                 lambda: render_pin_modifiers(
                     scene,
                     pp_records,
@@ -606,6 +658,7 @@ class SceneComposer:
         from protoboard.domain.layout.group_ownership import OwnershipResolver
         from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
         session = self._view.session
         layout = session.layout
         # Used by the OwnershipResolver below (group-outline ownership classifier).
@@ -638,14 +691,10 @@ class SceneComposer:
         # shrinks at drag-start nor stretches over interface wires.
         # Resolve wire→net once for this paint; cached on session.
         try:
-            wire_net_map = (
-                session.cached_wire_net_map() if session is not None else {}
-            )
+            wire_net_map = session.cached_wire_net_map() if session is not None else {}
         except Exception:  # noqa: BLE001
             wire_net_map = {}
-        schematic = (
-            getattr(session, "schematic", None) if session is not None else None
-        )
+        schematic = getattr(session, "schematic", None) if session is not None else None
         _tree = GroupTree(layout.groups)
         # Bind the LOCAL outline context (may be a drag-time snapshot, not
         # session state) — build the resolver directly, not from_session.
@@ -675,7 +724,9 @@ class SceneComposer:
             # at drag-start and re-grows at release).
             try:
                 owned_wire_ids = _ownership.owned_wire_ids(
-                    list(layout.wires), grp_obj, comp_ids,
+                    list(layout.wires),
+                    grp_obj,
+                    comp_ids,
                 )
                 for w in layout.wires:
                     if w.id not in owned_wire_ids:

@@ -45,6 +45,7 @@ def find_pin_at(
         if defn is None:
             continue
         from protoboard.domain.components.package import resolved_footprint
+
         fp = resolved_footprint(defn, inst, inst.families)
         for pin_num in range(1, fp.pin_count() + 1):
             pos = pin_world_position(fp, placement, pin_num)
@@ -58,7 +59,7 @@ def find_wire_net_at(
     session: _SessionLike,
     *,
     exclude_wire_id: uuid.UUID | None = None,
-) -> "Net | None":
+) -> Net | None:
     """Return the schematic net of any existing wire whose path passes
     through ``pt``; ``None`` if no wire touches ``pt`` or if the
     touching wire has no net assignment.
@@ -94,11 +95,11 @@ def find_wire_net_at(
 
 
 class WireNetKind(Enum):
-    NO_PINS = auto()            # at least one end not on a component pin
-    BOTH_UNCONNECTED = auto()   # both pins exist but neither is in a net
-    ONE_UNCONNECTED = auto()    # one pin is in a net, the other is not
-    SAME_NET = auto()           # both pins are already in the same net
-    DIFFERENT_NETS = auto()     # both pins are in different nets
+    NO_PINS = auto()  # at least one end not on a component pin
+    BOTH_UNCONNECTED = auto()  # both pins exist but neither is in a net
+    ONE_UNCONNECTED = auto()  # one pin is in a net, the other is not
+    SAME_NET = auto()  # both pins are already in the same net
+    DIFFERENT_NETS = auto()  # both pins are in different nets
 
 
 @dataclass(frozen=True)
@@ -106,8 +107,8 @@ class WireNetClassification:
     kind: WireNetKind
     pin_a: tuple[uuid.UUID, int] | None = None  # (comp_id, pin_num) at wire.path[0]
     pin_b: tuple[uuid.UUID, int] | None = None  # (comp_id, pin_num) at wire.path[-1]
-    net_a: Net | None = None                    # schematic net of pin_a, if any
-    net_b: Net | None = None                    # schematic net of pin_b, if any
+    net_a: Net | None = None  # schematic net of pin_a, if any
+    net_b: Net | None = None  # schematic net of pin_b, if any
 
 
 def classify_wire_nets(

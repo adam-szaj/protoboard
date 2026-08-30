@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.board.board import Board
-from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
-from protoboard.domain.board.pads import PadLayers
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
     build_flip_fragment_command,
 )
+from protoboard.domain.board.board import Board
+from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
     FlipWireFragmentCommand,
@@ -36,16 +36,21 @@ from protoboard.geometry import Point
 
 def _perfboard(rows: int = 6, cols: int = 8) -> Board:
     """Perfboard with plated-through pads everywhere — every cell is a via."""
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 class _State:
@@ -53,13 +58,20 @@ class _State:
 
     def __init__(self) -> None:
         self.board = _perfboard()
-        self.layout = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
+        self.layout = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([])
+        )
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
 
 
-def _add(state: _State, path: list[tuple[float, float]],
-         *, insulated: bool = True, side: str = "top") -> AddWireCommand:
+def _add(
+    state: _State,
+    path: list[tuple[float, float]],
+    *,
+    insulated: bool = True,
+    side: str = "top",
+) -> AddWireCommand:
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in path],
@@ -73,7 +85,8 @@ def _add(state: _State, path: list[tuple[float, float]],
 
 def _joint_knots_at(state: _State, x: float, y: float) -> list[JointKnot]:
     return [
-        k for k in state.layout.knots.values()
+        k
+        for k in state.layout.knots.values()
         if isinstance(k, JointKnot)
         and abs(k.position.x - x) < 1e-6
         and abs(k.position.y - y) < 1e-6
@@ -100,8 +113,10 @@ class TestRepeatedFlipToggles:
         _add(state, [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)], side="top")
         wire = list(state.layout.wires)[0]
         full = WireEditState(
-            start_wire_id=wire.id, start_idx=0,
-            end_wire_id=wire.id, end_idx=len(wire.path) - 1,
+            start_wire_id=wire.id,
+            start_idx=0,
+            end_wire_id=wire.id,
+            end_idx=len(wire.path) - 1,
         )
 
         # First flip: top -> bottom.
@@ -115,8 +130,10 @@ class TestRepeatedFlipToggles:
         # Second flip on the SAME full-span range must target "top" (toggle
         # back) — reading the fragment's current side, not stale wire.side.
         full2 = WireEditState(
-            start_wire_id=w.id, start_idx=0,
-            end_wire_id=w.id, end_idx=len(w.path) - 1,
+            start_wire_id=w.id,
+            start_idx=0,
+            end_wire_id=w.id,
+            end_idx=len(w.path) - 1,
         )
         cmd2 = build_flip_fragment_command(list(state.layout.wires), full2)
         assert cmd2 is not None
@@ -132,11 +149,17 @@ class TestRepeatedFlipToggles:
         # same middle sub-range again must return it to top (the surrounding
         # fragments are top, so the reference is the middle fragment's side).
         state = _State()
-        _add(state, [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
-             side="top")
+        _add(
+            state,
+            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+            side="top",
+        )
         wire = list(state.layout.wires)[0]
         FlipWireFragmentCommand(
-            wire_id=wire.id, start_idx=1, end_idx=3, target_side="bottom",
+            wire_id=wire.id,
+            start_idx=1,
+            end_idx=3,
+            target_side="bottom",
         ).apply(state)
         w = list(state.layout.wires)[0]
         assert [f.side for f in w.fragments] == ["top", "bottom", "top"]
@@ -161,7 +184,10 @@ class TestSingleFlip:
         original_id = wire.id
         # Flip path[1..3] (vertices (1.5,0.5)..(3.5,0.5)) to bottom.
         cmd = FlipWireFragmentCommand(
-            wire_id=wire.id, start_idx=1, end_idx=3, target_side="bottom",
+            wire_id=wire.id,
+            start_idx=1,
+            end_idx=3,
+            target_side="bottom",
         )
         cmd.apply(state)
 
@@ -174,7 +200,11 @@ class TestSingleFlip:
         assert sides == ["top", "bottom", "top"]
         # Path preserved verbatim.
         assert [(p.x, p.y) for p in w.path] == [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (3.5, 0.5),
+            (4.5, 0.5),
         ]
         # No new JointKnots minted at the via boundaries.
         assert _joint_knots_at(state, 1.5, 0.5) == []
@@ -185,7 +215,10 @@ class TestSingleFlip:
         _add(state, [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)])
         wire = list(state.layout.wires)[0]
         cmd = FlipWireFragmentCommand(
-            wire_id=wire.id, start_idx=0, end_idx=2, target_side="bottom",
+            wire_id=wire.id,
+            start_idx=0,
+            end_idx=2,
+            target_side="bottom",
         )
         cmd.apply(state)
         w = list(state.layout.wires)[0]
@@ -201,16 +234,26 @@ class TestAdjacentFlips:
     def test_two_flips_on_adjacent_fragments_stay_one_wire(self) -> None:
         # 6 vertices → 5 segments.
         state = _State()
-        _add(state, [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5),
-            (5.5, 0.5),
-        ])
+        _add(
+            state,
+            [
+                (0.5, 0.5),
+                (1.5, 0.5),
+                (2.5, 0.5),
+                (3.5, 0.5),
+                (4.5, 0.5),
+                (5.5, 0.5),
+            ],
+        )
         wire = list(state.layout.wires)[0]
         wire_id = wire.id
 
         # Flip 1: vertices [1..3] to bottom — flips segments [1..2].
         FlipWireFragmentCommand(
-            wire_id=wire_id, start_idx=1, end_idx=3, target_side="bottom",
+            wire_id=wire_id,
+            start_idx=1,
+            end_idx=3,
+            target_side="bottom",
         ).apply(state)
         assert len(state.layout.wires) == 1
         w = list(state.layout.wires)[0]
@@ -220,7 +263,10 @@ class TestAdjacentFlips:
         # This is the adjacent flip the user reported: the new range
         # starts at the via vertex that ended the previous flip.
         FlipWireFragmentCommand(
-            wire_id=wire_id, start_idx=3, end_idx=5, target_side="bottom",
+            wire_id=wire_id,
+            start_idx=3,
+            end_idx=5,
+            target_side="bottom",
         ).apply(state)
 
         # Must still be ONE wire with the same id.
@@ -234,9 +280,10 @@ class TestAdjacentFlips:
         # Fragments coalesce: top prefix [0..1], then a single bottom run
         # covering vertices [1..5] = the entire suffix of the wire.
         sides = [f.side for f in w.fragments]
-        assert sides == ["top", "bottom"], (
-            f"Expected [top, bottom] after coalescing adjacent flips, got {sides}"
-        )
+        assert sides == [
+            "top",
+            "bottom",
+        ], f"Expected [top, bottom] after coalescing adjacent flips, got {sides}"
 
         # No degree-1 JointKnots at any internal pad — those were the
         # smoking gun in the wire-merge log dump.
@@ -256,7 +303,10 @@ class TestAdjacentFlips:
         pre_sides = [f.side for f in wire.fragments]
 
         cmd = FlipWireFragmentCommand(
-            wire_id=wire_id, start_idx=1, end_idx=2, target_side="bottom",
+            wire_id=wire_id,
+            start_idx=1,
+            end_idx=2,
+            target_side="bottom",
         )
         cmd.apply(state)
         cmd.revert(state)
@@ -280,6 +330,7 @@ class TestFusePhase0Rescue:
         degree-1 JointKnot at the same pad position (4.5, 0.5)."""
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.wire import Fragment, KnotRef
+
         state = _State()
         # Wire 1: (0.5, 0.5) → (4.5, 0.5).
         w1_a_id = uuid.uuid4()
@@ -287,9 +338,11 @@ class TestFusePhase0Rescue:
         w1 = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(4.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
             fragments=[Fragment(path=[Point(0.5, 0.5), Point(4.5, 0.5)], side="top")],
-            a=KnotRef(id=w1_a_id), b=KnotRef(id=w1_b_id),
+            a=KnotRef(id=w1_a_id),
+            b=KnotRef(id=w1_b_id),
         )
         # Wire 2: (4.5, 0.5) → (4.5, 4.5).  Endpoint sits on the same
         # pad as w1's `b`, but uses its own JointKnot — the orphan
@@ -299,22 +352,32 @@ class TestFusePhase0Rescue:
         w2 = Wire(
             id=uuid.uuid4(),
             path=[Point(4.5, 0.5), Point(4.5, 4.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
             fragments=[Fragment(path=[Point(4.5, 0.5), Point(4.5, 4.5)], side="top")],
-            a=KnotRef(id=w2_a_id), b=KnotRef(id=w2_b_id),
+            a=KnotRef(id=w2_a_id),
+            b=KnotRef(id=w2_b_id),
         )
         # Install knots + wires.
         state.layout.knots[w1_a_id] = JointKnot(
-            id=w1_a_id, position=Point(0.5, 0.5), wire_ids=frozenset({w1.id}),
+            id=w1_a_id,
+            position=Point(0.5, 0.5),
+            wire_ids=frozenset({w1.id}),
         )
         state.layout.knots[w1_b_id] = JointKnot(
-            id=w1_b_id, position=Point(4.5, 0.5), wire_ids=frozenset({w1.id}),
+            id=w1_b_id,
+            position=Point(4.5, 0.5),
+            wire_ids=frozenset({w1.id}),
         )
         state.layout.knots[w2_a_id] = JointKnot(
-            id=w2_a_id, position=Point(4.5, 0.5), wire_ids=frozenset({w2.id}),
+            id=w2_a_id,
+            position=Point(4.5, 0.5),
+            wire_ids=frozenset({w2.id}),
         )
         state.layout.knots[w2_b_id] = JointKnot(
-            id=w2_b_id, position=Point(4.5, 4.5), wire_ids=frozenset({w2.id}),
+            id=w2_b_id,
+            position=Point(4.5, 4.5),
+            wire_ids=frozenset({w2.id}),
         )
         state.layout.wires.append(w1)
         state.layout.wires.append(w2)
@@ -324,6 +387,7 @@ class TestFusePhase0Rescue:
         from protoboard.domain.commands.component_cmds import (
             FuseTouchingWiresCommand,
         )
+
         state = self._make_legacy_orphans()
         wire_ids = frozenset(w.id for w in state.layout.wires)
 
@@ -339,19 +403,21 @@ class TestFusePhase0Rescue:
         # away) or one knot of degree ≤ 2 — the smoking-gun pattern of
         # two separate degree-1 knots is gone.
         post_at_pad = _joint_knots_at(state, 4.5, 0.5)
-        assert len(post_at_pad) <= 1, (
-            f"Phase 0 left {len(post_at_pad)} co-located JointKnots at (4.5, 0.5)"
-        )
+        assert (
+            len(post_at_pad) <= 1
+        ), f"Phase 0 left {len(post_at_pad)} co-located JointKnots at (4.5, 0.5)"
 
     def test_phase0_revert_restores_pre_apply_state(self) -> None:
         from protoboard.domain.commands.component_cmds import (
             FuseTouchingWiresCommand,
         )
+
         state = self._make_legacy_orphans()
         wire_ids = frozenset(w.id for w in state.layout.wires)
         n_wires_pre = len(state.layout.wires)
-        knots_pre = {k: (type(v).__name__, v.wire_ids)
-                     for k, v in state.layout.knots.items()}
+        knots_pre = {
+            k: (type(v).__name__, v.wire_ids) for k, v in state.layout.knots.items()
+        }
 
         cmd = FuseTouchingWiresCommand(wire_ids=wire_ids)
         cmd.apply(state)
@@ -374,21 +440,35 @@ class TestNoStaleJointKnots:
 
     def test_no_colocated_degree_1_joints_after_flips(self) -> None:
         state = _State()
-        _add(state, [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5),
-            (5.5, 0.5),
-        ])
+        _add(
+            state,
+            [
+                (0.5, 0.5),
+                (1.5, 0.5),
+                (2.5, 0.5),
+                (3.5, 0.5),
+                (4.5, 0.5),
+                (5.5, 0.5),
+            ],
+        )
         wire_id = list(state.layout.wires)[0].id
 
         FlipWireFragmentCommand(
-            wire_id=wire_id, start_idx=1, end_idx=3, target_side="bottom",
+            wire_id=wire_id,
+            start_idx=1,
+            end_idx=3,
+            target_side="bottom",
         ).apply(state)
         FlipWireFragmentCommand(
-            wire_id=wire_id, start_idx=3, end_idx=5, target_side="bottom",
+            wire_id=wire_id,
+            start_idx=3,
+            end_idx=5,
+            target_side="bottom",
         ).apply(state)
 
         # Count distinct JointKnots per (x, y) position.
         from collections import defaultdict
+
         per_pos: dict[tuple[float, float], list[JointKnot]] = defaultdict(list)
         for k in state.layout.knots.values():
             if isinstance(k, JointKnot):

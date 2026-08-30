@@ -14,14 +14,12 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
+from protoboard.controller.ports.viewport import CursorKind
 from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.controller.ports.viewport import CursorKind
-from protoboard.gui.qt_geometry import from_qpointf, to_qpointf
-from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
     VIEW_CANVAS_MENU,
@@ -33,13 +31,13 @@ from protoboard.gui.keymap import (
     mouse_button_chord,
     wheel_chord,
 )
+from protoboard.gui.qt_geometry import from_qpointf, to_qpointf
+from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from protoboard.gui.board_view_tool import AbstractBoardView
-    from protoboard.controller.tools.base import ControllerTool
     from protoboard.controller.ports import (
         ActionOption,
         InteractionContext,
@@ -47,6 +45,8 @@ if TYPE_CHECKING:
         PointerInput,
         WheelInput,
     )
+    from protoboard.controller.tools.base import ControllerTool
+    from protoboard.gui.board_view_tool import AbstractBoardView
 
 
 class ToolHost:
@@ -88,6 +88,7 @@ class ToolHost:
         # reply is published via notify_hover.  33 ms mirrors the rubber-band /
         # drag-refresh cadence.
         from protoboard.gui.throttle import ParkLatestThrottle
+
         self._hover_throttle: ParkLatestThrottle[tuple[Point, Mods]] = (
             ParkLatestThrottle(33, self._fire_hover)
         )
@@ -145,6 +146,7 @@ class ToolHost:
         # purely read-only).  SelectTool itself, or None, is always allowed.
         if tool is not None and view.session.autoroute_active:
             from protoboard.gui.tools.gui_tools import SelectTool as _ST
+
             if not isinstance(tool, _ST):
                 tool = None
         if self._active_tool is not None:
@@ -272,9 +274,7 @@ class ToolHost:
     def _hide_shortcuts_overlay(self) -> None:
         self._view.help_overlay.hide_help()
 
-    def set_keybindings_provider(
-        self, provider: Callable[[], object | None]
-    ) -> None:
+    def set_keybindings_provider(self, provider: Callable[[], object | None]) -> None:
         """Inject the live ``KeyBindings`` source (MainWindow owns it)."""
         self._keybindings_provider = provider
 
@@ -310,17 +310,17 @@ class ToolHost:
         if tool is not None:
             tool_ids = tool.displayable_action_ids()
             if tool_ids:
-                sections.append((
-                    category_label(tool_ids[0]),
-                    list(tool_shortcut_rows(self.keymap, tool_ids)),
-                ))
+                sections.append(
+                    (
+                        category_label(tool_ids[0]),
+                        list(tool_shortcut_rows(self.keymap, tool_ids)),
+                    )
+                )
 
         self._view.help_overlay.show_help(self._render_shortcuts_html(sections))
 
     @staticmethod
-    def _render_shortcuts_html(
-        sections: list[tuple[str, list[object]]]
-    ) -> str:
+    def _render_shortcuts_html(sections: list[tuple[str, list[object]]]) -> str:
         from protoboard.gui.shortcuts_help import ShortcutRow
 
         parts = [
@@ -349,7 +349,9 @@ class ToolHost:
     # QGraphicsView default behaviour.
 
     def _dispatch_mouse_chord(
-        self, chord: str, event: QMouseEvent | QWheelEvent,
+        self,
+        chord: str,
+        event: QMouseEvent | QWheelEvent,
         scene_pt: QPointF | None,
     ) -> bool:
         """Offer a mouse chord to every action bound to it, leaf-first.
@@ -377,7 +379,9 @@ class ToolHost:
         return False
 
     def _view_mouse_action(
-        self, action_id: str, event: QMouseEvent | QWheelEvent,
+        self,
+        action_id: str,
+        event: QMouseEvent | QWheelEvent,
         scene_pt: QPointF | None,
     ) -> bool:
         """Run one of the base map's view gestures; True when it consumed."""
@@ -400,34 +404,34 @@ class ToolHost:
         if action_id == VIEW_CANVAS_MENU and isinstance(event, QMouseEvent):
             assert scene_pt is not None
             pos = event.position()
-            view.notify_context(self.get_context_at(
-                from_qpointf(scene_pt), Point(pos.x(), pos.y()),
-            ))
+            view.notify_context(
+                self.get_context_at(
+                    from_qpointf(scene_pt),
+                    Point(pos.x(), pos.y()),
+                )
+            )
             return True
-        if (action_id in (VIEW_ZOOM_IN, VIEW_ZOOM_OUT)
-                and isinstance(event, QWheelEvent)):
+        if action_id in (VIEW_ZOOM_IN, VIEW_ZOOM_OUT) and isinstance(
+            event, QWheelEvent
+        ):
             view.camera.on_wheel(wheel_input(event))
             return True
         return False
 
     def handle_mouse_press(self, event: QMouseEvent) -> bool:
         view = self._view
-        scene_pt = to_qpointf(view.viewport_port.map_view_to_scene(
-            from_qpointf(event.position())
-        ))
+        scene_pt = to_qpointf(
+            view.viewport_port.map_view_to_scene(from_qpointf(event.position()))
+        )
         chord = mouse_button_chord(event.button(), event.modifiers())
-        if chord is not None and self._dispatch_mouse_chord(
-            chord, event, scene_pt
-        ):
+        if chord is not None and self._dispatch_mouse_chord(chord, event, scene_pt):
             return True
         # Not a bound gesture — the press belongs to the tool's input stream.
         if self._active_tool is not None:
             point = from_qpointf(scene_pt)
             if event.button() == Qt.MouseButton.LeftButton:
                 # The primary click is the default_action verb (docs MVC step 1).
-                self._active_tool.default_action(
-                    point, mods_from_qt(event.modifiers())
-                )
+                self._active_tool.default_action(point, mods_from_qt(event.modifiers()))
             else:
                 # Other buttons stay on the raw hook (no verb maps to them yet).
                 self._active_tool.on_press(pointer_input(event, point))
@@ -455,9 +459,7 @@ class ToolHost:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
             view.viewport_port.pan_by(Vector(-delta.x(), -delta.y()))
-        scene_pos = view.viewport_port.map_view_to_scene(
-            from_qpointf(event.position())
-        )
+        scene_pos = view.viewport_port.map_view_to_scene(from_qpointf(event.position()))
         view.notify_cursor_moved(scene_pos)
         if not self._panning and self._active_tool is not None:
             inp = pointer_input(event, scene_pos)
@@ -490,8 +492,8 @@ class ToolHost:
             view.viewport_port.set_cursor(CursorKind.ARROW)
         elif self._active_tool is not None:
             scene_pos = view.viewport_port.map_view_to_scene(
-            from_qpointf(event.position())
-        )
+                from_qpointf(event.position())
+            )
             self._active_tool.on_release(pointer_input(event, scene_pos))
         else:
             return False  # fall through to QGraphicsView
@@ -502,8 +504,8 @@ class ToolHost:
         left = Qt.MouseButton.LeftButton
         if event.button() == left and self._active_tool is not None:
             scene_pos = view.viewport_port.map_view_to_scene(
-            from_qpointf(event.position())
-        )
+                from_qpointf(event.position())
+            )
             handler = getattr(self._active_tool, "on_double_press", None)
             if handler is not None:
                 handler(scene_pos)
@@ -535,9 +537,7 @@ class ToolHost:
         inp = key_input(event)
         # ``?`` toggles the shortcut-help overlay (resolved through the KeyMap,
         # so a rebind moves it).  Esc closes it before anything else.
-        if self.keymap.matches(
-            key, inp.native_mods, "global.action.show_shortcuts"
-        ):
+        if self.keymap.matches(key, inp.native_mods, "global.action.show_shortcuts"):
             self._toggle_shortcuts_overlay()
             event.accept()
             return
@@ -583,8 +583,10 @@ class ToolHost:
 
         # Arrow keys — scroll by one raster unit (only without modifier).
         if not event.modifiers() and key in (
-            Qt.Key.Key_Left, Qt.Key.Key_Right,
-            Qt.Key.Key_Up, Qt.Key.Key_Down,
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
         ):
             # Convert 1 raster unit to viewport pixels using current transform.
             t = view.viewport_port.view_transform()

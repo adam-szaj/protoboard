@@ -34,9 +34,9 @@ class ComponentState(Protocol):
     modules depend on the foundation, not on ``component_cmds``.
     """
 
-    board: "Board"
-    instances: dict[uuid.UUID, "ComponentInstance"]
-    components: dict[str, "ComponentDefinition"]
+    board: Board
+    instances: dict[uuid.UUID, ComponentInstance]
+    components: dict[str, ComponentDefinition]
 
     # A read-write *property* rather than a plain mutable attribute: the real
     # sessions expose ``layout`` through a ``@property`` + setter (the setter
@@ -46,9 +46,10 @@ class ComponentState(Protocol):
     # because it is mutable").  Declaring it as a settable property here matches
     # both property implementers and plain-attribute test stubs.
     @property
-    def layout(self) -> "Layout": ...
+    def layout(self) -> Layout: ...
     @layout.setter
-    def layout(self, value: "Layout") -> None: ...
+    def layout(self, value: Layout) -> None: ...
+
     # NOTE: ``package_families`` is intentionally NOT a required member here.
     # The binding ritual (``build_pin_identities_for``) reads it best-effort via
     # ``getattr(state, "package_families", None)`` so an instance binds to its
@@ -61,7 +62,7 @@ class ComponentState(Protocol):
 class SchematicState(ComponentState, Protocol):
     """Extended state that also exposes the schematic netlist."""
 
-    schematic: "Schematic"
+    schematic: Schematic
 
 
 class CommandRejectedError(ProtoboardError):
@@ -79,7 +80,7 @@ class _RecorderProtocol(Protocol):
     """Subset of CommandRecorder used by CommandStack — kept tiny to avoid a
     hard import dependency on the services layer from domain code."""
 
-    def record_execute(self, cmd: "Command[Any]") -> None: ...
+    def record_execute(self, cmd: Command[Any]) -> None: ...
     def record_undo(self) -> None: ...
     def record_redo(self) -> None: ...
 
@@ -117,7 +118,7 @@ class MacroCommand(Command[T], Generic[T]):
         return all(c.allowed_during_autoroute for c in self._commands)
 
     def apply(self, state: T) -> None:
-        applied: list["Command[T]"] = []
+        applied: list[Command[T]] = []
         for i, cmd in enumerate(self._commands):
             try:
                 cmd.apply(state)
@@ -130,12 +131,8 @@ class MacroCommand(Command[T], Generic[T]):
                     failed_cmd=type(cmd).__name__,
                     applied_count=i,
                     total=len(self._commands),
-                    applied_summary=[
-                        type(c).__name__ for c in self._commands[:i]
-                    ],
-                    pending_summary=[
-                        type(c).__name__ for c in self._commands[i + 1:]
-                    ],
+                    applied_summary=[type(c).__name__ for c in self._commands[:i]],
+                    pending_summary=[type(c).__name__ for c in self._commands[i + 1 :]],
                 )
                 # Roll back every sub-command that already applied, in
                 # reverse order, so the layout never lingers in a
@@ -229,7 +226,7 @@ class CommandStack(Generic[T]):
         self._redo: list[Command[T]] = []
         self._recorder: _RecorderProtocol | None = None
 
-    def set_recorder(self, recorder: "_RecorderProtocol | None") -> None:
+    def set_recorder(self, recorder: _RecorderProtocol | None) -> None:
         """Attach (or clear) a recorder that observes every execute/undo/redo."""
         self._recorder = recorder
 
@@ -238,7 +235,10 @@ class CommandStack(Generic[T]):
         # We duck-type ``state.autoroute_active`` (EditorSession exposes it
         # as a property) — for state objects that don't have the attribute
         # (e.g. replay harness) the check is a no-op.
-        if getattr(state, "autoroute_active", False) and not cmd.allowed_during_autoroute:
+        if (
+            getattr(state, "autoroute_active", False)
+            and not cmd.allowed_during_autoroute
+        ):
             raise CommandRejectedError(
                 f"Command {type(cmd).__name__} blocked while autoroute is running"
             )

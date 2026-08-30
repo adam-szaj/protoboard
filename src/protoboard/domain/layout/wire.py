@@ -75,9 +75,7 @@ def flatten_fragments(fragments: list[Fragment]) -> list[Point]:
     return out
 
 
-def fragments_for_slice(
-    wire: "Wire", start_idx: int, end_idx: int
-) -> list[Fragment]:
+def fragments_for_slice(wire: Wire, start_idx: int, end_idx: int) -> list[Fragment]:
     """Fragment list covering ``wire.path[start_idx..end_idx]`` (inclusive),
     preserving each segment's live per-fragment side.
 
@@ -98,7 +96,7 @@ def fragments_for_slice(
         )
     # Per-segment sides from the fragment list (a fragment covers
     # len(fragment.path) - 1 consecutive segments).
-    seg_sides: "list[Side]" = [
+    seg_sides: list[Side] = [
         frag.side for frag in wire.fragments for _ in range(len(frag.path) - 1)
     ]
     if not seg_sides:
@@ -109,14 +107,12 @@ def fragments_for_slice(
         j = k
         while j + 1 < end_idx and seg_sides[j + 1] == seg_sides[k]:
             j += 1
-        out.append(Fragment(path=list(path[k:j + 2]), side=seg_sides[k]))
+        out.append(Fragment(path=list(path[k : j + 2]), side=seg_sides[k]))
         k = j + 1
     return out
 
 
-def rebuild_fragments(
-    fragments: "list[Fragment]", sides: "list[Side]"
-) -> list[Fragment]:
+def rebuild_fragments(fragments: list[Fragment], sides: list[Side]) -> list[Fragment]:
     """Return a copy of *fragments* with each fragment's ``side`` replaced.
 
     Paths are preserved verbatim (deep-copied); only the per-fragment ``side``
@@ -131,9 +127,7 @@ def rebuild_fragments(
     ]
 
 
-def transform_wire_geometry(
-    wire: "Wire", point_fn: Callable[[Point], Point]
-) -> None:
+def transform_wire_geometry(wire: Wire, point_fn: Callable[[Point], Point]) -> None:
     """Apply *point_fn* to every vertex of *wire* — path and fragments — in place.
 
     Each point of ``wire.path`` and of every ``Fragment.path`` is replaced by
@@ -158,9 +152,7 @@ def transform_wire_geometry(
         ]
 
 
-def flip_wire_geometry(
-    wire: "Wire", point_fn: Callable[[Point], Point]
-) -> None:
+def flip_wire_geometry(wire: Wire, point_fn: Callable[[Point], Point]) -> None:
     """Reflect a wire's geometry AND toggle each fragment's board side, in place.
 
     The flip analogue of :func:`transform_wire_geometry`: a physical board flip
@@ -289,7 +281,7 @@ class WireCollection:
 
     # ----- list-style API -----
 
-    def __iter__(self) -> "_WireCollectionIter":
+    def __iter__(self) -> _WireCollectionIter:
         return _WireCollectionIter(iter(self._by_id.values()))
 
     def __len__(self) -> int:
@@ -305,7 +297,7 @@ class WireCollection:
     def __bool__(self) -> bool:
         return bool(self._by_id)
 
-    def __getitem__(self, key: object) -> "Wire":
+    def __getitem__(self, key: object) -> Wire:
         # Support both index-style (rare) and id-style lookup.
         if isinstance(key, int):
             try:
@@ -314,7 +306,9 @@ class WireCollection:
                 raise IndexError(f"WireCollection index {key} out of range") from exc
         if isinstance(key, uuid.UUID):
             return self._by_id[key]
-        raise TypeError(f"WireCollection indices must be int or UUID, got {type(key).__name__}")
+        raise TypeError(
+            f"WireCollection indices must be int or UUID, got {type(key).__name__}"
+        )
 
     def __setitem__(self, key: object, value: object) -> None:
         # `wires[:] = new_list` — slice assignment replaces the whole collection.
@@ -345,7 +339,9 @@ class WireCollection:
                 raise TypeError("Value must be a Wire")
             self._by_id[key] = value
             return
-        raise TypeError(f"WireCollection keys must be slice/int/UUID, got {type(key).__name__}")
+        raise TypeError(
+            f"WireCollection keys must be slice/int/UUID, got {type(key).__name__}"
+        )
 
     def append(self, wire: Wire) -> None:
         self._by_id[wire.id] = wire
@@ -368,14 +364,14 @@ class WireCollection:
 
     # ----- dict-style API -----
 
-    def get(self, wire_id: uuid.UUID, default: "Wire | None" = None) -> "Wire | None":
+    def get(self, wire_id: uuid.UUID, default: Wire | None = None) -> Wire | None:
         return self._by_id.get(wire_id, default)
 
     def get_or_raise(
         self,
         wire_id: uuid.UUID,
-        exc: "Callable[[uuid.UUID], Exception] | Exception | None" = None,
-    ) -> "Wire":
+        exc: Callable[[uuid.UUID], Exception] | Exception | None = None,
+    ) -> Wire:
         """Return the wire for *wire_id*, or raise on a miss.
 
         ``exc`` may be a ready ``Exception`` or a factory taking the missing
@@ -393,8 +389,8 @@ class WireCollection:
     def get_or_return(
         self,
         wire_id: uuid.UUID,
-        instead_val: "Callable[[uuid.UUID], Wire] | Wire",
-    ) -> "Wire":
+        instead_val: Callable[[uuid.UUID], Wire] | Wire,
+    ) -> Wire:
         """Return the wire for *wire_id*, or a fallback on a miss.
 
         *instead_val* is either an eager ``Wire`` or a lazy factory taking the
@@ -405,16 +401,16 @@ class WireCollection:
             return wire
         return instead_val(wire_id) if callable(instead_val) else instead_val
 
-    def values(self) -> "list[Wire]":
+    def values(self) -> list[Wire]:
         return list(self._by_id.values())
 
-    def keys(self) -> "list[uuid.UUID]":
+    def keys(self) -> list[uuid.UUID]:
         return list(self._by_id.keys())
 
-    def items(self) -> "list[tuple[uuid.UUID, Wire]]":
+    def items(self) -> list[tuple[uuid.UUID, Wire]]:
         return list(self._by_id.items())
 
-    def pop(self, wire_id: uuid.UUID, default: "Wire | None" = None) -> "Wire | None":
+    def pop(self, wire_id: uuid.UUID, default: Wire | None = None) -> Wire | None:
         return self._by_id.pop(wire_id, default)
 
     # ----- comparisons -----
@@ -435,7 +431,7 @@ class WireCollection:
         return f"WireCollection(n={len(self._by_id)})"
 
 
-from collections.abc import Iterator as _Iterator
+from collections.abc import Iterator as _Iterator  # noqa: E402
 
 
 class _WireCollectionIter:
@@ -446,8 +442,8 @@ class _WireCollectionIter:
     def __init__(self, it: _Iterator[Wire]) -> None:
         self._it: _Iterator[Wire] = it
 
-    def __iter__(self) -> "_WireCollectionIter":
+    def __iter__(self) -> _WireCollectionIter:
         return self
 
-    def __next__(self) -> "Wire":
+    def __next__(self) -> Wire:
         return next(self._it)

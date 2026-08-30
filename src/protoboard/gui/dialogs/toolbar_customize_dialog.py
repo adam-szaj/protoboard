@@ -115,13 +115,13 @@ class ToolbarCustomizeDialog(QDialog):
         root.addWidget(self._tabs, stretch=1)
 
         button_row = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel,
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
         self._reset_btn = QPushButton("Reset to Defaults", self)
         button_row.addButton(
-            self._reset_btn, QDialogButtonBox.ButtonRole.ResetRole,
+            self._reset_btn,
+            QDialogButtonBox.ButtonRole.ResetRole,
         )
         button_row.accepted.connect(self._on_accept)
         button_row.rejected.connect(self.reject)
@@ -145,9 +145,7 @@ class ToolbarCustomizeDialog(QDialog):
         left_box = QVBoxLayout()
         left_box.addWidget(QLabel("Available"))
         available = QListWidget(tab)
-        available.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
-        )
+        available.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         left_box.addWidget(available)
 
         # ---- Middle: add/remove arrows ----
@@ -199,12 +197,8 @@ class ToolbarCustomizeDialog(QDialog):
             available.addItem(item)
 
         # ---- Wire buttons ----
-        add_btn.clicked.connect(
-            lambda: self._move_item(available, current)
-        )
-        remove_btn.clicked.connect(
-            lambda: self._move_item(current, available)
-        )
+        add_btn.clicked.connect(lambda: self._move_item(available, current))
+        remove_btn.clicked.connect(lambda: self._move_item(current, available))
         up_btn.clicked.connect(lambda: self._reorder(current, -1))
         down_btn.clicked.connect(lambda: self._reorder(current, +1))
 

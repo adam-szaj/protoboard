@@ -206,8 +206,7 @@ def _atom_node(
 ) -> LayoutNode:
     cx = origin_x + resolved.lx / 2.0
     cy = origin_y + resolved.ly / 2.0
-    return LayoutNode(box=box, center=Point(cx, cy), size=resolved,
-                      children=[])
+    return LayoutNode(box=box, center=Point(cx, cy), size=resolved, children=[])
 
 
 # ---------------------------------------------------------------------------

@@ -53,9 +53,7 @@ def _package_pin_detail_label(
 ) -> str:
     """Build the detailed label for a physical package pin."""
     physical_label = f"Pin {package_pin_number}"
-    meta_pin_index = meta_pin_for_package_pin(
-        defn, instance, package_pin_number
-    )
+    meta_pin_index = meta_pin_for_package_pin(defn, instance, package_pin_number)
     if meta_pin_index is None:
         return physical_label
     labels = " / ".join(defn.meta_pin(meta_pin_index).labels)
@@ -177,7 +175,7 @@ class PropertiesPanel(QWidget):
         self._shown_appearance: Appearance | None = None
         # Set via set_session(); the panel fetches inst/placement/defn itself now
         # that it subscribes to selection directly (no MainWindow fan-out).
-        self._session: "EditorSession | None" = None
+        self._session: EditorSession | None = None
         self._body_variant_addresses: list[str | None] = []
 
         # Pin offsets group — dynamically populated, hidden when empty.
@@ -236,7 +234,7 @@ class PropertiesPanel(QWidget):
     # ------------------------------------------------------------------
 
     @traced()
-    def set_session(self, session: "EditorSession") -> None:
+    def set_session(self, session: EditorSession) -> None:
         """Bind the session and subscribe to its selection broadcasts.
 
         The panel owns its own board -> panel sync (no MainWindow fan-out): it
@@ -295,7 +293,7 @@ class PropertiesPanel(QWidget):
         inst: ComponentInstance,
         placement: ComponentPlacement | None = None,
         defn: ComponentDefinition | None = None,
-        package_families: "dict | None" = None,
+        package_families: dict | None = None,
     ) -> None:
         self._current_id = inst.id
         self._populate_basic_fields(inst, placement)
@@ -398,7 +396,7 @@ class PropertiesPanel(QWidget):
         defn: ComponentDefinition | None,
         current_offsets: dict[int, Vector],
         instance: ComponentInstance | None = None,
-        package_families: "dict | None" = None,
+        package_families: dict | None = None,
     ) -> None:
         while self._pin_offsets_form.rowCount():
             self._pin_offsets_form.removeRow(0)
@@ -407,7 +405,7 @@ class PropertiesPanel(QWidget):
 
         # Package-aware specs: the chosen footprint variant (incl. an SMD chip's
         # discrete mount points) drives bending. We pass the placed instance +
-        # the catalogue so a part whose bodies live in a ``footprints:`` list
+        # the catalogue so a part whose bodies live in ``package_options:``
         # (e.g. ``R`` as ``SMD-0805``) shows the SMD mount picker, matching the
         # place tool — not the legacy axial ``bendable_pins``.
         from protoboard.domain.components.package import effective_bend_specs
@@ -443,7 +441,7 @@ class PropertiesPanel(QWidget):
         self,
         defn: ComponentDefinition | None,
         inst: ComponentInstance | None,
-        packages: "dict[str, Any]",
+        packages: dict[str, Any],
     ) -> None:
         """Show the resolved package's schema-declared parameters.
 
@@ -487,7 +485,7 @@ class PropertiesPanel(QWidget):
             self._params_form.removeRow(0)
 
     @traced()
-    def _add_param_row(self, view: "Any") -> None:
+    def _add_param_row(self, view: Any) -> None:
         """One label+editor row for a FieldView (read-only signalled non-colour)."""
         from protoboard.domain.components.package.schema import FieldStatus
 
@@ -602,7 +600,7 @@ class PropertiesPanel(QWidget):
         self,
         defn: ComponentDefinition | None,
         current_variant: str | None,
-        packages: "dict",
+        packages: dict,
     ) -> None:
         """Repopulate the body-variant dropdown for the current instance.
 
@@ -621,7 +619,7 @@ class PropertiesPanel(QWidget):
           without leaving the panel.
         """
         from protoboard.domain.components.package.generated_families import (
-            offered_body_families,
+            offered_package_options,
         )
 
         self._body_variant_combo.blockSignals(True)
@@ -629,11 +627,11 @@ class PropertiesPanel(QWidget):
         self._body_variant_addresses = []
 
         offered = (
-            offered_body_families(defn, packages)
+            offered_package_options(defn, packages)
             if defn is not None and packages
             else []
         )
-        show = bool(offered)
+        show = len(offered) > 1
         self._body_variant_form_row_label.setVisible(show)
         self._body_variant_combo.setVisible(show)
         if not show or defn is None:
@@ -644,27 +642,9 @@ class PropertiesPanel(QWidget):
         self._body_variant_combo.addItem("Default (library)")
         self._body_variant_addresses.append(None)
 
-        # Definition's default family (if resolvable) sits at the top.
-        primary_pkg_id: str | None = None
-        default_ref = defn.default_package_ref()
-        if default_ref:
-            parts = default_ref.split("/", 1)
-            if len(parts) == 2:
-                primary_pkg_id = parts[0]
-
-        # Offer order: the definition's default family first, then the rest.
-        ordered = sorted(offered, key=lambda f: f.family_id != primary_pkg_id)
-
-        for pkg in ordered:
-            pkg_id = pkg.family_id
-            for variant in pkg.variants:
-                addr = f"{pkg_id}/{variant.variant_id}"
-                # Display: "dip-16 / std — DIP-16 (narrow 0.3")" etc.
-                label = f"{pkg_id} / {variant.variant_id}"
-                if variant.label and variant.label != variant.variant_id:
-                    label = f"{label} — {variant.label}"
-                self._body_variant_combo.addItem(label)
-                self._body_variant_addresses.append(addr)
+        for option in offered:
+            self._body_variant_combo.addItem(option.name)
+            self._body_variant_addresses.append(option.ref)
 
         # Select the current value.
         if current_variant is None:

@@ -49,7 +49,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.knot import Knot
     from protoboard.domain.layout.placement import (
-        ComponentPlacement,
         PlacementMap,
     )
     from protoboard.domain.layout.wire import Wire
@@ -106,7 +105,8 @@ def find_owned_wires(
     result: set[uuid.UUID] = set()
     for w in wires:
         if wire_is_owned_by_group(
-            w, group,
+            w,
+            group,
             wire_net_map=wire_net_map,
             knots=knots,
             group_comp_ids=group_comp_ids,
@@ -151,6 +151,7 @@ def net_is_internal_to_group(
         return False
     if groups is not None:
         from protoboard.domain.layout.group import all_component_ids
+
         group_comp_ids = all_component_ids(groups, group.id)
     else:
         group_comp_ids = group.component_ids
@@ -181,6 +182,7 @@ def endpoint_pin_component(
     to which component.
     """
     from protoboard.domain.layout.knot import PinKnot
+
     if isinstance(knot, PinKnot):
         pin = knot.pin  # narrow for type-checkers that don't follow runtime_checkable
         return pin.component_id
@@ -219,6 +221,7 @@ def _pin_endpoint_matches_path(
     constant within that call).
     """
     from protoboard.domain.layout.knot import PinKnot
+
     if not isinstance(knot, PinKnot):
         return False
     pin = knot.pin
@@ -236,6 +239,7 @@ def _pin_endpoint_matches_path(
             package_pins_for_meta_pin,
         )
         from protoboard.domain.layout.placement import pin_world_position
+
         pl = placements.get(pin.component_id)
         if pl is None:
             if pin_world_cache is not None:
@@ -341,16 +345,32 @@ def wire_is_owned_by_group(
     # Such wires must NOT be classified as owned, otherwise they
     # inflate the group's outline far from the visible group body.
     if placements is not None and instances is not None and definitions is not None:
-        if a_comp is not None and wire.path and not _pin_endpoint_matches_path(
-            ka, wire.path[0], placements, instances, definitions,
-            pin_world_cache=_pin_world_cache,
+        if (
+            a_comp is not None
+            and wire.path
+            and not _pin_endpoint_matches_path(
+                ka,
+                wire.path[0],
+                placements,
+                instances,
+                definitions,
+                pin_world_cache=_pin_world_cache,
+            )
         ):
             # PinKnot a is stale — treat as if the endpoint were a
             # loose joint (no group anchor on this side).
             a_comp = None
-        if b_comp is not None and wire.path and not _pin_endpoint_matches_path(
-            kb, wire.path[-1], placements, instances, definitions,
-            pin_world_cache=_pin_world_cache,
+        if (
+            b_comp is not None
+            and wire.path
+            and not _pin_endpoint_matches_path(
+                kb,
+                wire.path[-1],
+                placements,
+                instances,
+                definitions,
+                pin_world_cache=_pin_world_cache,
+            )
         ):
             b_comp = None
 
@@ -390,6 +410,7 @@ def wire_is_owned_by_group(
     # any other group).  Sanity check the free endpoint, then resolve
     # net membership.
     from protoboard.domain.layout.knot import WirePinKnot
+
     if not a_in and not isinstance(ka, (JointKnot, WirePinKnot)):
         return False
     if not b_in and not isinstance(kb, (JointKnot, WirePinKnot)):
@@ -556,12 +577,15 @@ class OwnershipResolver:
         )
 
     def is_owned(
-        self, wire: Wire, group: ComponentGroup,
+        self,
+        wire: Wire,
+        group: ComponentGroup,
         group_comp_ids: frozenset[uuid.UUID],
     ) -> bool:
         """Whether *wire* structurally belongs to *group* (single wire)."""
         return wire_is_owned_by_group(
-            wire, group,
+            wire,
+            group,
             wire_net_map=self.wire_net_map,
             knots=self.knots,
             group_comp_ids=group_comp_ids,
@@ -573,7 +597,9 @@ class OwnershipResolver:
         )
 
     def owned_wire_ids(
-        self, wires: list[Wire], group: ComponentGroup,
+        self,
+        wires: list[Wire],
+        group: ComponentGroup,
         group_comp_ids: frozenset[uuid.UUID],
     ) -> set[uuid.UUID]:
         """IDs of all wires structurally owned by *group*.
@@ -589,14 +615,17 @@ class OwnershipResolver:
         return result
 
     def net_is_internal(
-        self, net_id: uuid.UUID | None, group: ComponentGroup,
+        self,
+        net_id: uuid.UUID | None,
+        group: ComponentGroup,
         groups: dict[uuid.UUID, ComponentGroup] | None = None,
     ) -> bool:
         """Whether *net_id* is a net living entirely inside *group*."""
         return net_is_internal_to_group(net_id, group, self.schematic, groups)
 
     def group_bbox(
-        self, group: ComponentGroup,
+        self,
+        group: ComponentGroup,
         group_comp_ids: frozenset[uuid.UUID],
         wires: list[Wire],
         *,
@@ -610,8 +639,12 @@ class OwnershipResolver:
         ):
             return None
         return group_bbox_with_owned_wires(
-            group, group_comp_ids,
-            self.placements, self.instances, self.definitions, wires,
+            group,
+            group_comp_ids,
+            self.placements,
+            self.instances,
+            self.definitions,
+            wires,
             wire_net_map=self.wire_net_map,
             knots=self.knots,
             schematic=self.schematic,

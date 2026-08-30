@@ -39,7 +39,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
 __all__ = ["DragDisconnectAction", "DragDisconnectDialog"]
 
 
@@ -71,10 +70,12 @@ class DragDisconnectDialog(QDialog):
         layout.setSpacing(10)
 
         plural = "wire" if n_wires == 1 else "wires"
-        layout.addWidget(QLabel(
-            f"Committing this drag will disconnect <b>{n_wires}</b> "
-            f"{plural} from the rest of the board.",
-        ))
+        layout.addWidget(
+            QLabel(
+                f"Committing this drag will disconnect <b>{n_wires}</b> "
+                f"{plural} from the rest of the board.",
+            )
+        )
 
         # First 5 affected net names, then "..." if there are more.
         if affected_nets:
@@ -85,9 +86,11 @@ class DragDisconnectDialog(QDialog):
             nets_label.setWordWrap(True)
             layout.addWidget(nets_label)
 
-        layout.addWidget(QLabel(
-            "How should I handle them?",
-        ))
+        layout.addWidget(
+            QLabel(
+                "How should I handle them?",
+            )
+        )
 
         self._opt_out_checkbox = QCheckBox("Don't ask again for this session")
         layout.addWidget(self._opt_out_checkbox)

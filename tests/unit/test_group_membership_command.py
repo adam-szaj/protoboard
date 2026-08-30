@@ -32,12 +32,21 @@ from protoboard.domain.schematic.schematic import Schematic
 
 class _State:
     def __init__(self) -> None:
-        self.board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                         layers=PadLayers()),
-            rows=1, cols=1, row_gap=0.0, col_gap=0.0,
-        ))
+        self.board = Board(
+            root=BoardGrid(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(),
+                ),
+                rows=1,
+                cols=1,
+                row_gap=0.0,
+                col_gap=0.0,
+            )
+        )
         self.layout = Layout()
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}

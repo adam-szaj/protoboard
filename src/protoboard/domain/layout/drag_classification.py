@@ -41,6 +41,8 @@ from typing import TYPE_CHECKING
 
 from protoboard.domain.layout.group_ownership import (
     endpoint_pin_component as _endpoint_pin_component,
+)
+from protoboard.domain.layout.group_ownership import (
     net_is_internal_to_group,
 )
 from protoboard.domain.layout.knot import JointKnot
@@ -81,8 +83,8 @@ class DragWireClassification:
 
 def _net_internal_to_any_member_group(
     net_id: uuid.UUID | None,
-    member_groups: "list[ComponentGroup]",
-    schematic: "Schematic | None",
+    member_groups: list[ComponentGroup],
+    schematic: Schematic | None,
 ) -> bool:
     """True iff *net_id* is internal to at least one of *member_groups*.
 
@@ -99,12 +101,12 @@ def _net_internal_to_any_member_group(
 
 
 def classify_wires_for_drag(
-    wires: "list[Wire]",
+    wires: list[Wire],
     drag_set_members: frozenset[uuid.UUID],
-    knots: "dict[uuid.UUID, Knot]",
+    knots: dict[uuid.UUID, Knot],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    schematic: "Schematic | None",
-    member_groups: "list[ComponentGroup]",
+    schematic: Schematic | None,
+    member_groups: list[ComponentGroup],
 ) -> DragWireClassification:
     """Partition *wires* into the five drag-time buckets.
 
@@ -184,7 +186,9 @@ def classify_wires_for_drag(
                 continue
             net_id = wire_net_map.get(wire.id)
             if _net_internal_to_any_member_group(
-                net_id, member_groups, schematic,
+                net_id,
+                member_groups,
+                schematic,
             ):
                 half_orphan_int.add(wire.id)
             else:

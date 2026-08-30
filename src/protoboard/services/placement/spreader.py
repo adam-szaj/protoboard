@@ -96,7 +96,7 @@ def spread_components(
         :class:`SpreadResult` with ``new_placements``, ``moved_ids``, and
         ``unchanged_ids``.
     """
-    # Filter to only those IDs that are actually placed, have a definition, and are unlocked.
+    # Filter to only those IDs that are actually placed, have a definition, and are unlocked.  # noqa: E501
     mobile_ids: list[uuid.UUID] = []
     for cid in component_ids:
         pl = session.layout.placements.get(cid)
@@ -137,7 +137,9 @@ def spread_components(
     ideal_positions = _assign_grid_cells(
         mobile_ids=mobile_ids,
         net_graph=net_graph,
-        current_positions={cid: session.layout.placements[cid].position for cid in mobile_ids},
+        current_positions={
+            cid: session.layout.placements[cid].position for cid in mobile_ids
+        },
         board_bounds=board_bounds,
     )
 
@@ -302,7 +304,12 @@ def _snap_to_grid(
         sorted_pads = sorted(board_pads, key=lambda p: (p - target).norm())
 
         pl = _find_free_slot(
-            cid, defn, inst, sorted_pads, [orig_pl.rotation], orig_pl.side,
+            cid,
+            defn,
+            inst,
+            sorted_pads,
+            [orig_pl.rotation],
+            orig_pl.side,
             collision_map,
         )
 
@@ -342,13 +349,13 @@ def _build_net_graph(
     for net in schematic.nets.values():
         if net.global_net:
             continue
-        members = [pr.component_id for pr in net.pins if pr.component_id in component_ids]
+        members = [
+            pr.component_id for pr in net.pins if pr.component_id in component_ids
+        ]
         for i, a in enumerate(members):
-            for b in members[i + 1:]:
+            for b in members[i + 1 :]:
                 if a == b:
                     continue  # skip self-loops (same component, different pins)
                 graph[a][b] = graph[a].get(b, 0.0) + 1.0
                 graph[b][a] = graph[b].get(a, 0.0) + 1.0
     return graph
-
-

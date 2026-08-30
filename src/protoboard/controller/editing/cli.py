@@ -34,10 +34,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.domain.routing_settings import RoutingSettings
-from protoboard.geometry import Point
-from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.controller.editing.headless_session import HeadlessSession
 from protoboard.controller.editing.item_handle import ItemId
 from protoboard.controller.editing.placement_conflict import (
@@ -46,6 +42,10 @@ from protoboard.controller.editing.placement_conflict import (
     WireConflictAction,
     WireConflictRequest,
 )
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
+from protoboard.domain.routing_settings import RoutingSettings
+from protoboard.geometry import Point
+from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.library.loader import load_library
 
 if TYPE_CHECKING:
@@ -139,7 +139,8 @@ class CliDriver:
         rows = int(args[1]) if len(args) > 1 else 20
         cols = int(args[2]) if len(args) > 2 else 30
         self.session = HeadlessSession(
-            board=_make_board(kind, rows, cols), library=self.session.library,
+            board=_make_board(kind, rows, cols),
+            library=self.session.library,
         )
         self.active_group = ROOT_GROUP_ID
         return f"new {kind} {rows}x{cols}"
@@ -176,7 +177,10 @@ class CliDriver:
             r, c = _parse_rc(args[3])
             pivot = Point(float(r), float(c))
         self.session.edit_controller.rotate(
-            ids, delta_deg=delta, pivot=pivot, active_group_id=self.active_group,
+            ids,
+            delta_deg=delta,
+            pivot=pivot,
+            active_group_id=self.active_group,
         )
         return f"rotated {len(ids)} by {delta}"
 
@@ -188,7 +192,8 @@ class CliDriver:
     def _cmd_delete(self, args: list[str]) -> str:
         ids = self._sel_or_refs(args[:1])
         ran = self.session.edit_controller.delete(
-            ids, active_group_id=self.active_group,
+            ids,
+            active_group_id=self.active_group,
         )
         self.session.select(self.session.selection() - ids)
         return f"deleted {len(ids)}" if ran else "nothing deleted"
@@ -203,7 +208,9 @@ class CliDriver:
             sel_tokens = args
         ids = self._sel_or_refs(sel_tokens)
         gid = self.session.edit_controller.create_group(
-            ids, active_group_id=self.active_group, name=name,
+            ids,
+            active_group_id=self.active_group,
+            name=name,
         )
         if gid is None:
             raise CliError("group: empty selection")
@@ -215,7 +222,10 @@ class CliDriver:
         insulated = args[1] == "insulated"
         pts = [Point(*(float(v) for v in _parse_rc(tok))) for tok in args[2:]]
         wire_id = self.session.edit_controller.add_wire(
-            pts, insulated=insulated, side=side, merge_prompt=_merge_first,
+            pts,
+            insulated=insulated,
+            side=side,
+            merge_prompt=_merge_first,
         )
         return "wired" if wire_id is not None else "wire cancelled"
 
@@ -225,7 +235,8 @@ class CliDriver:
             by_name = {n.name: n.id for n in self.session.schematic.nets.values()}
             net_ids = {by_name[name] for name in args if name in by_name}
         result = self.session.edit_controller.autoroute(
-            net_ids, settings=RoutingSettings(),
+            net_ids,
+            settings=RoutingSettings(),
         )
         applied = self.session.edit_controller.apply_autoroute(result)
         return f"autorouted {applied} wire(s)"

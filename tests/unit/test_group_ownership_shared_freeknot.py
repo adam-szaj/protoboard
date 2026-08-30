@@ -18,7 +18,6 @@ import uuid
 from dataclasses import dataclass, field
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import wire_is_owned_by_group
@@ -29,6 +28,7 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 @dataclass
@@ -37,25 +37,40 @@ class _Ctx:
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
+    package_families: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.package_families and "R" in self.components:
+            self.package_families = sil_families(self.components["R"])
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
-    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k").bind(
+        ctx.components["R"], ctx.package_families
+    )
     ctx.instances[inst.id] = inst
     ctx.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     return inst.id
 
 
 def _pin_pos(ctx: _Ctx, cid: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
+
     defn = ctx.components["R"]
-    return pin_world_position(defn.default_footprint(), ctx.layout.placements[cid], pin)
+    return pin_world_position(
+        defn.default_footprint(ctx.package_families),
+        ctx.layout.placements[cid],
+        pin,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +97,8 @@ class TestSharedFreeKnotNotOwned:
             id=uuid.uuid4(),
             path=[pin_pos, free_pos],
             side="top",
-            a=KnotRef(id=pk.id), b=KnotRef(id=jk.id),
+            a=KnotRef(id=pk.id),
+            b=KnotRef(id=jk.id),
         )
         ctx.layout.add_wire(wire)
         # Net with the pin so half-orphan classifier has something to
@@ -91,12 +107,14 @@ class TestSharedFreeKnotNotOwned:
         ctx.schematic.nets[net.id] = net
 
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid}),
         )
         # Single-owner free knot → owned.
         owned = wire_is_owned_by_group(
-            wire, group,
+            wire,
+            group,
             wire_net_map={wire.id: net.id},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
             group_comp_ids=frozenset({cid}),
@@ -127,7 +145,8 @@ class TestSharedFreeKnotNotOwned:
             id=uuid.uuid4(),
             path=[pin_pos, free_pos],
             side="top",
-            a=KnotRef(id=pk.id), b=KnotRef(id=jk.id),
+            a=KnotRef(id=pk.id),
+            b=KnotRef(id=jk.id),
         )
         ctx.layout.add_wire(w1)
         # Wire 2: jk → far_jk (both free; jk now shared)
@@ -135,14 +154,16 @@ class TestSharedFreeKnotNotOwned:
             id=uuid.uuid4(),
             path=[free_pos, far_pos],
             side="top",
-            a=KnotRef(id=jk.id), b=KnotRef(id=far_jk.id),
+            a=KnotRef(id=jk.id),
+            b=KnotRef(id=far_jk.id),
         )
         ctx.layout.add_wire(w2)
         net = Net(id=uuid.uuid4(), name="N1", pins={PinRef(cid, 1)})
         ctx.schematic.nets[net.id] = net
 
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid}),
         )
         # Shared joint → w1 NOT owned (guard kicks in).
@@ -151,7 +172,8 @@ class TestSharedFreeKnotNotOwned:
         assert len(live_jk.wire_ids) == 2  # sanity: joint really is shared
 
         owned = wire_is_owned_by_group(
-            w1, group,
+            w1,
+            group,
             wire_net_map={w1.id: net.id, w2.id: net.id},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
             group_comp_ids=frozenset({cid}),
@@ -178,16 +200,20 @@ class TestSharedFreeKnotNotOwned:
             id=uuid.uuid4(),
             path=[pos_a, pos_b],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         # No nets needed — both-PinKnot owned path is unconditional.
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a, cid_b}),
         )
         owned = wire_is_owned_by_group(
-            w, group, wire_net_map={},
+            w,
+            group,
+            wire_net_map={},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
             group_comp_ids=frozenset({cid_a, cid_b}),
             schematic=ctx.schematic,
@@ -224,16 +250,22 @@ class TestSharedFreeKnotNotOwned:
         pkb = ctx.layout.get_or_create_pin_knot(PinRef(cid_b, 1))
         pkc = ctx.layout.get_or_create_pin_knot(PinRef(cid_c, 1))
         w_in = Wire(
-            id=uuid.uuid4(), path=[pos_a, pos_b], side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            id=uuid.uuid4(),
+            path=[pos_a, pos_b],
+            side="top",
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w_in)
         # External wire: pin of cid_c (not dragged) to a free joint.
         free = Point(pos_c.x + 2.0, pos_c.y)
         jk = ctx.layout.create_joint_knot(free)
         w_ext = Wire(
-            id=uuid.uuid4(), path=[pos_c, free], side="top",
-            a=KnotRef(id=pkc.id), b=KnotRef(id=jk.id),
+            id=uuid.uuid4(),
+            path=[pos_c, free],
+            side="top",
+            a=KnotRef(id=pkc.id),
+            b=KnotRef(id=jk.id),
         )
         ctx.layout.add_wire(w_ext)
 
@@ -273,16 +305,20 @@ class TestSharedFreeKnotNotOwned:
             id=uuid.uuid4(),
             path=[Point(5.5, 5.5), Point(7.5, 5.5)],
             side="top",
-            a=KnotRef(id=ja.id), b=KnotRef(id=jb.id),
+            a=KnotRef(id=ja.id),
+            b=KnotRef(id=jb.id),
         )
         ctx.layout.add_wire(w)
 
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid}),
         )
         owned = wire_is_owned_by_group(
-            w, group, wire_net_map={},
+            w,
+            group,
+            wire_net_map={},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
             group_comp_ids=frozenset({cid}),
             schematic=ctx.schematic,

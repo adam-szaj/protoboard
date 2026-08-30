@@ -4,7 +4,7 @@
 This module exists so the rest of the codebase can ``import protoboard.services.routing.builtin``
 to guarantee the default routers are present in the registry.  Plugins
 discovered via entry-points are registered separately by the loader.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
@@ -36,9 +36,9 @@ class AStarRouter:
 
     def route(
         self,
-        request: "RouteRequest",
+        request: RouteRequest,
         sink: ProgressSink,
-    ) -> "AutorouteResult":
+    ) -> AutorouteResult:
         from protoboard.services.routing.autorouter import autoroute
         from protoboard.services.routing.hierarchical import hierarchical_autoroute
 
@@ -94,51 +94,53 @@ class AStarRouter:
 
 # Cost keys read by the vanilla A* hot loop and rip-up retry machinery.
 # Kept module-level so tests can assert on it without instantiating a router.
-_ASTAR_COST_KEYS: frozenset[str] = frozenset({
-    # Core path cost
-    "free_pad",
-    "same_net_pad",
-    "occupied_by_other_net",
-    "direction_change",
-    "diagonal_multiplier",
-    # Crossings (bare×bare; granular ib_*/ii_* below)
-    "crossing_bare_bare",
-    "crossing_bare_bare_diagonal",
-    # Vias / under-component
-    "layer_change",
-    "under_component_top",
-    # Pre-route congestion estimator (consumed by autorouter pre-pass, merged
-    # into the under-component penalty map before A* sees it).
-    "congestion_weight",
-    # Modes
-    "bare_diagonal_mode",
-    # Rip-up / push-and-shove
-    "max_reroute_factor",
-    # Same-net reuse
-    "same_net_wire_reuse_cost",
-    # "Clean routing" penalties — angle-aware bends, diagonal parity, and
-    # foreign-pad / via avoidance.  All default to 0.0, so the historical
-    # behaviour is preserved unless explicitly enabled via preset/UI.
-    "bend_45",
-    "bend_90",
-    "bend_135",
-    "diagonal_preferred_family",
-    "diagonal_dispreferred_family",
-    "wire_over_foreign_wire_pad",
-    "via_on_foreign_pad",
-    "redundant_layer_change",
-    "deferred_via_lookahead",
-    "deferred_via_priority_mode",
-    # Granular crossing knobs (B2 will activate them inside _crossing_cost).
-    "crossing_ib_at_pad_same_side",
-    "crossing_ib_at_pad_opposite_side",
-    "crossing_ib_off_pad_same_side",
-    "crossing_ib_off_pad_opposite_side",
-    "crossing_ii_at_pad_same_side",
-    "crossing_ii_at_pad_opposite_side",
-    "crossing_ii_off_pad_same_side",
-    "crossing_ii_off_pad_opposite_side",
-})
+_ASTAR_COST_KEYS: frozenset[str] = frozenset(
+    {
+        # Core path cost
+        "free_pad",
+        "same_net_pad",
+        "occupied_by_other_net",
+        "direction_change",
+        "diagonal_multiplier",
+        # Crossings (bare×bare; granular ib_*/ii_* below)
+        "crossing_bare_bare",
+        "crossing_bare_bare_diagonal",
+        # Vias / under-component
+        "layer_change",
+        "under_component_top",
+        # Pre-route congestion estimator (consumed by autorouter pre-pass, merged
+        # into the under-component penalty map before A* sees it).
+        "congestion_weight",
+        # Modes
+        "bare_diagonal_mode",
+        # Rip-up / push-and-shove
+        "max_reroute_factor",
+        # Same-net reuse
+        "same_net_wire_reuse_cost",
+        # "Clean routing" penalties — angle-aware bends, diagonal parity, and
+        # foreign-pad / via avoidance.  All default to 0.0, so the historical
+        # behaviour is preserved unless explicitly enabled via preset/UI.
+        "bend_45",
+        "bend_90",
+        "bend_135",
+        "diagonal_preferred_family",
+        "diagonal_dispreferred_family",
+        "wire_over_foreign_wire_pad",
+        "via_on_foreign_pad",
+        "redundant_layer_change",
+        "deferred_via_lookahead",
+        "deferred_via_priority_mode",
+        # Granular crossing knobs (B2 will activate them inside _crossing_cost).
+        "crossing_ib_at_pad_same_side",
+        "crossing_ib_at_pad_opposite_side",
+        "crossing_ib_off_pad_same_side",
+        "crossing_ib_off_pad_opposite_side",
+        "crossing_ii_at_pad_same_side",
+        "crossing_ii_at_pad_opposite_side",
+        "crossing_ii_off_pad_same_side",
+        "crossing_ii_off_pad_opposite_side",
+    }
+)
 
 
 # Statically assert that AStarRouter satisfies the Router protocol.

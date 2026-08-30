@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, override
 import structlog
 
 if TYPE_CHECKING:
-    from protoboard.gui.keymap import KeyMap
     from protoboard.controller.ports import (
         ActionOption,
         ExecutorPort,
@@ -22,13 +21,14 @@ if TYPE_CHECKING:
         StatusEvent,
         ViewportPort,
     )
+    from protoboard.gui.keymap import KeyMap
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 # PROTOBOARD_PAINT_PROFILE logging lives in gui/paint_pipeline.py.
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import (
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal  # noqa: E402
+from PySide6.QtGui import (  # noqa: E402
     QBrush,
     QColor,
     QKeyEvent,
@@ -37,33 +37,33 @@ from PySide6.QtGui import (
     QResizeEvent,
     QWheelEvent,
 )
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import (  # noqa: E402
     QGraphicsScene,
     QGraphicsView,
     QWidget,
 )
 
-from protoboard.geometry import Point
-from protoboard.gui.layer_state import (
+from protoboard.controller.theme import DEFAULT_THEME, Theme  # noqa: E402
+from protoboard.geometry import Point  # noqa: E402
+from protoboard.gui.board_view_tool import _Tool  # noqa: E402
+from protoboard.gui.highlight.renderer import HighlightRenderer  # noqa: E402
+from protoboard.gui.hover_reveal import HoverReveal  # noqa: E402
+from protoboard.gui.layer_state import (  # noqa: E402
     LayerOverrides,
     LayerState,
     layer_state_for_tool,
 )
-from protoboard.gui.board_view_tool import _Tool
-from protoboard.gui.highlight.renderer import HighlightRenderer
-from protoboard.gui.hover_reveal import HoverReveal
-from protoboard.gui.paint_pipeline import PaintPipeline
-from protoboard.gui.renderers.board_renderer import BOARD_BG
-from protoboard.gui.scene_composer import SceneComposer
-from protoboard.gui.session import EditorSession
-from protoboard.controller.theme import DEFAULT_THEME, Theme
-from protoboard.gui.tool_host import ToolHost
-from protoboard.gui.qt_executor import QtExecutor
-from protoboard.gui.qt_help_overlay import QtHelpOverlay
-from protoboard.gui.qt_viewport import QtViewport
-from protoboard.gui.view_camera import GRID_PX as _GRID_PX
-from protoboard.gui.view_camera import ViewCamera
-from protoboard.services.debug_trace import traced
+from protoboard.gui.paint_pipeline import PaintPipeline  # noqa: E402
+from protoboard.gui.qt_executor import QtExecutor  # noqa: E402
+from protoboard.gui.qt_help_overlay import QtHelpOverlay  # noqa: E402
+from protoboard.gui.qt_viewport import QtViewport  # noqa: E402
+from protoboard.gui.renderers.board_renderer import BOARD_BG  # noqa: E402
+from protoboard.gui.scene_composer import SceneComposer  # noqa: E402
+from protoboard.gui.session import EditorSession  # noqa: E402
+from protoboard.gui.tool_host import ToolHost  # noqa: E402
+from protoboard.gui.view_camera import GRID_PX as _GRID_PX  # noqa: E402
+from protoboard.gui.view_camera import ViewCamera  # noqa: E402
+from protoboard.services.debug_trace import traced  # noqa: E402
 
 
 class BoardView(QGraphicsView):
@@ -120,7 +120,8 @@ class BoardView(QGraphicsView):
         # item — meaningful at 14k items per paint.  Items in this app set
         # their own pen/brush per draw, so the saved state was unused anyway.
         self.setOptimizationFlag(
-            QGraphicsView.OptimizationFlag.DontSavePainterState, True,
+            QGraphicsView.OptimizationFlag.DontSavePainterState,
+            True,
         )
         # FullViewportUpdate skips the per-item bounding-rect intersection
         # pass that MinimalViewportUpdate runs to compute dirty regions.
@@ -155,12 +156,13 @@ class BoardView(QGraphicsView):
         self.camera = ViewCamera(self)
         self._layer_overrides: LayerOverrides = LayerOverrides()
         # Hover-reveal (2B): component whose pin names stay drawn while the
-        # pin_names layer is HIDDEN.  Persistent — layer_state() is rebuilt
+        # meta_pin_labels layer is HIDDEN.  Persistent — layer_state() is rebuilt
         # fresh on every refresh() and threads this value onto it.
-        self._pin_names_reveal_cid: uuid.UUID | None = None
+        self._meta_pin_labels_reveal_cid: uuid.UUID | None = None
         self._pad_positions: list[Point] = []
         # Active group for rendering context (set by SelectTool on navigation).
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
         self._active_group_id: uuid.UUID = ROOT_GROUP_ID
         # Highlight mechanism (dimming, cyan outlines, wire/net-pad overlays,
         # selection bbox) — extracted service; owns all highlight state.
@@ -210,6 +212,7 @@ class BoardView(QGraphicsView):
         # scroll: 4–8 ticks in <100 ms) collapses to a single
         # visibility refresh after the burst settles.
         from protoboard.gui.throttle import TimerWrap
+
         self._label_vis_timer = TimerWrap(80, self._apply_label_visibility)
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
@@ -356,6 +359,7 @@ class BoardView(QGraphicsView):
         """
         _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
         from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+
         scene_scale = abs(self.transform().m11())
         show = scene_scale >= self._LABEL_MIN_SCENE_UNITS
         n_items = 0
@@ -389,6 +393,7 @@ class BoardView(QGraphicsView):
     @traced()
     def set_theme(self, theme: object) -> None:
         from protoboard.controller.theme import Theme
+
         if isinstance(theme, Theme):
             self._theme_override = theme
             # board_bg is applied as the QGraphicsView background brush, not
@@ -459,9 +464,7 @@ class BoardView(QGraphicsView):
         # ``self._on_selection_requested`` access is a different partial and
         # disconnect() would silently miss.
         try:
-            self._session.selection_requested.disconnect(
-                self._selection_requested_slot
-            )
+            self._session.selection_requested.disconnect(self._selection_requested_slot)
         except (TypeError, RuntimeError):
             pass
         self._session = session
@@ -499,7 +502,9 @@ class BoardView(QGraphicsView):
     @property
     def theme(self) -> Theme:
         """The resolved theme (Preferences override or the default)."""
-        return self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        return (
+            self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        )
 
     @property
     def active_tool(self) -> _Tool | None:
@@ -534,7 +539,7 @@ class BoardView(QGraphicsView):
         )
         # layer_state_for_tool() builds a fresh LayerState every call — thread
         # the persistent hover-reveal cid (gui/hover_reveal.py) onto it.
-        state.pin_names_reveal_cid = self._pin_names_reveal_cid
+        state.meta_pin_labels_reveal_cid = self._meta_pin_labels_reveal_cid
         return state
 
     def mirror_flags(self) -> tuple[bool, bool]:
@@ -570,6 +575,7 @@ class BoardView(QGraphicsView):
     def rebuild_pad_cache(self) -> None:
         """Rebuild _pad_positions and _pad_spatial from the current board layout."""
         from collections import defaultdict
+
         positions = self._session.board.pad_positions()
         self._pad_positions = positions
         # Build spatial index: grid cell → pad points (for fast snap).
@@ -647,7 +653,9 @@ class BoardView(QGraphicsView):
         tool._notify_selection()
 
     @traced()
-    def snap(self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None) -> Point:
+    def snap(
+        self, scene_pt: Point, exclude_ids: frozenset[uuid.UUID] | None = None
+    ) -> Point:
         """Snap scene-space point to nearest accessible pad or component pin.
 
         Pins belonging to child groups are only accessible if they are exported.
@@ -686,6 +694,7 @@ class BoardView(QGraphicsView):
         # Ensure index is built even if refresh() hasn't been called yet.
         if not self._pad_spatial and self._pad_positions:
             from collections import defaultdict
+
             _sp: dict[tuple[int, int], list[Point]] = defaultdict(list)
             for _p in self._pad_positions:
                 _sp[(int(round(_p.x)), int(round(_p.y)))].append(_p)
@@ -751,7 +760,7 @@ class BoardView(QGraphicsView):
             for pin_num, p in self._session.iter_pin_positions(comp_id):
                 if (comp_id, pin_num) in exported_pins:
                     continue
-                if (scene_pt.x - p.x) ** 2 + (scene_pt.y - p.y) ** 2 < tol ** 2:
+                if (scene_pt.x - p.x) ** 2 + (scene_pt.y - p.y) ** 2 < tol**2:
                     return True
         return False
 
@@ -764,10 +773,12 @@ class BoardView(QGraphicsView):
         centre = port.viewport_rect().center
         current = port.map_view_to_scene(centre)
         scale = port.view_transform().a
-        port.pan_by(Vector(
-            (scene_pt.x - current.x) * scale,
-            (scene_pt.y - current.y) * scale,
-        ))
+        port.pan_by(
+            Vector(
+                (scene_pt.x - current.x) * scale,
+                (scene_pt.y - current.y) * scale,
+            )
+        )
 
     @traced()
     def perform_context_action(self, option: ActionOption) -> None:

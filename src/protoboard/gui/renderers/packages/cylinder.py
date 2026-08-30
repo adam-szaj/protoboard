@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
 )
@@ -26,7 +27,6 @@ from protoboard.gui.renderers.packages.base import (
     _lead_pen,
 )
 from protoboard.gui.renderers.packages.canvas import _body_pen
-from protoboard.controller.theme import DEFAULT_THEME
 
 
 class CylinderRenderer(PackageRenderer):
@@ -51,7 +51,10 @@ class CylinderRenderer(PackageRenderer):
 
     def _radial_silhouette(
         self,
-        mid: Point, p1: Point, p2: Point, neg_pin: Point,
+        mid: Point,
+        p1: Point,
+        p2: Point,
+        neg_pin: Point,
     ) -> list[QGraphicsItem]:
         pkg = self._pkg
         if not isinstance(pkg, _PkgCylinder):
@@ -71,7 +74,9 @@ class CylinderRenderer(PackageRenderer):
         return super()._radial_body_radius(mm)
 
     def _flat_side_world(
-        self, pkg: _PkgCylinder, world_axis_deg: float,
+        self,
+        pkg: _PkgCylinder,
+        world_axis_deg: float,
     ) -> tuple[float, float] | None:
         """The flat side as ``(normal_angle_deg, offset_holes)`` in world space.
 
@@ -143,7 +148,11 @@ class CylinderRenderer(PackageRenderer):
         return [body, self._disc_segment(centre, r, neg_angle_deg)]
 
     def _d_shape(
-        self, centre: Point, radius: float, normal_deg: float, offset: float,
+        self,
+        centre: Point,
+        radius: float,
+        normal_deg: float,
+        offset: float,
     ) -> QGraphicsPathItem:
         """A circle with one chord cut off, normal to ``normal_deg`` at distance
         ``offset`` (holes) from the centre. The remaining arc spans the far side;
@@ -214,7 +223,8 @@ class CylinderRenderer(PackageRenderer):
 
     @staticmethod
     def _capsule_metrics(
-        pkg: _PkgCylinder, mm: float,
+        pkg: _PkgCylinder,
+        mm: float,
     ) -> tuple[float, float, float]:
         """``(length, width, end-cap radius)`` of the side-view capsule, in
         holes.
@@ -260,20 +270,25 @@ class CylinderRenderer(PackageRenderer):
         # marker points towards the physical cathode (pin 2). (User rule,
         # 2026-06-28.)
         if self._mounts_upright(dist, body_len):
-            anchor = p1               # the Flip-chosen pad the body stands on
-            other = p2                # the bent lead reaches here
+            anchor = p1  # the Flip-chosen pad the body stands on
+            other = p2  # the bent lead reaches here
             upright: list[QGraphicsItem] = []
             lead = QGraphicsLineItem(anchor.x, anchor.y, other.x, other.y)
             lead.setPen(_lead_pen(paint.theme, paint.alpha))
             lead.setZValue(paint.z - 0.01)
             upright.append(lead)
-            neg_pin = positions[1]    # physical cathode, independent of flip
+            neg_pin = positions[1]  # physical cathode, independent of flip
             neg_angle = (neg_pin - anchor).angle_deg()
             world_axis_deg = (other - anchor).angle_deg()
             flat = self._flat_side_world(pkg, world_axis_deg)
-            upright.extend(self._radial_disc(
-                anchor, body_w, neg_angle, flat=flat,
-            ))
+            upright.extend(
+                self._radial_disc(
+                    anchor,
+                    body_w,
+                    neg_angle,
+                    flat=flat,
+                )
+            )
             return upright
 
         mid_x = (p1.x + p2.x) / 2.0
@@ -288,10 +303,16 @@ class CylinderRenderer(PackageRenderer):
             attach = dist / 2.0 - body_len / 2.0
             lead_pen = _lead_pen(paint.theme, paint.alpha)
             l1 = QGraphicsLineItem(
-                p1.x, p1.y, p1.x + unit_x * attach, p1.y + unit_y * attach,
+                p1.x,
+                p1.y,
+                p1.x + unit_x * attach,
+                p1.y + unit_y * attach,
             )
             l2 = QGraphicsLineItem(
-                p2.x - unit_x * attach, p2.y - unit_y * attach, p2.x, p2.y,
+                p2.x - unit_x * attach,
+                p2.y - unit_y * attach,
+                p2.x,
+                p2.y,
             )
             for ln in (l1, l2):
                 ln.setPen(lead_pen)
@@ -304,7 +325,9 @@ class CylinderRenderer(PackageRenderer):
         # _capsule_metrics.
         path = QPainterPath()
         path.addRoundedRect(
-            QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,
+            QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w),
+            r,
+            r,
         )
         body = QGraphicsPathItem(path)
         fill_c = QColor(paint.fill)

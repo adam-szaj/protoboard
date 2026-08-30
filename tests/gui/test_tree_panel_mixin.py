@@ -6,25 +6,23 @@ from __future__ import annotations
 import uuid
 from typing import cast
 
-import pytest
-from pytestqt.qtbot import QtBot
-
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTreeWidgetItem, QWidget, QVBoxLayout, QTreeWidget
+from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from pytestqt.qtbot import QtBot
 
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
-from protoboard.gui.panels.netlist_panel import NetlistPanel
 from protoboard.gui.panels.components_panel import ComponentsPanel
 from protoboard.gui.panels.net_inspector_panel import NetInspectorPanel
+from protoboard.gui.panels.netlist_panel import NetlistPanel
+from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
 from protoboard.gui.session import EditorSession
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete implementation for unit-testing the mixin in isolation
 # ---------------------------------------------------------------------------
+
 
 class _SimplePanel(TreePanelMixin, QWidget):
     """Minimal panel: one top-level item per component instance."""
@@ -57,6 +55,7 @@ def _make_instance(session: EditorSession, refdes: str = "R1") -> ComponentInsta
 # ---------------------------------------------------------------------------
 # TreePanelMixin unit tests
 # ---------------------------------------------------------------------------
+
 
 class TestTreePanelMixin:
     def test_refresh_calls_rebuild(self, qtbot: QtBot, session: EditorSession) -> None:
@@ -141,9 +140,7 @@ class TestTreePanelMixin:
         assert item is not None
         assert item.data(0, Qt.ItemDataRole.UserRole) == str(inst.id)
 
-    def test_find_item_finds_nested(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_find_item_finds_nested(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = _SimplePanel()
         qtbot.addWidget(panel)
         panel.refresh(session)
@@ -227,6 +224,7 @@ class TestTreePanelMixin:
 # NetlistPanel — tree building modes
 # ---------------------------------------------------------------------------
 
+
 class TestNetlistPanel:
     def test_symbol_mode_groups_by_definition(
         self, qtbot: QtBot, session: EditorSession
@@ -259,6 +257,7 @@ class TestNetlistPanel:
         self, qtbot: QtBot, session: EditorSession
     ) -> None:
         from PySide6.QtGui import QColor
+
         panel = NetlistPanel()
         qtbot.addWidget(panel)
         inst = _make_instance(session, "R1")
@@ -270,10 +269,9 @@ class TestNetlistPanel:
         color: QColor = item.foreground(0).color()
         assert color.red() > 150 and color.green() > 150  # grey-ish
 
-    def test_placed_items_are_green(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_placed_items_are_green(self, qtbot: QtBot, session: EditorSession) -> None:
         from PySide6.QtGui import QColor
+
         panel = NetlistPanel()
         qtbot.addWidget(panel)
         inst = _make_instance(session, "R1")
@@ -323,10 +321,9 @@ class TestNetlistPanel:
 # ComponentsPanel — search and basic behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestComponentsPanel:
-    def test_shows_all_instances(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_shows_all_instances(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = ComponentsPanel()
         qtbot.addWidget(panel)
         _make_instance(session, "R1")
@@ -334,9 +331,7 @@ class TestComponentsPanel:
         panel.refresh(session)
         assert panel._tree.topLevelItemCount() == 2
 
-    def test_filter_by_refdes(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_filter_by_refdes(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = ComponentsPanel()
         qtbot.addWidget(panel)
         _make_instance(session, "R1")
@@ -386,11 +381,13 @@ class TestComponentsPanel:
 # NetInspectorPanel — basic behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestNetInspectorPanel:
     def test_refresh_populates_nets(
         self, qtbot: QtBot, board_view: object, session: EditorSession
     ) -> None:
         from protoboard.gui.board_view import BoardView
+
         assert isinstance(board_view, BoardView)
         panel = NetInspectorPanel(board_view)
         qtbot.addWidget(panel)
@@ -400,9 +397,8 @@ class TestNetInspectorPanel:
         panel.show()
         qtbot.waitExposed(panel)
         from protoboard.domain.schematic.net import Net, PinRef
-        net = Net(
-            id=uuid.uuid4(), name="VCC", pins=cast("set[PinRef]", frozenset())
-        )
+
+        net = Net(id=uuid.uuid4(), name="VCC", pins=cast("set[PinRef]", frozenset()))
         session.schematic.nets[net.id] = net
         panel.refresh(session)
         assert panel._tree.topLevelItemCount() == 1
@@ -414,14 +410,14 @@ class TestNetInspectorPanel:
         self, qtbot: QtBot, board_view: object, session: EditorSession
     ) -> None:
         from protoboard.gui.board_view import BoardView
+
         assert isinstance(board_view, BoardView)
         panel = NetInspectorPanel(board_view)
         qtbot.addWidget(panel)
         panel.show()
         from protoboard.domain.schematic.net import Net, PinRef
-        net = Net(
-            id=uuid.uuid4(), name="GND", pins=cast("set[PinRef]", frozenset())
-        )
+
+        net = Net(id=uuid.uuid4(), name="GND", pins=cast("set[PinRef]", frozenset()))
         session.schematic.nets[net.id] = net
         panel.refresh(session)
         panel.sync_selection(frozenset(), frozenset(), net.id)

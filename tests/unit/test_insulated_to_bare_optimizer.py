@@ -16,7 +16,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -36,13 +35,13 @@ from protoboard.services.routing.optimizer import (
 )
 from protoboard.services.routing.protocol import ProgressSink
 from protoboard.services.routing.snapshot import RouteRequest
-
 from tests.instance_utils import bind
-
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Fixture builders
 # ---------------------------------------------------------------------------
+
 
 def _perfboard(rows: int = 6, cols: int = 6) -> Board:
     return Board(
@@ -63,12 +62,12 @@ def _perfboard(rows: int = 6, cols: int = 6) -> Board:
 
 
 def _sil2() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
-    )
+    return make_sil("COMP", 2)
 
 
-def _place(cid: uuid.UUID, x: float, y: float, rotation: int = 90) -> ComponentPlacement:
+def _place(
+    cid: uuid.UUID, x: float, y: float, rotation: int = 90
+) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=cid, position=Point(x, y), rotation=rotation, side="top"
     )
@@ -86,9 +85,18 @@ def _two_pin_project_with_insulated_wire(
     """
     board = _perfboard()
     defn = _sil2()
+    families = sil_families(defn)
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-    inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
-    inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
+    inst_a = bind(
+        ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""),
+        defn,
+        families,
+    )
+    inst_b = bind(
+        ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""),
+        defn,
+        families,
+    )
     placements = {
         cid_a: _place(cid_a, *a_pos),
         cid_b: _place(cid_b, *b_pos),
@@ -98,9 +106,16 @@ def _two_pin_project_with_insulated_wire(
     if extra_components:
         for x, y in extra_components:
             cid = uuid.uuid4()
-            inst = bind(ComponentInstance(
-                id=cid, definition_ref="COMP", refdes=f"R_{len(instances)+1}", value="",
-            ), defn, {})
+            inst = bind(
+                ComponentInstance(
+                    id=cid,
+                    definition_ref="COMP",
+                    refdes=f"R_{len(instances)+1}",
+                    value="",
+                ),
+                defn,
+                families,
+            )
             placements[cid] = _place(cid, x, y)
             instances[cid] = inst
 
@@ -115,8 +130,9 @@ def _two_pin_project_with_insulated_wire(
     # pin2 at (position.x + 1, position.y).  Verify via the same helper
     # the optimizer uses.
     from protoboard.domain.layout.placement import pin_world_position
-    p_start = pin_world_position(defn.default_footprint(), placements[cid_a], 2)
-    p_end = pin_world_position(defn.default_footprint(), placements[cid_b], 1)
+
+    p_start = pin_world_position(defn.default_footprint(families), placements[cid_a], 2)
+    p_end = pin_world_position(defn.default_footprint(families), placements[cid_b], 1)
     # straight horizontal path
     path = [p_start]
     cur = p_start
@@ -133,18 +149,27 @@ def _two_pin_project_with_insulated_wire(
         side="top",
         color=None,
     )
-    layout = Layout(placements=PlacementCollection(placements), wires=WireCollection([wire]))
+    layout = Layout(
+        placements=PlacementCollection(placements), wires=WireCollection([wire])
+    )
     return board, layout, schematic, {"COMP": defn}, instances, wire
 
 
 def _make_request(
-    board, layout, schematic, components, instances,
+    board,
+    layout,
+    schematic,
+    components,
+    instances,
     wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
 ) -> RouteRequest:
     rs = RoutingSettings(wire_mode=wire_mode, enable_simplify_pass=False)
     return RouteRequest.from_session(
-        board=board, layout=layout, schematic=schematic,
-        components=components, instances=instances,
+        board=board,
+        layout=layout,
+        schematic=schematic,
+        components=components,
+        instances=instances,
         routing_settings=rs,
     )
 
@@ -153,12 +178,14 @@ def _make_request(
 # Protocol & registry conformance
 # ---------------------------------------------------------------------------
 
+
 class TestProtocolConformance:
     def test_satisfies_wire_optimizer_protocol(self) -> None:
         assert isinstance(InsulatedToBareOptimizer(), WireOptimizer)
 
     def test_registered_at_import(self) -> None:
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
+
         assert "insulated_to_bare" in registry.list_available()
 
     def test_capabilities_advertise_insulated_to_bare(self) -> None:
@@ -172,13 +199,16 @@ class TestProtocolConformance:
 # Empty / cancelled inputs
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyInputs:
     def test_empty_wires_return_unchanged(self) -> None:
         opt = InsulatedToBareOptimizer()
         req = RouteRequest.from_session(
-            board=_perfboard(), layout=Layout(),
+            board=_perfboard(),
+            layout=Layout(),
             schematic=Schematic(nets={}),
-            components={}, instances={},
+            components={},
+            instances={},
             routing_settings=RoutingSettings(),
         )
         result = AutorouteResult(wires=[], unrouted_nets=[], pass_stats=[])
@@ -187,7 +217,8 @@ class TestEmptyInputs:
     def test_cancelled_returns_input_unchanged(self) -> None:
         board, layout, sch, comps, insts, wire = _two_pin_project_with_insulated_wire()
         req = _make_request(board, layout, sch, comps, insts)
-        ev = threading.Event(); ev.set()
+        ev = threading.Event()
+        ev.set()
         sink = ProgressSink(cancel_flag=ev)
         result_in = AutorouteResult(wires=[wire], unrouted_nets=[], pass_stats=[])
         result_out = InsulatedToBareOptimizer().optimize(req, result_in, sink)
@@ -197,8 +228,11 @@ class TestEmptyInputs:
         """If every wire is already bare, the optimizer is a no-op."""
         board, layout, sch, comps, insts, wire = _two_pin_project_with_insulated_wire()
         bare = Wire(
-            id=wire.id, path=list(wire.path), insulated=False,
-            side=wire.side, color=wire.color,
+            id=wire.id,
+            path=list(wire.path),
+            insulated=False,
+            side=wire.side,
+            color=wire.color,
         )
         req = _make_request(board, layout, sch, comps, insts)
         result = AutorouteResult(wires=[bare], unrouted_nets=[], pass_stats=[])
@@ -210,6 +244,7 @@ class TestEmptyInputs:
 # ---------------------------------------------------------------------------
 # Safety predicate behaviour
 # ---------------------------------------------------------------------------
+
 
 class TestFlipsWhenSafe:
     def test_insulated_over_free_corridor_flips_to_bare(self) -> None:
@@ -244,7 +279,8 @@ class TestRefusesWhenUnsafe:
         original_ids = {next(iter(insts.keys())), list(insts.keys())[1]}
         alien_cid = next(cid for cid in layout.placements if cid not in original_ids)
         alien_net = Net(
-            id=uuid.uuid4(), name="ALIEN",
+            id=uuid.uuid4(),
+            name="ALIEN",
             pins={PinRef(component_id=alien_cid, pin_number=1)},
         )
         sch = Schematic(nets={**sch.nets, alien_net.id: alien_net})
@@ -253,9 +289,9 @@ class TestRefusesWhenUnsafe:
         result = AutorouteResult(wires=[wire], unrouted_nets=[], pass_stats=[])
         out = InsulatedToBareOptimizer().optimize(req, result, ProgressSink())
         assert len(out.wires) == 1
-        assert out.wires[0].insulated is True, (
-            "wire crosses alien pin (2.5,0.5) — must NOT flip to bare"
-        )
+        assert (
+            out.wires[0].insulated is True
+        ), "wire crosses alien pin (2.5,0.5) — must NOT flip to bare"
 
     def test_two_insulated_sharing_a_pad_first_flips_second_does_not(self) -> None:
         """Two insulated wires share an endpoint pad of different nets.
@@ -276,11 +312,17 @@ class TestRefusesWhenUnsafe:
         # on pad (1.5, 1.5) — only one of them can flip.
         board = _perfboard()
         defn = _sil2()
+        families = sil_families(defn)
         ids = [uuid.uuid4() for _ in range(4)]
         instances = {
-            ids[i]: bind(ComponentInstance(
-                id=ids[i], definition_ref="COMP", refdes=f"R{i+1}", value=""
-            ), defn, {}) for i in range(4)
+            ids[i]: bind(
+                ComponentInstance(
+                    id=ids[i], definition_ref="COMP", refdes=f"R{i+1}", value=""
+                ),
+                defn,
+                families,
+            )
+            for i in range(4)
         }
         placements = {
             ids[0]: _place(ids[0], 0.5, 0.5),
@@ -290,28 +332,41 @@ class TestRefusesWhenUnsafe:
         }
         # Net1: pin1 of R1 ↔ pin1 of R3  (horizontal at y=0.5)
         # Net2: pin1 of R2 ↔ pin1 of R4  (horizontal at y=2.5)
-        net1 = Net(id=uuid.uuid4(), name="N1",
-                   pins={PinRef(component_id=ids[0], pin_number=1),
-                         PinRef(component_id=ids[2], pin_number=1)})
-        net2 = Net(id=uuid.uuid4(), name="N2",
-                   pins={PinRef(component_id=ids[1], pin_number=1),
-                         PinRef(component_id=ids[3], pin_number=1)})
+        net1 = Net(
+            id=uuid.uuid4(),
+            name="N1",
+            pins={
+                PinRef(component_id=ids[0], pin_number=1),
+                PinRef(component_id=ids[2], pin_number=1),
+            },
+        )
+        net2 = Net(
+            id=uuid.uuid4(),
+            name="N2",
+            pins={
+                PinRef(component_id=ids[1], pin_number=1),
+                PinRef(component_id=ids[3], pin_number=1),
+            },
+        )
         schematic = Schematic(nets={net1.id: net1, net2.id: net2})
 
         from protoboard.domain.layout.placement import pin_world_position
+
         w1_path = [
-            pin_world_position(defn.default_footprint(), placements[ids[0]], 1),
+            pin_world_position(defn.default_footprint(families), placements[ids[0]], 1),
             Point(1.5, 0.5),
-            pin_world_position(defn.default_footprint(), placements[ids[2]], 1),
+            pin_world_position(defn.default_footprint(families), placements[ids[2]], 1),
         ]
         w2_path = [
-            pin_world_position(defn.default_footprint(), placements[ids[1]], 1),
+            pin_world_position(defn.default_footprint(families), placements[ids[1]], 1),
             Point(1.5, 2.5),
-            pin_world_position(defn.default_footprint(), placements[ids[3]], 1),
+            pin_world_position(defn.default_footprint(families), placements[ids[3]], 1),
         ]
         w1 = Wire(id=uuid.uuid4(), path=w1_path, insulated=True, side="top")
         w2 = Wire(id=uuid.uuid4(), path=w2_path, insulated=True, side="top")
-        layout = Layout(placements=PlacementCollection(placements), wires=WireCollection([w1, w2]))
+        layout = Layout(
+            placements=PlacementCollection(placements), wires=WireCollection([w1, w2])
+        )
 
         req = _make_request(board, layout, schematic, {"COMP": defn}, instances)
         result = AutorouteResult(wires=[w1, w2], unrouted_nets=[], pass_stats=[])
@@ -325,6 +380,7 @@ class TestRefusesWhenUnsafe:
 # ---------------------------------------------------------------------------
 # Non-mutation guarantees
 # ---------------------------------------------------------------------------
+
 
 class TestNonMutation:
     def test_does_not_mutate_input_wires(self) -> None:

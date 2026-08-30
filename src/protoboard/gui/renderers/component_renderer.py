@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
 from PySide6.QtWidgets import (
     QAbstractGraphicsShapeItem,
@@ -17,11 +17,12 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import meta_pin_for_package_pin
 from protoboard.domain.layout.group_tree import GroupTree
-from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
+from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
@@ -30,14 +31,16 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect, Vector
+from protoboard.gui.layer_state import (
+    Z_LABELS_TOP,
+    LayerState,
+)
 from protoboard.gui.qt_geometry import to_qrectf
-from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS, Z_LABELS_TOP
 from protoboard.gui.renderers.body_shapes import body_shape_for
-from protoboard.controller.theme import DEFAULT_THEME, Theme
 
-_ALPHA_ACTIVE = 1.0      # components in the active group
-_ALPHA_SUBGROUP = 0.45   # components inside a child group of the active group
-_ALPHA_INACTIVE = 0.2    # components outside the active group (parent/siblings)
+_ALPHA_ACTIVE = 1.0  # components in the active group
+_ALPHA_SUBGROUP = 0.45  # components inside a child group of the active group
+_ALPHA_INACTIVE = 0.2  # components outside the active group (parent/siblings)
 
 
 def _group_alpha_map(
@@ -70,9 +73,10 @@ def _group_alpha_map(
             result[comp_id] = _ALPHA_INACTIVE
     return result
 
-_REFDES_FONT:        QFont | None = None
-_REFDES_FONT_SIZE:   float = -1.0
-_PIN_NAME_FONT:      QFont | None = None
+
+_REFDES_FONT: QFont | None = None
+_REFDES_FONT_SIZE: float = -1.0
+_PIN_NAME_FONT: QFont | None = None
 _PIN_NAME_FONT_SIZE: float = -1.0
 
 _DEFAULT_LAYERS = LayerState()
@@ -286,7 +290,7 @@ def update_component_groups(
         ov.components_top.value,
         ov.components_bottom.value,
         ov.labels.value,
-        ov.pin_names.value,
+        ov.meta_pin_labels.value,
     )
 
     label_groups: dict[uuid.UUID, QGraphicsItemGroup] = (
@@ -329,8 +333,11 @@ def update_component_groups(
             else frozenset()
         )
         fp = comp_fingerprint(
-            placement, inst.definition_ref,
-            pin_net_for_comp, frozen_routed, layers_key,
+            placement,
+            inst.definition_ref,
+            pin_net_for_comp,
+            frozen_routed,
+            layers_key,
             bold_pin_nets=bold_pin_nets,
             refdes=inst.refdes,
             value=inst.value,
@@ -349,10 +356,20 @@ def update_component_groups(
                 scene.removeItem(existing_groups.pop(comp_id))
                 existing_fingerprints.pop(comp_id, None)
                 _drop_label_group(comp_id)
-                result = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                                     routed_nets, theme, layers, group_alpha=1.0,
-                                     highlighted_net_id=highlighted_net_id,
-                                     is_highlighted_comp=comp_id in highlighted_comp_ids)
+                result = _render_one(
+                    scene,
+                    placement,
+                    inst,
+                    defn,
+                    comp_id,
+                    pin_net,
+                    routed_nets,
+                    theme,
+                    layers,
+                    group_alpha=1.0,
+                    highlighted_net_id=highlighted_net_id,
+                    is_highlighted_comp=comp_id in highlighted_comp_ids,
+                )
                 if result is None:
                     continue
                 grp, label_grp = result
@@ -361,10 +378,20 @@ def update_component_groups(
                 if label_grp is not None:
                     label_groups[comp_id] = label_grp
         else:
-            result = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                                 routed_nets, theme, layers, group_alpha=1.0,
-                                 highlighted_net_id=highlighted_net_id,
-                                 is_highlighted_comp=comp_id in highlighted_comp_ids)
+            result = _render_one(
+                scene,
+                placement,
+                inst,
+                defn,
+                comp_id,
+                pin_net,
+                routed_nets,
+                theme,
+                layers,
+                group_alpha=1.0,
+                highlighted_net_id=highlighted_net_id,
+                is_highlighted_comp=comp_id in highlighted_comp_ids,
+            )
             if result is None:
                 continue
             grp, label_grp = result
@@ -398,9 +425,7 @@ def render_components(
     active_group_id: uuid.UUID | None = None,
     layout: Layout | None = None,
     highlighted_net_id: uuid.UUID | None = None,
-) -> tuple[
-    dict[uuid.UUID, QGraphicsItemGroup], dict[uuid.UUID, QGraphicsItemGroup]
-]:
+) -> tuple[dict[uuid.UUID, QGraphicsItemGroup], dict[uuid.UUID, QGraphicsItemGroup]]:
     """Render all placed components.
 
     Returns ``(comp_groups, label_groups)`` — two maps keyed by comp_id.  The
@@ -440,11 +465,25 @@ def render_components(
             continue
         group_alpha = alpha_map.get(comp_id, 1.0)
         if highlighted_net_id is not None:
-            net_dim = 1.0 if comp_id in highlighted_comp_ids else theme.highlight_dim_components
+            net_dim = (
+                1.0
+                if comp_id in highlighted_comp_ids
+                else theme.highlight_dim_components
+            )
             group_alpha = max(0.04, group_alpha * net_dim)
-        result = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                             routed_nets, theme, layers, group_alpha=group_alpha,
-                             highlighted_net_id=highlighted_net_id)
+        result = _render_one(
+            scene,
+            placement,
+            inst,
+            defn,
+            comp_id,
+            pin_net,
+            routed_nets,
+            theme,
+            layers,
+            group_alpha=group_alpha,
+            highlighted_net_id=highlighted_net_id,
+        )
         if result is not None:
             grp, label_grp = result
             comp_groups[comp_id] = grp
@@ -499,6 +538,7 @@ def _render_one(
     # axial 3.2-hole pitch. Resolve the variant footprint (falls back to
     # the definition's default package when none resolves).
     from protoboard.domain.components.package import resolved_footprint
+
     fp = resolved_footprint(defn, inst, theme.package_families)
     positions = [
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
@@ -521,19 +561,22 @@ def _render_one(
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
     x0, y0 = min(xs) - margin, min(ys) - margin
-    x1, y1 = max(xs) + margin, max(ys) + margin
+    x1, _y1 = max(xs) + margin, max(ys) + margin
 
     def _a(base_alpha: int) -> int:
         return max(0, min(255, int(base_alpha * alpha)))
 
     _base_fill = QColor(theme.comp_fill_color)
-    comp_fill = QColor(_base_fill.red(), _base_fill.green(), _base_fill.blue(),
-                       _a(_base_fill.alpha()))
+    comp_fill = QColor(
+        _base_fill.red(), _base_fill.green(), _base_fill.blue(), _a(_base_fill.alpha())
+    )
     comp_border = QColor(theme.comp_border)
     comp_border.setAlphaF(comp_border.alphaF() * alpha)
 
     shape = body_shape_for(
-        defn, placement, inst,
+        defn,
+        placement,
+        inst,
         package_families=theme.package_families,
     )
     body_items, label_items = shape.draw(
@@ -604,10 +647,14 @@ def _render_one(
 
         if is_bold:
             dot = QGraphicsEllipseItem(
-                to_qrectf(Rect.of(
-                    pos.x - dot_radius, pos.y - dot_radius,
-                    2 * dot_radius, 2 * dot_radius,
-                ))
+                to_qrectf(
+                    Rect.of(
+                        pos.x - dot_radius,
+                        pos.y - dot_radius,
+                        2 * dot_radius,
+                        2 * dot_radius,
+                    )
+                )
             )
             dot.setBrush(QBrush(dot_fill))
             dot.setPen(QPen(Qt.PenStyle.NoPen))
@@ -638,28 +685,41 @@ def _render_one(
         # Child Z is relative to label_grp (whose own Z is z_label); use small
         # offsets only to order labels among themselves.
         for item in _make_overlay_label(
-            label_text, _get_refdes_font(fpt), label_color, bg, lx, ly, 0.0,
+            label_text,
+            _get_refdes_font(fpt),
+            label_color,
+            bg,
+            lx,
+            ly,
+            0.0,
         ):
             label_grp.addToGroup(item)
             _label_count += 1
 
-    # Pin-name labels (controlled by the pin_names layer) — independent of the
+    # Pin-name labels (controlled by the meta_pin_labels layer) — independent of the
     # labels layer, so they render even when the refdes/value labels are hidden.
-    alpha_pin_names = layers.alpha_for_pin_names(side, cid=comp_id) * group_alpha
-    if alpha_pin_names > 0.0 and defn.meta_pins:
+    alpha_meta_pin_labels = (
+        layers.alpha_for_meta_pin_labels(side, cid=comp_id) * group_alpha
+    )
+    if alpha_meta_pin_labels > 0.0 and defn.meta_pins:
         # Text colour stays at full theme alpha; only the background pill
         # fades.  Keeps pin names readable even on ghosted/back layers.
         pin_name_color = QColor(theme.pin_label_fallback_color)
         pin_bg = QColor(bg_color)
-        pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
+        pin_bg.setAlphaF(pin_bg.alphaF() * alpha_meta_pin_labels)
         for pin_idx, pos in enumerate(positions):
             pin_number = pin_idx + 1
             name = _compact_package_pin_label(defn, inst, pin_number)
             if not name:
                 continue
             for item in _make_overlay_label(
-                name, _get_pin_name_font(fpt), pin_name_color, pin_bg,
-                pos.x, pos.y, 0.1,
+                name,
+                _get_pin_name_font(fpt),
+                pin_name_color,
+                pin_bg,
+                pos.x,
+                pos.y,
+                0.1,
             ):
                 label_grp.addToGroup(item)
                 _label_count += 1
@@ -670,8 +730,13 @@ def _render_one(
         lock_bg = QColor(bg_color)
         lock_bg.setAlphaF(lock_bg.alphaF() * min(alpha, 1.0))
         for item in _make_overlay_label(
-            "\U0001f512", _get_refdes_font(fpt), lock_col, lock_bg,
-            x1, y0, 0.5,
+            "\U0001f512",
+            _get_refdes_font(fpt),
+            lock_col,
+            lock_bg,
+            x1,
+            y0,
+            0.5,
         ):
             label_grp.addToGroup(item)
             _label_count += 1
@@ -710,14 +775,16 @@ def make_ghost_item(
     fp = defn.default_footprint(theme.package_families or {})
     if package_variant is not None:
         ghost_inst = ComponentInstance.new(
-            definition_ref=defn.name, refdes="?", value="",
+            definition_ref=defn.name,
+            refdes="?",
+            value="",
             package_variant=package_variant,
         )
         from protoboard.domain.components.package import (
             resolve_component_package,
         )
-        pkg = resolve_component_package(
-            defn, ghost_inst, theme.package_families or {})
+
+        pkg = resolve_component_package(defn, ghost_inst, theme.package_families or {})
         if pkg is not None:
             fp = pkg
     positions = [
@@ -729,14 +796,18 @@ def make_ghost_item(
     margin = 0.35
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
-    x0, y0 = min(xs) - margin, min(ys) - margin
-    x1, y1 = max(xs) + margin, max(ys) + margin
+    _x0, _y0 = min(xs) - margin, min(ys) - margin
+    _x1, _y1 = max(xs) + margin, max(ys) + margin
 
     t = theme
     ghost_fill = QColor(t.ghost_fill_r, t.ghost_fill_g, t.ghost_fill_b, t.ghost_fill_a)
-    ghost_border = QColor(t.ghost_border_r, t.ghost_border_g, t.ghost_border_b, t.ghost_border_a)
+    ghost_border = QColor(
+        t.ghost_border_r, t.ghost_border_g, t.ghost_border_b, t.ghost_border_a
+    )
     ghost_pin = QColor(t.ghost_pin_r, t.ghost_pin_g, t.ghost_pin_b, t.ghost_pin_a)
-    ghost_label = QColor(t.ghost_label_r, t.ghost_label_g, t.ghost_label_b, t.ghost_label_a)
+    ghost_label = QColor(
+        t.ghost_label_r, t.ghost_label_g, t.ghost_label_b, t.ghost_label_a
+    )
 
     group = QGraphicsItemGroup()
 
@@ -747,7 +818,9 @@ def make_ghost_item(
     # draw in an unrotated frame while the pins are rotated, and the mismatch
     # grows with the rotation angle.
     shape = body_shape_for(
-        defn, placement, ghost_inst,
+        defn,
+        placement,
+        ghost_inst,
         package_families=theme.package_families,
     )
     # Ghost preview shows only the body silhouette — the value label(s) are
@@ -765,9 +838,16 @@ def make_ghost_item(
 
     r = theme.pin_radius
     for pos in positions:
-        dot = QGraphicsEllipseItem(to_qrectf(Rect.of(
-            pos.x - r, pos.y - r, 2 * r, 2 * r,
-        )))
+        dot = QGraphicsEllipseItem(
+            to_qrectf(
+                Rect.of(
+                    pos.x - r,
+                    pos.y - r,
+                    2 * r,
+                    2 * r,
+                )
+            )
+        )
         dot.setBrush(QBrush(ghost_pin))
         dot.setPen(QPen(Qt.GlobalColor.transparent, 0))
         group.addToGroup(dot)
@@ -778,8 +858,13 @@ def make_ghost_item(
     ghost_bg = QColor(theme.label_bg_color)
     ghost_bg.setAlphaF(ghost_bg.alphaF() * 0.5)
     for item in _make_overlay_label(
-        defn.name, _get_refdes_font(theme.overlay_font_size),
-        ghost_label, ghost_bg, min(xs) + 0.05, min(ys) + 0.05, 1.0,
+        defn.name,
+        _get_refdes_font(theme.overlay_font_size),
+        ghost_label,
+        ghost_bg,
+        min(xs) + 0.05,
+        min(ys) + 0.05,
+        1.0,
     ):
         group.addToGroup(item)
     return group
@@ -844,6 +929,7 @@ def render_groups(
             if defn is None:
                 continue
             from protoboard.domain.components.package import resolved_footprint
+
             fp = resolved_footprint(defn, inst, theme.package_families)
             for n in range(fp.pin_count()):
                 positions.append(pin_world_position(fp, pl, n + 1))
@@ -856,6 +942,7 @@ def render_groups(
             from protoboard.domain.layout.group_ownership import OwnershipResolver
             from protoboard.domain.layout.wire import Wire
             from protoboard.domain.schematic.schematic import Schematic as _Schematic
+
             typed_wires = [w for w in wires if isinstance(w, Wire)]
             sch_obj = schematic if isinstance(schematic, _Schematic) else None
             # Bind the LOCAL render context directly (this is a renderer
@@ -916,10 +1003,16 @@ def render_groups(
             # font-pixel size constant, so the label's scene-space height
             # is metric_height / view_scale.
             from PySide6.QtGui import QFontMetricsF
+
             label_h_scene = QFontMetricsF(label_font).height() / max(view_scale, 1e-6)
             for item in _make_overlay_label(
-                group.name, label_font,
-                name_col, grp_bg, x0, y0 - label_h_scene, label_z,
+                group.name,
+                label_font,
+                name_col,
+                grp_bg,
+                x0,
+                y0 - label_h_scene,
+                label_z,
             ):
                 scene.addItem(item)
                 added.append(item)

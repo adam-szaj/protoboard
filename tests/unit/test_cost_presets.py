@@ -85,7 +85,9 @@ class TestResolveWeights:
             preset = get_builtin_preset(name)
             assert preset is not None
             for k in preset:
-                assert k in COST_KEY_DOCS, f"preset {name!r} key {k!r} missing from COST_KEY_DOCS"
+                assert (
+                    k in COST_KEY_DOCS
+                ), f"preset {name!r} key {k!r} missing from COST_KEY_DOCS"
 
 
 class TestCostModelFromPreset:

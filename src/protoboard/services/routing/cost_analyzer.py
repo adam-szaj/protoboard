@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
@@ -57,11 +57,11 @@ from protoboard.services.routing.cost_model import RoutingCostModel
 class CostCategory:
     """One row in the breakdown table."""
 
-    key: str           # canonical category name, e.g. "ortho_step"
-    label: str         # human-readable label for the UI
-    count: int         # how many of these events occurred
-    unit_cost: float   # cost charged per event
-    total: float       # count × unit_cost (precomputed)
+    key: str  # canonical category name, e.g. "ortho_step"
+    label: str  # human-readable label for the UI
+    count: int  # how many of these events occurred
+    unit_cost: float  # cost charged per event
+    total: float  # count × unit_cost (precomputed)
 
 
 @dataclass
@@ -253,7 +253,10 @@ _CrossCounter = dict[str, int]
 # (Kept as a plain runtime tuple for ``isinstance`` filtering — a
 # union type alias here trips Pyright when used as an annotation.)
 _WIRE_ITEM_TYPES = (
-    BareWireItem, BareWireCrossing, InsulatedWireItem, InsulatedWireCrossing,
+    BareWireItem,
+    BareWireCrossing,
+    InsulatedWireItem,
+    InsulatedWireCrossing,
 )
 
 
@@ -334,11 +337,17 @@ def _count_at_pad_crossings_via_pad_index(
                 # in the off-pad path).
                 key = "crossing_bare_bare"
             elif a_ins and b_ins:
-                key = ("crossing_ii_at_pad_opposite_side"
-                       if opposite else "crossing_ii_at_pad_same_side")
+                key = (
+                    "crossing_ii_at_pad_opposite_side"
+                    if opposite
+                    else "crossing_ii_at_pad_same_side"
+                )
             else:
-                key = ("crossing_ib_at_pad_opposite_side"
-                       if opposite else "crossing_ib_at_pad_same_side")
+                key = (
+                    "crossing_ib_at_pad_opposite_side"
+                    if opposite
+                    else "crossing_ib_at_pad_same_side"
+                )
             counter[key] = counter.get(key, 0) + 1
 
         # Same-side pairs on top.
@@ -358,7 +367,11 @@ def _count_at_pad_crossings_via_pad_index(
 
 
 def _point_on_segment_interior(
-    p: Point, a: Point, b: Point, *, eps: float = 1e-9,
+    p: Point,
+    a: Point,
+    b: Point,
+    *,
+    eps: float = 1e-9,
 ) -> bool:
     """True if *p* lies strictly between *a* and *b* (collinear + interior).
 
@@ -416,17 +429,29 @@ def _classify_crossing(
     if ins_a and ins_b:
         # Insulated × insulated.
         if same_side:
-            return "crossing_ii_at_pad_same_side" if at_pad \
+            return (
+                "crossing_ii_at_pad_same_side"
+                if at_pad
                 else "crossing_ii_off_pad_same_side"
-        return "crossing_ii_at_pad_opposite_side" if at_pad \
+            )
+        return (
+            "crossing_ii_at_pad_opposite_side"
+            if at_pad
             else "crossing_ii_off_pad_opposite_side"
+        )
 
     # Insulated × bare (one side or the other).
     if same_side:
-        return "crossing_ib_at_pad_same_side" if at_pad \
+        return (
+            "crossing_ib_at_pad_same_side"
+            if at_pad
             else "crossing_ib_off_pad_same_side"
-    return "crossing_ib_at_pad_opposite_side" if at_pad \
+        )
+    return (
+        "crossing_ib_at_pad_opposite_side"
+        if at_pad
         else "crossing_ib_off_pad_opposite_side"
+    )
 
 
 def _count_crossings(
@@ -464,9 +489,13 @@ def _count_crossings(
     # (back-compat for callers that don't have a session/PadIndex
     # around).
     if pad_index is not None:
-        counter.update(_count_at_pad_crossings_via_pad_index(
-            pad_index, analysed_ids, all_board_ids,
-        ))
+        counter.update(
+            _count_at_pad_crossings_via_pad_index(
+                pad_index,
+                analysed_ids,
+                all_board_ids,
+            )
+        )
 
     # For cross-check we want *maximal straight segments* (consecutive
     # collinear path points merged), not unit steps.  ``_segs_cross``
@@ -632,7 +661,10 @@ def analyze_wires(
                 "under_component_pads set when under_component_top > 0"
             )
         _under_set = _under_component_pads(
-            board, layout, components or {}, instances or {},
+            board,
+            layout,
+            components or {},
+            instances or {},
         )
 
     if layer_change <= 0.0:
@@ -713,12 +745,17 @@ def analyze_wires(
         board_wires_for_cross = list(layout.wires)
     if board_wires_for_cross is not None and wires_list:
         cross_counter = _count_crossings(
-            wires_list, board_wires_for_cross, cm, pad_index=pad_index,
+            wires_list,
+            board_wires_for_cross,
+            cm,
+            pad_index=pad_index,
         )
 
     cats: list[CostCategory] = []
 
-    def _add(key: str, count: int, unit: float, *, keep_when_zero_unit: bool = False) -> None:
+    def _add(
+        key: str, count: int, unit: float, *, keep_when_zero_unit: bool = False
+    ) -> None:
         if count == 0:
             return
         # Track infinite unit cost specially — keep total as math.inf
@@ -734,10 +771,15 @@ def analyze_wires(
             total_val = 0.0
         else:
             total_val = count * unit
-        cats.append(CostCategory(
-            key=key, label=_LABELS.get(key, key),
-            count=count, unit_cost=unit, total=total_val,
-        ))
+        cats.append(
+            CostCategory(
+                key=key,
+                label=_LABELS.get(key, key),
+                count=count,
+                unit_cost=unit,
+                total=total_val,
+            )
+        )
 
     _add("ortho_step", n_ortho, free_pad)
     _add("diagonal_step", n_diag, free_pad * diag_mult)
@@ -753,7 +795,9 @@ def analyze_wires(
     # otherwise the table hides exactly the rows they want to tune.
     for knob_key in sorted(cross_counter):
         _add(
-            knob_key, cross_counter[knob_key], cm.get(knob_key, 0.0),
+            knob_key,
+            cross_counter[knob_key],
+            cm.get(knob_key, 0.0),
             keep_when_zero_unit=True,
         )
 

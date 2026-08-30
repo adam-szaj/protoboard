@@ -51,17 +51,24 @@ def _isolate_user_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     cfg.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(recent_footprints, "_CONFIG_DIR", cfg, raising=False)
     monkeypatch.setattr(
-        recent_footprints, "_RECENT_FILE", cfg / "recent_footprints.json",
+        recent_footprints,
+        "_RECENT_FILE",
+        cfg / "recent_footprints.json",
         raising=False,
     )
     monkeypatch.setattr(recent_kind_variants, "_CONFIG_DIR", cfg, raising=False)
     monkeypatch.setattr(
-        recent_kind_variants, "_RECENT_FILE",
-        cfg / "recent_kind_variants.json", raising=False,
+        recent_kind_variants,
+        "_RECENT_FILE",
+        cfg / "recent_kind_variants.json",
+        raising=False,
     )
     monkeypatch.setattr(recent_projects, "_CONFIG_DIR", cfg, raising=False)
     monkeypatch.setattr(
-        recent_projects, "_RECENT_FILE", cfg / "recent.json", raising=False,
+        recent_projects,
+        "_RECENT_FILE",
+        cfg / "recent.json",
+        raising=False,
     )
 
 

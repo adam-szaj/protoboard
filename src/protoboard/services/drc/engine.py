@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 import structlog
+
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -18,15 +19,15 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.layer import LayerId
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.pin_mapping import (
-    meta_pin_for_package_pin,
-)
+from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.domain.components.package.mask import (
     PadCell,
     build_pad_mask,
     masks_collide,
 )
-from protoboard.domain.components.package.kind import is_generic_package
+from protoboard.domain.components.package.pin_mapping import (
+    meta_pin_for_package_pin,
+)
 from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
@@ -159,7 +160,7 @@ class DRCEngine:
         components: dict[str, ComponentDefinition],
         instances: dict[uuid.UUID, ComponentInstance],
         axis_labels: AxisLabelSettings | None = None,
-        pad_index: "PadIndex | None" = None,
+        pad_index: PadIndex | None = None,
     ) -> list[DRCIssue]:
         graph = ConnectivityGraph(
             board=board,
@@ -188,7 +189,7 @@ class DRCEngine:
         cancel_flag: threading.Event | None = None,
         axis_labels: AxisLabelSettings | None = None,
         board: Board | None = None,
-        pad_index: "PadIndex | None" = None,
+        pad_index: PadIndex | None = None,
     ) -> list[DRCIssue]:
         # Cancellation: callers running the engine off the main thread
         # pass an Event; the engine bails between checks and inside the
@@ -374,9 +375,9 @@ def _check_overlap(
 
 
 def _placed_pad_mask(
-    package: "Package",
+    package: Package,
     defn: ComponentDefinition,
-    placement: "ComponentPlacement",
+    placement: ComponentPlacement,
 ) -> dict[Point, PadCell]:
     """World-space side-aware pad mask for a placed packaged component.
 
@@ -716,7 +717,7 @@ def _check_bare_wire_cross(
                 severity="error",
                 code="BARE_WIRE_CROSS",
                 message=(
-                    f"Bare wires of different nets ({_format_nets(nets_sorted, schematic)}) "
+                    f"Bare wires of different nets ({_format_nets(nets_sorted, schematic)}) "  # noqa: E501
                     f"cross at {_format_location(Point(x, y), axis_labels)} ({side})"
                 ),
                 locations=[Point(x, y)],
@@ -882,7 +883,7 @@ def _check_off_pad_joint(
     board: Board,
     axis_labels: AxisLabelSettings | None,
     *,
-    pad_index: "PadIndex | None" = None,
+    pad_index: PadIndex | None = None,
 ) -> list[DRCIssue]:
     """v2-model invariant: every JointKnot must sit on a board pad.
 
@@ -944,7 +945,7 @@ def _check_off_board_pins(
     instances: dict[uuid.UUID, ComponentInstance],
     axis_labels: AxisLabelSettings | None,
     *,
-    pad_index: "PadIndex | None" = None,
+    pad_index: PadIndex | None = None,
 ) -> list[DRCIssue]:
     """Every placed component pin must land on an existing board pad.
 
@@ -1180,7 +1181,7 @@ def _check_wire_pin_on_plated_through(
     board: Board,
     axis_labels: AxisLabelSettings | None,
     *,
-    pad_index: "PadIndex | None" = None,
+    pad_index: PadIndex | None = None,
 ) -> list[DRCIssue]:
     """Wire-pin invariant (docs/archive/wire-pin-implementation.md §2.1): every
     :class:`WirePinKnot` must sit on a board pad whose ``plated_through``
@@ -1284,7 +1285,7 @@ def _check_half_orphan_wires(
     return issues
 
 
-def _point_on_pads(point: Point, pads: "set[Point]", tol: float = 1e-6) -> bool:
+def _point_on_pads(point: Point, pads: set[Point], tol: float = 1e-6) -> bool:
     if point in pads:
         return True
     for p in pads:

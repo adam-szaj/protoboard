@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import uuid
 
+from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
+from protoboard.gui.renderers.component_renderer import comp_fingerprint
 from protoboard.gui.renderers.wire_renderer import (
     wire_fingerprint_v2 as wire_fingerprint,
 )
-from protoboard.gui.renderers.component_renderer import comp_fingerprint
-from protoboard.domain.layout.placement import ComponentPlacement
 
 
 def _wire(side: str = "top") -> Wire:
@@ -25,7 +25,10 @@ def _wire(side: str = "top") -> Wire:
 
 def _placement(cid: uuid.UUID) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=cid, position=Point(0.5, 0.5), rotation=0, side="top",
+        component_id=cid,
+        position=Point(0.5, 0.5),
+        rotation=0,
+        side="top",
     )
 
 
@@ -52,10 +55,18 @@ class TestCompFingerprintBold:
         placement = _placement(cid)
         layers_key = ("top", "normal", False, "full", "full", "full", "full")
         plain = comp_fingerprint(
-            placement, "R", {1: nid}, None, layers_key,
+            placement,
+            "R",
+            {1: nid},
+            None,
+            layers_key,
         )
         bold = comp_fingerprint(
-            placement, "R", {1: nid}, None, layers_key,
+            placement,
+            "R",
+            {1: nid},
+            None,
+            layers_key,
             bold_pin_nets=frozenset({nid}),
         )
         assert plain != bold
@@ -68,13 +79,19 @@ class TestCompFingerprintBold:
         placement = _placement(cid)
         layers_key = ("top", "normal", False, "full", "full", "full", "full")
         fp1 = comp_fingerprint(
-            placement, "R", {1: n1}, None, layers_key,
+            placement,
+            "R",
+            {1: n1},
+            None,
+            layers_key,
             bold_pin_nets=frozenset({n1}),
         )
         fp2 = comp_fingerprint(
-            placement, "R", {1: n1}, None, layers_key,
+            placement,
+            "R",
+            {1: n1},
+            None,
+            layers_key,
             bold_pin_nets=frozenset({n2}),
         )
         assert fp1 != fp2
-
-

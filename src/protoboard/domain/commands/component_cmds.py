@@ -21,36 +21,66 @@ from protoboard.domain.commands.base import (
     SchematicState,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
+)
+from protoboard.domain.layout.placement import (
     move_blocked as _move_blocked,
+)
+from protoboard.domain.layout.placement import (
     warn_pins_off_pads as _warn_pins_off_pads,
 )
-from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.wire import (
     Fragment,
     KnotRef,
     Wire,
     rebuild_fragments,
 )
+
 # Wire-path helpers that operate on Wire/Layout (not command state) live in
 # wire_utils next to their collaborators; imported under the historic private
 # names so the command call-sites read the same.
 from protoboard.domain.layout.wire_utils import (
     CollapseRecord as _CollapseRecord,
+)
+from protoboard.domain.layout.wire_utils import (
     ColocatedFuseRecord as _CoLocatedFuseRecord,
+)
+from protoboard.domain.layout.wire_utils import (
     SplitRecord as _SplitRecord,
-    WireSnapshot as _WireSnapshot,
+)
+from protoboard.domain.layout.wire_utils import (
     collapse_endpoint_joints as _collapse_endpoint_joints,
+)
+from protoboard.domain.layout.wire_utils import (
     enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
+)
+from protoboard.domain.layout.wire_utils import (
     enrich_insulated_wire_with_pad_nodes as _enrich_insulated_with_pad_nodes,
+)
+from protoboard.domain.layout.wire_utils import (
     merge_colocated_joints_capturing as _merge_colocated_joints_capturing,
+)
+from protoboard.domain.layout.wire_utils import (
     resolve_endpoint_knot as _resolve_endpoint_knot,
+)
+from protoboard.domain.layout.wire_utils import (
     restore_collapse as _restore_collapse,
+)
+from protoboard.domain.layout.wire_utils import (
     restore_colocated_fuse as _restore_colocated_fuse,
+)
+from protoboard.domain.layout.wire_utils import (
     restore_split as _restore_split,
+)
+from protoboard.domain.layout.wire_utils import (
     snapshot_wire as _snapshot_wire,
+)
+from protoboard.domain.layout.wire_utils import (
     split_existing_wires_at_endpoints as _split_existing_wires_at_endpoints,
+)
+from protoboard.domain.layout.wire_utils import (
     update_wires_for_move as _update_wires_for_move,
 )
 from protoboard.domain.schematic.net import PinRef
@@ -62,7 +92,9 @@ _log = structlog.get_logger(__name__)
 def _dbg_enabled() -> bool:
     """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
     import logging
+
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -72,7 +104,7 @@ if TYPE_CHECKING:
     from protoboard.services.pad_strategy import PadStrategy
 
 
-def _strategy_from_state(state: "ComponentState") -> "PadStrategy | None":
+def _strategy_from_state(state: ComponentState) -> PadStrategy | None:
     """Pull the DRC strategy off the host session, if any.
 
     ``ComponentState`` is a Protocol — the runtime object is usually a
@@ -90,7 +122,7 @@ def _strategy_from_state(state: "ComponentState") -> "PadStrategy | None":
         return None
 
 
-def _pad_index_from_state(state: "ComponentState") -> "PadIndex | None":
+def _pad_index_from_state(state: ComponentState) -> PadIndex | None:
     """Pull the cached :class:`PadIndex` off the host session, if any.
 
     Same defensiveness as :func:`_strategy_from_state` — when the
@@ -149,7 +181,8 @@ class PlaceComponentCommand(Command[ComponentState]):
         state.instances[self.component_id] = self.instance
         build_pin_identities_for(state, self.component_id)
         _warn_pins_off_pads(
-            self.component_id, self.placement,
+            self.component_id,
+            self.placement,
             instances=state.instances,
             components=state.components,
             board=state.board,
@@ -168,7 +201,7 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
     # When True, skip the _move_blocked() check (caller already verified).
     skip_conflict_check: bool = field(default=False)
     # Wire IDs already translated by live drag — skip in _update_wires_for_move
-    # to prevent double-translation when old_pin_pos == new_pin_pos of another component.
+    # to prevent double-translation when old_pin_pos == new_pin_pos of another component.  # noqa: E501
     exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     # When True, the command mutates only ``layout.placements`` and leaves
     # all wires alone. The drag-commit pipeline uses this in conjunction
@@ -177,9 +210,7 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
     # invisible side effect of the move.
     placement_only: bool = field(default=False)
     # Wires before the move — saved for undo.
-    _saved_wires: list[Wire] = field(
-        default_factory=list, init=False, repr=False
-    )
+    _saved_wires: list[Wire] = field(default_factory=list, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -192,7 +223,8 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
             return
         if not self.skip_conflict_check:
             blocked = _move_blocked(
-                self.component_id, self.new_placement,
+                self.component_id,
+                self.new_placement,
                 instances=state.instances,
                 components=state.components,
                 layout=state.layout,
@@ -218,7 +250,8 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
                 exclude_ids=self.exclude_wire_ids,
             )
         _warn_pins_off_pads(
-            self.component_id, self.new_placement,
+            self.component_id,
+            self.new_placement,
             instances=state.instances,
             components=state.components,
             board=state.board,
@@ -250,7 +283,7 @@ class RemoveComponentCommand(Command[SchematicState]):
         default=None, init=False, repr=False
     )
     # net_id → (net_name, removed_pins) for every net touched by this remove
-    _nets_before: dict[uuid.UUID, "tuple[str, set[PinRef]]"] = field(
+    _nets_before: dict[uuid.UUID, tuple[str, set[PinRef]]] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -273,7 +306,8 @@ class RemoveComponentCommand(Command[SchematicState]):
 
 
 def _wire_intended_net(
-    state: ComponentState, wire: Wire,
+    state: ComponentState,
+    wire: Wire,
 ) -> uuid.UUID | None:
     """Resolve *wire* to a schematic net id via its endpoint pins.
 
@@ -290,8 +324,13 @@ def _wire_intended_net(
     if schematic is None:
         return None
     from protoboard.domain.layout.wire_utils import _wire_net_id
+
     return _wire_net_id(
-        wire, schematic, state.layout, state.instances, state.components,
+        wire,
+        schematic,
+        state.layout,
+        state.instances,
+        state.components,
         board=state.board,
     )
 
@@ -308,9 +347,7 @@ class AddWireCommand(Command[ComponentState]):
     # Split records — one per endpoint that produced a T-junction by
     # cutting an existing wire at the meeting pad.  Empty when no
     # interior-vertex collision was detected.
-    _splits: list[_SplitRecord] = field(
-        default_factory=list, init=False, repr=False
-    )
+    _splits: list[_SplitRecord] = field(default_factory=list, init=False, repr=False)
     # Collapse records — one per endpoint that fused with a neighbouring
     # wire of matching ``insulated``.  Empty when no fusion happened.
     _collapses: list[_CollapseRecord] = field(
@@ -344,8 +381,10 @@ class AddWireCommand(Command[ComponentState]):
                     components=state.components,
                     board=state.board,
                     schematic=getattr(state, "schematic", None),
-                    side=self.wire.side, net_id=wire_net_id,
-                    strategy=strategy, pad_index=pad_index,
+                    side=self.wire.side,
+                    net_id=wire_net_id,
+                    strategy=strategy,
+                    pad_index=pad_index,
                 )
                 b_ref, b_created = _resolve_endpoint_knot(
                     end,
@@ -354,8 +393,10 @@ class AddWireCommand(Command[ComponentState]):
                     components=state.components,
                     board=state.board,
                     schematic=getattr(state, "schematic", None),
-                    side=self.wire.side, net_id=wire_net_id,
-                    strategy=strategy, pad_index=pad_index,
+                    side=self.wire.side,
+                    net_id=wire_net_id,
+                    strategy=strategy,
+                    pad_index=pad_index,
                 )
                 self.wire.a = a_ref
                 self.wire.b = b_ref
@@ -396,7 +437,9 @@ class AddWireCommand(Command[ComponentState]):
         # (including redo) so the layout state matches what the first
         # apply produced — the recorded snapshots are only used by revert.
         new_collapses = _collapse_endpoint_joints(
-            self.wire, layout=state.layout, board=state.board,
+            self.wire,
+            layout=state.layout,
+            board=state.board,
         )
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
@@ -458,9 +501,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         default_factory=list, init=False, repr=False
     )
     _knots_resolved: bool = field(default=False, init=False, repr=False)
-    _splits: list[_SplitRecord] = field(
-        default_factory=list, init=False, repr=False
-    )
+    _splits: list[_SplitRecord] = field(default_factory=list, init=False, repr=False)
     _collapses: list[_CollapseRecord] = field(
         default_factory=list, init=False, repr=False
     )
@@ -497,7 +538,8 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                     components=state.components,
                     board=state.board,
                     schematic=getattr(state, "schematic", None),
-                    strategy=strategy, pad_index=pad_index,
+                    strategy=strategy,
+                    pad_index=pad_index,
                 )
                 b_ref, b_created = _resolve_endpoint_knot(
                     end,
@@ -506,7 +548,8 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                     components=state.components,
                     board=state.board,
                     schematic=getattr(state, "schematic", None),
-                    strategy=strategy, pad_index=pad_index,
+                    strategy=strategy,
+                    pad_index=pad_index,
                 )
                 self.wire.a = a_ref
                 self.wire.b = b_ref
@@ -535,7 +578,9 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         if new_splits and not self._splits:
             self._splits = new_splits
         new_collapses = _collapse_endpoint_joints(
-            self.wire, layout=state.layout, board=state.board,
+            self.wire,
+            layout=state.layout,
+            board=state.board,
         )
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
@@ -583,8 +628,10 @@ class RemoveWireCommand(Command[ComponentState]):
         from protoboard.domain.layout.wire_utils import (
             remove_wire_capturing_orphans,
         )
+
         wire, orphans = remove_wire_capturing_orphans(
-            state.layout, self.wire_id,
+            state.layout,
+            self.wire_id,
         )
         if wire is None:
             # Macro race: a prior command in the same macro already
@@ -611,8 +658,11 @@ class RemoveWireCommand(Command[ComponentState]):
         from protoboard.domain.layout.wire_utils import (
             restore_wire_with_orphans,
         )
+
         restore_wire_with_orphans(
-            state.layout, self._saved_wire, self._saved_orphan_joints,
+            state.layout,
+            self._saved_wire,
+            self._saved_orphan_joints,
         )
 
 
@@ -643,10 +693,12 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
     old_placement: ComponentPlacement
     exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     _saved_wires: list[Wire] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
-    _saved_geometry: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]" = (
-        field(default_factory=dict, init=False, repr=False)
+    _saved_geometry: dict[uuid.UUID, tuple[list[Point], list[Fragment]]] = field(
+        default_factory=dict, init=False, repr=False
     )
 
     @property
@@ -676,9 +728,7 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
         # impossible to tell which component's translation lost a wire.
         if _dbg_enabled():
             after_ids = {w.id for w in state.layout.wires}
-            dropped = [
-                str(wid) for wid in wires_before if wid not in after_ids
-            ]
+            dropped = [str(wid) for wid in wires_before if wid not in after_ids]
             changed = []
             for w in state.layout.wires:
                 old = wires_before.get(w.id)
@@ -730,10 +780,14 @@ class DropWiresCommand(Command[ComponentState]):
 
     wire_ids: frozenset[uuid.UUID]
     _saved_wires: list[Wire] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
     _saved_orphan_joints: list[JointKnot | WirePinKnot] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
 
     @property
@@ -745,6 +799,7 @@ class DropWiresCommand(Command[ComponentState]):
         from protoboard.domain.layout.wire_utils import (
             remove_wire_capturing_orphans,
         )
+
         saved: list[Wire] = []
         orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.wire_ids:
@@ -760,9 +815,12 @@ class DropWiresCommand(Command[ComponentState]):
         from protoboard.domain.layout.wire_utils import (
             restore_wire_with_orphans,
         )
+
         for wire in self._saved_wires:
             restore_wire_with_orphans(
-                state.layout, wire, self._saved_orphan_joints,
+                state.layout,
+                wire,
+                self._saved_orphan_joints,
             )
 
 
@@ -807,7 +865,9 @@ class SetWireSideCommand(Command[ComponentState]):
     side: str  # "top" or "bottom"
     _old_side: str = field(default="top", init=False, repr=False)
     _old_fragment_sides: list[str] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
 
     @property
@@ -821,7 +881,8 @@ class SetWireSideCommand(Command[ComponentState]):
                 self._old_fragment_sides = [f.side for f in wire.fragments]
                 wire.side = self.side  # type: ignore[assignment]
                 wire.fragments = rebuild_fragments(
-                    wire.fragments, [self.side] * len(wire.fragments),  # type: ignore[list-item]
+                    wire.fragments,
+                    [self.side] * len(wire.fragments),  # type: ignore[list-item]
                 )
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
@@ -832,7 +893,8 @@ class SetWireSideCommand(Command[ComponentState]):
                 wire.side = self._old_side  # type: ignore[assignment]
                 if self._old_fragment_sides:
                     wire.fragments = rebuild_fragments(
-                        wire.fragments, self._old_fragment_sides,  # type: ignore[arg-type]
+                        wire.fragments,
+                        self._old_fragment_sides,  # type: ignore[arg-type]
                     )
                 return
 
@@ -850,7 +912,9 @@ class FlipWireSideCommand(Command[ComponentState]):
 
     wire_id: uuid.UUID
     _old_fragment_sides: list[str] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
 
     @property
@@ -860,9 +924,7 @@ class FlipWireSideCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         wire = state.layout.wires.get_or_raise(self.wire_id)
         self._old_fragment_sides = [f.side for f in wire.fragments]
-        flipped = [
-            "bottom" if s == "top" else "top" for s in self._old_fragment_sides
-        ]
+        flipped = ["bottom" if s == "top" else "top" for s in self._old_fragment_sides]
         wire.fragments = rebuild_fragments(wire.fragments, flipped)  # type: ignore[arg-type]
         wire.side = wire.fragments[0].side
 
@@ -871,7 +933,8 @@ class FlipWireSideCommand(Command[ComponentState]):
             return
         wire = state.layout.wires.get_or_raise(self.wire_id)
         wire.fragments = rebuild_fragments(
-            wire.fragments, self._old_fragment_sides,  # type: ignore[arg-type]
+            wire.fragments,
+            self._old_fragment_sides,  # type: ignore[arg-type]
         )
         wire.side = wire.fragments[0].side
 
@@ -900,12 +963,16 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
     file is reopened or this command runs.
     """
 
-    wire_ids: "frozenset[uuid.UUID] | None" = None  # None → whole layout
-    _records: list["_CollapseRecord"] = field(
-        default_factory=list, init=False, repr=False,
+    wire_ids: frozenset[uuid.UUID] | None = None  # None → whole layout
+    _records: list[_CollapseRecord] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
     )
-    _colocated_records: list["_CoLocatedFuseRecord"] = field(
-        default_factory=list, init=False, repr=False,
+    _colocated_records: list[_CoLocatedFuseRecord] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
     )
 
     @property
@@ -914,7 +981,8 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         return f"Fuse touching wires ({scope})"
 
     def _phase0_merge_colocated_joints(
-        self, state: ComponentState,
+        self,
+        state: ComponentState,
     ) -> None:
         """Pre-pass: merge degree-1 JointKnot pairs sitting on the same pad.
 
@@ -930,12 +998,14 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         """
         self._colocated_records.extend(
             _merge_colocated_joints_capturing(
-                state.layout, scope_wire_ids=self.wire_ids,
+                state.layout,
+                scope_wire_ids=self.wire_ids,
             )
         )
 
     def apply(self, state: ComponentState) -> None:
         from protoboard.domain.layout.wire_utils import plated_through_pads
+
         pt_pads = frozenset(plated_through_pads(state.board))
         records: list[_CollapseRecord] = []
         # Phase 0 — pre-merge co-located degree-1 JointKnots so the main
@@ -991,8 +1061,10 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
                     _log.debug(
                         "wire.fuse.skip_insulation",
                         knot_id=str(knot_id)[:8],
-                        w1=str(w1.id)[:8], w1_ins=w1.insulated,
-                        w2=str(w2.id)[:8], w2_ins=w2.insulated,
+                        w1=str(w1.id)[:8],
+                        w1_ins=w1.insulated,
+                        w2=str(w2.id)[:8],
+                        w2_ins=w2.insulated,
                     )
                     continue
                 # Scope filter: when the caller restricted us to a
@@ -1018,7 +1090,8 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
                 )
                 stat["try_collapse_called"] += 1
                 merged = state.layout.try_collapse_joint(
-                    knot_id, plated_through_pads=pt_pads,
+                    knot_id,
+                    plated_through_pads=pt_pads,
                 )
                 if merged is None:
                     stat["try_collapse_failed"] += 1
@@ -1026,7 +1099,8 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
                         "wire.fuse.try_collapse_failed",
                         knot_id=str(knot_id)[:8],
                         pos=(knot.position.x, knot.position.y),
-                        w1=str(w1.id)[:8], w2=str(w2.id)[:8],
+                        w1=str(w1.id)[:8],
+                        w2=str(w2.id)[:8],
                         w1_side=w1.fragments[0].side if w1.fragments else None,
                         w2_side=w2.fragments[0].side if w2.fragments else None,
                         joint_is_plated_through=(knot.position in pt_pads),
@@ -1105,14 +1179,12 @@ class ConvertEndpointToWirePinCommand(Command[ComponentState]):
     def description(self) -> str:  # type: ignore[override]
         return "Convert endpoint to wire-pin"
 
-    def _ref(self, wire: "Wire") -> "KnotRef | None":
+    def _ref(self, wire: Wire) -> KnotRef | None:
         return wire.a if self.endpoint == "a" else wire.b
 
     def apply(self, state: ComponentState) -> None:
         if self.endpoint not in ("a", "b"):
-            raise ValueError(
-                f"endpoint must be 'a' or 'b'; got {self.endpoint!r}"
-            )
+            raise ValueError(f"endpoint must be 'a' or 'b'; got {self.endpoint!r}")
         wire = state.layout.wires.get(self.wire_id)
         if wire is None:
             raise KeyError(f"Wire {self.wire_id} not found")
@@ -1177,7 +1249,9 @@ class ConvertWirePinToEndpointCommand(Command[ComponentState]):
             )
         self._old_knot = knot
         state.layout.knots[self.wire_pin_id] = JointKnot(
-            id=knot.id, position=knot.position, wire_ids=knot.wire_ids,
+            id=knot.id,
+            position=knot.position,
+            wire_ids=knot.wire_ids,
         )
 
     def revert(self, state: ComponentState) -> None:
@@ -1209,15 +1283,19 @@ class SetComponentPackageVariantCommand(Command[ComponentState]):
         inst = state.instances[self.component_id]
         self._old_variant = inst.package_variant
         import dataclasses as _dc
+
         state.instances[self.component_id] = _dc.replace(
-            inst, package_variant=self.new_variant,
+            inst,
+            package_variant=self.new_variant,
         )
 
     def revert(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
         import dataclasses as _dc
+
         state.instances[self.component_id] = _dc.replace(
-            inst, package_variant=self._old_variant,
+            inst,
+            package_variant=self._old_variant,
         )
 
 
@@ -1233,29 +1311,32 @@ class SetComponentAppearanceCommand(Command[ComponentState]):
     """
 
     component_id: uuid.UUID
-    new_appearance: "Appearance | None"
-    _old: "Appearance | None" = field(default=None, init=False, repr=False)
+    new_appearance: Appearance | None
+    _old: Appearance | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return (
-            "Set appearance" if self.new_appearance is not None
-            else "Clear appearance"
+            "Set appearance" if self.new_appearance is not None else "Clear appearance"
         )
 
     def apply(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
         self._old = inst.appearance
         import dataclasses as _dc
+
         state.instances[self.component_id] = _dc.replace(
-            inst, appearance=self.new_appearance,
+            inst,
+            appearance=self.new_appearance,
         )
 
     def revert(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
         import dataclasses as _dc
+
         state.instances[self.component_id] = _dc.replace(
-            inst, appearance=self._old,
+            inst,
+            appearance=self._old,
         )
 
 
@@ -1289,7 +1370,9 @@ class FlipWireFragmentCommand(Command[ComponentState]):
     target_side: str  # "top" or "bottom"
     # Undo state — the wire's pre-apply fragment list, restored verbatim.
     _old_fragments: list[Fragment] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
 
     @property
@@ -1298,8 +1381,8 @@ class FlipWireFragmentCommand(Command[ComponentState]):
 
     def _build_fragments_for_flip(
         self,
-        wire: "Wire",
-    ) -> "list":
+        wire: Wire,
+    ) -> list:
         """Build the new fragment list for ``wire`` with the requested
         sub-range flipped to ``self.target_side``.
 
@@ -1348,7 +1431,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
             j = i
             while j + 1 < n_seg and seg_side[j + 1] == run_side:
                 j += 1
-            frag_path = path[i:j + 2]
+            frag_path = path[i : j + 2]
             new_fragments.append(_Fragment(path=list(frag_path), side=run_side))  # type: ignore[arg-type]
             i = j + 1
 
@@ -1363,7 +1446,8 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         # absent).  Fragments are mutable, so deep-copy each (path + side) —
         # ``rebuild_fragments`` with the same sides is exactly that copy.
         self._old_fragments = rebuild_fragments(
-            wire.fragments, [f.side for f in wire.fragments],
+            wire.fragments,
+            [f.side for f in wire.fragments],
         )
 
         new_fragments = self._build_fragments_for_flip(wire)
@@ -1441,7 +1525,7 @@ class LockComponentCommand(Command[ComponentState]):
 # ---------------------------------------------------------------------------
 
 
-from protoboard.domain.layout.wire import Fragment as _Fragment
+from protoboard.domain.layout.wire import Fragment as _Fragment  # noqa: E402
 
 
 @dataclass
@@ -1466,8 +1550,8 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
     # interleaved RemoveWireCommand later restored a sibling wire onto
     # the same joint (which would otherwise push degree above 1 and
     # cause ``replace_wire_fragments`` to refuse the slide).
-    _saved_a_pos: "Point | None" = field(default=None, init=False, repr=False)
-    _saved_b_pos: "Point | None" = field(default=None, init=False, repr=False)
+    _saved_a_pos: Point | None = field(default=None, init=False, repr=False)
+    _saved_b_pos: Point | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -1500,7 +1584,9 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
         # the rewrite so revert restores the user's exact pre-apply state,
         # not the enriched form.
         new_fragments = _enrich_insulated_fragments_with_pad_nodes(
-            self.new_fragments, wire.insulated, state.board,
+            self.new_fragments,
+            wire.insulated,
+            state.board,
         )
         state.layout.replace_wire_fragments(self.wire_id, new_fragments)
 

@@ -29,13 +29,12 @@ from protoboard.domain.commands.component_cmds import (
     SetWireSideCommand,
 )
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-    pin_world_position,
     PlacementCollection,
+    pin_world_position,
 )
 from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
@@ -46,7 +45,7 @@ from protoboard.services.persistence.project_yaml import (
     save_project,
     set_migration_library,
 )
-
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Library stub (round-trip needs ``set_migration_library`` for PinKnot resolution)
@@ -56,6 +55,7 @@ from protoboard.services.persistence.project_yaml import (
 @dataclass
 class _MiniLibrary:
     _by_name: dict[str, ComponentDefinition] = field(default_factory=dict)
+    package_families: dict = field(default_factory=dict)
 
     def names(self):  # type: ignore[no-untyped-def]
         return self._by_name.keys()
@@ -69,28 +69,29 @@ class _MiniLibrary:
 
 def _connector_lib() -> _MiniLibrary:
     """SIL2 connector definition keyed under ``CONN_1x2``."""
-    defn = ComponentDefinition.from_footprint(
-        name="CONN_1x2",
-        footprint=SIL(2),
-        pin_names={1: "1", 2: "2"},
-    )
-    lib = _MiniLibrary()
+    defn = make_sil("CONN_1x2", 2)
+    lib = _MiniLibrary(package_families=sil_families(defn))
     lib._by_name["CONN_1x2"] = defn
     return lib
 
 
 def _board() -> Board:
     """Double-sided board big enough to host two connectors + routed wires."""
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=20, cols=20, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=20,
+            cols=20,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +100,9 @@ def _board() -> Board:
 
 
 def _build_two_connectors_with_wires(
-    *, first_side: str, insulated: bool,
+    *,
+    first_side: str,
+    insulated: bool,
 ) -> tuple[Layout, dict, Schematic, uuid.UUID, uuid.UUID]:
     """Place two SIL(2) connectors, build pin1-pin1 and pin2-pin2 nets and
     wires.
@@ -108,35 +111,50 @@ def _build_two_connectors_with_wires(
     wire1 connects pins #1 of both connectors and wire2 connects pins #2.
     Both wires are routed on *first_side* with the requested insulation.
     """
-    defn = ComponentDefinition.from_footprint(
-        name="CONN_1x2", footprint=SIL(2), pin_names={1: "1", 2: "2"},
-    )
+    defn = make_sil("CONN_1x2", 2)
+    families = sil_families(defn)
     layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
 
     inst_a = ComponentInstance.new(
-        definition_ref="CONN_1x2", refdes="J1", value="",
-    )
+        definition_ref="CONN_1x2",
+        refdes="J1",
+        value="",
+    ).bind(defn, families)
     inst_b = ComponentInstance.new(
-        definition_ref="CONN_1x2", refdes="J2", value="",
-    )
+        definition_ref="CONN_1x2",
+        refdes="J2",
+        value="",
+    ).bind(defn, families)
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
 
     # Place J1 and J2 four columns apart so the wires run horizontally.
     # SIL(2) at (col, row) lays pin 1 at (col, row), pin 2 at (col, row+1).
     layout.placements[inst_a.id] = ComponentPlacement(
-        component_id=inst_a.id, position=Point(3.0, 5.0),
-        rotation=0, side="top",
+        component_id=inst_a.id,
+        position=Point(3.0, 5.0),
+        rotation=0,
+        side="top",
     )
     layout.placements[inst_b.id] = ComponentPlacement(
-        component_id=inst_b.id, position=Point(8.0, 5.0),
-        rotation=0, side="top",
+        component_id=inst_b.id,
+        position=Point(8.0, 5.0),
+        rotation=0,
+        side="top",
     )
 
     # Pin world positions.
-    a_pin1 = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 1)
-    a_pin2 = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 2)
-    b_pin1 = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
-    b_pin2 = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 2)
+    a_pin1 = pin_world_position(
+        inst_a.resolved_footprint(), layout.placements[inst_a.id], 1
+    )
+    a_pin2 = pin_world_position(
+        inst_a.resolved_footprint(), layout.placements[inst_a.id], 2
+    )
+    b_pin1 = pin_world_position(
+        inst_b.resolved_footprint(), layout.placements[inst_b.id], 1
+    )
+    b_pin2 = pin_world_position(
+        inst_b.resolved_footprint(), layout.placements[inst_b.id], 2
+    )
 
     # PinKnots for endpoint anchoring.
     pka1 = layout.get_or_create_pin_knot(PinRef(inst_a.id, 1))
@@ -150,7 +168,8 @@ def _build_two_connectors_with_wires(
         path=[a_pin1, b_pin1],
         side=first_side,  # type: ignore[arg-type]
         insulated=insulated,
-        a=KnotRef(id=pka1.id), b=KnotRef(id=pkb1.id),
+        a=KnotRef(id=pka1.id),
+        b=KnotRef(id=pkb1.id),
     )
     layout.add_wire(wire1)
 
@@ -160,17 +179,20 @@ def _build_two_connectors_with_wires(
         path=[a_pin2, b_pin2],
         side=first_side,  # type: ignore[arg-type]
         insulated=insulated,
-        a=KnotRef(id=pka2.id), b=KnotRef(id=pkb2.id),
+        a=KnotRef(id=pka2.id),
+        b=KnotRef(id=pkb2.id),
     )
     layout.add_wire(wire2)
 
     # Schematic nets — one per pair of pins.
     net1 = Net(
-        id=uuid.uuid4(), name="N1",
+        id=uuid.uuid4(),
+        name="N1",
         pins={PinRef(inst_a.id, 1), PinRef(inst_b.id, 1)},
     )
     net2 = Net(
-        id=uuid.uuid4(), name="N2",
+        id=uuid.uuid4(),
+        name="N2",
         pins={PinRef(inst_a.id, 2), PinRef(inst_b.id, 2)},
     )
     schematic = Schematic(nets={net1.id: net1, net2.id: net2})
@@ -198,20 +220,20 @@ class _State:
 
 
 @pytest.mark.parametrize("first_side", ["top", "bottom"])
-@pytest.mark.parametrize("insulated", [False, True],
-                         ids=["bare", "insulated"])
+@pytest.mark.parametrize("insulated", [False, True], ids=["bare", "insulated"])
 def test_one_wire_moved_to_opposite_side_round_trips(
-    tmp_path: Path, first_side: str, insulated: bool,
+    tmp_path: Path,
+    first_side: str,
+    insulated: bool,
 ) -> None:
     """Move one of two wires to the opposite side, save+load twice,
     verify final sides per wire."""
     opposite = "bottom" if first_side == "top" else "top"
 
     # ── Build initial project ────────────────────────────────────────────
-    layout, instances, schematic, wire1_id, wire2_id = (
-        _build_two_connectors_with_wires(
-            first_side=first_side, insulated=insulated,
-        )
+    layout, instances, schematic, wire1_id, wire2_id = _build_two_connectors_with_wires(
+        first_side=first_side,
+        insulated=insulated,
     )
 
     # Sanity: both wires start on first_side.
@@ -234,14 +256,16 @@ def test_one_wire_moved_to_opposite_side_round_trips(
 
         # After round-trip wires still on first_side.
         side_by_id = {w.id: w.side for w in l1.wires}
-        assert side_by_id[wire1_id] == first_side, (
-            f"wire1 side lost during initial round-trip: {side_by_id}"
-        )
+        assert (
+            side_by_id[wire1_id] == first_side
+        ), f"wire1 side lost during initial round-trip: {side_by_id}"
         assert side_by_id[wire2_id] == first_side
 
         # ── Move wire1 to opposite side ─────────────────────────────────
         state = _State(
-            layout=l1, instances=i1, components={"CONN_1x2": lib.get("CONN_1x2")},
+            layout=l1,
+            instances=i1,
+            components={"CONN_1x2": lib.get("CONN_1x2")},
             schematic=Schematic(nets={}),
         )
         stack: CommandStack = CommandStack()
@@ -290,10 +314,13 @@ def test_one_wire_moved_to_opposite_side_round_trips(
 
 
 @pytest.mark.parametrize("first_side", ["top", "bottom"])
-@pytest.mark.parametrize("insulated", [False, True],
-                         ids=["bare_to_insulated", "insulated_to_bare"])
+@pytest.mark.parametrize(
+    "insulated", [False, True], ids=["bare_to_insulated", "insulated_to_bare"]
+)
 def test_one_wire_insulation_toggled_round_trips(
-    tmp_path: Path, first_side: str, insulated: bool,
+    tmp_path: Path,
+    first_side: str,
+    insulated: bool,
 ) -> None:
     """Flip the insulation of one of two wires, save+load twice,
     verify per-wire insulation state.
@@ -307,10 +334,9 @@ def test_one_wire_insulation_toggled_round_trips(
     """
     target_insulated = not insulated
 
-    layout, instances, schematic, wire1_id, wire2_id = (
-        _build_two_connectors_with_wires(
-            first_side=first_side, insulated=insulated,
-        )
+    layout, instances, schematic, wire1_id, wire2_id = _build_two_connectors_with_wires(
+        first_side=first_side,
+        insulated=insulated,
     )
 
     # Sanity: both wires start with the same insulation.
@@ -332,14 +358,16 @@ def test_one_wire_insulation_toggled_round_trips(
         _b1, l1, _s1, i1, *_ = load_project(tmp_path)
 
         ins_by_id = {w.id: w.insulated for w in l1.wires}
-        assert ins_by_id[wire1_id] is insulated, (
-            f"wire1 insulation lost during initial round-trip: {ins_by_id}"
-        )
+        assert (
+            ins_by_id[wire1_id] is insulated
+        ), f"wire1 insulation lost during initial round-trip: {ins_by_id}"
         assert ins_by_id[wire2_id] is insulated
 
         # ── Flip wire2's insulation ─────────────────────────────────────
         state = _State(
-            layout=l1, instances=i1, components={"CONN_1x2": lib.get("CONN_1x2")},
+            layout=l1,
+            instances=i1,
+            components={"CONN_1x2": lib.get("CONN_1x2")},
             schematic=Schematic(nets={}),
         )
         stack: CommandStack = CommandStack()

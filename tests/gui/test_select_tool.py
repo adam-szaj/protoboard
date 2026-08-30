@@ -10,18 +10,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
+from protoboard.controller.selection import Stop
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _Tool
-from protoboard.controller.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
-from tests.gui.input_helpers import key_inp, pointer, wheel
+from tests.gui.input_helpers import key_inp, pointer
 
 if TYPE_CHECKING:
     from protoboard.gui.tools.gui_tools import WireEditTool
@@ -89,7 +89,7 @@ def _v2(board_view: BoardView) -> SelectTool:
     return tool
 
 
-def _wire_edit_after_handoff(board_view: BoardView) -> "WireEditTool":
+def _wire_edit_after_handoff(board_view: BoardView) -> WireEditTool:
     """The WireEditTool now active after [E] + the two-vertex pick handed off
     (Task-8 swap: the fragment edit moved out of SelectTool)."""
     from protoboard.gui.tools.gui_tools import WireEditTool
@@ -670,17 +670,32 @@ def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
     from types import MappingProxyType
 
     from protoboard.domain.components.package.bend import PinBendSpec
+    from protoboard.domain.components.package.pin_mapping import (
+        resolve_package_option,
+    )
     from protoboard.geometry import Vector
 
     inst = session.instances[comp_id]
     defn = session.components[inst.definition_ref]
-    specs = dict(defn.package.bendable_pins)
+    option = resolve_package_option(defn, inst)
+    family_id, variant_id = option.ref.rsplit("/", 1)
+    family = session.package_families[family_id]
+    variant = family.get_variant(variant_id)
+    assert variant is not None
+    specs = dict(variant.package.bendable_pins)
     specs[pin] = PinBendSpec(
         min_reach=0.0, max_reach=5.0, default_offset=Vector(0.0, 0.0)
     )
-    session.components[inst.definition_ref] = replace(
-        defn,
-        package=replace(defn.package, bendable_pins=MappingProxyType(specs)),
+    changed_variant = replace(
+        variant,
+        package=replace(variant.package, bendable_pins=MappingProxyType(specs)),
+    )
+    session.package_families[family_id] = replace(
+        family,
+        variants=tuple(
+            changed_variant if item.variant_id == variant_id else item
+            for item in family.variants
+        ),
     )
 
 
@@ -736,9 +751,25 @@ class TestRedrag:
     ) -> None:
         from dataclasses import replace
 
+        from protoboard.domain.components.package.pin_mapping import (
+            resolve_package_option,
+        )
+
         defn = session.components["R"]
-        session.components["R"] = replace(
-            defn, package=replace(defn.package, bend_holes=0.0)
+        option = resolve_package_option(defn, None)
+        family_id, variant_id = option.ref.rsplit("/", 1)
+        family = session.package_families[family_id]
+        variant = family.get_variant(variant_id)
+        assert variant is not None
+        changed_variant = replace(
+            variant, package=replace(variant.package, bend_holes=0.0)
+        )
+        session.package_families[family_id] = replace(
+            family,
+            variants=tuple(
+                changed_variant if item.variant_id == variant_id else item
+                for item in family.variants
+            ),
         )
         inst = _place(board_view, session, 1.0, 1.0)
         tool = _v2(board_view)
@@ -750,11 +781,18 @@ class TestRedrag:
     def _place_smd(self, session: EditorSession, x: float, y: float):
         """Inject a placed SMD chip (rigid body, discrete pin-2 mount)."""
         import uuid
+
         from protoboard.domain.components.definition import (
             ComponentClass,
             ComponentDefinition,
+            MetaPin,
+            PackageOption,
         )
         from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.components.package import (
+            PackageFamily,
+            PackageVariant,
+        )
         from protoboard.domain.components.package.loader import build_package
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.geometry import Point
@@ -774,11 +812,22 @@ class TestRedrag:
             },
             "SMD_TEST",
         )
+        family = PackageFamily(
+            family_id="SMD_TEST-package",
+            variants=(PackageVariant("std", "std", pkg),),
+        )
+        session.package_families[family.family_id] = family
         defn = ComponentDefinition(
             name="R_SMD_T",
             component_class=ComponentClass.RESISTOR,
-            pin_names={},
-            package=pkg,
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=(
+                PackageOption(
+                    name="SMD_TEST",
+                    ref="SMD_TEST-package/std",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
+            ),
         )
         cid = uuid.uuid4()
         session.components["R_SMD_T"] = defn
@@ -829,8 +878,9 @@ class TestRedrag:
         ctrl.accept_transform()
         pl = session.layout.placements[cid]
         defn = session.components["R_SMD_T"]
-        p1 = pin_world_position(defn.default_footprint(), pl, 1)
-        p2 = pin_world_position(defn.default_footprint(), pl, 2)
+        footprint = defn.default_footprint(session.package_families)
+        p1 = pin_world_position(footprint, pl, 1)
+        p2 = pin_world_position(footprint, pl, 2)
         assert (round(p2.x - p1.x), round(p2.y - p1.y)) == (1, 1)  # SE diagonal
         assert pl.position == Point(1.5, 1.5)  # pin-1 anchor untouched
 
@@ -909,15 +959,16 @@ class TestRedrag:
         tool.begin_redrag(inst.id)
         assert tool._redrag_pin == 1
         defn = session.components[session.instances[inst.id].definition_ref]
+        footprint = defn.default_footprint(session.package_families)
         pin2_before = pin_world_position(
-            defn.default_footprint(), session.layout.placements[inst.id], 2
+            footprint, session.layout.placements[inst.id], 2
         )
         _click(tool, 1.5, 0.5)  # move pin 1 one hole east
         pl = session.layout.placements[inst.id]
         assert pl.position == Point(1.5, 0.5)  # body translated
-        assert pin_world_position(defn.default_footprint(), pl, 1) == Point(1.5, 0.5)
+        assert pin_world_position(footprint, pl, 1) == Point(1.5, 0.5)
         # Pin 2 absorbed the shift — its world position is unchanged.
-        assert pin_world_position(defn.default_footprint(), pl, 2) == pin2_before
+        assert pin_world_position(footprint, pl, 2) == pin2_before
 
     def test_redrag_overlay_lights_only_feasible_pads(
         self, board_view: BoardView, session: EditorSession
@@ -994,9 +1045,14 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
     from protoboard.domain.board.board import Board
     from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
     from protoboard.domain.board.pads import PadLayers
-    from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.components.footprints import SIL
+    from protoboard.domain.components.definition import (
+        ComponentDefinition,
+        MetaPin,
+        PackageOption,
+    )
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package import PackageFamily, PackageVariant
+    from protoboard.domain.components.package.loader import build_package
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.net import Net, PinRef
@@ -1019,12 +1075,40 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
     library = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
     sess = EditorSession(board=Board(root=grid), library=library)
 
-    defn = ComponentDefinition.from_footprint(
-        name="STUB1", footprint=SIL(1), pin_names={1: "P1"}
+    package = build_package(
+        {
+            "shape": "prism",
+            "dims": {"lx": 2.0, "ly": 2.0},
+            "arrangement": "axial",
+            "mount": "through_hole",
+            "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": []},
+                "board_offset": "default",
+            },
+        },
+        "STUB1-package",
+    )
+    family = PackageFamily(
+        family_id="STUB1-package",
+        variants=(PackageVariant("std", "std", package),),
+    )
+    sess.package_families[family.family_id] = family
+    defn = ComponentDefinition(
+        name="STUB1",
+        meta_pins=(MetaPin(("P1",)),),
+        package_options=(
+            PackageOption(
+                name="SIL-1",
+                ref="STUB1-package/std",
+                pin_map={1: (1,)},
+            ),
+        ),
     )
     sess.components["STUB1"] = defn
     inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
-    inst = inst.bind(defn, {})
+    inst = inst.bind(defn, sess.package_families)
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id,
@@ -1072,9 +1156,9 @@ class TestWireEdit:
         """
         import uuid as _uuid
 
+        from protoboard.controller.selection.adapters import WireSelectable
         from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
-        from protoboard.controller.selection.adapters import WireSelectable
 
         session, view = _wire_session(qtbot)
         # Replace the fixture wire with an endpoints-only one spanning 4 pads.
@@ -1455,9 +1539,14 @@ class TestWireAndPadHighlight:
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
         from protoboard.domain.board.pads import PadLayers
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.definition import (
+            ComponentDefinition,
+            MetaPin,
+            PackageOption,
+        )
         from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.components.package import PackageFamily, PackageVariant
+        from protoboard.domain.components.package.loader import build_package
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.geometry import Point
@@ -1478,15 +1567,43 @@ class TestWireAndPadHighlight:
         )
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         session = EditorSession(board=Board(root=grid), library=lib)
-        defn = ComponentDefinition.from_footprint(
-            name="D1", footprint=SIL(1), pin_names={1: "A"}
+        package = build_package(
+            {
+                "shape": "prism",
+                "dims": {"lx": 2.0, "ly": 2.0},
+                "arrangement": "axial",
+                "mount": "through_hole",
+                "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": []},
+                    "board_offset": "default",
+                },
+            },
+            "D1-package",
+        )
+        family = PackageFamily(
+            family_id="D1-package",
+            variants=(PackageVariant("std", "std", package),),
+        )
+        session.package_families[family.family_id] = family
+        defn = ComponentDefinition(
+            name="D1",
+            meta_pins=(MetaPin(("A",)),),
+            package_options=(
+                PackageOption(
+                    name="SIL-1",
+                    ref="D1-package/std",
+                    pin_map={1: (1,)},
+                ),
+            ),
         )
         session.components["D1"] = defn
         c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="").bind(
-            defn, {}
+            defn, session.package_families
         )
         c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="").bind(
-            defn, {}
+            defn, session.package_families
         )
         session.instances[c1.id] = c1
         session.instances[c2.id] = c2
@@ -1740,7 +1857,6 @@ class TestFreePinHint:
     """Clicking an unassigned pin shows a status-bar hint (legacy parity)."""
 
     def test_free_pin_click_emits_hint(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
 
         from protoboard.controller.selection.adapters import ComponentSelectable
 
@@ -1780,7 +1896,6 @@ class TestFreePinHint:
         assert "Assign to net" in msgs[0]
 
     def test_body_click_no_pin_no_hint(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
 
         from protoboard.controller.selection.adapters import ComponentSelectable
 
@@ -1811,7 +1926,6 @@ class TestFreePinHint:
         assert msgs == []  # body click → no free-pin hint
 
     def test_no_hint_for_wire_or_empty(self, qtbot) -> None:
-        from PySide6.QtCore import QPointF
 
         from protoboard.controller.selection.adapters import WireSelectable
 

@@ -84,23 +84,29 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
     No per-component repeated translation.
     """
 
-    members: dict[uuid.UUID, tuple["ComponentPlacement", "ComponentPlacement"]]
+    members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]]
     internal_wire_ids: frozenset[uuid.UUID]
     dropped_wire_ids: frozenset[uuid.UUID]
     delta: Vector
 
     # Saved state for revert.
-    _saved_placements: dict[uuid.UUID, "ComponentPlacement"] = field(
-        default_factory=dict, init=False, repr=False,
+    _saved_placements: dict[uuid.UUID, ComponentPlacement] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
     )
-    _saved_geometry: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]" = (
-        field(default_factory=dict, init=False, repr=False)
+    _saved_geometry: dict[uuid.UUID, tuple[list[Point], list[Fragment]]] = field(
+        default_factory=dict, init=False, repr=False
     )
-    _saved_dropped_wires: list["Wire"] = field(
-        default_factory=list, init=False, repr=False,
+    _saved_dropped_wires: list[Wire] = field(
+        default_factory=list,
+        init=False,
+        repr=False,
     )
     _saved_orphan_joints: list[JointKnot | WirePinKnot] = field(
-        default_factory=list, init=False, repr=False,
+        default_factory=list,
+        init=False,
+        repr=False,
     )
 
     @property
@@ -112,11 +118,11 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
     # Apply
     # ------------------------------------------------------------------
 
-    def apply(self, state: "ComponentState") -> None:
+    def apply(self, state: ComponentState) -> None:
         # 1. Snapshot placements (deep copy so undo restores rotation/
         #    side too).  Use the ``old_placement`` already on hand —
         #    avoids a redundant lookup in state.layout.placements.
-        saved_pl: dict[uuid.UUID, "ComponentPlacement"] = {}
+        saved_pl: dict[uuid.UUID, ComponentPlacement] = {}
         for cid, (old_pl, _new_pl) in self.members.items():
             saved_pl[cid] = old_pl
         self._saved_placements = saved_pl
@@ -125,7 +131,8 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
 
         self._saved_geometry = snapshot_wire_geometry(
-            state.layout, self.internal_wire_ids,
+            state.layout,
+            self.internal_wire_ids,
         )
 
         # 3. Set new placements.
@@ -150,7 +157,8 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         from protoboard.domain.layout.wire_utils import (
             remove_wire_capturing_orphans,
         )
-        saved_dropped: list["Wire"] = []
+
+        saved_dropped: list[Wire] = []
         saved_orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.dropped_wire_ids:
             wire, orphans = remove_wire_capturing_orphans(state.layout, wid)
@@ -177,15 +185,18 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
     # Revert
     # ------------------------------------------------------------------
 
-    def _do_revert(self, state: "ComponentState") -> None:
+    def _do_revert(self, state: ComponentState) -> None:
         # 1. Restore dropped wires (+ orphan joints) first, so the
         #    sibling re-translation below sees the full wire set.
         from protoboard.domain.layout.wire_utils import (
             restore_wire_with_orphans,
         )
+
         for wire in self._saved_dropped_wires:
             restore_wire_with_orphans(
-                state.layout, wire, self._saved_orphan_joints,
+                state.layout,
+                wire,
+                self._saved_orphan_joints,
             )
 
         # 2. Untranslate internal wires.
@@ -237,11 +248,9 @@ class TransformDragSetCommand(ConditionalCommand["ComponentState"]):
             free knot the transform moved.
     """
 
-    members: dict[uuid.UUID, tuple["ComponentPlacement", "ComponentPlacement"]]
+    members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]]
     wire_paths: dict[uuid.UUID, tuple[list[Point], list[Point]]]
-    wire_fragments: dict[
-        uuid.UUID, tuple["list[Fragment]", "list[Fragment]"]
-    ]
+    wire_fragments: dict[uuid.UUID, tuple[list[Fragment], list[Fragment]]]
     knot_positions: dict[uuid.UUID, tuple[Point, Point]]
 
     @property
@@ -249,7 +258,7 @@ class TransformDragSetCommand(ConditionalCommand["ComponentState"]):
         n = len(self.members)
         return f"Transform {n} component{'s' if n != 1 else ''}"
 
-    def _write(self, state: "ComponentState", *, end: int) -> None:
+    def _write(self, state: ComponentState, *, end: int) -> None:
         """Write one end of every snapshot to the layout.
 
         ``end`` indexes the (old, new) tuples: ``1`` writes the *after*
@@ -272,9 +281,9 @@ class TransformDragSetCommand(ConditionalCommand["ComponentState"]):
                 state.layout.knots[kid] = knot.moved_to(positions[end])
         state.layout.invalidate_interior_vertex_index()
 
-    def apply(self, state: "ComponentState") -> None:
+    def apply(self, state: ComponentState) -> None:
         self._write(state, end=1)
         self.mark_applied(True)
 
-    def _do_revert(self, state: "ComponentState") -> None:
+    def _do_revert(self, state: ComponentState) -> None:
         self._write(state, end=0)

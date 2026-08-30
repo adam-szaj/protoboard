@@ -1,74 +1,29 @@
 # SPDX-License-Identifier: MIT
-# Package-family catalogue — DIN/IEC axial resistor bodies (ceramic shell).
-# Ported from assets/body_types/axial_ceramic.yaml.  Sizes are length x diameter
-# in mm.  lead_r = old lead_diameter_mm / 2; lead_length ~ 1.5x body length as a
-# UI starting point (user overrides from the datasheet for real THT reach).
+# DIN/IEC axial resistor bodies. Variant ids are nominal DIN sizes.
 families:
-  - family: DIN-0204
+  - family: r-tht/DIN
     extends: cylinder_axial
-    label: "DIN 0204 / R-2 (1/8 W axial)"
+    label: "DIN/IEC axial resistor"
     color: "#d6c08c"
+    default: "0207"
     variants:
-      - id: typ
-        label: "Typical (1.8 x 3.6 mm)"
+      - id: "0204"
+        label: "DIN 0204 / R-2 (1/8 W)"
         dims: {diameter: 1.8, length: 3.6}
         leads: {lead_r: 0.25, lead_length: 5.4}
-
-  - family: DIN-0207
-    extends: cylinder_axial
-    label: "DIN 0207 / R-6 (1/4 W axial)"
-    color: "#d6c08c"
-    default: typ
-    variants:
-      - id: S
-        label: "Small (2.0 x 5.5 mm)"
-        dims: {diameter: 2.0, length: 5.5}
-        leads: {lead_r: 0.25, lead_length: 8.0}
-      - id: typ
-        label: "Typical (2.5 x 6.5 mm)"
+      - id: "0207"
+        label: "DIN 0207 / R-6 (1/4 W)"
         dims: {diameter: 2.5, length: 6.5}
         leads: {lead_r: 0.25, lead_length: 10.0}
-      - id: L
-        label: "Large (2.8 x 7.5 mm)"
-        dims: {diameter: 2.8, length: 7.5}
-        leads: {lead_r: 0.25, lead_length: 11.0}
-
-  - family: DIN-0411
-    extends: cylinder_axial
-    label: "DIN 0411 / R-12 (1/2 W axial)"
-    color: "#d6c08c"
-    default: typ
-    variants:
-      - id: S
-        label: "Small (3.5 x 9.0 mm)"
-        dims: {diameter: 3.5, length: 9.0}
-        leads: {lead_r: 0.3, lead_length: 13.0}
-      - id: typ
-        label: "Typical (4.0 x 11.0 mm)"
+      - id: "0411"
+        label: "DIN 0411 / R-12 (1/2 W)"
         dims: {diameter: 4.0, length: 11.0}
         leads: {lead_r: 0.3, lead_length: 16.0}
-
-  - family: DIN-0617
-    extends: cylinder_axial
-    label: "DIN 0617 (1 W axial)"
-    color: "#d6c08c"
-    default: typ
-    variants:
-      - id: S
-        label: "Small (5.0 x 14.0 mm)"
-        dims: {diameter: 5.0, length: 14.0}
-        leads: {lead_r: 0.4, lead_length: 20.0}
-      - id: typ
-        label: "Typical (5.5 x 17.0 mm)"
+      - id: "0617"
+        label: "DIN 0617 (1 W)"
         dims: {diameter: 5.5, length: 17.0}
         leads: {lead_r: 0.4, lead_length: 25.0}
-
-  - family: DIN-0922
-    extends: cylinder_axial
-    label: "DIN 0922 (2 W axial)"
-    color: "#d6c08c"
-    variants:
-      - id: typ
-        label: "Typical (8.0 x 22.0 mm)"
+      - id: "0922"
+        label: "DIN 0922 (2 W)"
         dims: {diameter: 8.0, length: 22.0}
         leads: {lead_r: 0.4, lead_length: 32.0}

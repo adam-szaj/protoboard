@@ -108,7 +108,8 @@ class FieldSpec:
             return
         if not _matches(self.type, value):
             raise SchemaError(
-                f"{path}: value {value!r} does not match type {self.type!r}")
+                f"{path}: value {value!r} does not match type {self.type!r}"
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -128,8 +129,8 @@ class FieldStatus(enum.Enum):
     """
 
     REQUIRED_EMPTY = "required_empty"  # value is null → RW (a hole to fill)
-    SET = "set"                        # a concrete value (incl. default) → RO
-    AUTO = "auto"                      # the ``auto`` sentinel → RO (generated)
+    SET = "set"  # a concrete value (incl. default) → RO
+    AUTO = "auto"  # the ``auto`` sentinel → RO (generated)
 
     @property
     def editable(self) -> bool:
@@ -257,8 +258,8 @@ def _matches(spec: TypeSpec, value: object) -> bool:
         if "const" in spec:
             return bool(value == spec["const"])
         raise SchemaError(
-            f"type dict must carry 'list', 'seq', 'oneof', or 'const', "
-            f"got {spec!r}")
+            f"type dict must carry 'list', 'seq', 'oneof', or 'const', " f"got {spec!r}"
+        )
     if isinstance(spec, str):
         return _matches_primitive(spec, value)
     if isinstance(spec, (list, tuple)):
@@ -367,8 +368,7 @@ class ParamSchema:
             val = _get_path(values, path.split("."))
             status = _field_status(val)
             shown = None if val is _MISSING else val
-            out.append(FieldView(path=path, spec=spec, value=shown,
-                                 status=status))
+            out.append(FieldView(path=path, spec=spec, value=shown, status=status))
         return out
 
 
@@ -395,7 +395,8 @@ def parse_schema(raw: object) -> ParamSchema:
             else:
                 raise SchemaError(
                     f"{path}: schema node must be a field (with 'type') or a "
-                    f"section (mapping), got {child!r}")
+                    f"section (mapping), got {child!r}"
+                )
 
     _walk(raw, "")
     return ParamSchema(fields)

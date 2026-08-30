@@ -15,8 +15,8 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.hover_tooltip import HoverTooltip
 from protoboard.gui.hover_reveal import HoverReveal
+from protoboard.gui.hover_tooltip import HoverTooltip
 from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
@@ -55,7 +55,7 @@ class _FakeView:
     def __init__(self, qtbot, parent) -> None:
         self._viewport = parent
         self.layer_overrides = LayerOverrides()
-        self._pin_names_reveal_cid: uuid.UUID | None = None
+        self._meta_pin_labels_reveal_cid: uuid.UUID | None = None
         self.session = _FakeSession()
         self.refresh_calls = 0
 
@@ -94,9 +94,9 @@ def test_dwell_labels_hidden_shows_tooltip(qtbot) -> None:
     assert "R5 4.7k" in reveal._tooltip.text()
 
 
-def test_dwell_pin_names_hidden_alt_sets_reveal(qtbot) -> None:
+def test_dwell_meta_pin_labels_hidden_alt_sets_reveal(qtbot) -> None:
     view = _make_view(qtbot)
-    view.layer_overrides.pin_names = LayerVisibility.HIDDEN
+    view.layer_overrides.meta_pin_labels = LayerVisibility.HIDDEN
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
 
@@ -104,42 +104,42 @@ def test_dwell_pin_names_hidden_alt_sets_reveal(qtbot) -> None:
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
 
-    assert view._pin_names_reveal_cid == cid
+    assert view._meta_pin_labels_reveal_cid == cid
     assert view.refresh_calls >= 1
 
 
 def test_clear_hides_and_resets(qtbot) -> None:
     view = _make_view(qtbot)
-    view.layer_overrides.pin_names = LayerVisibility.HIDDEN
+    view.layer_overrides.meta_pin_labels = LayerVisibility.HIDDEN
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
 
     reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
-    assert view._pin_names_reveal_cid == cid
+    assert view._meta_pin_labels_reveal_cid == cid
 
     reveal.clear()
 
     assert not reveal._tooltip.isVisible()
-    assert view._pin_names_reveal_cid is None
+    assert view._meta_pin_labels_reveal_cid is None
 
 
 def test_alt_release_clears_active_reveal(qtbot) -> None:
     view = _make_view(qtbot)
-    view.layer_overrides.pin_names = LayerVisibility.HIDDEN
+    view.layer_overrides.meta_pin_labels = LayerVisibility.HIDDEN
     cid = uuid.uuid4()
     view.session.instances[cid] = _FakeInstance(refdes="U1", value="NE555")
 
     reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
-    assert view._pin_names_reveal_cid == cid
+    assert view._meta_pin_labels_reveal_cid == cid
 
     # Same component, Alt released: the reveal must clear immediately.
     reveal.on_hover(_hover_event(cid, alt=False), (30, 40))
 
-    assert view._pin_names_reveal_cid is None
+    assert view._meta_pin_labels_reveal_cid is None
 
 
 def _perfboard() -> Board:
@@ -159,12 +159,12 @@ def _perfboard() -> Board:
     return Board(root=grid)
 
 
-def test_layer_state_threads_pin_names_reveal_cid(qtbot) -> None:
+def test_layer_state_threads_meta_pin_labels_reveal_cid(qtbot) -> None:
     """CRITICAL GAP: layer_state() must carry the persistent reveal cid.
 
     LayerState is rebuilt fresh on every refresh() via layer_state_for_tool()
     (which knows nothing about hover-reveal).  Without BoardView.layer_state()
-    copying ``_pin_names_reveal_cid`` onto the freshly-built state, Task 8's
+    copying ``_meta_pin_labels_reveal_cid`` onto the freshly-built state, Task 8's
     per-component reveal is silently a no-op in production.
     """
     library = load_library([_LIBRARY_DIR])
@@ -172,13 +172,13 @@ def test_layer_state_threads_pin_names_reveal_cid(qtbot) -> None:
     bv = BoardView(sess)
     qtbot.addWidget(bv)
 
-    bv.layer_overrides.pin_names = LayerVisibility.HIDDEN
+    bv.layer_overrides.meta_pin_labels = LayerVisibility.HIDDEN
     cid = uuid.uuid4()
-    bv._pin_names_reveal_cid = cid
+    bv._meta_pin_labels_reveal_cid = cid
 
     state = bv.layer_state()
 
-    assert state.pin_names_reveal_cid == cid
-    assert state.alpha_for_pin_names("top", cid=cid) > 0
+    assert state.meta_pin_labels_reveal_cid == cid
+    assert state.alpha_for_meta_pin_labels("top", cid=cid) > 0
     # A different component stays hidden.
-    assert state.alpha_for_pin_names("top", cid=uuid.uuid4()) == 0.0
+    assert state.alpha_for_meta_pin_labels("top", cid=uuid.uuid4()) == 0.0

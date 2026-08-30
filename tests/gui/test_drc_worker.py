@@ -36,7 +36,10 @@ def _perfboard() -> Board:
                 height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=4, cols=4, row_gap=0.0, col_gap=0.0,
+            rows=4,
+            cols=4,
+            row_gap=0.0,
+            col_gap=0.0,
         )
     )
 
@@ -68,6 +71,7 @@ class TestSignalEmission:
         """Force an exception by handing the worker a broken snapshot
         whose ``to_layout`` raises."""
         worker = _empty_worker()
+
         # Monkey-patch the snapshot to blow up inside run().
         class _Broken:
             def to_layout(self):
@@ -98,9 +102,11 @@ class TestCancellation:
         """A cancelled worker that raises mid-run still suppresses
         ``error`` — the upstream caller has moved on."""
         worker = _empty_worker()
+
         class _Broken:
             def to_layout(self):
                 raise RuntimeError("boom")
+
         worker._layout_snap = _Broken()  # type: ignore[assignment]
         worker.cancel()
         spy = QSignalSpy(worker.error)
@@ -109,9 +115,7 @@ class TestCancellation:
 
 
 class TestSnapshotIsolation:
-    def test_layout_edits_after_construction_do_not_affect_worker(
-        self, qtbot
-    ) -> None:
+    def test_layout_edits_after_construction_do_not_affect_worker(self, qtbot) -> None:
         """Worker reads from its snapshot, not from the live Layout.
 
         Build a worker, then mutate the original Layout, then run.  The

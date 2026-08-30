@@ -25,7 +25,6 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.group_cmds import RotateGroupCommand
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
@@ -35,19 +34,25 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=100, cols=100, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=100,
+            cols=100,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @dataclass
@@ -57,19 +62,29 @@ class _State:
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
     board: Board = field(default_factory=_board)
+    package_families: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.package_families and "R" in self.components:
+            self.package_families = sil_families(self.components["R"])
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _place(state: _State, x: float, y: float, refdes: str) -> uuid.UUID:
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="10k",
-    ).bind(state.components["R"], {})
+        definition_ref="R",
+        refdes=refdes,
+        value="10k",
+    ).bind(state.components["R"], state.package_families)
     state.instances[inst.id] = inst
     state.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     return inst.id
 
@@ -87,15 +102,27 @@ def _attach_to_root(state: _State, group: ComponentGroup) -> None:
 
 
 def _make_internal_wire_pin_to_pin(
-    state: _State, comp_a: uuid.UUID, pin_a: int,
-    comp_b: uuid.UUID, pin_b: int,
+    state: _State,
+    comp_a: uuid.UUID,
+    pin_a: int,
+    comp_b: uuid.UUID,
+    pin_b: int,
     net_name: str = "N1",
 ) -> Wire:
     """Both endpoints are PinKnot — classic 'internal to group' wire."""
     from protoboard.domain.layout.placement import pin_world_position
+
     defn = state.components["R"]
-    pos_a = pin_world_position(defn.default_footprint(), state.layout.placements[comp_a], pin_a)
-    pos_b = pin_world_position(defn.default_footprint(), state.layout.placements[comp_b], pin_b)
+    pos_a = pin_world_position(
+        defn.default_footprint(state.package_families),
+        state.layout.placements[comp_a],
+        pin_a,
+    )
+    pos_b = pin_world_position(
+        defn.default_footprint(state.package_families),
+        state.layout.placements[comp_b],
+        pin_b,
+    )
     pka = state.layout.get_or_create_pin_knot(PinRef(comp_a, pin_a))
     pkb = state.layout.get_or_create_pin_knot(PinRef(comp_b, pin_b))
     wire = Wire(
@@ -108,7 +135,8 @@ def _make_internal_wire_pin_to_pin(
     state.layout.add_wire(wire)
     # Register net in schematic so the net-aware classifier marks it internal.
     net = Net(
-        id=uuid.uuid4(), name=net_name,
+        id=uuid.uuid4(),
+        name=net_name,
         pins={PinRef(comp_a, pin_a), PinRef(comp_b, pin_b)},
     )
     state.schematic.nets[net.id] = net
@@ -116,8 +144,11 @@ def _make_internal_wire_pin_to_pin(
 
 
 def _make_internal_pin_to_joint_pair(
-    state: _State, comp_a: uuid.UUID, pin_a: int,
-    comp_b: uuid.UUID, pin_b: int,
+    state: _State,
+    comp_a: uuid.UUID,
+    pin_a: int,
+    comp_b: uuid.UUID,
+    pin_b: int,
     hub: Point,
 ) -> tuple[Wire, Wire, JointKnot]:
     """Build two wires: pin_a → hub (Joint), hub → pin_b.
@@ -128,24 +159,40 @@ def _make_internal_pin_to_joint_pair(
     ``new_path[0] != knot.position`` → endpoint_mismatch.
     """
     from protoboard.domain.layout.placement import pin_world_position
+
     defn = state.components["R"]
-    pos_a = pin_world_position(defn.default_footprint(), state.layout.placements[comp_a], pin_a)
-    pos_b = pin_world_position(defn.default_footprint(), state.layout.placements[comp_b], pin_b)
+    pos_a = pin_world_position(
+        defn.default_footprint(state.package_families),
+        state.layout.placements[comp_a],
+        pin_a,
+    )
+    pos_b = pin_world_position(
+        defn.default_footprint(state.package_families),
+        state.layout.placements[comp_b],
+        pin_b,
+    )
     pka = state.layout.get_or_create_pin_knot(PinRef(comp_a, pin_a))
     pkb = state.layout.get_or_create_pin_knot(PinRef(comp_b, pin_b))
     jk = state.layout.create_joint_knot(hub)
     w1 = Wire(
-        id=uuid.uuid4(), path=[pos_a, hub], side="top",
-        a=KnotRef(id=pka.id), b=KnotRef(id=jk.id),
+        id=uuid.uuid4(),
+        path=[pos_a, hub],
+        side="top",
+        a=KnotRef(id=pka.id),
+        b=KnotRef(id=jk.id),
     )
     state.layout.add_wire(w1)
     w2 = Wire(
-        id=uuid.uuid4(), path=[hub, pos_b], side="top",
-        a=KnotRef(id=jk.id), b=KnotRef(id=pkb.id),
+        id=uuid.uuid4(),
+        path=[hub, pos_b],
+        side="top",
+        a=KnotRef(id=jk.id),
+        b=KnotRef(id=pkb.id),
     )
     state.layout.add_wire(w2)
     net = Net(
-        id=uuid.uuid4(), name="N_HUB",
+        id=uuid.uuid4(),
+        name="N_HUB",
         pins={PinRef(comp_a, pin_a), PinRef(comp_b, pin_b)},
     )
     state.schematic.nets[net.id] = net
@@ -155,13 +202,20 @@ def _make_internal_pin_to_joint_pair(
 
 
 def _make_internal_wire_pin_to_wirepin(
-    state: _State, comp_a: uuid.UUID, pin_a: int,
+    state: _State,
+    comp_a: uuid.UUID,
+    pin_a: int,
     end: Point,
 ) -> tuple[Wire, WirePinKnot]:
     """PinKnot - WirePinKnot wire; tests that WirePinKnot rotates too."""
     from protoboard.domain.layout.placement import pin_world_position
+
     defn = state.components["R"]
-    pos_a = pin_world_position(defn.default_footprint(), state.layout.placements[comp_a], pin_a)
+    pos_a = pin_world_position(
+        defn.default_footprint(state.package_families),
+        state.layout.placements[comp_a],
+        pin_a,
+    )
     pka = state.layout.get_or_create_pin_knot(PinRef(comp_a, pin_a))
     wpk = WirePinKnot(id=uuid.uuid4(), position=end, net_id=None)
     state.layout.knots[wpk.id] = wpk
@@ -210,7 +264,8 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         cid_b = _place(state, 10.0, 14.0, "R2")
         wire = _make_internal_wire_pin_to_pin(state, cid_a, 2, cid_b, 1)
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a, cid_b}),
         )
         _attach_to_root(state, group)
@@ -221,7 +276,7 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         assert wire.path != pre_path
         # Fragments path must equal the wire path.
         assert wire.fragments
-        flat = [p for frag in wire.fragments for p in frag.path]
+        [p for frag in wire.fragments for p in frag.path]
         # Each fragment shares boundary vertex with the next; flattening
         # produces N+1 verts per fragment, so dedupe the chain.
         # Easier: the first/last fragment endpoints frame the wire path.
@@ -248,11 +303,14 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         wire, wpk = _make_internal_wire_pin_to_wirepin(state, cid_a, 1, end)
         # Add a net so the wire's pin is registered for net-aware ownership.
         net = Net(
-            id=uuid.uuid4(), name="WP", pins={PinRef(cid_a, 1)},
+            id=uuid.uuid4(),
+            name="WP",
+            pins={PinRef(cid_a, 1)},
         )
         state.schematic.nets[net.id] = net
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a}),
         )
         _attach_to_root(state, group)
@@ -289,7 +347,8 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         cid_b = _place(state, 14.0, 14.0, "R2")
         wire = _make_internal_wire_pin_to_pin(state, cid_a, 2, cid_b, 1)
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a, cid_b}),
         )
         _attach_to_root(state, group)
@@ -315,10 +374,13 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         wire, wpk = _make_internal_wire_pin_to_wirepin(state, cid_a, 1, end)
         # Inject a fake net so the wire counts as "internal".
         state.schematic.nets[uuid.uuid4()] = Net(
-            id=uuid.uuid4(), name="WP", pins={PinRef(cid_a, 1)},
+            id=uuid.uuid4(),
+            name="WP",
+            pins={PinRef(cid_a, 1)},
         )
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a}),
         )
         _attach_to_root(state, group)
@@ -352,13 +414,15 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         placements (i.e. the placement rotation drove the path).
         """
         from protoboard.domain.layout.placement import pin_world_position
+
         state = _State(layout=Layout(), components={"R": _resistor_defn()})
         state.layout.ensure_root_group()
         cid_a = _place(state, 10.0, 10.0, "R1")
         cid_b = _place(state, 10.0, 14.0, "R2")
         wire = _make_internal_wire_pin_to_pin(state, cid_a, 2, cid_b, 1)
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a, cid_b}),
         )
         _attach_to_root(state, group)
@@ -367,8 +431,16 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         # After rotate, wire.path[0]/[-1] must equal the freshly-resolved
         # pin positions of the rotated placements.
         defn = state.components["R"]
-        new_a = pin_world_position(defn.default_footprint(), state.layout.placements[cid_a], 2)
-        new_b = pin_world_position(defn.default_footprint(), state.layout.placements[cid_b], 1)
+        new_a = pin_world_position(
+            defn.default_footprint(state.package_families),
+            state.layout.placements[cid_a],
+            2,
+        )
+        new_b = pin_world_position(
+            defn.default_footprint(state.package_families),
+            state.layout.placements[cid_b],
+            1,
+        )
         # One of these is path[0], the other is path[-1]; tolerate the
         # path-direction choice the wire stored at construction.
         assert {wire.path[0], wire.path[-1]} == {new_a, new_b}
@@ -381,7 +453,8 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         cid_b = _place(state, 10.0, 14.0, "R2")
         wire = _make_internal_wire_pin_to_pin(state, cid_a, 2, cid_b, 1)
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a, cid_b}),
         )
         _attach_to_root(state, group)

@@ -22,7 +22,6 @@ from protoboard.domain.commands.component_cmds import (
     TranslateAnchoredWiresCommand,
 )
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
@@ -31,6 +30,7 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 @dataclass
@@ -63,23 +63,19 @@ def _perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n),
-        pin_names={i: str(i) for i in range(1, n + 1)},
-    )
+    return make_sil(name, n)
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, sil_families(defn))
 
 
 def _state(
-    placements: list[
-        tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]
-    ],
+    placements: list[tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]],
 ) -> _State:
     layout = Layout()
     layout.ensure_root_group()
@@ -109,9 +105,10 @@ def _add_pin_anchored_wire(
     state.layout.knots[knot.id] = knot
     pl = state.layout.placements[comp_id]
     inst = state.instances[comp_id]
-    defn = state.components[inst.definition_ref]
+    state.components[inst.definition_ref]
     from protoboard.domain.layout.placement import pin_world_position
-    start = pin_world_position(defn.default_footprint(), pl, pin_num)
+
+    start = pin_world_position(inst.resolved_footprint(), pl, pin_num)
     wire = Wire(
         id=uuid.uuid4(),
         path=[start, end],
@@ -129,16 +126,23 @@ class TestTranslateAnchoredWires:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         old_pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state = _state([(inst, defn, old_pl)])
         wire = _add_pin_anchored_wire(
-            state, inst.id, pin_num=1, end=Point(0.5, 4.5),
+            state,
+            inst.id,
+            pin_num=1,
+            end=Point(0.5, 4.5),
         )
         new_pl = ComponentPlacement(
-            component_id=inst.id, position=Point(2.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(2.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[inst.id] = new_pl
 
@@ -158,22 +162,31 @@ class TestTranslateAnchoredWires:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         old_pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(4.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(4.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state = _state([(inst_a, defn, old_pl_a), (inst_b, defn, pl_b)])
         # Wire is anchored to R2's pin 1, but its path happens to pass
         # through R1's pin 1 position (0.5, 0.5).
         foreign_wire = _add_pin_anchored_wire(
-            state, inst_b.id, pin_num=1, end=Point(0.5, 0.5),
+            state,
+            inst_b.id,
+            pin_num=1,
+            end=Point(0.5, 0.5),
         )
         new_pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(2.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(2.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[inst_a.id] = new_pl_a
 
@@ -192,16 +205,23 @@ class TestTranslateAnchoredWires:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         old_pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state = _state([(inst, defn, old_pl)])
         wire = _add_pin_anchored_wire(
-            state, inst.id, pin_num=1, end=Point(0.5, 4.5),
+            state,
+            inst.id,
+            pin_num=1,
+            end=Point(0.5, 4.5),
         )
         new_pl = ComponentPlacement(
-            component_id=inst.id, position=Point(2.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(2.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[inst.id] = new_pl
         original_path = list(wire.path)
@@ -222,15 +242,23 @@ class TestDropWires:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state = _state([(inst, defn, pl)])
         w1 = _add_pin_anchored_wire(
-            state, inst.id, pin_num=1, end=Point(0.5, 4.5),
+            state,
+            inst.id,
+            pin_num=1,
+            end=Point(0.5, 4.5),
         )
         w2 = _add_pin_anchored_wire(
-            state, inst.id, pin_num=2, end=Point(1.5, 4.5),
+            state,
+            inst.id,
+            pin_num=2,
+            end=Point(1.5, 4.5),
         )
 
         cmd = DropWiresCommand(wire_ids=frozenset({w1.id, w2.id}))
@@ -242,12 +270,17 @@ class TestDropWires:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state = _state([(inst, defn, pl)])
         w1 = _add_pin_anchored_wire(
-            state, inst.id, pin_num=1, end=Point(0.5, 4.5),
+            state,
+            inst.id,
+            pin_num=1,
+            end=Point(0.5, 4.5),
         )
         original = list(w1.path)
 
@@ -262,12 +295,17 @@ class TestDropWires:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state = _state([(inst, defn, pl)])
         w1 = _add_pin_anchored_wire(
-            state, inst.id, pin_num=1, end=Point(0.5, 4.5),
+            state,
+            inst.id,
+            pin_num=1,
+            end=Point(0.5, 4.5),
         )
         before = len(state.layout.wires)
         cmd = DropWiresCommand(wire_ids=frozenset())

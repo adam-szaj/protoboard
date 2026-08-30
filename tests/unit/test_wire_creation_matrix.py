@@ -34,7 +34,6 @@ import uuid
 from dataclasses import dataclass, field
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids
 from protoboard.domain.layout.group_ownership import wire_is_owned_by_group
@@ -48,6 +47,7 @@ from protoboard.domain.schematic.wire_net_ops import (
     classify_wire_nets,
 )
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 @dataclass
@@ -56,47 +56,65 @@ class _Ctx:
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
+    package_families: dict = field(default_factory=dict)
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _ctx_with_resistor_lib() -> _Ctx:
-    ctx = _Ctx(layout=Layout(), components={"R": _resistor_defn()})
+    defn = _resistor_defn()
+    ctx = _Ctx(
+        layout=Layout(),
+        components={"R": defn},
+        package_families=sil_families(defn),
+    )
     ctx.layout.ensure_root_group()
     return ctx
 
 
 def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
-    inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="10k"
-    ).bind(ctx.components["R"], {})
+    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k").bind(
+        ctx.components["R"], ctx.package_families
+    )
     ctx.instances[inst.id] = inst
     ctx.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     return inst.id
 
 
 def _pin_pos(ctx: _Ctx, cid: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
+
     return pin_world_position(
-        ctx.components["R"].default_footprint(), ctx.layout.placements[cid], pin,
+        ctx.components["R"].default_footprint(ctx.package_families),
+        ctx.layout.placements[cid],
+        pin,
     )
 
 
 def _make_group(
-    ctx: _Ctx, *, members: frozenset[uuid.UUID], parent: uuid.UUID = ROOT_GROUP_ID,
+    ctx: _Ctx,
+    *,
+    members: frozenset[uuid.UUID],
+    parent: uuid.UUID = ROOT_GROUP_ID,
     name: str = "G",
 ) -> ComponentGroup:
     g = ComponentGroup(
-        id=uuid.uuid4(), name=name, component_ids=members,
+        id=uuid.uuid4(),
+        name=name,
+        component_ids=members,
     )
     ctx.layout.groups[g.id] = g
     par = ctx.layout.groups[parent]
     ctx.layout.groups[parent] = ComponentGroup(
-        id=par.id, name=par.name,
+        id=par.id,
+        name=par.name,
         component_ids=par.component_ids,
         child_group_ids=par.child_group_ids | {g.id},
         exported_pins=par.exported_pins,
@@ -105,16 +123,22 @@ def _make_group(
 
 
 def _wire_pin_to_pin(
-    ctx: _Ctx, cid_a: uuid.UUID, pin_a: int,
-    cid_b: uuid.UUID, pin_b: int,
+    ctx: _Ctx,
+    cid_a: uuid.UUID,
+    pin_a: int,
+    cid_b: uuid.UUID,
+    pin_b: int,
 ) -> Wire:
     pa = _pin_pos(ctx, cid_a, pin_a)
     pb = _pin_pos(ctx, cid_b, pin_b)
     pka = ctx.layout.get_or_create_pin_knot(PinRef(cid_a, pin_a))
     pkb = ctx.layout.get_or_create_pin_knot(PinRef(cid_b, pin_b))
     w = Wire(
-        id=uuid.uuid4(), path=[pa, pb], side="top",
-        a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+        id=uuid.uuid4(),
+        path=[pa, pb],
+        side="top",
+        a=KnotRef(id=pka.id),
+        b=KnotRef(id=pkb.id),
     )
     ctx.layout.add_wire(w)
     return w
@@ -153,7 +177,8 @@ class TestClassifyByEndpointAndNet:
         a = _place(ctx, 5.0, 5.0, "R1")
         b = _place(ctx, 7.0, 5.0, "R2")
         net = Net(
-            id=uuid.uuid4(), name="VCC",
+            id=uuid.uuid4(),
+            name="VCC",
             pins={PinRef(a, 2), PinRef(b, 1)},
         )
         ctx.schematic.nets[net.id] = net
@@ -185,7 +210,8 @@ class TestClassifyByEndpointAndNet:
         a = _place(ctx, 5.0, 5.0, "R1")
         b = _place(ctx, 9.0, 5.0, "R2")
         net = Net(
-            id=uuid.uuid4(), name="N1",
+            id=uuid.uuid4(),
+            name="N1",
             pins={PinRef(a, 2), PinRef(b, 1)},
         )
         ctx.schematic.nets[net.id] = net
@@ -199,8 +225,11 @@ class TestClassifyByEndpointAndNet:
         # required, but we keep wire creation legal).  Path with explicit
         # mid vertex.
         existing = Wire(
-            id=uuid.uuid4(), path=[pa, mid, pb], side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            id=uuid.uuid4(),
+            path=[pa, mid, pb],
+            side="top",
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(existing)
 
@@ -263,10 +292,14 @@ class TestOwnershipByGroupContext:
         return ctx, a, b
 
     def _owned(
-        self, ctx: _Ctx, w: Wire, group: ComponentGroup,
+        self,
+        ctx: _Ctx,
+        w: Wire,
+        group: ComponentGroup,
     ) -> bool:
         return wire_is_owned_by_group(
-            w, group,
+            w,
+            group,
             wire_net_map={},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
             group_comp_ids=all_component_ids(ctx.layout.groups, group.id),
@@ -287,7 +320,10 @@ class TestOwnershipByGroupContext:
         # root.  Just confirm no exception and the call is well-defined.
         # (The interesting cases are the non-root groups below.)
         _ = wire_is_owned_by_group(
-            w, root, wire_net_map={}, knots=ctx.layout.knots,  # type: ignore[arg-type]
+            w,
+            root,
+            wire_net_map={},
+            knots=ctx.layout.knots,  # type: ignore[arg-type]
             group_comp_ids=all_component_ids(ctx.layout.groups, ROOT_GROUP_ID),
             schematic=ctx.schematic,
         )
@@ -316,7 +352,8 @@ class TestOwnershipByGroupContext:
         gb = _make_group(ctx, members=frozenset({a, b}), name="B")
         # A's direct members can be empty; B is its child.
         ga = ComponentGroup(
-            id=uuid.uuid4(), name="A",
+            id=uuid.uuid4(),
+            name="A",
             component_ids=frozenset(),
             child_group_ids=frozenset({gb.id}),
         )
@@ -324,7 +361,8 @@ class TestOwnershipByGroupContext:
         # Re-parent gb under ga instead of root.
         root = ctx.layout.groups[ROOT_GROUP_ID]
         ctx.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-            id=root.id, name=root.name,
+            id=root.id,
+            name=root.name,
             component_ids=root.component_ids,
             child_group_ids=(root.child_group_ids - {gb.id}) | {ga.id},
             exported_pins=root.exported_pins,
@@ -369,7 +407,8 @@ class TestEndpointOnExistingWireOwnership:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 1), free],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=jk.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=jk.id),
         )
         ctx.layout.add_wire(w_new)
         # Internal net: only pins in the group.
@@ -377,13 +416,17 @@ class TestEndpointOnExistingWireOwnership:
         ctx.schematic.nets[net.id] = net
 
         ga = _make_group(ctx, members=frozenset({a}), name="A")
-        assert wire_is_owned_by_group(
-            w_new, ga,
-            wire_net_map={w_new.id: net.id},
-            knots=ctx.layout.knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({a}),
-            schematic=ctx.schematic,
-        ) is True
+        assert (
+            wire_is_owned_by_group(
+                w_new,
+                ga,
+                wire_net_map={w_new.id: net.id},
+                knots=ctx.layout.knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({a}),
+                schematic=ctx.schematic,
+            )
+            is True
+        )
 
     def test_pin_to_joint_external_net_not_owned(self) -> None:
         """Half-orphan whose net touches a component outside the group
@@ -398,21 +441,27 @@ class TestEndpointOnExistingWireOwnership:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 1), free],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=jk.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=jk.id),
         )
         ctx.layout.add_wire(w_new)
         # Net spans a (in group) and b (outside).
         net = Net(
-            id=uuid.uuid4(), name="EXT",
+            id=uuid.uuid4(),
+            name="EXT",
             pins={PinRef(a, 1), PinRef(b, 1)},
         )
         ctx.schematic.nets[net.id] = net
 
         ga = _make_group(ctx, members=frozenset({a}), name="A")
-        assert wire_is_owned_by_group(
-            w_new, ga,
-            wire_net_map={w_new.id: net.id},
-            knots=ctx.layout.knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({a}),
-            schematic=ctx.schematic,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w_new,
+                ga,
+                wire_net_map={w_new.id: net.id},
+                knots=ctx.layout.knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({a}),
+                schematic=ctx.schematic,
+            )
+            is False
+        )

@@ -22,8 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from protoboard.domain.components.package.body import MountStyle
 from protoboard.domain.components.package.bend import PinBendSpec
+from protoboard.domain.components.package.body import MountStyle
 from protoboard.domain.components.package.component_package import (
     resolve_component_package,
 )
@@ -180,9 +180,9 @@ def package_to_bend_specs(
 
 
 def effective_bend_specs(
-    defn: "ComponentDefinition",
-    instance: "ComponentInstance | None" = None,
-    families: "dict[str, PackageFamily] | None" = None,
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None = None,
+    families: dict[str, PackageFamily] | None = None,
     package_variant: str | None = None,
 ) -> dict[int, PinBendSpec]:
     """The per-pin bend specs in force for a definition / placed instance.
@@ -321,11 +321,11 @@ class RedragResult:
     """
 
     ok: bool
-    new_placement: "ComponentPlacement | None" = None
+    new_placement: ComponentPlacement | None = None
 
 
 def _pin_baseline_world(
-    footprint: "Footprint", placement: "ComponentPlacement", pin: int
+    footprint: Footprint, placement: ComponentPlacement, pin: int
 ) -> Point:
     """World position of *pin* with its own offset stripped (its default hole)."""
     from protoboard.domain.layout.placement import pin_world_position
@@ -337,7 +337,7 @@ def _pin_baseline_world(
 
 def _world_delta_to_local_offset(
     world_delta: Vector,
-    placement: "ComponentPlacement",
+    placement: ComponentPlacement,
     footprint: Footprint,
 ) -> Vector:
     """Invert the placement pipeline: world delta → local pin offset.
@@ -357,9 +357,9 @@ def _world_delta_to_local_offset(
 
 def redrag_feasibility(
     *,
-    footprint: "Footprint",
-    placement: "ComponentPlacement",
-    specs: dict[int, "PinBendSpec"],
+    footprint: Footprint,
+    placement: ComponentPlacement,
+    specs: dict[int, PinBendSpec],
     grabbed_pin: int,
     target: Point,
     free_pads: frozenset[tuple[float, float]],

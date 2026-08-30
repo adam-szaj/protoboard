@@ -29,12 +29,16 @@ from protoboard.gui.workers.autoroute_worker import AutorouteWorker
 from protoboard.services.routing.autorouter import AutorouteResult
 from protoboard.services.routing.optimizer import (
     OptimizerCapabilities,
+)
+from protoboard.services.routing.optimizer import (
     registry as optimizer_registry,
 )
 from protoboard.services.routing.protocol import (
     ProgressSink,
     Router,
     RouterCapabilities,
+)
+from protoboard.services.routing.protocol import (
     registry as router_registry,
 )
 from protoboard.services.routing.snapshot import RouteRequest
@@ -50,7 +54,10 @@ def _perfboard() -> Board:
                 height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=4, cols=4, row_gap=0.0, col_gap=0.0,
+            rows=4,
+            cols=4,
+            row_gap=0.0,
+            col_gap=0.0,
         )
     )
 
@@ -109,7 +116,9 @@ class _StubOptimizer:
 
 def _make_worker(
     qtbot,
-    *, request: RouteRequest, router_name: str,
+    *,
+    request: RouteRequest,
+    router_name: str,
     optimizer_names: list[str] | None,
 ) -> tuple[AutorouteWorker, list]:
     """Build a worker that captures emitted finished/error payloads.
@@ -141,7 +150,9 @@ class TestLegacyPath:
             req = _empty_request(enable_simplify_pass=True)
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router", optimizer_names=None,
+                request=req,
+                router_name="recording-router",
+                optimizer_names=None,
             )
             worker.run()
             assert rec.calls == 1
@@ -162,7 +173,9 @@ class TestExplicitOptimizerChain:
             req = _empty_request(enable_simplify_pass=True)
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router", optimizer_names=[],
+                request=req,
+                router_name="recording-router",
+                optimizer_names=[],
             )
             worker.run()
             # The router sees a request with enable_simplify_pass forced to False.
@@ -184,7 +197,8 @@ class TestExplicitOptimizerChain:
             req = _empty_request(enable_simplify_pass=False)
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router",
+                request=req,
+                router_name="recording-router",
                 optimizer_names=["opt-a", "opt-b"],
             )
             worker.run()
@@ -209,7 +223,8 @@ class TestExplicitOptimizerChain:
             req = _empty_request(enable_simplify_pass=False)
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router",
+                request=req,
+                router_name="recording-router",
                 optimizer_names=["nonexistent", "opt-a"],
             )
             worker.run()
@@ -229,7 +244,9 @@ class TestExplicitOptimizerChain:
             req = _empty_request(enable_simplify_pass=True)
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router", optimizer_names=[],
+                request=req,
+                router_name="recording-router",
+                optimizer_names=[],
             )
             worker.run()
             assert rec.calls == 1
@@ -245,6 +262,7 @@ class TestIncompatibleOptimizerSkipped:
 
     def test_skipped_when_capabilities_block(self, qtbot) -> None:
         from protoboard.services.routing.optimizer import OptimizerCapabilities
+
         rec = _RecordingRouter()
         router_registry.register(cast(Router, rec))
 
@@ -253,9 +271,11 @@ class TestIncompatibleOptimizerSkipped:
         class _JumperOpt:
             name = "fake-jumper-opt"
             display_name = "Jumpers"
+
             def optimize(self, request, result, sink):
                 ran.append(self.name)
                 return result
+
             def capabilities(self):
                 # Requires allow_jumpers — request below has it disabled.
                 return OptimizerCapabilities(inserts_jumpers=True)
@@ -263,14 +283,18 @@ class TestIncompatibleOptimizerSkipped:
         optimizer_registry.register(_JumperOpt())
         try:
             from dataclasses import replace as _replace
+
             base_req = _empty_request(enable_simplify_pass=False)
             req = _replace(
                 base_req,
-                routing_settings=_replace(base_req.routing_settings, allow_jumpers=False),
+                routing_settings=_replace(
+                    base_req.routing_settings, allow_jumpers=False
+                ),
             )
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router",
+                request=req,
+                router_name="recording-router",
                 optimizer_names=["fake-jumper-opt"],
             )
             worker.run()
@@ -294,7 +318,8 @@ class TestCancellationBetweenOptimizers:
             req = _empty_request(enable_simplify_pass=False)
             worker, emitted = _make_worker(
                 qtbot,
-                request=req, router_name="recording-router",
+                request=req,
+                router_name="recording-router",
                 optimizer_names=["opt-a", "opt-b"],
             )
             # Pre-cancel — sink.cancelled() is True before the loop starts.

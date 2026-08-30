@@ -35,11 +35,11 @@ from protoboard.controller.selection.adapters import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from protoboard.controller.selection.selectable import Selectable
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import PlacementMap
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point, Rect
-    from protoboard.controller.selection.selectable import Selectable
     from protoboard.types import Side
 
 HIT_RADIUS = 0.25  # pin reach (Euclidean, raster units)
@@ -167,7 +167,9 @@ class HitTester:
                 pl = self._ctx.layout.placements.get(cid)
                 if pl is not None:
                     return ComponentSelectable(
-                        component_id=cid, placement=pl, pin_number=pin_number,
+                        component_id=cid,
+                        placement=pl,
+                        pin_number=pin_number,
                     )
 
         if f.wires:
@@ -191,7 +193,9 @@ class HitTester:
                 if pl is not None:
                     # bbox fallback = body click → no pin context.
                     return ComponentSelectable(
-                        component_id=bbox_cid, placement=pl, pin_number=None,
+                        component_id=bbox_cid,
+                        placement=pl,
+                        pin_number=None,
                     )
 
         return None
@@ -226,9 +230,7 @@ class HitTester:
             start_net_id = wire_net_map.get(start_wire_id)
 
         # When the start wire carries no resolvable net, limit to it alone.
-        restrict_to_start_wire = (
-            start_net_id is None and start_wire_id is not None
-        )
+        restrict_to_start_wire = start_net_id is None and start_wire_id is not None
 
         # Collect every candidate (wire, idx, dist) within the radius.
         candidates: list[tuple[Wire, int, float]] = []
@@ -254,7 +256,8 @@ class HitTester:
         ay = anchor_wire.path[anchor_idx].y
 
         cluster = [
-            (w, i) for (w, i, _d) in candidates
+            (w, i)
+            for (w, i, _d) in candidates
             if abs(w.path[i].x - ax) < _CLUSTER_EPS
             and abs(w.path[i].y - ay) < _CLUSTER_EPS
         ]
@@ -368,10 +371,7 @@ class HitTester:
             xs = [p.x for p in positions]
             ys = [p.y for p in positions]
             m = BBOX_MARGIN
-            return (
-                min(xs) - m <= px <= max(xs) + m
-                and min(ys) - m <= py <= max(ys) + m
-            )
+            return min(xs) - m <= px <= max(xs) + m and min(ys) - m <= py <= max(ys) + m
 
         # Camera side first, then the other side.
         for want_camera in (True, False):

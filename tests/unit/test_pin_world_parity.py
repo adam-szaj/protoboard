@@ -26,9 +26,9 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
+    PlacementCollection,
     compose_placement,
     pin_world_position,
-    PlacementCollection,
 )
 from protoboard.geometry import Point, Transform2D, Vector
 
@@ -46,13 +46,8 @@ def _key(p: Point) -> tuple[float, float]:
     return (round(p.x, 4), round(p.y, 4))
 
 
-def _world_pins(
-    fp: Footprint, pl: ComponentPlacement
-) -> list[tuple[float, float]]:
-    return [
-        _key(pin_world_position(fp, pl, n))
-        for n in range(1, fp.pin_count() + 1)
-    ]
+def _world_pins(fp: Footprint, pl: ComponentPlacement) -> list[tuple[float, float]]:
+    return [_key(pin_world_position(fp, pl, n)) for n in range(1, fp.pin_count() + 1)]
 
 
 def _placed(
@@ -101,7 +96,9 @@ class TestPinWorldParityThroughPlacements:
         pl = _placed(position=Point(5.0, 5.0), rotation=0, side="bottom")
         layout = Layout(placements=PlacementCollection({cid: pl}))
         assert _world_pins(fp, layout.placements[cid]) == [
-            (5.0, 5.0), (5.0, 6.0), (5.0, 7.0),
+            (5.0, 5.0),
+            (5.0, 6.0),
+            (5.0, 7.0),
         ]
 
     def test_dil8_top_and_bottom(self) -> None:
@@ -110,28 +107,43 @@ class TestPinWorldParityThroughPlacements:
         pl_top = _placed(position=Point(20.0, 20.0), rotation=0, side="top")
         layout = Layout(placements=PlacementCollection({cid: pl_top}))
         assert _world_pins(fp, layout.placements[cid]) == [
-            (20.0, 20.0), (20.0, 21.0), (20.0, 22.0), (20.0, 23.0),
-            (23.0, 23.0), (23.0, 22.0), (23.0, 21.0), (23.0, 20.0),
+            (20.0, 20.0),
+            (20.0, 21.0),
+            (20.0, 22.0),
+            (20.0, 23.0),
+            (23.0, 23.0),
+            (23.0, 22.0),
+            (23.0, 21.0),
+            (23.0, 20.0),
         ]
         # Bottom: DIL columns (x=0,3) → reflect x about x=1.5 → columns swap on
         # the same holes (pin 1 lands where pin 8 was).
         pl_bot = _placed(position=Point(20.0, 20.0), rotation=0, side="bottom")
         layout_b = Layout(placements=PlacementCollection({cid: pl_bot}))
         assert _world_pins(fp, layout_b.placements[cid]) == [
-            (23.0, 20.0), (23.0, 21.0), (23.0, 22.0), (23.0, 23.0),
-            (20.0, 23.0), (20.0, 22.0), (20.0, 21.0), (20.0, 20.0),
+            (23.0, 20.0),
+            (23.0, 21.0),
+            (23.0, 22.0),
+            (23.0, 23.0),
+            (20.0, 23.0),
+            (20.0, 22.0),
+            (20.0, 21.0),
+            (20.0, 20.0),
         ]
 
     def test_pin_offsets_applied(self) -> None:
         fp = SIL(2)
         cid = uuid.uuid4()
         pl = _placed(
-            position=Point(0.0, 0.0), rotation=0, side="top",
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
             pin_offsets={2: Vector(0.5, 0.0)},
         )
         layout = Layout(placements=PlacementCollection({cid: pl}))
         assert _world_pins(fp, layout.placements[cid]) == [
-            (0.0, 0.0), (0.5, 1.0),
+            (0.0, 0.0),
+            (0.5, 1.0),
         ]
 
     def test_get_and_values_agree_with_index(self) -> None:
@@ -186,7 +198,9 @@ class TestGroupedMemberComposesThroughSeam:
             cid, local, _rotation_about(Point(10.0, 10.0), 90)
         )
         assert _world_pins(fp, layout.placements[cid]) == [
-            (10.0, 10.0), (11.0, 10.0), (12.0, 10.0),
+            (10.0, 10.0),
+            (11.0, 10.0),
+            (12.0, 10.0),
         ]
 
     def test_group_rotation_matches_baked_flatten(self) -> None:
@@ -200,7 +214,6 @@ class TestGroupedMemberComposesThroughSeam:
             t = _rotation_about(origin, delta)
             layout = self._grouped_layout(cid, local, t)
             baked = compose_placement(t, local)  # the FLATTEN equivalent
-            assert (
-                _world_pins(fp, layout.placements[cid])
-                == _world_pins(fp, baked)
+            assert _world_pins(fp, layout.placements[cid]) == _world_pins(
+                fp, baked
             ), delta

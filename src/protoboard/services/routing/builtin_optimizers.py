@@ -36,21 +36,23 @@ class _PadContext:
     the wires from the current AutorouteResult.
     """
 
-    pad_index: "PadIndex"
-    all_pins: set["Point"]
-    pad_to_net: dict["Point", uuid.UUID]
-    pin_net_map: dict["Point", uuid.UUID]
-    point_side_to_net: dict[tuple["Point", str], uuid.UUID]
-    all_board_pads: set["Point"]
-    worker_layout: object  # Layout — kept loosely typed to avoid the import at module level
+    pad_index: PadIndex
+    all_pins: set[Point]
+    pad_to_net: dict[Point, uuid.UUID]
+    pin_net_map: dict[Point, uuid.UUID]
+    point_side_to_net: dict[tuple[Point, str], uuid.UUID]
+    all_board_pads: set[Point]
+    worker_layout: (
+        object  # Layout — kept loosely typed to avoid the import at module level
+    )
     worker_schematic: object  # Schematic
     components: dict
     instances: dict
 
 
 def _build_pad_context(
-    request: "RouteRequest",
-    wires: "list[Wire]",
+    request: RouteRequest,
+    wires: list[Wire],
 ) -> _PadContext:
     """Construct the PadIndex + pin-net helpers shared by all optimizers.
 
@@ -62,7 +64,6 @@ def _build_pad_context(
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.layout.wire import WireCollection
     from protoboard.domain.layout.wire_utils import board_pads_for_side
-    from protoboard.geometry import Point
 
     board = request.board
     worker_layout = request.layout.to_layout()
@@ -122,9 +123,8 @@ def _build_pad_context(
         pos: nid for pos, nid in pad_to_net.items() if nid != _FLOATING
     }
 
-    all_board_pads = (
-        board_pads_for_side(board, "top")
-        | board_pads_for_side(board, "bottom")
+    all_board_pads = board_pads_for_side(board, "top") | board_pads_for_side(
+        board, "bottom"
     )
 
     layout_for_pads = Layout(
@@ -133,7 +133,11 @@ def _build_pad_context(
     )
     layout_for_pads.ensure_root_group()
     pad_index = PadIndex(
-        board, layout_for_pads, worker_schematic, components, instances,
+        board,
+        layout_for_pads,
+        worker_schematic,
+        components,
+        instances,
     )
 
     return _PadContext(
@@ -169,7 +173,7 @@ class SimplifyOptimizer:
 
     def __init__(
         self,
-        mode: "object | None" = None,
+        mode: object | None = None,
     ) -> None:
         # `mode` is the SimplifyMode enum, kept loosely typed here to
         # avoid the postprocess import at module load.  Resolved to a
@@ -178,10 +182,10 @@ class SimplifyOptimizer:
 
     def optimize(
         self,
-        request: "RouteRequest",
-        result: "AutorouteResult",
-        sink: "ProgressSink",
-    ) -> "AutorouteResult":
+        request: RouteRequest,
+        result: AutorouteResult,
+        sink: ProgressSink,
+    ) -> AutorouteResult:
         from protoboard.services.routing.autorouter import AutorouteResult
         from protoboard.services.routing.postprocess import (
             SimplifyMode,
@@ -258,10 +262,10 @@ class InsulatedToBareOptimizer:
 
     def optimize(
         self,
-        request: "RouteRequest",
-        result: "AutorouteResult",
-        sink: "ProgressSink",
-    ) -> "AutorouteResult":
+        request: RouteRequest,
+        result: AutorouteResult,
+        sink: ProgressSink,
+    ) -> AutorouteResult:
         from protoboard.services.routing.autorouter import AutorouteResult
         from protoboard.services.routing.postprocess import (
             _candidate_pins_alien,
@@ -288,9 +292,9 @@ class InsulatedToBareOptimizer:
         # ``_candidate_safe_against_others``.  A wire's net is the net of
         # the pin sitting on either of its endpoints; lookup via
         # ``pin_net_map`` (keyed by Point).
-        wire_to_net: dict[uuid.UUID, "uuid.UUID | None"] = {}
+        wire_to_net: dict[uuid.UUID, uuid.UUID | None] = {}
         for w in result.wires:
-            net_id: "uuid.UUID | None" = None
+            net_id: uuid.UUID | None = None
             for endpoint in (w.path[0], w.path[-1]):
                 cand = ctx.pin_net_map.get(endpoint)
                 if cand is not None:
@@ -332,9 +336,7 @@ class InsulatedToBareOptimizer:
 
             # 1. Bare-diagonal parity rule.
             if bare_diagonal_mode:
-                src_parity = (
-                    int(cur.path[0].x // 1) + int(cur.path[0].y // 1)
-                ) % 2
+                src_parity = (int(cur.path[0].x // 1) + int(cur.path[0].y // 1)) % 2
                 if not _parity_ok_for_bare(candidate_segs, src_parity):
                     continue
 
@@ -378,6 +380,7 @@ class InsulatedToBareOptimizer:
 
             # All checks pass — flip.
             from protoboard.domain.layout.wire import Wire
+
             flipped_wire = Wire(
                 id=cur.id,
                 path=list(cur.path),

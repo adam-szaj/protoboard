@@ -115,9 +115,8 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
     """
 
     def test_revert_succeeds_when_sibling_wire_restored_first(self) -> None:
-        from dataclasses import dataclass as _dc
-        from typing import Any, cast
         import uuid as _uuid
+        from typing import Any, cast
 
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
@@ -137,14 +136,21 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
         )
         from protoboard.geometry import Point
 
-        board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                layers=PadLayers(top=True, bottom=True, plated_through=True),
-            ),
-            rows=5, cols=5, row_gap=0.0, col_gap=0.0,
-        ))
+        board = Board(
+            root=BoardGrid(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(top=True, bottom=True, plated_through=True),
+                ),
+                rows=5,
+                cols=5,
+                row_gap=0.0,
+                col_gap=0.0,
+            )
+        )
         layout = Layout(placements=PlacementCollection({}), wires=WireCollection([]))
 
         # Joint A and Joint B carry both wires together.  Joint A is
@@ -160,16 +166,20 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
         w_sibling = Wire(
             id=_uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=ja.id), b=KnotRef(id=jb.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=ja.id),
+            b=KnotRef(id=jb.id),
             fragments=[Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")],
         )
         # Primary wire — the one we replace fragments on.
         w_primary = Wire(
             id=_uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=ja.id), b=KnotRef(id=jb.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=ja.id),
+            b=KnotRef(id=jb.id),
             fragments=[Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")],
         )
         layout.add_wire(w_sibling)
@@ -179,6 +189,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
 
         class _State:
             pass
+
         state: Any = _State()
         state.board = board
         state.layout = layout
@@ -193,11 +204,10 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
 
         # Step 2 — Replace primary's fragments with a different endpoint
         # at A.  This slides Joint A from (0.5,0.5) → (1.5,0.5).
-        new_frags = (
-            Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="top"),
-        )
+        new_frags = (Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="top"),)
         rp_cmd = ReplaceWireFragmentsCommand(
-            wire_id=w_primary.id, new_fragments=new_frags,
+            wire_id=w_primary.id,
+            new_fragments=new_frags,
             old_fragments=tuple(w_primary.fragments),
         )
         rp_cmd.apply(state)

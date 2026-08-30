@@ -72,8 +72,7 @@ class SmdChipRenderer(PrismRenderer):
     def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
         items = super().render_body(positions)
         pkg = self._pkg
-        if (not isinstance(pkg, _PkgPrism) or pkg.pin_count() != 2
-                or len(positions) < 2):
+        if not isinstance(pkg, _PkgPrism) or pkg.pin_count() != 2 or len(positions) < 2:
             return items
         p1, p2 = positions[0], positions[1]
         if (p2 - p1).norm() < 1e-9:
@@ -88,10 +87,16 @@ class SmdChipRenderer(PrismRenderer):
         canvas.track(items)
         canvas.setFillColor(self.CAP_COLOR)
         cap_z = canvas.zAbove()
-        canvas.addRect((-body_len / 2.0, -body_w / 2.0),
-                       (-body_len / 2.0 + cap, body_w / 2.0), z=cap_z)
-        canvas.addRect((body_len / 2.0 - cap, -body_w / 2.0),
-                       (body_len / 2.0, body_w / 2.0), z=cap_z)
+        canvas.addRect(
+            (-body_len / 2.0, -body_w / 2.0),
+            (-body_len / 2.0 + cap, body_w / 2.0),
+            z=cap_z,
+        )
+        canvas.addRect(
+            (body_len / 2.0 - cap, -body_w / 2.0),
+            (body_len / 2.0, body_w / 2.0),
+            z=cap_z,
+        )
         items.extend(canvas.items)
 
         items.extend(self._code_label(p1, p2, body_len, body_w, cap))

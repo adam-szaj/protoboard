@@ -19,12 +19,21 @@ from protoboard.services.export.snapshot import BoardSnapshot
 
 
 def _small_board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                     layers=PadLayers(top=True, bottom=True, plated_through=True)),
-        rows=3, cols=3, row_gap=0, col_gap=0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=3,
+            cols=3,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
 
 
 def _snapshot() -> BoardSnapshot:
@@ -34,9 +43,13 @@ def _snapshot() -> BoardSnapshot:
     sch = Schematic(nets={})
     idx = PadIndex(board, lay, sch, {}, {})
     return BoardSnapshot(
-        board=board, layout=lay,
-        components={}, instances={},
-        schematic=sch, pad_index=idx, package_families={},
+        board=board,
+        layout=lay,
+        components={},
+        instances={},
+        schematic=sch,
+        pad_index=idx,
+        package_families={},
     )
 
 

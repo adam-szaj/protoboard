@@ -116,8 +116,9 @@ class PrismRenderer(PackageRenderer):
         canvas = self.body_canvas(positions)
         canvas.addPath(drawing.body)
         if drawing.marker is not None:
-            canvas.addPath(drawing.marker, fill=self.paint.border,
-                           pen_width=0.0, z_offset=0.01)
+            canvas.addPath(
+                drawing.marker, fill=self.paint.border, pen_width=0.0, z_offset=0.01
+            )
         return canvas.items
 
     # ------------------------------------------------------------------
@@ -141,6 +142,7 @@ class PrismRenderer(PackageRenderer):
         from protoboard.domain.components.package.shapes import (
             local_size_holes_or_none,
         )
+
         s = local_size_holes_or_none(pkg)  # local frame: lx along the pads
         if s is None:
             # No explicit dims/margin to size the chip — degrade to the bbox

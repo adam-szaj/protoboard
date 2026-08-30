@@ -50,14 +50,16 @@ class TestCancellation:
         components: dict[str, object] = {}
         instances: dict[uuid.UUID, object] = {}
         graph = ConnectivityGraph(
-            board=board, layout=layout,
+            board=board,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
         )
         flag = threading.Event()
         flag.set()
         issues = DRCEngine().check_with_graph(
-            schematic=schematic, layout=layout,
+            schematic=schematic,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
             graph=graph,
@@ -76,18 +78,21 @@ class TestCancellation:
         components: dict[str, object] = {}
         instances: dict[uuid.UUID, object] = {}
         graph = ConnectivityGraph(
-            board=board, layout=layout,
+            board=board,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
         )
         issues_a = DRCEngine().check_with_graph(
-            schematic=schematic, layout=layout,
+            schematic=schematic,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
             graph=graph,
         )
         issues_b = DRCEngine().check_with_graph(
-            schematic=schematic, layout=layout,
+            schematic=schematic,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
             graph=graph,
@@ -106,7 +111,8 @@ class TestCancellation:
         components: dict[str, object] = {}
         instances: dict[uuid.UUID, object] = {}
         graph = ConnectivityGraph(
-            board=board, layout=layout,
+            board=board,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
         )
@@ -118,7 +124,7 @@ class TestCancellation:
 
         def _is_set_then_set() -> bool:
             check_count["n"] += 1
-            result = original_is_set()
+            original_is_set()
             if check_count["n"] == 1:
                 # First check: not yet — let one phase run.
                 return False
@@ -128,7 +134,8 @@ class TestCancellation:
         flag.is_set = _is_set_then_set  # type: ignore[method-assign]
 
         issues = DRCEngine().check_with_graph(
-            schematic=schematic, layout=layout,
+            schematic=schematic,
+            layout=layout,
             components=components,  # type: ignore[arg-type]
             instances=instances,  # type: ignore[arg-type]
             graph=graph,

@@ -31,9 +31,9 @@ def _tool_map() -> KeyMap:
     km = _chain()
     km.register_tool_actions(
         {
-            "select-tool.action.edit": None,       # inherit global.action.edit
-            "select-tool.action.reroute": "W",     # override
-            "select-tool.action.delete": None,     # inherit global.action.delete
+            "select-tool.action.edit": None,  # inherit global.action.edit
+            "select-tool.action.reroute": "W",  # override
+            "select-tool.action.delete": None,  # inherit global.action.delete
         }
     )
     return km
@@ -53,7 +53,7 @@ class TestResolve:
 
     def test_none_inherits_global_default(self) -> None:
         km = _tool_map()
-        assert km.resolve("select-tool.action.edit") == "E"      # global edit
+        assert km.resolve("select-tool.action.edit") == "E"  # global edit
         assert km.resolve("select-tool.action.delete") == "Del"  # global delete
 
     def test_unknown_action_resolves_empty(self) -> None:

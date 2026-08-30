@@ -109,8 +109,7 @@ class ParkLatestThrottle(Generic[T]):
     def note(self, value: T) -> None:
         """Fold *value* into the parked sample; arm the timer if idle."""
         self._parked = (
-            value if self._parked is None
-            else self._combine(self._parked, value)
+            value if self._parked is None else self._combine(self._parked, value)
         )
         self._timer.arm()
 

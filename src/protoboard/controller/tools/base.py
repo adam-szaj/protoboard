@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: MIT
 """Qt-free interaction-tool base (the gui ViewToolMixin adds KeyMap/Theme/on_key)."""
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Mapping, Protocol
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Protocol
 
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     import uuid
 
-    from protoboard.geometry import Point
     from protoboard.controller.editing import EditState
     from protoboard.controller.ports import (
         ExecutorPort,
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
         StatusEvent,
         WheelInput,
     )
+    from protoboard.geometry import Point
 
 
 class KeyResolver(Protocol):
@@ -173,6 +175,7 @@ class ControllerTool:
     def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
         """Hover/move — delegates to :meth:`on_move`, reports nothing hit."""
         from protoboard.controller.ports import HoverEvent
+
         self.on_move(self._synth_pointer(point, mods, primary=False))
         return HoverEvent(point=point)
 
@@ -191,6 +194,7 @@ class ControllerTool:
         ``button`` is the primary button for a click and ``0`` for a move.
         """
         from protoboard.controller.ports import LEFT_BUTTON, PointerInput
+
         return PointerInput(
             view_pos=point,
             scene_pos=point,

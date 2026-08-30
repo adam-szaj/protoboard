@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, overload
 import structlog
 
 from protoboard.domain.components.footprints import Footprint
-from protoboard.types import Side
 from protoboard.geometry import Point, Rect, Transform2D, Vector, round_coord
 from protoboard.services.call_counters import counted
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -26,14 +26,24 @@ _log = structlog.get_logger(__name__)
 
 # Component classes whose leads can be bent freely — only the pads matter for
 # collision/selection purposes, not the floating body between them.
-_FLEXIBLE_LEAD_CLASSES: frozenset[str] = frozenset({
-    "resistor", "capacitor_polar", "capacitor_nonpolar", "inductor",
-    "diode", "diode_zener", "diode_led",
-    "transistor_npn", "transistor_pnp",
-    "transistor_nmos", "transistor_pmos",
-    "transistor_njfet", "transistor_pjfet",
-    "fuse",
-})
+_FLEXIBLE_LEAD_CLASSES: frozenset[str] = frozenset(
+    {
+        "resistor",
+        "capacitor_polar",
+        "capacitor_nonpolar",
+        "inductor",
+        "diode",
+        "diode_zener",
+        "diode_led",
+        "transistor_npn",
+        "transistor_pnp",
+        "transistor_nmos",
+        "transistor_pmos",
+        "transistor_njfet",
+        "transistor_pjfet",
+        "fuse",
+    }
+)
 
 _VALID_ROTATIONS = frozenset({0, 90, 180, 270})
 
@@ -42,7 +52,7 @@ _VALID_ROTATIONS = frozenset({0, 90, 180, 270})
 class ComponentPlacement:
     component_id: uuid.UUID
     position: Point
-    rotation: int # TODO change to Rorate2D
+    rotation: int  # TODO change to Rorate2D
     side: Side
     label_offset: Vector = field(default_factory=lambda: Vector(0.05, 0.05))
     pin_offsets: dict[int, Vector] = field(default_factory=dict)
@@ -108,7 +118,9 @@ class PlacementCollection:
         initial: dict[uuid.UUID, ComponentPlacement] | None = None,
     ) -> None:
         self._by_id: dict[uuid.UUID, ComponentPlacement] = dict(initial or {})
-        self._compose: Callable[[uuid.UUID, ComponentPlacement], ComponentPlacement] | None = None
+        self._compose: (
+            Callable[[uuid.UUID, ComponentPlacement], ComponentPlacement] | None
+        ) = None
 
     def set_compose_fn(
         self,
@@ -117,9 +129,7 @@ class PlacementCollection:
         """Register the group-transform composer (called on every value read)."""
         self._compose = fn
 
-    def _composed(
-        self, cid: uuid.UUID, pl: ComponentPlacement
-    ) -> ComponentPlacement:
+    def _composed(self, cid: uuid.UUID, pl: ComponentPlacement) -> ComponentPlacement:
         if self._compose is None:
             return pl
         return self._compose(cid, pl)
@@ -194,12 +204,13 @@ class PlacementCollection:
     def clear(self) -> None:
         self._by_id.clear()
 
-    def update(
-        self, other: PlacementMap | dict[uuid.UUID, ComponentPlacement]
-    ) -> None:
+    def update(self, other: PlacementMap | dict[uuid.UUID, ComponentPlacement]) -> None:
         """Bulk-store local placements (verbatim, no compose)."""
-        items = other.local_items() if isinstance(other, PlacementCollection) \
+        items = (
+            other.local_items()
+            if isinstance(other, PlacementCollection)
             else other.items()
+        )
         for cid, pl in items:
             self._by_id[cid] = pl
 
@@ -292,8 +303,8 @@ def unrotate(p: Point | Vector, rotation: int) -> Point | Vector:
     return _rotate(p, (360 - rotation) % 360)
 
 
-_BODY_MARGIN = 0.5      # raster units — rigid packages (DIP, SIL, connectors)
-_PAD_MARGIN  = 0.1      # raster units — flexible-lead parts (axial, TO-92, …)
+_BODY_MARGIN = 0.5  # raster units — rigid packages (DIP, SIL, connectors)
+_PAD_MARGIN = 0.1  # raster units — flexible-lead parts (axial, TO-92, …)
 
 
 def _is_flexible_body(footprint: Footprint, component_class: str) -> bool:
@@ -606,6 +617,7 @@ def resolve_pin_world_position(
         return None
     try:
         from protoboard.domain.components.package import resolved_footprint
+
         fp = resolved_footprint(defn, inst, families)
         return pin_world_position(fp, placement, pin_number)
     except (IndexError, ValueError):
@@ -629,8 +641,7 @@ def validate_pins_on_pads(
         pin_num = n + 1
         wp = pin_world_position(footprint, placement, pin_num)
         if not any(
-            abs(wp.x - px) < tol and abs(wp.y - py) < tol
-            for px, py in pad_positions
+            abs(wp.x - px) < tol and abs(wp.y - py) < tol for px, py in pad_positions
         ):
             misses.append((pin_num, wp))
     return misses
@@ -653,6 +664,7 @@ def warn_pins_off_pads(
         return
     from protoboard.domain.board.boxes import GapAtom
     from protoboard.domain.components.package import resolved_footprint
+
     pad_set: frozenset[tuple[float, float]] = frozenset(
         (center.x, center.y)
         for atom, center in board.atoms()
@@ -675,7 +687,8 @@ def warn_pins_off_pads(
 
 
 def _pin_position_set(
-    footprint: Footprint, placement: ComponentPlacement,
+    footprint: Footprint,
+    placement: ComponentPlacement,
 ) -> set[tuple[float, float]]:
     """Rounded ``(x, y)`` world position of every pin — a coincidence key set.
 
@@ -731,7 +744,9 @@ def move_blocked(
 
         other_fp = resolved_footprint(other_defn, other_inst, other_inst.families)
         other_bbox = component_bbox(
-            other_fp, other_pl, other_defn.component_class,
+            other_fp,
+            other_pl,
+            other_defn.component_class,
         )
         if new_bbox.intersects(other_bbox):
             # Only block when no pin of the moved component coincides with a pin

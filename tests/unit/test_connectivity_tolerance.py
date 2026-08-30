@@ -15,8 +15,6 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
@@ -24,6 +22,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, PlacementColl
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.schematic import PinRef
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _perfboard(rows: int, cols: int) -> Board:
@@ -35,7 +34,10 @@ def _perfboard(rows: int, cols: int) -> Board:
             height_policy=SizePolicy.HUG,
             layers=PadLayers(top=True, bottom=True, plated_through=True),
         ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+        rows=rows,
+        cols=cols,
+        row_gap=0.0,
+        col_gap=0.0,
     )
     return Board(root=grid)
 
@@ -44,24 +46,32 @@ def _make_resistor_with_fractional_offset(
     board: Board, offset_y: float
 ) -> tuple[ConnectivityGraph, ComponentInstance, Wire]:
     """Place a 2-pin resistor whose pin-1 anchor sits at y=0.5+offset_y."""
-    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
-    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+    defn = make_sil("R")
+    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+        defn, sil_families(defn)
+    )
     # Rotation 90 → pin 1 at position, pin 2 at position + (1, 0).
     pl = ComponentPlacement(
         component_id=inst.id,
         position=Point(0.5, 0.5 + offset_y),
-        rotation=90, side="top",
+        rotation=90,
+        side="top",
     )
     # Wire from board pad (1.5, 0.5) to pad (2.5, 0.5) — same row, exact half-grid.
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(1.5, 0.5), Point(2.5, 0.5)],
-        insulated=False, side="top",
+        insulated=False,
+        side="top",
     )
-    lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
+    lay = Layout(
+        placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire])
+    )
     graph = ConnectivityGraph(
-        board=board, layout=lay,
-        components={defn.name: defn}, instances={inst.id: inst},
+        board=board,
+        layout=lay,
+        components={defn.name: defn},
+        instances={inst.id: inst},
     )
     return graph, inst, wire
 
@@ -82,23 +92,31 @@ class TestConnectivityToleratesFractionalOffsets:
         # Even more aggressive: wire endpoint y differs from pin y by 5e-3.
         # Both should map to the same _NodeKey under _SNAP_TOL=5e-3.
         board = _perfboard(1, 3)
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        defn = make_sil("R")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+            defn, sil_families(defn)
+        )
         pl = ComponentPlacement(
             component_id=inst.id,
             position=Point(0.5, 0.5),
-            rotation=90, side="top",
+            rotation=90,
+            side="top",
         )
         # Wire endpoint deliberately at 0.503 instead of 0.5.
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.503), Point(2.5, 0.5)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire])
+        )
         graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
         )
         # Pin 2 → wire start point → board pad (1.5, 0.5): all the same node.
         node_pin2 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=2))

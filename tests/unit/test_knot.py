@@ -62,7 +62,10 @@ class TestWirePinKnot:
         net = uuid.uuid4()
         wid = uuid.uuid4()
         k = WirePinKnot(
-            id=wpid, position=pos, net_id=net, wire_ids=frozenset({wid}),
+            id=wpid,
+            position=pos,
+            net_id=net,
+            wire_ids=frozenset({wid}),
         )
         assert k.id == wpid
         assert k.position == pos
@@ -79,13 +82,17 @@ class TestWirePinKnot:
 
     def test_net_id_optional(self) -> None:
         k = WirePinKnot(
-            id=uuid.uuid4(), position=Point(1, 1), net_id=None,
+            id=uuid.uuid4(),
+            position=Point(1, 1),
+            net_id=None,
         )
         assert k.net_id is None
 
     def test_satisfies_protocol(self) -> None:
         k = WirePinKnot(
-            id=uuid.uuid4(), position=Point(0, 0), net_id=None,
+            id=uuid.uuid4(),
+            position=Point(0, 0),
+            net_id=None,
         )
         assert isinstance(k, Knot)
 
@@ -93,7 +100,9 @@ class TestWirePinKnot:
         wpid = uuid.uuid4()
         a = WirePinKnot(id=wpid, position=Point(0, 0), net_id=None)
         b = WirePinKnot(
-            id=wpid, position=Point(99, 99), net_id=uuid.uuid4(),
+            id=wpid,
+            position=Point(99, 99),
+            net_id=uuid.uuid4(),
         )
         # Same id ⇒ equal, regardless of fields.  Idiom shared with the
         # other Knot subtypes.
@@ -106,7 +115,9 @@ class TestWirePinKnot:
         # to a transient joint that was replaced.
         same_id = uuid.uuid4()
         wp = WirePinKnot(
-            id=same_id, position=Point(0, 0), net_id=None,
+            id=same_id,
+            position=Point(0, 0),
+            net_id=None,
         )
         jk = JointKnot(id=same_id, position=Point(0, 0))
         assert wp != jk
@@ -116,7 +127,9 @@ class TestWirePinKnot:
         # isinstance() narrows correctly — used pervasively in layout.py
         # and elsewhere.
         wp = WirePinKnot(
-            id=uuid.uuid4(), position=Point(0, 0), net_id=None,
+            id=uuid.uuid4(),
+            position=Point(0, 0),
+            net_id=None,
         )
         jk = JointKnot(id=uuid.uuid4(), position=Point(0, 0))
         pk = PinKnot(

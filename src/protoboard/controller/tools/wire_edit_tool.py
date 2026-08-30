@@ -33,27 +33,31 @@ through it exactly as they do in SelectTool.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Callable, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, cast
 
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.geometry import Point
-    from protoboard.controller.ports import HoverEvent, KeyInput, PointerInput
     from protoboard.controller.editing import EditState
-    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.editing.wire_edit_arm import WireEditArm
-    from protoboard.controller.selection.mouse_input import MouseInputController, Mods
+    from protoboard.controller.ports import HoverEvent, PointerInput
     from protoboard.controller.selection.adapters import WireVertexSelectable
-    from protoboard.controller.selection.mouse_input import Intent
+    from protoboard.controller.selection.hit_test import WireEditCycle
+    from protoboard.controller.selection.mouse_input import (
+        Intent,
+        Mods,
+        MouseInputController,
+    )
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.service import SelectionService
-    from protoboard.controller.selection.hit_test import WireEditCycle
     from protoboard.controller.selection.wire_edit import WireRange, WireRangeEdit
+    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.layout.wire import Wire
+    from protoboard.geometry import Point
 
 
 # Own action namespace — the wire-edit op keys.  Copied verbatim from
@@ -214,8 +218,12 @@ class WireEditTool(ControllerTool):
 
     def displayable_action_ids(self) -> list[str]:
         return [
-            _ACT_REROUTE, _ACT_AUTOROUTE, _ACT_FLIP_FRAGMENT,
-            _ACT_SIMPLIFY_FRAGMENT, _ACT_SET_INSULATED_FRAGMENT, _ACT_DELETE,
+            _ACT_REROUTE,
+            _ACT_AUTOROUTE,
+            _ACT_FLIP_FRAGMENT,
+            _ACT_SIMPLIFY_FRAGMENT,
+            _ACT_SET_INSULATED_FRAGMENT,
+            _ACT_DELETE,
         ]
 
     # -- ArmedSubTool surface ----------------------------------------------
@@ -383,9 +391,7 @@ class WireEditTool(ControllerTool):
             return
         cmd = arm.flip(list(self._session.layout.wires), state, target_side)
         if cmd is None:
-            self._status(
-                "Flip: pick a fragment on a single wire (two vertices apart)."
-            )
+            self._status("Flip: pick a fragment on a single wire (two vertices apart).")
             return
         # Flip preserves the wire's vertex count, so the picked sub-range stays
         # valid: keep it armed (highlight + a repeated [F] target the SAME
@@ -460,9 +466,7 @@ class WireEditTool(ControllerTool):
 
     # -- commit / re-arm / exit --------------------------------------------
 
-    def _apply_range_edit(
-        self, edit: WireRangeEdit | None, empty_msg: str
-    ) -> None:
+    def _apply_range_edit(self, edit: WireRangeEdit | None, empty_msg: str) -> None:
         """Execute a range edit and choose the post-op behavior.
 
         No edit (refused / no-op) → status hint, stay as-is.  Not a cut
@@ -716,9 +720,7 @@ class WireEditTool(ControllerTool):
             cast("Stop", stop),
             on_done=cast("_Callable[[list[Selectable]], None]", on_done),
             on_cancel=cast("_Callable[[], None] | None", on_cancel),
-            on_progress=cast(
-                "_Callable[[list[Selectable]], None] | None", on_progress
-            ),
+            on_progress=cast("_Callable[[list[Selectable]], None] | None", on_progress),
         )
 
         def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
@@ -727,9 +729,7 @@ class WireEditTool(ControllerTool):
         self._mouse = PointPickController(
             session,
             _resolve,
-            on_preview=cast(
-                "_Callable[[Point, Mods], None] | None", on_preview
-            ),
+            on_preview=cast("_Callable[[Point, Mods], None] | None", on_preview),
         )
 
     def _pick_at(self, what: object, scene_pt: Point) -> Selectable | None:
@@ -750,9 +750,7 @@ class WireEditTool(ControllerTool):
             from protoboard.types import Side
 
             camera_side = getattr(self._view, "camera_side", "top")
-            hitter = HitTester(
-                self._session, camera_side=cast("Side", camera_side)
-            )
+            hitter = HitTester(self._session, camera_side=cast("Side", camera_side))
             sel, cycle = hitter.hit_wire_vertex(
                 scene_pt.x,
                 scene_pt.y,
@@ -804,12 +802,11 @@ class WireEditTool(ControllerTool):
         re-merges the schematic instead of keeping the stale net.  (Copied from
         ``SelectTool._net_aware_add_factory``.)
         """
-        from protoboard.domain.commands.base import Command, ComponentState
-        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
         from protoboard.controller.editing.wire_nets import resolve_wire_nets
+        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
         from protoboard.domain.layout.wire import Wire as _Wire
 
-        def _factory(wire: _Wire) -> "Command[ComponentState]":
+        def _factory(wire: _Wire) -> Command[ComponentState]:
             cmd = AddWireWithNetsCommand(wire=wire)
             resolve_wire_nets(
                 self._session,
@@ -836,9 +833,7 @@ class WireEditTool(ControllerTool):
         )
 
     def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
-        return next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        return next((w for w in self._session.layout.wires if w.id == wire_id), None)
 
     def _wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
         return self._session.cached_wire_net_map()
@@ -849,9 +844,7 @@ class WireEditTool(ControllerTool):
 
     def _execute_command(self, cmd: object) -> bool:
         from protoboard.domain.commands.base import (
-            Command,
             CommandRejectedError,
-            ComponentState,
         )
 
         try:
@@ -874,9 +867,7 @@ class WireEditTool(ControllerTool):
         if self._view is None:
             return
         self._view.notify_status(
-            StatusEvent(
-                "wire-edit.status", {"text": msg, "timeout_ms": timeout_ms}
-            )
+            StatusEvent("wire-edit.status", {"text": msg, "timeout_ms": timeout_ms})
         )
 
     # -- wire-edit overlays (tool-drawn) ------------------------------------

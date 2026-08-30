@@ -14,19 +14,15 @@ from __future__ import annotations
 from PySide6.QtGui import QColor
 
 #: Inks for light bodies (black, graphite, navy).
-DARK_INKS: list[str] = ["#111111", 
-                        "#2b2b2b",
-                        "#0d1b3e"]
+DARK_INKS: list[str] = ["#111111", "#2b2b2b", "#0d1b3e"]
 #: Inks for dark bodies (white, light-grey, yellow).
-LIGHT_INKS: list[str] = ["#dddddd",
-                         "#b4b4b4",
-                         "#ffd400"]
+LIGHT_INKS: list[str] = ["#dddddd", "#b4b4b4", "#ffd400"]
 
 _LUMA_THRESHOLD = 0.5
 
 
 def _chan_lin(c: float) -> float:
-    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055)**2.4
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
 
 
 def relative_luminance(rgb: tuple[float, float, float]) -> float:
@@ -51,7 +47,8 @@ def best_ink(body_color: QColor) -> QColor:
     palette = DARK_INKS if body_lum > _LUMA_THRESHOLD else LIGHT_INKS
     best = max(
         palette,
-        key=lambda hexs: contrast_ratio(body_lum,
-                                        relative_luminance(_rgb01(QColor(hexs)))),
+        key=lambda hexs: contrast_ratio(
+            body_lum, relative_luminance(_rgb01(QColor(hexs)))
+        ),
     )
     return QColor(best)

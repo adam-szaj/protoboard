@@ -35,6 +35,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from protoboard.controller.editing.controller import EditController, EditState
+    from protoboard.controller.editing.item_handle import ItemId
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.group_tree import GroupTree
@@ -43,8 +45,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point, Rect
     from protoboard.services.drc.engine import DRCIssue
-    from protoboard.controller.editing.controller import EditController, EditState
-    from protoboard.controller.editing.item_handle import ItemId
 
 
 class PreviewState:
@@ -141,9 +141,7 @@ class PreviewState:
     def cached_wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
         return self._live.cached_wire_net_map()
 
-    def conflict_scanner(
-        self, *, pad_index: PadIndex | None = None
-    ) -> ConflictScanner:
+    def conflict_scanner(self, *, pad_index: PadIndex | None = None) -> ConflictScanner:
         return self._live.conflict_scanner(pad_index=pad_index)
 
     def run_drc(self) -> list[DRCIssue]:
@@ -155,9 +153,7 @@ class PreviewState:
     def connectivity_graph(self) -> ConnectivityGraph:
         return self._live.connectivity_graph()
 
-    def get_pin_position(
-        self, comp_id: uuid.UUID, pin_number: int
-    ) -> Point | None:
+    def get_pin_position(self, comp_id: uuid.UUID, pin_number: int) -> Point | None:
         return self._live.get_pin_position(comp_id, pin_number)
 
     def selection(self) -> frozenset[ItemId]:

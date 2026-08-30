@@ -43,4 +43,5 @@ def load_renderer_plugins(library_dirs: Iterable[Path]) -> list[Path]:
     for ordering / idempotency / error handling.
     """
     return load_plugin_modules(
-        library_dirs, "renderers", namespace="protoboard_renderer_plugins")
+        library_dirs, "renderers", namespace="protoboard_renderer_plugins"
+    )

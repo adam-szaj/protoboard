@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,
@@ -39,7 +40,6 @@ from protoboard.gui.renderers.wire_renderer import (
     _lines_within_island,
     render_ratsnest,
 )
-from protoboard.controller.theme import DEFAULT_THEME
 
 if TYPE_CHECKING:
     from pytestqt.qtbot import QtBot
@@ -72,10 +72,7 @@ class TestLinesWithinIsland:
         # We assert ≤ 4 (no spurious K_4) and ≥ 2 (network spans pts).
         assert 2 <= len(lines) <= 4
         # No duplicate pairs in either direction.
-        pairs = {
-            tuple(sorted([(a.x, a.y), (b.x, b.y)]))
-            for a, b in lines
-        }
+        pairs = {tuple(sorted([(a.x, a.y), (b.x, b.y)])) for a, b in lines}
         assert len(pairs) == len(lines)
 
     def test_empty_or_singleton_yields_no_lines(self) -> None:
@@ -153,17 +150,15 @@ def _two_pin_def() -> ComponentDefinition:
     )
 
 
-def _build_two_island_scenario() -> (
-    tuple[
-        QGraphicsScene,
-        Schematic,
-        dict[uuid.UUID, ComponentPlacement],
-        dict[uuid.UUID, ComponentInstance],
-        dict[str, ComponentDefinition],
-        _StubGraph,
-        Net,
-    ]
-):
+def _build_two_island_scenario() -> tuple[
+    QGraphicsScene,
+    Schematic,
+    dict[uuid.UUID, ComponentPlacement],
+    dict[uuid.UUID, ComponentInstance],
+    dict[str, ComponentDefinition],
+    _StubGraph,
+    Net,
+]:
     """4 pins in one net, partitioned 2+2 into two electrical islands.
 
     Layout::
@@ -175,55 +170,72 @@ def _build_two_island_scenario() -> (
     family = sil_family(2)
     assert family is not None
     families = {family.family_id: family}
-    inst_a = ComponentInstance.new(
-        definition_ref="CONN", refdes="J1", value=""
-    ).bind(defn, families)
-    inst_b = ComponentInstance.new(
-        definition_ref="CONN", refdes="J2", value=""
-    ).bind(defn, families)
+    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="").bind(
+        defn, families
+    )
+    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="").bind(
+        defn, families
+    )
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
     components = {"CONN": defn}
     placements = {
         inst_a.id: ComponentPlacement(
-            component_id=inst_a.id, position=Point(2.0, 5.0),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(2.0, 5.0),
+            rotation=0,
+            side="top",
         ),
         inst_b.id: ComponentPlacement(
-            component_id=inst_b.id, position=Point(10.0, 5.0),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(10.0, 5.0),
+            rotation=0,
+            side="top",
         ),
     }
     pins = {
-        PinRef(inst_a.id, 1), PinRef(inst_a.id, 2),
-        PinRef(inst_b.id, 1), PinRef(inst_b.id, 2),
+        PinRef(inst_a.id, 1),
+        PinRef(inst_a.id, 2),
+        PinRef(inst_b.id, 1),
+        PinRef(inst_b.id, 2),
     }
     net = Net(id=uuid.uuid4(), name="N1", pins=pins)
     schematic = Schematic(nets={net.id: net})
     # Two islands: pins-1 form one set, pins-2 form the other.
-    graph = _StubGraph(pin_to_node={
-        PinRef(inst_a.id, 1): "island_X",
-        PinRef(inst_b.id, 1): "island_X",
-        PinRef(inst_a.id, 2): "island_Y",
-        PinRef(inst_b.id, 2): "island_Y",
-    })
+    graph = _StubGraph(
+        pin_to_node={
+            PinRef(inst_a.id, 1): "island_X",
+            PinRef(inst_b.id, 1): "island_X",
+            PinRef(inst_a.id, 2): "island_Y",
+            PinRef(inst_b.id, 2): "island_Y",
+        }
+    )
     return (
-        QGraphicsScene(), schematic, placements, instances, components,
-        graph, net,
+        QGraphicsScene(),
+        schematic,
+        placements,
+        instances,
+        components,
+        graph,
+        net,
     )
 
 
 class TestRenderRatsnestEndToEnd:
     def test_multi_island_uses_warning_colour(self, qtbot: QtBot) -> None:
-        scene, schematic, pl, inst, comp, graph, net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, graph, net = _build_two_island_scenario()
         # Treat the net as "routed" in the conventional sense — yet
         # ``render_ratsnest`` should still emit warning lines because
         # the pins span two islands.
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets=set(),  # not routed → would be drawn anyway
-            graph=graph, mode="full", ghost=False,
+            graph=graph,
+            mode="full",
+            ghost=False,
         )
         assert added, "Expected lines for multi-island net."
         # Every emitted line must use ratsnest_islands_color.
@@ -233,18 +245,20 @@ class TestRenderRatsnestEndToEnd:
             assert item.pen().color() == expected
 
     def test_single_island_uses_normal_colour(self, qtbot: QtBot) -> None:
-        scene, schematic, pl, inst, comp, _graph, net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, _graph, net = _build_two_island_scenario()
         # Collapse everything into one island — single-island net,
         # plain ratsnest colour.
-        graph = _StubGraph(pin_to_node={
-            ref: "one_island" for ref in net.pins
-        })
+        graph = _StubGraph(pin_to_node={ref: "one_island" for ref in net.pins})
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets=set(),
-            graph=graph, mode="full", ghost=False,
+            graph=graph,
+            mode="full",
+            ghost=False,
         )
         assert added, "Expected lines for the unrouted (single-island) net."
         expected = QColor(DEFAULT_THEME.ratsnest_color)
@@ -252,61 +266,80 @@ class TestRenderRatsnestEndToEnd:
             assert item.pen().color() == expected
 
     def test_full_mode_draws_kn_within_single_island(
-        self, qtbot: QtBot,
+        self,
+        qtbot: QtBot,
     ) -> None:
-        scene, schematic, pl, inst, comp, _graph, net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, _graph, net = _build_two_island_scenario()
         graph = _StubGraph(pin_to_node={ref: "X" for ref in net.pins})
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets=set(),
-            graph=graph, mode="full", ghost=False,
+            graph=graph,
+            mode="full",
+            ghost=False,
         )
         # 4 pins, K_4 = 6 lines.
         assert len(added) == 6
 
     def test_closest_mode_draws_fewer_lines(self, qtbot: QtBot) -> None:
-        scene, schematic, pl, inst, comp, _graph, net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, _graph, net = _build_two_island_scenario()
         graph = _StubGraph(pin_to_node={ref: "X" for ref in net.pins})
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets=set(),
-            graph=graph, mode="closest", ghost=False,
+            graph=graph,
+            mode="closest",
+            ghost=False,
         )
         assert len(added) < 6, "Closest mode should be sparser than K_n."
 
     def test_ghost_mode_skips_routed_single_island_nets(
-        self, qtbot: QtBot,
+        self,
+        qtbot: QtBot,
     ) -> None:
-        scene, schematic, pl, inst, comp, _graph, net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, _graph, net = _build_two_island_scenario()
         graph = _StubGraph(pin_to_node={ref: "X" for ref in net.pins})
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets={net.id},  # marked as routed
-            graph=graph, mode="full", ghost=True,
+            graph=graph,
+            mode="full",
+            ghost=True,
         )
         assert added == [], "Ghost mode should skip routed single-island nets."
 
     def test_ghost_mode_still_warns_on_multi_island(
-        self, qtbot: QtBot,
+        self,
+        qtbot: QtBot,
     ) -> None:
         # A multi-island net is by definition NOT "routed" (net_is_complete
         # returns False when pins span >1 ElectricSet), so this is mostly
         # a defensive test — even if the caller's routed_nets set is
         # buggy and includes a multi-island net, the warning must still
         # appear.
-        scene, schematic, pl, inst, comp, graph, net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, graph, net = _build_two_island_scenario()
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets={net.id},  # caller-side mistake; warning must override
-            graph=graph, mode="full", ghost=True,
+            graph=graph,
+            mode="full",
+            ghost=True,
         )
         # Ghost mode does skip "routed" nets — that's intentional.  The
         # warning surfaces during Full mode runs (default for the UI).
@@ -318,13 +351,17 @@ class TestLegacyBehaviour:
     pre-redesign code (single-island assumption, current colour)."""
 
     def test_no_graph_falls_back_to_single_bag(self, qtbot: QtBot) -> None:
-        scene, schematic, pl, inst, comp, _graph, _net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, _graph, _net = _build_two_island_scenario()
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets=set(),
-            graph=None, mode="full", ghost=False,
+            graph=None,
+            mode="full",
+            ghost=False,
         )
         assert added, "Legacy path must emit lines without graph."
         expected = QColor(DEFAULT_THEME.ratsnest_color)
@@ -332,12 +369,16 @@ class TestLegacyBehaviour:
             assert item.pen().color() == expected
 
     def test_routed_nets_none_returns_nothing(self, qtbot: QtBot) -> None:
-        scene, schematic, pl, inst, comp, graph, _net = (
-            _build_two_island_scenario()
-        )
+        scene, schematic, pl, inst, comp, graph, _net = _build_two_island_scenario()
         added = render_ratsnest(
-            scene, schematic, pl, inst, comp,
+            scene,
+            schematic,
+            pl,
+            inst,
+            comp,
             routed_nets=None,  # overlay disabled
-            graph=graph, mode="full", ghost=False,
+            graph=graph,
+            mode="full",
+            ghost=False,
         )
         assert added == []

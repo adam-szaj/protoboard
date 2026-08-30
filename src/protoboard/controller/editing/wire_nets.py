@@ -26,13 +26,13 @@ from protoboard.domain.schematic.wire_net_ops import (
 )
 
 if TYPE_CHECKING:
+    from protoboard.controller.editing.controller import EditState
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.wire_net_ops import (
         WireNetClassification,
         _SessionLike,
     )
-    from protoboard.controller.editing.controller import EditState
 
 # The injectable merge prompt (qt-ports D4): given the two nets the new wire
 # would fuse, return the survivor's name — or None on cancel.

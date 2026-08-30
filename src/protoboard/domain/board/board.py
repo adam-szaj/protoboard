@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 from protoboard.domain.board.boxes import (
     BoardGrid,
@@ -20,8 +21,6 @@ from protoboard.domain.board.layout_engine import LayoutNode, layout
 from protoboard.geometry import Point, Rect, Size
 from protoboard.services.call_counters import counted
 from protoboard.units import DEFAULT_PITCH_MM, Millimeter
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import Pad
@@ -119,9 +118,9 @@ class Board:
     def make_pad(
         self,
         position: Point,
-        layers: "PadLayers",
+        layers: PadLayers,
         strip_group_id: int | None = None,
-    ) -> "Pad":
+    ) -> Pad:
         """Construct a Pad of the right subclass for *layers*.
 
         - ``plated_through=True`` → ``ConnectedDoubleSidedBoardPad`` (top and
@@ -139,16 +138,23 @@ class Board:
             IsolatedDoubleSidedBoardPad,
             SingleSidedBoardPad,
         )
+
         if layers.plated_through:
             return ConnectedDoubleSidedBoardPad(
-                position=position, layers=layers, strip_group_id=strip_group_id,
+                position=position,
+                layers=layers,
+                strip_group_id=strip_group_id,
             )
         if layers.top and layers.bottom:
             return IsolatedDoubleSidedBoardPad(
-                position=position, layers=layers, strip_group_id=strip_group_id,
+                position=position,
+                layers=layers,
+                strip_group_id=strip_group_id,
             )
         return SingleSidedBoardPad(
-            position=position, layers=layers, strip_group_id=strip_group_id,
+            position=position,
+            layers=layers,
+            strip_group_id=strip_group_id,
         )
 
 

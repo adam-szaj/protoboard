@@ -6,16 +6,15 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QKeySequence
 
+from protoboard.controller.app_settings import AppSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.gui import keybindings as KB
-from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
@@ -70,9 +69,9 @@ class TestActionRegistry:
 
     def test_every_registered_action_has_handler(self, main_window: MainWindow) -> None:
         for aid in main_window._actions:
-            assert aid in main_window._action_handlers, (
-                f"Action {aid!r} has no handler in _action_handlers"
-            )
+            assert (
+                aid in main_window._action_handlers
+            ), f"Action {aid!r} has no handler in _action_handlers"
 
     def test_registry_size_matches_handler_map(self, main_window: MainWindow) -> None:
         assert len(main_window._actions) == len(main_window._action_handlers)
@@ -99,9 +98,8 @@ class TestLiveReload:
         new_seq = "Ctrl+Alt+5"
         main_window._keybindings.set(KB.ACTION_RELATION_NONE, new_seq)
         main_window._apply_all_keybindings()
-        assert (
-            main_window._actions[KB.ACTION_RELATION_NONE].shortcut()
-            == QKeySequence(new_seq)
+        assert main_window._actions[KB.ACTION_RELATION_NONE].shortcut() == QKeySequence(
+            new_seq
         )
 
     def test_apply_keybindings_clears_shortcut_when_set_empty(
@@ -142,10 +140,15 @@ class TestLayerActions:
         # All layer field names map into _layer_actions.
         assert set(main_window._layer_actions.keys()) == {
             "board",
-            "components_top", "components_bottom",
-            "wires_top", "wires_bottom",
-            "labels", "pin_names", "ratsnest",
-            "pin_pads", "pin_modifiers",
+            "components_top",
+            "components_bottom",
+            "wires_top",
+            "wires_bottom",
+            "labels",
+            "meta_pin_labels",
+            "ratsnest",
+            "pin_pads",
+            "pin_modifiers",
         }
 
     def test_layer_action_dispatches_correct_field(
@@ -183,6 +186,7 @@ class TestLayerActions:
         # Inspect the handler's keywords/args directly so we don't rely
         # on dispatching through Qt or on patching the bound method.
         import functools
+
         layer1_handler = main_window._action_handlers[KB.ACTION_LAYER_1]
         layer3_handler = main_window._action_handlers[KB.ACTION_LAYER_3]
         assert isinstance(layer1_handler, functools.partial)
@@ -253,7 +257,9 @@ class TestShortcutsPageApply:
         page = _ShortcutsPage(kb)
         qtbot.addWidget(page)
 
-        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+Alt+S"))
+        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(
+            QKeySequence("Ctrl+Alt+S")
+        )
         page.apply()
 
         kb_reloaded = KB.KeyBindings.load()
@@ -272,7 +278,9 @@ class TestShortcutsPageApply:
         page = _ShortcutsPage(kb)
         qtbot.addWidget(page)
 
-        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+S"))
+        page._app_tab._seq_widgets[KB.ACTION_SAVE].setKeySequence(
+            QKeySequence("Ctrl+S")
+        )
         page.apply()
 
         kb_reloaded = KB.KeyBindings.load()
@@ -295,9 +303,10 @@ class TestAutorouteDialogMode:
     @pytest.fixture()
     def _routable(self, main_window: MainWindow, monkeypatch):
         import uuid as _uuid
-        from protoboard.domain.schematic.net import Net
+
         import protoboard.gui.dialogs.autoroute_dialog as _dlg_mod
         import protoboard.gui.workers.autoroute_worker as _wrk_mod
+        from protoboard.domain.schematic.net import Net
 
         # A net so _autoroute doesn't early-return on "No nets to route".
         nid = _uuid.uuid4()
@@ -311,6 +320,7 @@ class TestAutorouteDialogMode:
 
             def exec(self) -> int:
                 from PySide6.QtWidgets import QDialog
+
                 return QDialog.DialogCode.Rejected  # user cancels → method returns
 
         def _stub_worker(*_a, **_k):
@@ -322,8 +332,10 @@ class TestAutorouteDialogMode:
 
     def _set_skip(self, mw: MainWindow, skip: bool) -> None:
         from dataclasses import replace
+
         mw._session.routing_settings = replace(
-            mw._session.routing_settings, skip_autoroute_dialog=skip,
+            mw._session.routing_settings,
+            skip_autoroute_dialog=skip,
         )
 
     def test_force_dialog_shows_even_when_setting_skips(self, _routable) -> None:

@@ -3,55 +3,64 @@ components:
   # Templates
   # -----------------------------------------------------------------------
 
-  - name: _MOSFET_TO220_GDS
-    footprints:
-      - {name: TO220, ref: "TO-220"}
-    pin_names: {1: G, 2: D, 3: S}
+- name: _MOSFET_TO220_GDS
+  package_options:
+  - {name: TO220, ref: "@q-tht/TO-220", pin_map: {1: [1], 2: [2], 3: [3]}}
+  meta_pins:
+  - G
+  - D
+  - S
 
-  - name: _MOSFET_TO220_GDS_N
-    component_class: transistor_nmos
-    extends: _MOSFET_TO220_GDS
+- name: _MOSFET_TO220_GDS_N
+  component_class: transistor_nmos
+  extends: _MOSFET_TO220_GDS
 
-  - name: _MOSFET_TO220_GDS_P
-    component_class: transistor_pmos
-    extends: _MOSFET_TO220_GDS
+- name: _MOSFET_TO220_GDS_P
+  component_class: transistor_pmos
+  extends: _MOSFET_TO220_GDS
 
   # -----------------------------------------------------------------------
   # Power MOSFETs (TO-220)
   # -----------------------------------------------------------------------
 
-  - name: IRF540_N
-    extends: _MOSFET_TO220_GDS_N
-    description: "IRF540 N-MOSFET Power transistor [GDS]"
+- name: IRF540_N
+  extends: _MOSFET_TO220_GDS_N
+  description: "IRF540 N-MOSFET Power transistor [GDS]"
 
-  - name: IRFP3705_N
-    extends: _MOSFET_TO220_GDS_N
-    description: "IRF3705 N-MOSFET Power transistor [GDS]"
+- name: IRFP3705_N
+  extends: _MOSFET_TO220_GDS_N
+  description: "IRF3705 N-MOSFET Power transistor [GDS]"
 
-  - name: IRFP3710_N
-    extends: _MOSFET_TO220_GDS_N
-    description: "IRF3710 N-MOSFET Power transistor [GDS]"
+- name: IRFP3710_N
+  extends: _MOSFET_TO220_GDS_N
+  description: "IRF3710 N-MOSFET Power transistor [GDS]"
 
-  - name: IRF9540_P
-    extends: _MOSFET_TO220_GDS_P
-    description: "IRFP9540 P-MOSFET Power transistor [GDS]"
+- name: IRF9540_P
+  extends: _MOSFET_TO220_GDS_P
+  description: "IRFP9540 P-MOSFET Power transistor [GDS]"
 
-  - name: _MOSFET_TO92_DGS
-    component_class: transistor_npn
-    footprints:
-      - {name: TO92, ref: "TO-92"}
-    pin_names: {1: D, 2: G, 3: S}
+- name: _MOSFET_TO92_DGS
+  component_class: transistor_npn
+  package_options:
+  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
+  meta_pins:
+  - D
+  - G
+  - S
 
-  - name: _MOSFET_TO92_SGD
-    component_class: transistor_npn
-    footprints:
-      - {name: TO92, ref: "TO-92"}
-    pin_names: {1: S, 2: G, 3: D}
+- name: _MOSFET_TO92_SGD
+  component_class: transistor_npn
+  package_options:
+  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
+  meta_pins:
+  - S
+  - G
+  - D
 
-  - name: 2N7000
-    extends: _MOSFET_TO92_SGD
-    description: "2N7000 N-Channel low power N-Channel Mosfet"
+- name: 2N7000
+  extends: _MOSFET_TO92_SGD
+  description: "2N7000 N-Channel low power N-Channel Mosfet"
 
-  - name: BS170
-    extends: _MOSFET_TO92_DGS
-    description: "BS170 N-Channel low power N-Channel Mosfet"
+- name: BS170
+  extends: _MOSFET_TO92_DGS
+  description: "BS170 N-Channel low power N-Channel Mosfet"

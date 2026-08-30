@@ -80,3 +80,41 @@ def test_unknown_instance_variant_does_not_use_default_mapping() -> None:
 
     with pytest.raises(ValueError, match="package option"):
         resolve_package_option(definition, instance)
+
+
+def test_family_variant_uses_mapping_declared_on_family_option() -> None:
+    from protoboard.domain.components.package.generated_families import sil_family
+
+    family = sil_family(3)
+    assert family is not None
+    family = type(family)(
+        family_id="to92",
+        label=family.label,
+        variants=(
+            type(family.variants[0])(
+                variant_id="b",
+                label="B",
+                package=family.variants[0].package,
+            ),
+        ),
+    )
+    definition = ComponentDefinition(
+        name="Q",
+        meta_pins=(MetaPin(("B",)), MetaPin(("C",)), MetaPin(("E",))),
+        package_options=(
+            PackageOption(
+                name="TO92",
+                ref="to92",
+                pin_map={1: (2,), 2: (1,), 3: (3,)},
+            ),
+        ),
+    )
+    instance = ComponentInstance.new(
+        definition_ref="Q",
+        refdes="Q1",
+        value="BC547",
+        package_variant="to92/b",
+    ).bind(definition, {"to92": family})
+
+    assert resolve_package_option(definition, instance).ref == "to92"
+    assert package_pins_for_meta_pin(definition, instance, 1) == (2,)

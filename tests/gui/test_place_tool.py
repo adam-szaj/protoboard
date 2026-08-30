@@ -5,15 +5,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtCore import Qt
 
 from protoboard.domain.commands.base import ComponentState
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.place_preview import QtPlacePreview
 from protoboard.gui.tools.gui_tools import PlaceTool
+from protoboard.gui.tools.place_preview import QtPlacePreview
 from tests.gui.input_helpers import key_inp, pointer
 
 if TYPE_CHECKING:
@@ -21,7 +20,7 @@ if TYPE_CHECKING:
 
 
 def _left_click(tool: PlaceTool, x: float, y: float) -> None:
-    """Click once (anchor). If the tool enters drag_pin phase, click again to confirm."""
+    """Click once (anchor). If the tool enters drag_pin phase, click again to confirm."""  # noqa: E501
     tool.on_press(pointer(x, y))
     # If the component has bendable pins, confirm each drag pin with a click at
     # the same position (accepts the default offset).
@@ -90,11 +89,14 @@ class TestPlaceToolSmdMount:
             PackageVariant,
         )
         from protoboard.domain.components.package.loader import build_package
+
         pkg = build_package(
             {
                 "shape": "prism",
                 "dims": {"lx": 2.0, "ly": 1.25},
-                "arrangement": "axial", "mount": "surface", "bend": 0,
+                "arrangement": "axial",
+                "mount": "surface",
+                "bend": 0,
                 "leads": {
                     "direction": [[0, 0, -1], [0, 0, -1]],
                     "body_offset": {"unit": 2.5, "value": [[1, 0]]},
@@ -124,7 +126,7 @@ class TestPlaceToolSmdMount:
         return "R_SMD"
 
     @staticmethod
-    def _builtin_view(session: EditorSession) -> "BoardView":
+    def _builtin_view(session: EditorSession) -> BoardView:
         # A session over the real shipped library (the fixture library has only a
         # minimal ``R`` with no ``footprints:`` list), reusing the fixture board.
         from protoboard.paths import BUILTIN_LIBRARY_DIR
@@ -146,7 +148,7 @@ class TestPlaceToolSmdMount:
         view = self._builtin_view(session)
         # The chosen SMD body → pin 2 gets a free neighbour ring (the eight pads
         # around pin 1), so the tool enters the two-phase drag.
-        view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
+        view.set_tool(PlaceTool("R", package_variant="chip-smd/imperial/0805"))
         tool = view._active_tool
         assert isinstance(tool, PlaceTool)
         specs = tool._bend_specs(view._session.components["R"])
@@ -159,21 +161,19 @@ class TestPlaceToolSmdMount:
         # The same library ``R`` in a THT axial footprint keeps its free
         # bendable lead — the SMD fix must not turn axial parts rigid.
         view = self._builtin_view(session)
-        view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
+        view.set_tool(PlaceTool("R", package_variant="r-tht/DIN/0207"))
         tool = view._active_tool
         assert isinstance(tool, PlaceTool)
         specs = tool._bend_specs(view._session.components["R"])
         assert any(s.is_free() for s in specs.values())
 
-    def test_ghost_body_matches_chosen_variant(
-        self, session: EditorSession
-    ) -> None:
+    def test_ghost_body_matches_chosen_variant(self, session: EditorSession) -> None:
         # Regression: the ghost resolves its body against the catalogue, so
         # _rebuild_ghost must draw with a theme carrying the session's
         # package_families — otherwise the chosen SMD-0805 falls through to the
         # default candy disc. The two variants must give different ghost bodies.
         view = self._builtin_view(session)
-        view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
+        view.set_tool(PlaceTool("R", package_variant="chip-smd/imperial/0805"))
         smd_tool = view._active_tool
         assert isinstance(smd_tool, PlaceTool)
         smd_tool._rebuild_ghost()
@@ -182,7 +182,7 @@ class TestPlaceToolSmdMount:
         assert smd_preview.ghost_item is not None
         smd_rect = smd_preview.ghost_item.boundingRect()
 
-        view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
+        view.set_tool(PlaceTool("R", package_variant="r-tht/DIN/0207"))
         axial_tool = view._active_tool
         assert isinstance(axial_tool, PlaceTool)
         axial_tool._rebuild_ghost()
@@ -205,13 +205,13 @@ class TestPlaceToolSmdMount:
         from protoboard.geometry import Point
 
         view = self._builtin_view(session)
-        view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
+        view.set_tool(PlaceTool("R", package_variant="chip-smd/imperial/0805"))
         smd = view._active_tool
         assert isinstance(smd, PlaceTool)
         smd._anchor_pos = Point(5.0, 5.0)
         smd_base = smd._pin_baseline_world(2)
 
-        view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
+        view.set_tool(PlaceTool("R", package_variant="r-tht/DIN/0207"))
         axial = view._active_tool
         assert isinstance(axial, PlaceTool)
         axial._anchor_pos = Point(5.0, 5.0)
@@ -236,16 +236,18 @@ class TestPlaceToolSmdMount:
     def test_pin2_snaps_to_diagonal_neighbour(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.geometry import Point
         from protoboard.domain.layout.placement import pin_world_position
+        from protoboard.geometry import Point
+
         name = self._add_smd_def(session)
         board_view.set_tool(PlaceTool(name))
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
+
         def press(x: float, y: float) -> None:
             tool.on_press(pointer(x, y))
 
-        press(1, 1)                       # anchor pin 1 at (1,1)
+        press(1, 1)  # anchor pin 1 at (1,1)
         assert tool._phase == "drag_pin"
         # Drag pin 2 toward the diagonal SE pad (2,2) and confirm.
         off = tool._compute_drag_offset(Point(2.0, 2.0))
@@ -253,11 +255,16 @@ class TestPlaceToolSmdMount:
         # Committing that offset must land pin 2 on the SE diagonal neighbour.
         tool._pin_offsets[2] = off
         defn = session.components[name]
-        from protoboard.domain.layout.placement import ComponentPlacement
         import uuid
+
+        from protoboard.domain.layout.placement import ComponentPlacement
+
         pl = ComponentPlacement(
-            component_id=uuid.uuid4(), position=Point(1.0, 1.0),
-            rotation=0, side="top", pin_offsets={2: off},
+            component_id=uuid.uuid4(),
+            position=Point(1.0, 1.0),
+            rotation=0,
+            side="top",
+            pin_offsets={2: off},
         )
         footprint = defn.default_footprint(session.package_families)
         p1 = pin_world_position(footprint, pl, 1)
@@ -362,9 +369,7 @@ class TestPlaceToolRotation:
         assert placement.rotation == 90
 
 
-def _key_event(
-    key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
-):
+def _key_event(key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier):
     return key_inp(key, mods)
 
 
@@ -379,9 +384,10 @@ class TestPlaceToolKeymap:
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
         assert tool.wants_key(_key_event(Qt.Key.Key_R)) is True  # rotate CW
-        assert tool.wants_key(
-            _key_event(Qt.Key.Key_R, Qt.KeyboardModifier.AltModifier)
-        ) is True  # flip
+        assert (
+            tool.wants_key(_key_event(Qt.Key.Key_R, Qt.KeyboardModifier.AltModifier))
+            is True
+        )  # flip
         # An unrelated key is not claimed.
         assert tool.wants_key(_key_event(Qt.Key.Key_K)) is False
 
@@ -428,7 +434,9 @@ class TestPlaceToolInitialValue:
     into ``ComponentInstance.value`` on a fresh placement."""
 
     def test_concrete_part_value_equals_name(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         # The default fixture's R has no default_value field → falls
         # back to defn.name="R".
@@ -440,11 +448,14 @@ class TestPlaceToolInitialValue:
         assert inst.value == "R"
 
     def test_generic_template_value_is_question_mark(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         # Override the in-memory definition with default_value="?" to
         # simulate a "generic" template entry.
         import dataclasses as _dc
+
         defn = session.components["R"]
         session.components["R"] = _dc.replace(defn, default_value="?")
         board_view.set_tool(PlaceTool("R"))
@@ -458,8 +469,13 @@ class TestPlaceToolInitialValue:
 class TestPlacementPromptSeam:
     """Pad-conflict decisions flow through the injected prompts (qt-ports D4)."""
 
-    def _place_r(self, board_view: BoardView, x: float, y: float,
-                 prompts: "PlacementPrompts | None" = None) -> None:
+    def _place_r(
+        self,
+        board_view: BoardView,
+        x: float,
+        y: float,
+        prompts: PlacementPrompts | None = None,
+    ) -> None:
         board_view.set_tool(PlaceTool("R", prompts=prompts))
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
@@ -495,8 +511,6 @@ class TestPlacementPromptSeam:
         from protoboard.gui.placement_conflict import PlacementPrompts
 
         self._place_r(board_view, 0.5, 0.5)
-        prompts = PlacementPrompts(
-            pad=lambda _req: False, wire=lambda _req: None
-        )
+        prompts = PlacementPrompts(pad=lambda _req: False, wire=lambda _req: None)
         self._place_r(board_view, 0.5, 0.5, prompts=prompts)
         assert len(session.layout.placements) == 1

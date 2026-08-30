@@ -20,7 +20,6 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.drag_cmds import MoveDragSetCommand
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import JointKnot, PinKnot
 from protoboard.domain.layout.layout import Layout
@@ -29,7 +28,7 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
-
+from tests.unit._autoroute_invariants import make_sil
 
 # ---------------------------------------------------------------------------
 # State stub mirroring ComponentState Protocol
@@ -71,22 +70,23 @@ def _perfboard(rows: int = 20, cols: int = 20) -> Board:
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n),
-        pin_names={i: str(i) for i in range(1, n + 1)},
-    )
+    return make_sil(name, n)
 
 
 def _inst(defn: ComponentDefinition, refdes: str) -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
     )
 
 
 def _pl(inst: ComponentInstance, pos: Point) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=inst.id, position=pos, rotation=0, side="top",
+        component_id=inst.id,
+        position=pos,
+        rotation=0,
+        side="top",
     )
 
 

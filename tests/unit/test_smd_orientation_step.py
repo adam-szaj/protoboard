@@ -25,8 +25,11 @@ from protoboard.geometry import Point, Vector
 
 def _placement(x: float = 5.0, y: float = 5.0, **kw: object) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=uuid.uuid4(), position=Point(x, y), rotation=0,
-        side="top", **kw,  # type: ignore[arg-type]
+        component_id=uuid.uuid4(),
+        position=Point(x, y),
+        rotation=0,
+        side="top",
+        **kw,  # type: ignore[arg-type]
     )
 
 

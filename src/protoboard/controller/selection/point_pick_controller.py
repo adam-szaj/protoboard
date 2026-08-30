@@ -30,10 +30,10 @@ from protoboard.controller.selection.mouse_input import Intent
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from protoboard.geometry import Point
     from protoboard.controller.selection.mouse_input import Mods
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.service import PickSession
+    from protoboard.geometry import Point
 
     Resolve = Callable[["Point", Mods], "Selectable | None"]
     """``(scene_pt, mods) -> Selectable | None`` — the clicked entity, or None

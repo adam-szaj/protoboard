@@ -13,7 +13,6 @@ import uuid
 from dataclasses import dataclass
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.pad_conflict import (
@@ -30,6 +29,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 ROOT_GID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -38,16 +38,17 @@ ROOT_GID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 # Helpers (mirroring test_pad_conflict / test_group_move_conflict)
 # ---------------------------------------------------------------------------
 
+
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name, footprint=SIL(n), pin_names={i: str(i) for i in range(1, n + 1)}
-    )
+    return make_sil(name, n)
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "X1") -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, sil_families(defn))
 
 
 def _pl(comp_id: uuid.UUID, x: float, y: float, rot: int = 90) -> ComponentPlacement:
@@ -96,6 +97,7 @@ class _FakeLayout:
 @dataclass
 class _FakeSession:
     """Minimal EditorSession-like duck for ConflictScanner.from_session."""
+
     layout: _FakeLayout
     instances: dict[uuid.UUID, ComponentInstance]
     components: dict[str, ComponentDefinition]
@@ -105,6 +107,7 @@ class _FakeSession:
 # ---------------------------------------------------------------------------
 # find_pad_conflicts equivalence
 # ---------------------------------------------------------------------------
+
 
 class TestPadConflictEquivalence:
     def test_diff_net_pad_conflict_matches_free_function(self) -> None:
@@ -166,6 +169,7 @@ class TestPadConflictEquivalence:
 # find_wire_conflicts equivalence
 # ---------------------------------------------------------------------------
 
+
 class TestWireConflictEquivalence:
     def test_pin_on_wire_matches_free_function(self) -> None:
         defn = _defn("R")
@@ -194,15 +198,14 @@ class TestWireConflictEquivalence:
             components=components,
             schematic=sch,
         )
-        got = scanner.find_wire_conflicts(
-            pl, defn, r1.id, [wire], point_to_net, set()
-        )
+        got = scanner.find_wire_conflicts(pl, defn, r1.id, [wire], point_to_net, set())
         assert got == expected
 
 
 # ---------------------------------------------------------------------------
 # find_wires_crossing_pads equivalence
 # ---------------------------------------------------------------------------
+
 
 class TestWiresCrossingEquivalence:
     def test_crossing_matches_free_function(self) -> None:
@@ -239,6 +242,7 @@ class TestWiresCrossingEquivalence:
 # ---------------------------------------------------------------------------
 # check_group_move equivalence
 # ---------------------------------------------------------------------------
+
 
 class TestGroupMoveEquivalence:
     def test_blocked_matches_free_function(self) -> None:
@@ -309,9 +313,11 @@ class TestGroupMoveEquivalence:
 # check_multi_group_move equivalence (via a minimal DragSet-like duck)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _FakeDragSet:
     """Minimal DragSet duck: only the attributes the scanner forwards."""
+
     _comp_ids: frozenset[uuid.UUID]
     groups: frozenset[uuid.UUID]
 
@@ -363,6 +369,7 @@ class TestMultiGroupMoveEquivalence:
 # ---------------------------------------------------------------------------
 # from_session
 # ---------------------------------------------------------------------------
+
 
 class TestFromSession:
     def test_from_session_reads_context(self) -> None:

@@ -10,6 +10,7 @@ Generator entrypoint:  ``generate_project(spec) -> ProjectBundle``.
 Spec presets:          ``SMALL``, ``MEDIUM``, ``LARGE``, ``PLATED_THROUGH``,
                        ``STRIPBOARD_MIXED``.
 """
+
 from __future__ import annotations
 
 from tests.fixtures.synthetic_bench.generator import (

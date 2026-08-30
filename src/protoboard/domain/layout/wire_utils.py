@@ -7,9 +7,8 @@ import math
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -94,15 +93,19 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
     for atom, center in board.atoms():
         if isinstance(atom, PadAtom):
             layers = atom.layers
-            if layers.plated_through or \
-               (side == "top" and layers.top) or \
-               (side == "bottom" and layers.bottom):
+            if (
+                layers.plated_through
+                or (side == "top" and layers.top)
+                or (side == "bottom" and layers.bottom)
+            ):
                 pts.add(center)
         elif isinstance(atom, StripAtom):
             layers = atom.layers
-            if layers.plated_through or \
-               (side == "top" and layers.top) or \
-               (side == "bottom" and layers.bottom):
+            if (
+                layers.plated_through
+                or (side == "top" and layers.top)
+                or (side == "bottom" and layers.bottom)
+            ):
                 n = int(atom.length) if isinstance(atom.length, int) else 1
                 if atom.orientation == "horizontal":
                     sx = center.x - n / 2.0 + 0.5
@@ -159,7 +162,10 @@ def plated_through_pads(board: Board) -> set[Point]:
     return pts
 
 
-_PAD_BUCKET_CACHE: "dict[int, tuple[int, object | None, tuple[dict[int, list[Point]], dict[int, list[Point]]]]]" = {}
+_PAD_BUCKET_CACHE: dict[
+    int,
+    tuple[int, object | None, tuple[dict[int, list[Point]], dict[int, list[Point]]]],
+] = {}  # noqa: E501
 
 
 @counted("_get_pad_bucket_index")
@@ -188,6 +194,7 @@ def _get_pad_bucket_index(
     reads stale buckets (test_connectivity flake 2026-06-09).
     """
     import weakref as _wr
+
     key = id(pad_positions)
     n = len(pad_positions)
     cached = _PAD_BUCKET_CACHE.get(key)
@@ -200,7 +207,7 @@ def _get_pad_bucket_index(
         if isinstance(ref, _wr.ReferenceType) and ref() is pad_positions:
             return cached[2]
     try:
-        wr_obj: "object | None" = _wr.ref(pad_positions)
+        wr_obj: object | None = _wr.ref(pad_positions)
     except TypeError:
         wr_obj = None
     return _build_pad_bucket_index(pad_positions, key, n, wr_obj)
@@ -208,8 +215,10 @@ def _get_pad_bucket_index(
 
 @counted("_build_pad_bucket_index")
 def _build_pad_bucket_index(
-    pad_positions: set[Point], key: int, n: int,
-    wr_obj: "object | None" = None,
+    pad_positions: set[Point],
+    key: int,
+    n: int,
+    wr_obj: object | None = None,
 ) -> tuple[dict[int, list[Point]], dict[int, list[Point]]]:
     """The cache-miss path of :func:`_get_pad_bucket_index`.
 
@@ -296,8 +305,9 @@ def insert_pad_nodes(
 
         for pad in candidates:
             # Already an endpoint — skip
-            if (abs(pad.x - p1.x) < tolerance and abs(pad.y - p1.y) < tolerance) or \
-               (abs(pad.x - p2.x) < tolerance and abs(pad.y - p2.y) < tolerance):
+            if (abs(pad.x - p1.x) < tolerance and abs(pad.y - p1.y) < tolerance) or (
+                abs(pad.x - p2.x) < tolerance and abs(pad.y - p2.y) < tolerance
+            ):
                 continue
             apx = pad.x - p1.x
             apy = pad.y - p1.y
@@ -320,7 +330,7 @@ def insert_pad_nodes(
     return result
 
 
-def enrich_insulated_wire_with_pad_nodes(wire: "Wire", board: "Board") -> "Wire":
+def enrich_insulated_wire_with_pad_nodes(wire: Wire, board: Board) -> Wire:
     """Insert board-pad positions into the path of an *insulated* wire.
 
     An insulated wire that crosses a pad geometrically between two of its
@@ -363,10 +373,10 @@ def enrich_insulated_wire_with_pad_nodes(wire: "Wire", board: "Board") -> "Wire"
 
 
 def enrich_insulated_fragments_with_pad_nodes(
-    fragments: "tuple[Fragment, ...]",
+    fragments: tuple[Fragment, ...],
     is_insulated: bool,
-    board: "Board",
-) -> "tuple[Fragment, ...]":
+    board: Board,
+) -> tuple[Fragment, ...]:
     """Pad-node enrichment for fragment tuples (ReplaceWireFragmentsCommand).
 
     Mirrors :func:`enrich_insulated_wire_with_pad_nodes` but operates on the
@@ -403,8 +413,9 @@ def enrich_insulated_fragments_with_pad_nodes(
 
 
 def rebuild_fragments_from_path(
-    wire: "Wire", new_path: list[Point],
-) -> "list[Fragment]":
+    wire: Wire,
+    new_path: list[Point],
+) -> list[Fragment]:
     """Split ``new_path`` along the existing fragment boundaries of ``wire``.
 
     Path-editing tools (simplify, segment-edit, drag-commit) reshape a
@@ -417,11 +428,10 @@ def rebuild_fragments_from_path(
     we fall back to a single-fragment wire on the primary side.
     """
     from protoboard.domain.layout.wire import Fragment as _Fragment
+
     if len(wire.fragments) <= 1:
         return [_Fragment(path=list(new_path), side=wire.side)]
-    boundary_positions: list[Point] = [
-        frag.path[-1] for frag in wire.fragments[:-1]
-    ]
+    boundary_positions: list[Point] = [frag.path[-1] for frag in wire.fragments[:-1]]
     out: list[_Fragment] = []
     cursor = 0
     for boundary, frag in zip(boundary_positions, wire.fragments):
@@ -439,8 +449,8 @@ def rebuild_fragments_from_path(
 
 
 def coalesce_same_side_fragments(
-    fragments: list["Fragment"] | tuple["Fragment", ...],
-) -> "list[Fragment]":
+    fragments: list[Fragment] | tuple[Fragment, ...],
+) -> list[Fragment]:
     """Fuse consecutive fragments that share ``side`` into a single fragment.
 
     Pure function — does not mutate the input.  Returns a new list whose
@@ -460,6 +470,7 @@ def coalesce_same_side_fragments(
     on ``side``.
     """
     from protoboard.domain.layout.wire import Fragment as _Fragment
+
     if not fragments:
         return []
     out: list[_Fragment] = [
@@ -476,8 +487,11 @@ def coalesce_same_side_fragments(
 
 
 def find_wire_with_interior_vertex_at(
-    layout: "Layout", point: Point, *, tol: float = 1e-6,
-) -> "tuple[Wire, int] | None":
+    layout: Layout,
+    point: Point,
+    *,
+    tol: float = 1e-6,
+) -> tuple[Wire, int] | None:
     """Return ``(wire, vertex_idx)`` if any wire passes ``point`` at an
     interior (non-endpoint) vertex; otherwise ``None``.
 
@@ -512,10 +526,10 @@ def find_wire_with_interior_vertex_at(
 
 
 def split_wire_at_vertex(
-    layout: "Layout",
-    wire: "Wire",
+    layout: Layout,
+    wire: Wire,
     vertex_idx: int,
-) -> "tuple[Wire, Wire, JointKnot]":
+) -> tuple[Wire, Wire, JointKnot]:
     """Split ``wire`` into two wires at ``wire.path[vertex_idx]``.
 
     The vertex becomes a shared ``JointKnot`` (created here); both
@@ -533,6 +547,7 @@ def split_wire_at_vertex(
     """
     from protoboard.domain.layout.knot import JointKnot
     from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
+
     if vertex_idx <= 0 or vertex_idx >= len(wire.path) - 1:
         raise ValueError(
             f"split_wire_at_vertex: vertex_idx={vertex_idx} not interior "
@@ -560,13 +575,19 @@ def split_wire_at_vertex(
             local_idx = vertex_idx - cursor
             # Slice: [0..local_idx] → A, [local_idx..end] → B (share boundary vertex).
             if local_idx > 0:
-                fragments_a.append(Fragment(
-                    path=list(frag.path[: local_idx + 1]), side=frag.side,
-                ))
+                fragments_a.append(
+                    Fragment(
+                        path=list(frag.path[: local_idx + 1]),
+                        side=frag.side,
+                    )
+                )
             if local_idx < frag_len - 1:
-                fragments_b.append(Fragment(
-                    path=list(frag.path[local_idx:]), side=frag.side,
-                ))
+                fragments_b.append(
+                    Fragment(
+                        path=list(frag.path[local_idx:]),
+                        side=frag.side,
+                    )
+                )
             split_done = True
         else:
             fragments_a.append(Fragment(path=list(frag.path), side=frag.side))
@@ -597,11 +618,13 @@ def split_wire_at_vertex(
     # position so we can re-attach the half.
     if a_knot_id not in layout.knots and isinstance(a_knot, JointKnot):
         layout.knots[a_knot_id] = JointKnot(
-            id=a_knot_id, position=a_knot.position,
+            id=a_knot_id,
+            position=a_knot.position,
         )
     if b_knot_id not in layout.knots and isinstance(b_knot, JointKnot):
         layout.knots[b_knot_id] = JointKnot(
-            id=b_knot_id, position=b_knot.position,
+            id=b_knot_id,
+            position=b_knot.position,
         )
 
     # Determine the hub at the split point.  Prefer an existing PinKnot
@@ -609,7 +632,8 @@ def split_wire_at_vertex(
     # existing JointKnot at the position; only create a fresh JointKnot
     # when nothing's there.  Returning the hub for the public API.
     from protoboard.domain.layout.knot import PinKnot
-    shared_hub: "PinKnot | JointKnot | None" = None
+
+    shared_hub: PinKnot | JointKnot | None = None
     for k in layout.knots.values():
         if isinstance(k, PinKnot):
             # PinKnot's world position requires the pin resolver; we
@@ -690,12 +714,12 @@ def split_wire_at_vertex(
 
 
 def merge_colocated_joints(
-    layout: "Layout",
+    layout: Layout,
     *,
-    schematic: "Schematic | None" = None,
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
-    components: "dict[str, ComponentDefinition] | None" = None,
-    board: "Board | None" = None,
+    schematic: Schematic | None = None,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    components: dict[str, ComponentDefinition] | None = None,
+    board: Board | None = None,
 ) -> int:
     """Fuse ``JointKnot``s sharing a position into one knot **per bucket**.
 
@@ -718,6 +742,7 @@ def merge_colocated_joints(
     supplied (legacy tests).
     """
     from collections import defaultdict
+
     from protoboard.domain.layout.knot import JointKnot
     from protoboard.domain.layout.wire import KnotRef as _KnotRef
 
@@ -726,17 +751,25 @@ def merge_colocated_joints(
     # already in an inconsistent state — leave it alone (don't make it
     # worse by fusing with neighbours).
     def _joint_bucket(
-        knot: "JointKnot",
-    ) -> "tuple[str, uuid.UUID | None] | None":
+        knot: JointKnot,
+    ) -> tuple[str, uuid.UUID | None] | None:
         sides: set[str] = set()
-        nets: set["uuid.UUID | None"] = set()
+        nets: set[uuid.UUID | None] = set()
         for wid in knot.wire_ids:
             w = layout.wires.get(wid)
             if w is None:
                 continue
             sides.add(w.side)
-            if schematic is not None and instances is not None and components is not None:
-                nets.add(_wire_net_id(w, schematic, layout, instances, components, board=board))
+            if (
+                schematic is not None
+                and instances is not None
+                and components is not None
+            ):
+                nets.add(
+                    _wire_net_id(
+                        w, schematic, layout, instances, components, board=board
+                    )
+                )
         if len(sides) > 1:
             return None
         if not sides:
@@ -751,7 +784,7 @@ def merge_colocated_joints(
             return None  # inconsistent — leave alone
         return (next(iter(sides)), next(iter(explicit), None))
 
-    by_bucket: "dict[tuple[float, float, str, uuid.UUID | None], list[uuid.UUID]]" = (
+    by_bucket: dict[tuple[float, float, str, uuid.UUID | None], list[uuid.UUID]] = (
         defaultdict(list)
     )
     for knot in layout.knots.values():
@@ -801,12 +834,12 @@ def merge_colocated_joints(
 
 
 def make_t_junction(
-    layout: "Layout",
-    w_through: "Wire",
+    layout: Layout,
+    w_through: Wire,
     vertex_idx: int,
-    w_incoming: "Wire",
-    incoming_endpoint: "str",  # "a" or "b" — which end of w_incoming hits the vertex
-) -> "tuple[Wire, Wire, Wire, JointKnot | object]":
+    w_incoming: Wire,
+    incoming_endpoint: str,  # "a" or "b" — which end of w_incoming hits the vertex
+) -> tuple[Wire, Wire, Wire, JointKnot | object]:
     """Atomically build a T-junction: split ``w_through`` at
     ``vertex_idx`` and re-anchor ``w_incoming``'s matching endpoint to
     the same hub in one step.
@@ -830,8 +863,11 @@ def make_t_junction(
     """
     from protoboard.domain.layout.knot import JointKnot
     from protoboard.domain.layout.wire import KnotRef
+
     if incoming_endpoint not in ("a", "b"):
-        raise ValueError(f"incoming_endpoint must be 'a' or 'b'; got {incoming_endpoint!r}")
+        raise ValueError(
+            f"incoming_endpoint must be 'a' or 'b'; got {incoming_endpoint!r}"
+        )
     # Remember w_incoming's old endpoint knot id so we can prune it if
     # it became orphan (degree=0 JointKnot) after the swap.
     old_ref = w_incoming.a if incoming_endpoint == "a" else w_incoming.b
@@ -849,8 +885,10 @@ def make_t_junction(
         w_incoming_id=str(w_incoming.id)[:8],
         incoming_endpoint=incoming_endpoint,
         vertex_idx=vertex_idx,
-        split_point=(round(w_through.path[vertex_idx].x, 3),
-                     round(w_through.path[vertex_idx].y, 3)),
+        split_point=(
+            round(w_through.path[vertex_idx].x, 3),
+            round(w_through.path[vertex_idx].y, 3),
+        ),
         old_endpoint_knot_id=str(old_endpoint_id)[:8],
     )
     # Step 1 — split w_through.  This produces the hub already at the
@@ -887,9 +925,7 @@ def make_t_junction(
             # incident wires is removed; PinKnots survive regardless.)
             del layout.knots[old_endpoint_id]
         else:
-            layout.knots[old_endpoint_id] = old_knot.with_wire_ids(
-                updated_old_ids
-            )
+            layout.knots[old_endpoint_id] = old_knot.with_wire_ids(updated_old_ids)
     _log.info(
         "wire.t_junction.done",
         w_through_id=str(w_through.id)[:8],
@@ -903,15 +939,15 @@ def make_t_junction(
 
 
 def _pin_at(
-    position: "Point",
+    position: Point,
     side: str,
-    layout: "Layout",
-    instances: "dict[uuid.UUID, ComponentInstance]",
-    components: "dict[str, ComponentDefinition]",
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
     *,
     tol: float = 1e-6,
-    plated_pads: "frozenset[Point] | None" = None,
-) -> "PinRef | None":
+    plated_pads: frozenset[Point] | None = None,
+) -> PinRef | None:
     """Return the PinRef of a component pin landing on *position*.
 
     Side semantics:
@@ -927,17 +963,14 @@ def _pin_at(
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
 
-    cross_side_ok = (
-        plated_pads is not None
-        and any(
-            abs(p.x - position.x) < tol and abs(p.y - position.y) < tol
-            for p in plated_pads
-        )
+    cross_side_ok = plated_pads is not None and any(
+        abs(p.x - position.x) < tol and abs(p.y - position.y) < tol for p in plated_pads
     )
     from protoboard.domain.components.package import resolved_footprint
     from protoboard.domain.components.package.pin_mapping import (
         meta_pin_for_package_pin,
     )
+
     for comp_id, placement in layout.placements.items():
         if not cross_side_ok and placement.side != side:
             continue
@@ -959,15 +992,15 @@ def _pin_at(
 
 
 def _wire_net_id(
-    wire: "Wire",
-    schematic: "Schematic",
-    layout: "Layout",
-    instances: "dict[uuid.UUID, ComponentInstance]",
-    components: "dict[str, ComponentDefinition]",
+    wire: Wire,
+    schematic: Schematic,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
     *,
-    board: "Board | None" = None,
-    pad_index: "PadIndex | None" = None,
-) -> "uuid.UUID | None":
+    board: Board | None = None,
+    pad_index: PadIndex | None = None,
+) -> uuid.UUID | None:
     """Resolve *wire* to a schematic net id.
 
     Strategy: scan every vertex of the path looking for a pin sitting on
@@ -996,18 +1029,23 @@ def _wire_net_id(
         # below; in practice short pads are rare and DRC has already
         # flagged them.
         from protoboard.domain.board.pad_state import SHORT_CIRCUIT
+
         for vertex in wire.path:
             net = pad_index.electrical_net_at(vertex, wire.side)
             if net is None or net is SHORT_CIRCUIT:
                 continue
             return net  # type: ignore[no-any-return]
         return None
-    plated: "frozenset[Point] | None" = (
+    plated: frozenset[Point] | None = (
         frozenset(plated_through_pads(board)) if board is not None else None
     )
     for vertex in wire.path:
         pin = _pin_at(
-            vertex, wire.side, layout, instances, components,
+            vertex,
+            wire.side,
+            layout,
+            instances,
+            components,
             plated_pads=plated,
         )
         if pin is None:
@@ -1041,18 +1079,21 @@ class WireNetResolver:
     and :class:`~protoboard.domain.layout.pad_conflict.ConflictScanner`.
     """
 
-    schematic: "Schematic"
-    layout: "Layout"
-    instances: "dict[uuid.UUID, ComponentInstance]"
-    components: "dict[str, ComponentDefinition]"
-    board: "Board | None" = None
-    pad_index: "PadIndex | None" = None
+    schematic: Schematic
+    layout: Layout
+    instances: dict[uuid.UUID, ComponentInstance]
+    components: dict[str, ComponentDefinition]
+    board: Board | None = None
+    pad_index: PadIndex | None = None
 
     @classmethod
     def from_state(
-        cls, state: object, schematic: "Schematic", *,
-        pad_index: "PadIndex | None" = None,
-    ) -> "WireNetResolver":
+        cls,
+        state: object,
+        schematic: Schematic,
+        *,
+        pad_index: PadIndex | None = None,
+    ) -> WireNetResolver:
         """Build a resolver from a ``ComponentState`` / ``EditorSession``-like object.
 
         Reads ``layout``, ``instances``, ``components``, ``board``. ``schematic``
@@ -1070,27 +1111,32 @@ class WireNetResolver:
             pad_index=pad_index,
         )
 
-    def net_id(self, wire: "Wire") -> "uuid.UUID | None":
+    def net_id(self, wire: Wire) -> uuid.UUID | None:
         """Resolve *wire* to a schematic net id (see :func:`_wire_net_id`)."""
         return _wire_net_id(
-            wire, self.schematic, self.layout, self.instances, self.components,
-            board=self.board, pad_index=self.pad_index,
+            wire,
+            self.schematic,
+            self.layout,
+            self.instances,
+            self.components,
+            board=self.board,
+            pad_index=self.pad_index,
         )
 
 
 def can_form_t_junction(
-    w_through: "Wire",
-    w_incoming: "Wire",
+    w_through: Wire,
+    w_incoming: Wire,
     incoming_endpoint: str,
     *,
-    schematic: "Schematic | None" = None,
-    layout: "Layout | None" = None,
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
-    components: "dict[str, ComponentDefinition] | None" = None,
-    board: "Board | None" = None,
-    pad_index: "PadIndex | None" = None,
-    strategy: "PadStrategy | None" = None,
-) -> "tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]":
+    schematic: Schematic | None = None,
+    layout: Layout | None = None,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    components: dict[str, ComponentDefinition] | None = None,
+    board: Board | None = None,
+    pad_index: PadIndex | None = None,
+    strategy: PadStrategy | None = None,
+) -> tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]:
     """Decide whether *w_incoming*'s ``incoming_endpoint`` may bond to
     *w_through*'s interior to form a T-junction.
 
@@ -1129,12 +1175,22 @@ def can_form_t_junction(
         return TJunctionVerdict.SAFE, None, None
 
     net_through = _wire_net_id(
-        w_through, schematic, layout, instances, components,
-        board=board, pad_index=pad_index,
+        w_through,
+        schematic,
+        layout,
+        instances,
+        components,
+        board=board,
+        pad_index=pad_index,
     )
     net_incoming = _wire_net_id(
-        w_incoming, schematic, layout, instances, components,
-        board=board, pad_index=pad_index,
+        w_incoming,
+        schematic,
+        layout,
+        instances,
+        components,
+        board=board,
+        pad_index=pad_index,
     )
 
     verdict, orphan, net_to_assign = _classify_t_junction(
@@ -1161,15 +1217,19 @@ def can_form_t_junction(
         # net-inheritance path already handles it via the verdict
         # returned by `_classify_t_junction`.
         from protoboard.services.pad_strategy import Verdict
+
         ep_point = (
-            w_incoming.path[0] if incoming_endpoint == "a"
-            else w_incoming.path[-1]
+            w_incoming.path[0] if incoming_endpoint == "a" else w_incoming.path[-1]
         )
         pad = pad_index.pad_at(ep_point)
         if pad is not None:
             cross_layer = w_through.side != w_incoming.side  # always False here
             d = strategy.can_form_t_junction(
-                pad, w_through.side, net_through, net_incoming, cross_layer,
+                pad,
+                w_through.side,
+                net_through,
+                net_incoming,
+                cross_layer,
             )
             if d.verdict is Verdict.REJECT:
                 return TJunctionVerdict.CONFLICT_REJECT, None, None
@@ -1179,17 +1239,17 @@ def can_form_t_junction(
 
 def _classify_t_junction(
     *,
-    w_through: "Wire",
-    w_incoming: "Wire",
+    w_through: Wire,
+    w_incoming: Wire,
     incoming_endpoint: str,
-    net_through: "uuid.UUID | None",
-    net_incoming: "uuid.UUID | None",
-    schematic: "Schematic",
-    layout: "Layout",
-    instances: "dict[uuid.UUID, ComponentInstance]",
-    components: "dict[str, ComponentDefinition]",
-    board: "Board | None",
-) -> "tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]":
+    net_through: uuid.UUID | None,
+    net_incoming: uuid.UUID | None,
+    schematic: Schematic,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    board: Board | None,
+) -> tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]:
     """Apply the net-equality + orphan-pin verdict logic.
 
     Split out of :func:`can_form_t_junction` so the strategy veto
@@ -1200,14 +1260,17 @@ def _classify_t_junction(
     if net_through is None or net_incoming is None:
         if net_through is not None and net_incoming is None:
             ep_point = (
-                w_incoming.path[0] if incoming_endpoint == "a"
-                else w_incoming.path[-1]
+                w_incoming.path[0] if incoming_endpoint == "a" else w_incoming.path[-1]
             )
             _orphan_plated = (
                 frozenset(plated_through_pads(board)) if board is not None else None
             )
             orphan = _pin_at(
-                ep_point, w_incoming.side, layout, instances, components,
+                ep_point,
+                w_incoming.side,
+                layout,
+                instances,
+                components,
                 plated_pads=_orphan_plated,
             )
             if orphan is not None and schematic.net_for_pin(orphan) is None:
@@ -1223,12 +1286,12 @@ def _classify_t_junction(
 
 
 def split_wires_at_endpoint_collisions(
-    layout: "Layout",
+    layout: Layout,
     *,
-    schematic: "Schematic | None" = None,
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
-    components: "dict[str, ComponentDefinition] | None" = None,
-    board: "Board | None" = None,
+    schematic: Schematic | None = None,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    components: dict[str, ComponentDefinition] | None = None,
+    board: Board | None = None,
 ) -> int:
     """Find every wire endpoint that sits on another wire's interior
     vertex and atomically build a T-junction there.
@@ -1272,7 +1335,9 @@ def split_wires_at_endpoint_collisions(
                 # shared hub on load — that's the bug that produced the
                 # 22-net cluster in reference_big_project.
                 verdict, _orphan, _net = can_form_t_junction(
-                    w2, w1, endpoint_name,
+                    w2,
+                    w1,
+                    endpoint_name,
                     schematic=schematic,
                     layout=layout,
                     instances=instances,
@@ -1294,12 +1359,12 @@ def split_wires_at_endpoint_collisions(
 
 
 def merge_endpoint_wires(
-    layout: "Layout",
-    board: "Board",
+    layout: Layout,
+    board: Board,
     *,
-    schematic: "Schematic | None" = None,
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
-    components: "dict[str, ComponentDefinition] | None" = None,
+    schematic: Schematic | None = None,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    components: dict[str, ComponentDefinition] | None = None,
 ) -> int:
     """Fuse every pair of wires sharing a JointKnot with matching ``insulated``.
 
@@ -1327,6 +1392,7 @@ def merge_endpoint_wires(
     via collapses).
     """
     from protoboard.domain.layout.knot import JointKnot
+
     merge_colocated_joints(
         layout,
         schematic=schematic,
@@ -1363,12 +1429,17 @@ def merge_endpoint_wires(
                 and instances is not None
                 and components is not None
             ):
-                n1 = _wire_net_id(w1, schematic, layout, instances, components, board=board)
-                n2 = _wire_net_id(w2, schematic, layout, instances, components, board=board)
+                n1 = _wire_net_id(
+                    w1, schematic, layout, instances, components, board=board
+                )
+                n2 = _wire_net_id(
+                    w2, schematic, layout, instances, components, board=board
+                )
                 if n1 is not None and n2 is not None and n1 != n2:
                     continue
             merged = layout.try_collapse_joint(
-                knot_id, plated_through_pads=pt_pads,
+                knot_id,
+                plated_through_pads=pt_pads,
             )
             if merged is not None:
                 total_fused += 1
@@ -1439,9 +1510,9 @@ __all__ = [
 
 
 def remove_wire_capturing_orphans(
-    layout: "Layout",
+    layout: Layout,
     wire_id: uuid.UUID,
-) -> "tuple[Wire | None, list[JointKnot | WirePinKnot]]":
+) -> tuple[Wire | None, list[JointKnot | WirePinKnot]]:
     """Remove *wire_id* from *layout* while snapshotting orphan joints.
 
     Returns ``(wire, orphan_joints)`` where:
@@ -1467,16 +1538,16 @@ def remove_wire_capturing_orphans(
     callers know whether they need to invalidate.
     """
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+
     wire = layout.wires.get(wire_id)
     if wire is None:
         return None, []
-    orphans: "list[JointKnot | WirePinKnot]" = []
+    orphans: list[JointKnot | WirePinKnot] = []
     if wire.a is not None and wire.b is not None:
         for ref in (wire.a, wire.b):
             k = layout.knots.get(ref.id)
-            if (
-                isinstance(k, (JointKnot, WirePinKnot))
-                and k.wire_ids == frozenset({wire.id})
+            if isinstance(k, (JointKnot, WirePinKnot)) and k.wire_ids == frozenset(
+                {wire.id}
             ):
                 orphans.append(k)
         layout.remove_wire(wire_id)
@@ -1486,9 +1557,9 @@ def remove_wire_capturing_orphans(
 
 
 def restore_wire_with_orphans(
-    layout: "Layout",
-    wire: "Wire",
-    orphans: "list[JointKnot | WirePinKnot]",
+    layout: Layout,
+    wire: Wire,
+    orphans: list[JointKnot | WirePinKnot],
 ) -> None:
     """Re-insert *wire* and any of *orphans* it references back into *layout*.
 
@@ -1513,7 +1584,7 @@ class WireSnapshot:
     path: list[Point]
     insulated: bool
     side: str
-    color: "str | None"
+    color: str | None
     a_id: uuid.UUID
     b_id: uuid.UUID
     # Per-fragment side breakdown — preserves multi-fragment wires
@@ -1525,11 +1596,11 @@ class WireSnapshot:
     # source wires that had no other incident wire than this one).  Keyed
     # by knot id; ``None`` for ``PinKnot`` entries — pins live in
     # ``layout.pin_knots`` and survive ``remove_wire`` independently.
-    a_knot: "JointKnot | None"
-    b_knot: "JointKnot | None"
+    a_knot: JointKnot | None
+    b_knot: JointKnot | None
 
 
-def snapshot_wire(w: "Wire", layout: "Layout") -> WireSnapshot:
+def snapshot_wire(w: Wire, layout: Layout) -> WireSnapshot:
     """Capture *w*'s fields (and any JointKnot endpoints) for later revert.
 
     Companion to :func:`remove_wire_capturing_orphans` /
@@ -1581,7 +1652,9 @@ class CollapseRecord:
 
 
 def restore_split(
-    layout: Layout, wire: Wire, rec: SplitRecord,
+    layout: Layout,
+    wire: Wire,
+    rec: SplitRecord,
 ) -> None:
     """Inverse of ``make_t_junction`` — replace the two split halves
     with the original wire and detach ``wire``'s endpoint from the
@@ -1631,14 +1704,16 @@ def restore_split(
     # earlier (orphan after split); revive them from snapshot like
     # restore_collapse does.
     for knot_id, snap_knot in (
-        (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
+        (snap.a_id, snap.a_knot),
+        (snap.b_id, snap.b_knot),
     ):
         if knot_id in layout.knots:
             continue
         if snap_knot is None:
             continue
         layout.knots[knot_id] = JointKnot(
-            id=knot_id, position=snap_knot.position,
+            id=knot_id,
+            position=snap_knot.position,
         )
     layout.add_wire(revived)
 
@@ -1669,7 +1744,8 @@ def restore_collapse(layout: Layout, rec: CollapseRecord) -> None:
     # orphans.  ``add_wire`` below will repopulate their ``wire_ids``.
     for snap in (rec.w1_snapshot, rec.w2_snapshot):
         for knot_id, snap_knot in (
-            (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
+            (snap.a_id, snap.a_knot),
+            (snap.b_id, snap.b_knot),
         ):
             if knot_id in layout.knots:
                 continue
@@ -1677,7 +1753,8 @@ def restore_collapse(layout: Layout, rec: CollapseRecord) -> None:
                 continue
             # Revive with empty wire_ids; add_wire repopulates.
             layout.knots[knot_id] = JointKnot(
-                id=knot_id, position=snap_knot.position,
+                id=knot_id,
+                position=snap_knot.position,
             )
     # Re-insert both source wires.
     for snap in (rec.w1_snapshot, rec.w2_snapshot):
@@ -1740,7 +1817,9 @@ def split_existing_wires_at_endpoints(
         # nets.  When the endpoint is a pin with no net yet, the verdict
         # tells us which net to assign before splicing.
         verdict, orphan_pin, net_to_assign = can_form_t_junction(
-            w_through, wire, endpoint_name,
+            w_through,
+            wire,
+            endpoint_name,
             schematic=schematic,
             layout=layout,
             instances=instances,
@@ -1763,23 +1842,33 @@ def split_existing_wires_at_endpoints(
         snapshot = snapshot_wire(w_through, layout)
         try:
             w_a, w_b, _, hub = make_t_junction(
-                layout, w_through, vertex_idx, wire, endpoint_name,
+                layout,
+                w_through,
+                vertex_idx,
+                wire,
+                endpoint_name,
             )
         except ValueError:
             # Revert the speculative pin assignment if the split itself
             # failed — we don't want a dangling pin-to-net link without
             # the corresponding geometry.
             if verdict is TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN:
-                if schematic is not None and orphan_pin is not None and net_to_assign is not None:  # noqa: E501
+                if (
+                    schematic is not None
+                    and orphan_pin is not None
+                    and net_to_assign is not None
+                ):  # noqa: E501
                     schematic.remove_pin_from_net(orphan_pin, net_to_assign)
             continue
-        records.append(SplitRecord(
-            original=snapshot,
-            new_a_id=w_a.id,
-            new_b_id=w_b.id,
-            hub_id=hub.id,  # type: ignore[union-attr]
-            incoming_endpoint=endpoint_name,
-        ))
+        records.append(
+            SplitRecord(
+                original=snapshot,
+                new_a_id=w_a.id,
+                new_b_id=w_b.id,
+                hub_id=hub.id,  # type: ignore[union-attr]
+                incoming_endpoint=endpoint_name,
+            )
+        )
         # Link the AddWireCommand context to the split: external holders
         # (SelectTool, recordings, net cache) tracking ``w_through.id``
         # now follow only ``w_a`` — the ``w_b`` half is a brand-new wire
@@ -1855,7 +1944,8 @@ def collapse_endpoint_joints(
             w2_snapshot=snapshot_wire(w2, layout),
         )
         merged = layout.try_collapse_joint(
-            ep_id, plated_through_pads=pt_pads,
+            ep_id,
+            plated_through_pads=pt_pads,
         )
         if merged is None:
             continue
@@ -1914,8 +2004,7 @@ def find_pin_at(
             except (IndexError, ValueError):
                 continue
             if not (
-                abs(pos.x - point.x) < _EPS_KNOT
-                and abs(pos.y - point.y) < _EPS_KNOT
+                abs(pos.x - point.x) < _EPS_KNOT and abs(pos.y - point.y) < _EPS_KNOT
             ):
                 continue
             meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
@@ -1935,6 +2024,7 @@ def find_pin_at(
                 if pad is not None:
                     d = strategy.can_place_pin(pad, our_net)
                     from protoboard.services.pad_strategy import Verdict
+
                     if d.verdict is Verdict.REJECT:
                         # Rule 8: foreign-net wire cannot solder to
                         # this pin. Skip — caller treats it as "no pin
@@ -1959,7 +2049,12 @@ def _wire_net_for_joint(
     if schematic is None:
         return None
     return _wire_net_id(
-        wire, schematic, layout, instances, components, board=board,
+        wire,
+        schematic,
+        layout,
+        instances,
+        components,
+        board=board,
     )
 
 
@@ -1993,8 +2088,12 @@ def joint_accepts_wire(
         # Strategy path — single source of truth when available.
         if strategy is not None and pad is not None:
             w_net = _wire_net_for_joint(
-                w, schematic=schematic, layout=layout,
-                instances=instances, components=components, board=board,
+                w,
+                schematic=schematic,
+                layout=layout,
+                instances=instances,
+                components=components,
+                board=board,
             )
             d = strategy.can_form_t_junction(
                 pad,
@@ -2019,12 +2118,15 @@ def joint_accepts_wire(
                 return False
         if schematic is not None:
             w_net = _wire_net_for_joint(
-                w, schematic=schematic, layout=layout,
-                instances=instances, components=components, board=board,
+                w,
+                schematic=schematic,
+                layout=layout,
+                instances=instances,
+                components=components,
+                board=board,
             )
-            if (
-                (w_net is not None and net_id is not None and w_net != net_id)
-                or (w_net is not None and net_id is None)
+            if (w_net is not None and net_id is not None and w_net != net_id) or (
+                w_net is not None and net_id is None
             ):
                 return False
     return True
@@ -2079,10 +2181,16 @@ def find_joint_at(
         if side is None and net_id is None:
             return knot
         if not joint_accepts_wire(
-            knot, side=side, net_id=net_id,
-            schematic=schematic, layout=layout,
-            instances=instances, components=components, board=board,
-            strategy=strategy, pad_index=pad_index,
+            knot,
+            side=side,
+            net_id=net_id,
+            schematic=schematic,
+            layout=layout,
+            instances=instances,
+            components=components,
+            board=board,
+            strategy=strategy,
+            pad_index=pad_index,
             plated_pads_cache=plated_pads,
         ):
             continue
@@ -2121,16 +2229,28 @@ def resolve_endpoint_knot(
     from protoboard.domain.layout.wire import KnotRef
 
     pin = find_pin_at(
-        point, layout=layout, instances=instances, components=components,
-        our_net=net_id, strategy=strategy, pad_index=pad_index,
+        point,
+        layout=layout,
+        instances=instances,
+        components=components,
+        our_net=net_id,
+        strategy=strategy,
+        pad_index=pad_index,
     )
     if pin is not None:
         pk = layout.get_or_create_pin_knot(pin)
         return KnotRef(id=pk.id), None
     existing = find_joint_at(
-        point, layout=layout, instances=instances, components=components,
-        board=board, side=side, net_id=net_id, schematic=schematic,
-        strategy=strategy, pad_index=pad_index,
+        point,
+        layout=layout,
+        instances=instances,
+        components=components,
+        board=board,
+        side=side,
+        net_id=net_id,
+        schematic=schematic,
+        strategy=strategy,
+        pad_index=pad_index,
     )
     if existing is not None:
         return KnotRef(id=existing.id), None
@@ -2142,6 +2262,7 @@ def resolve_endpoint_knot(
 def _dbg_enabled() -> bool:
     """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
     import logging
+
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
@@ -2202,14 +2323,14 @@ def update_wires_for_move(
             comp_id=str(comp_id),
             refdes=getattr(inst, "refdes", "?"),
             exclude=[str(wid) for wid in exclude_ids],
-            pin_map=[
-                (k, (v.x, v.y)) for k, v in pin_map.items()
-            ],
+            pin_map=[(k, (v.x, v.y)) for k, v in pin_map.items()],
             wires_in=[str(w.id) for w in wire_list],
         )
 
     def _wire_anchored_at_comp_pin(
-        w: Wire, pin_num: int, old_pin_pos: Point,
+        w: Wire,
+        pin_num: int,
+        old_pin_pos: Point,
     ) -> bool:
         """True if *w* is logically anchored to ``(comp_id, pin_num)``.
 
@@ -2246,8 +2367,10 @@ def update_wires_for_move(
             has_any_knot_ref = True
             knot = layout.knots.get(ref.id)
             if isinstance(knot, PinKnot):
-                if (knot.pin.component_id == comp_id
-                        and knot.pin.meta_pin_index == meta_pin_index):
+                if (
+                    knot.pin.component_id == comp_id
+                    and knot.pin.meta_pin_index == meta_pin_index
+                ):
                     return True
         if has_any_knot_ref:
             return False
@@ -2319,10 +2442,7 @@ def update_wires_for_move(
                 new_path=[(p.x, p.y) for p in new_path],
                 pin_map_hits=pin_map_hits,
             )
-        if any(
-            not _pts_equal(new_path[i], wire.path[i])
-            for i in range(len(new_path))
-        ):
+        if any(not _pts_equal(new_path[i], wire.path[i]) for i in range(len(new_path))):
             wire.path = new_path
             # Keep fragments in sync — same boundary topology, translated
             # vertices via the per-wire pin_map.  Single-fragment wires
@@ -2332,7 +2452,8 @@ def update_wires_for_move(
                 for frag in wire.fragments:
                     translated = [
                         wire_pin_map.get(
-                            (round(p.x, 6), round(p.y, 6)), p,
+                            (round(p.x, 6), round(p.y, 6)),
+                            p,
                         )
                         for p in frag.path
                     ]
@@ -2444,8 +2565,7 @@ def merge_colocated_joints_capturing(
             # Scope filter — both wires must be in the caller-supplied set
             # (when one was given). Same contract as the main collapse pass.
             if scope_wire_ids is not None and not (
-                winner_wire_id in scope_wire_ids
-                and loser_wire_id in scope_wire_ids
+                winner_wire_id in scope_wire_ids and loser_wire_id in scope_wire_ids
             ):
                 continue
             # Side / insulated agreement. Different side means the joints are
@@ -2477,13 +2597,15 @@ def merge_colocated_joints_capturing(
             layout.knots[winner_id] = winner_knot
             # Drop the loser knot.
             del layout.knots[loser_id]
-            records.append(ColocatedFuseRecord(
-                winner_knot_id=winner_id,
-                loser_knot_id=loser_id,
-                loser_position=loser_knot.position,
-                moved_wire_id=loser_wire_id,
-                moved_endpoint=moved_endpoint,
-            ))
+            records.append(
+                ColocatedFuseRecord(
+                    winner_knot_id=winner_id,
+                    loser_knot_id=loser_id,
+                    loser_position=loser_knot.position,
+                    moved_wire_id=loser_wire_id,
+                    moved_endpoint=moved_endpoint,
+                )
+            )
             _log.info(
                 "wire.fuse.colocated_merged",
                 pos=pos_key,
@@ -2526,9 +2648,9 @@ def restore_colocated_fuse(layout: Layout, rec: ColocatedFuseRecord) -> None:
 
 
 def snapshot_wire_geometry(
-    layout: "Layout",
-    wire_ids: "Iterable[uuid.UUID] | None" = None,
-) -> "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]":
+    layout: Layout,
+    wire_ids: Iterable[uuid.UUID] | None = None,
+) -> dict[uuid.UUID, tuple[list[Point], list[Fragment]]]:
     """Snapshot ``{wire_id: (path, fragments)}`` for undo.
 
     Captures the path + fragment list of each wire so a command's revert can
@@ -2545,14 +2667,13 @@ def snapshot_wire_geometry(
     else:
         wires = [w for wid in wire_ids if (w := layout.wires.get(wid)) is not None]
     return {
-        w.id: (list(w.path), list(w.fragments) if w.fragments else [])
-        for w in wires
+        w.id: (list(w.path), list(w.fragments) if w.fragments else []) for w in wires
     }
 
 
 def restore_wire_geometry(
-    layout: "Layout",
-    saved: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]",
+    layout: Layout,
+    saved: dict[uuid.UUID, tuple[list[Point], list[Fragment]]],
 ) -> None:
     """Restore wire path + fragments from a :func:`snapshot_wire_geometry`.
 

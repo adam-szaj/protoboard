@@ -19,6 +19,7 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QFont, QFontMetricsF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
 
+from protoboard.controller.theme import Theme
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -30,8 +31,6 @@ from protoboard.gui.renderers.component_renderer import (
     _get_refdes_font,
     _make_overlay_label,
 )
-from protoboard.controller.theme import Theme
-
 
 # Distance (raster units) between the board edge and the closest edge of the
 # label rectangle.  Small enough to feel attached to the board, large enough
@@ -100,14 +99,28 @@ def render_axis_labels(
                 continue
             x_centre = bounds.x + i + 0.5
             x_topleft = x_centre - _half_w(text)
-            items.extend(_make_overlay_label(
-                text, font, text_color, bg_color,
-                x_topleft, y_above, Z_OVERLAY,
-            ))
-            items.extend(_make_overlay_label(
-                text, font, text_color, bg_color,
-                x_topleft, y_below, Z_OVERLAY,
-            ))
+            items.extend(
+                _make_overlay_label(
+                    text,
+                    font,
+                    text_color,
+                    bg_color,
+                    x_topleft,
+                    y_above,
+                    Z_OVERLAY,
+                )
+            )
+            items.extend(
+                _make_overlay_label(
+                    text,
+                    font,
+                    text_color,
+                    bg_color,
+                    x_topleft,
+                    y_below,
+                    Z_OVERLAY,
+                )
+            )
 
     # Rows: labels left and right of the board, vertically centred on each
     # pad row.  Vertical centring uses the line height; horizontal placement
@@ -121,16 +134,30 @@ def render_axis_labels(
                 continue
             y_topleft = bounds.y + j + 0.5 - line_height_scene / 2.0
             half_w = _half_w(text) * 2.0  # full width
-            x_left  = bounds.x - _EDGE_MARGIN - half_w
+            x_left = bounds.x - _EDGE_MARGIN - half_w
             x_right = bounds.x + bounds.lx + _EDGE_MARGIN
-            items.extend(_make_overlay_label(
-                text, font, text_color, bg_color,
-                x_left, y_topleft, Z_OVERLAY,
-            ))
-            items.extend(_make_overlay_label(
-                text, font, text_color, bg_color,
-                x_right, y_topleft, Z_OVERLAY,
-            ))
+            items.extend(
+                _make_overlay_label(
+                    text,
+                    font,
+                    text_color,
+                    bg_color,
+                    x_left,
+                    y_topleft,
+                    Z_OVERLAY,
+                )
+            )
+            items.extend(
+                _make_overlay_label(
+                    text,
+                    font,
+                    text_color,
+                    bg_color,
+                    x_right,
+                    y_topleft,
+                    Z_OVERLAY,
+                )
+            )
 
     for it in items:
         scene.addItem(it)

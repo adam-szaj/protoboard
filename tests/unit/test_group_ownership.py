@@ -21,7 +21,6 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import (
@@ -36,7 +35,7 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Builders
@@ -44,17 +43,15 @@ from protoboard.geometry import Point
 
 
 def _defn(name: str = "R") -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(2),
-        pin_names={1: "1", 2: "2"},
-    )
+    return make_sil(name, 2)
 
 
 def _inst(defn: ComponentDefinition, refdes: str) -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, sil_families(defn))
 
 
 def _pin_knot(component_id: uuid.UUID, pin_number: int) -> PinKnot:
@@ -170,13 +167,17 @@ class TestWireOwnedBothPinKnots:
         w = _wire(ka, kb, [Point(0, 0), Point(1, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1, c2}),
-            schematic=sch,
-        ) is True
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1, c2}),
+                schematic=sch,
+            )
+            is True
+        )
 
     def test_wire_with_one_external_pin_is_not_owned(self) -> None:
         c_in, c_out = uuid.uuid4(), uuid.uuid4()
@@ -188,13 +189,17 @@ class TestWireOwnedBothPinKnots:
         w = _wire(ka, kb, [Point(0, 0), Point(1, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c_in}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c_in}),
+                schematic=sch,
+            )
+            is False
+        )
 
     def test_wire_with_two_pinknots_owned_even_if_net_exported(self) -> None:
         # Both endpoints on group pins → owned, even if the net has
@@ -213,13 +218,17 @@ class TestWireOwnedBothPinKnots:
         w = _wire(ka, kb, [Point(0, 0), Point(1, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={w.id: net.id},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1, c2}),
-            schematic=sch,
-        ) is True
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={w.id: net.id},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1, c2}),
+                schematic=sch,
+            )
+            is True
+        )
 
 
 class TestWireOwnedHalfOrphan:
@@ -234,13 +243,17 @@ class TestWireOwnedHalfOrphan:
         w = _wire(ka, kb, [Point(0, 0), Point(2, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={w.id: net.id},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1, c2}),
-            schematic=sch,
-        ) is True
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={w.id: net.id},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1, c2}),
+                schematic=sch,
+            )
+            is True
+        )
 
     def test_half_orphan_exported_net_is_not_owned(self) -> None:
         c1, c2 = uuid.uuid4(), uuid.uuid4()
@@ -258,13 +271,17 @@ class TestWireOwnedHalfOrphan:
 
         # The half-orphan tail hangs off an exported net — interface
         # wire, not internal.
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={w.id: net.id},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1, c2}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={w.id: net.id},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1, c2}),
+                schematic=sch,
+            )
+            is False
+        )
 
     def test_half_orphan_global_net_is_not_owned(self) -> None:
         c1 = uuid.uuid4()
@@ -277,13 +294,17 @@ class TestWireOwnedHalfOrphan:
         w = _wire(ka, kb, [Point(0, 0), Point(2, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={w.id: net.id},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={w.id: net.id},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1}),
+                schematic=sch,
+            )
+            is False
+        )
 
     def test_half_orphan_no_resolvable_net_is_not_owned(self) -> None:
         # Wire's net cannot be resolved (wire_net_map miss).  Pure tail
@@ -297,13 +318,17 @@ class TestWireOwnedHalfOrphan:
         w = _wire(ka, kb, [Point(0, 0), Point(2, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1}),
+                schematic=sch,
+            )
+            is False
+        )
 
 
 class TestWireOwnedOrphan:
@@ -317,13 +342,17 @@ class TestWireOwnedOrphan:
         w = _wire(ka, kb, [Point(0, 0), Point(2, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1}),
+                schematic=sch,
+            )
+            is False
+        )
 
     def test_orphan_wire_on_internal_net_pads_is_still_not_owned(self) -> None:
         # Full-orphan: both endpoints are JointKnots, no PinKnot anchor.
@@ -343,13 +372,17 @@ class TestWireOwnedOrphan:
         w = _wire(ka, kb, [Point(0, 0), Point(2, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={w.id: net.id},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c1, c2}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={w.id: net.id},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c1, c2}),
+                schematic=sch,
+            )
+            is False
+        )
 
 
 class TestWireOwnedShortCase:
@@ -368,13 +401,17 @@ class TestWireOwnedShortCase:
         w = _wire(ka, kb, [Point(0, 0), Point(2, 0)])
         knots = {ka.id: ka, kb.id: kb}
 
-        assert wire_is_owned_by_group(
-            w, group,
-            wire_net_map={w.id: net.id},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({c_in}),
-            schematic=sch,
-        ) is False
+        assert (
+            wire_is_owned_by_group(
+                w,
+                group,
+                wire_net_map={w.id: net.id},
+                knots=knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({c_in}),
+                schematic=sch,
+            )
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -418,9 +455,14 @@ class TestGroupBboxWithOwnedWires:
         defn = _defn()
         i1 = _inst(defn, "R1")
         c1 = i1.id
-        placements = {c1: ComponentPlacement(
-            component_id=c1, position=Point(2.0, 3.0), rotation=0, side="top",
-        )}
+        placements = {
+            c1: ComponentPlacement(
+                component_id=c1,
+                position=Point(2.0, 3.0),
+                rotation=0,
+                side="top",
+            )
+        }
         instances = {c1: i1}
         components = {defn.name: defn}
 
@@ -457,10 +499,16 @@ class TestGroupBboxWithOwnedWires:
         c1, c2 = i1.id, i2.id
         placements = {
             c1: ComponentPlacement(
-                component_id=c1, position=Point(0.0, 0.0), rotation=0, side="top",
+                component_id=c1,
+                position=Point(0.0, 0.0),
+                rotation=0,
+                side="top",
             ),
             c2: ComponentPlacement(
-                component_id=c2, position=Point(2.0, 0.0), rotation=0, side="top",
+                component_id=c2,
+                position=Point(2.0, 0.0),
+                rotation=0,
+                side="top",
             ),
         }
         instances = {c1: i1, c2: i2}
@@ -500,10 +548,16 @@ class TestGroupBboxWithOwnedWires:
         c1, c_ext = i1.id, i_ext.id
         placements = {
             c1: ComponentPlacement(
-                component_id=c1, position=Point(0.0, 0.0), rotation=0, side="top",
+                component_id=c1,
+                position=Point(0.0, 0.0),
+                rotation=0,
+                side="top",
             ),
             c_ext: ComponentPlacement(
-                component_id=c_ext, position=Point(5.0, 0.0), rotation=0, side="top",
+                component_id=c_ext,
+                position=Point(5.0, 0.0),
+                rotation=0,
+                side="top",
             ),
         }
         instances = {c1: i1, c_ext: i_ext}

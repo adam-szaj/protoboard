@@ -18,8 +18,8 @@ from protoboard.geometry import Point, Rect, Transform2D
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.controller.ports import ViewportPort, WheelInput
+    from protoboard.gui.board_view_tool import AbstractBoardView
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
 GRID_PX = 60.0  # initial pixels-per-raster-unit
@@ -32,8 +32,8 @@ class ViewCamera:
         self._view = view
         self._port: ViewportPort = view.viewport_port
         # View state — camera side and visual transform are independent.
-        self._camera_side: str = "top"           # "top" | "bottom"
-        self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
+        self._camera_side: str = "top"  # "top" | "bottom"
+        self._view_transform: str = "normal"  # "normal" | "mirror_h" | "mirror_v"
         # Wheel-zoom accumulator.  Each wheel event adds its delta
         # (in 1/120-of-a-degree units, Qt's angleDelta) into the buffer
         # and parks the most-recent cursor viewport position.  A short
@@ -45,6 +45,7 @@ class ViewCamera:
         # later.  The parked sample is ``(delta, pivot)``; combine sums the delta
         # while the latest pivot wins.
         from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
+
         self._wheel_throttle: ParkLatestThrottle[tuple[int, Point]] = (
             ParkLatestThrottle(
                 16,  # ~1 frame
@@ -57,7 +58,9 @@ class ViewCamera:
         # the board pixmap by stretching the anchor instead of rebuilding.
         # When it fires (settle), the next paint rebuilds the cache fresh.
         self._pan_burst_timer = TimerWrap(
-            120, self._on_pan_settled, restart_on_arm=True,  # settle detector
+            120,
+            self._on_pan_settled,
+            restart_on_arm=True,  # settle detector
         )
 
     # -- state -------------------------------------------------------------------
@@ -143,9 +146,7 @@ class ViewCamera:
         # Remember the scene point currently at the viewport centre so we can
         # restore it after set_view_transform (which resets scroll position).
         center_scene = port.map_view_to_scene(port.viewport_rect().center)
-        port.set_view_transform(
-            Transform2D(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0)
-        )
+        port.set_view_transform(Transform2D(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
         # Re-centre on the same scene point.
         port.center_on(center_scene)
         # Transform changed → bg cache pixmap is in the wrong space, but
@@ -156,6 +157,7 @@ class ViewCamera:
     @traced()
     def _sync_tool_side(self, side: str) -> None:
         from protoboard.gui.tools.gui_tools import RouteTool
+
         tool = self._view.active_tool
         if isinstance(tool, RouteTool):
             tool._side = side  # type: ignore[assignment]
@@ -168,21 +170,25 @@ class ViewCamera:
     # independently so combining H + V produces ``mirror_hv``.
     @traced()
     def toggle_mirror_h(self) -> None:
-        self.set_view_transform(self._compose_view_transform(
-            h=not self._has_mirror_h(), v=self._has_mirror_v(),
-        ))
+        self.set_view_transform(
+            self._compose_view_transform(
+                h=not self._has_mirror_h(),
+                v=self._has_mirror_v(),
+            )
+        )
 
     @traced()
     def toggle_mirror_v(self) -> None:
-        self.set_view_transform(self._compose_view_transform(
-            h=self._has_mirror_h(), v=not self._has_mirror_v(),
-        ))
+        self.set_view_transform(
+            self._compose_view_transform(
+                h=self._has_mirror_h(),
+                v=not self._has_mirror_v(),
+            )
+        )
 
     @traced()
     def toggle_camera(self) -> None:
-        self.set_camera_side(
-            "bottom" if self._camera_side == "top" else "top"
-        )
+        self.set_camera_side("bottom" if self._camera_side == "top" else "top")
 
     # Legacy alias used by MainWindow._mirror_view (now means Mirror H).
     @traced()
@@ -213,6 +219,7 @@ class ViewCamera:
         active = view.active_group_id
 
         import uuid as _uuid
+
         if active == ROOT_GROUP_ID:
             comp_ids: frozenset[_uuid.UUID] = frozenset(
                 session.layout.placements.keys()
@@ -234,11 +241,14 @@ class ViewCamera:
             return
 
         margin = 1.0
-        self._port.fit_in_view(Rect.of(
-            min(xs) - margin, min(ys) - margin,
-            max(xs) - min(xs) + 2 * margin,
-            max(ys) - min(ys) + 2 * margin,
-        ))
+        self._port.fit_in_view(
+            Rect.of(
+                min(xs) - margin,
+                min(ys) - margin,
+                max(xs) - min(xs) + 2 * margin,
+                max(ys) - min(ys) + 2 * margin,
+            )
+        )
         # fit_* / mirror: transform jumps but the pixmap content is still
         # valid — keep the anchor so the next paint can stretch-blit it
         # while the fresh rebuild happens.
@@ -281,11 +291,14 @@ class ViewCamera:
             return
 
         margin = 1.0
-        self._port.fit_in_view(Rect.of(
-            min(xs) - margin, min(ys) - margin,
-            max(xs) - min(xs) + 2 * margin,
-            max(ys) - min(ys) + 2 * margin,
-        ))
+        self._port.fit_in_view(
+            Rect.of(
+                min(xs) - margin,
+                min(ys) - margin,
+                max(xs) - min(xs) + 2 * margin,
+                max(ys) - min(ys) + 2 * margin,
+            )
+        )
         # fit_* / mirror: transform jumps but the pixmap content is still
         # valid — keep the anchor so the next paint can stretch-blit it
         # while the fresh rebuild happens.
@@ -338,7 +351,7 @@ class ViewCamera:
         if ticks == 0:
             ticks = 1 if delta > 0 else -1
         if ticks > 0:
-            factor = 1.1 ** ticks
+            factor = 1.1**ticks
         else:
             factor = (1.0 / 1.08) ** (-ticks)
         factor, hit_floor = self._clamp_zoom_factor(factor)
@@ -374,9 +387,16 @@ class ViewCamera:
         pivot correction via :meth:`ViewportPort.pan_by`.
         """
         t = self._port.view_transform()
-        self._port.set_view_transform(Transform2D(
-            t.a * factor, t.b * factor, t.c * factor, t.d * factor, t.tx, t.ty,
-        ))
+        self._port.set_view_transform(
+            Transform2D(
+                t.a * factor,
+                t.b * factor,
+                t.c * factor,
+                t.d * factor,
+                t.tx,
+                t.ty,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Zoom limits — derived from physical DPI + board bounds

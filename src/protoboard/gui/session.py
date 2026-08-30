@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
 
+from protoboard.controller.editing.headless_session import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId, ItemTag
 from protoboard.domain.board.board import Board
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.highlight_state import HighlightStack
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.services.drc.engine import DRCIssue
-from protoboard.controller.editing.headless_session import HeadlessSession
-from protoboard.controller.editing.item_handle import ItemId, ItemTag
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
 
@@ -98,7 +98,7 @@ class EditorSession(HeadlessSession, QObject):
     """
 
     layout_changed = Signal()
-    drag_moved = Signal()       # emitted on every drag step; does NOT trigger panels/DRC
+    drag_moved = Signal()  # emitted on every drag step; does NOT trigger panels/DRC
     drc_changed = Signal(list)  # list[DRCIssue]
     dirty_changed = Signal(bool)
     # Carries (frozenset[UUID] comp_ids, frozenset[UUID] wire_ids, UUID|None net_id).
@@ -195,9 +195,9 @@ class EditorSession(HeadlessSession, QObject):
 
     def notify_selection(
         self,
-        comp_ids: "frozenset[uuid.UUID]",
-        wire_ids: "frozenset[uuid.UUID]",
-        net_id: "uuid.UUID | None",
+        comp_ids: frozenset[uuid.UUID],
+        wire_ids: frozenset[uuid.UUID],
+        net_id: uuid.UUID | None,
     ) -> None:
         """Called by SelectTool to broadcast selection state to all panels."""
         self.selection_changed.emit(comp_ids, wire_ids, net_id)
@@ -319,7 +319,7 @@ class EditorSession(HeadlessSession, QObject):
         self.routing_net_changed.emit(net_id)
 
     @property
-    def routing_net_id(self) -> "uuid.UUID | None":
+    def routing_net_id(self) -> uuid.UUID | None:
         return self._routing_net_id
 
     # ------------------------------------------------------------------
@@ -422,4 +422,3 @@ class EditorSession(HeadlessSession, QObject):
             return
         self._autoroute_active = active
         self.autoroute_active_changed.emit(active)
-

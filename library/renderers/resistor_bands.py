@@ -3,7 +3,7 @@
 
 Registered for the DIN ceramic-shell families (``DIN-0204`` … ``DIN-0922``),
 the bodies resistors ship in — and that small axial inductors reuse (the
-builtin ``L`` part references ``DIN-0207/typ``).  The bands are decoded from
+builtin ``L`` part references ``r-tht/DIN/0207``).  The bands are decoded from
 the placed part's ``instance.value``:
 
 * ``component_class: resistor`` — the IEC 60062 resistance code (ohms);
@@ -72,14 +72,14 @@ TOLERANCE_COLOR = "#d4af37"
 #: Tolerance percent → band colour (IEC 60062).  ±20 % is deliberately absent:
 #: its encoding IS the missing band.
 TOLERANCE_COLORS: dict[float, str] = {
-    10.0: "#c0c0c0",   # silver
-    5.0: "#d4af37",    # gold
-    2.0: "#d0342c",    # red
-    1.0: "#8b5a2b",    # brown
-    0.5: "#2f8f2f",    # green
-    0.25: "#3667c8",   # blue
-    0.1: "#8a2be2",    # violet
-    0.05: "#8c8c8c",   # grey
+    10.0: "#c0c0c0",  # silver
+    5.0: "#d4af37",  # gold
+    2.0: "#d0342c",  # red
+    1.0: "#8b5a2b",  # brown
+    0.5: "#2f8f2f",  # green
+    0.25: "#3667c8",  # blue
+    0.1: "#8a2be2",  # violet
+    0.05: "#8c8c8c",  # grey
 }
 
 
@@ -101,9 +101,8 @@ def code_bands(value: float) -> list[str] | None:
 # Renderer
 # ---------------------------------------------------------------------------
 
-@register_renderer(family=(
-    "DIN-0204", "DIN-0207", "DIN-0411", "DIN-0617", "DIN-0922",
-))
+
+@register_renderer(family="r-tht/DIN")
 class DinColorBandRenderer(CylinderRenderer):
     """DIN axial body with the value decoded into colour bands."""
 
@@ -117,11 +116,15 @@ class DinColorBandRenderer(CylinderRenderer):
     GAP_FRAC = 0.06
 
     def _resolve_colors(
-        self, fill: QColor, border: QColor,
+        self,
+        fill: QColor,
+        border: QColor,
     ) -> tuple[QColor, QColor]:
         fill, border = super()._resolve_colors(fill, border)
-        if (self._component_class == ComponentClass.INDUCTOR
-                and self._appearance.color is None):
+        if (
+            self._component_class == ComponentClass.INDUCTOR
+            and self._appearance.color is None
+        ):
             body = qcolor_from_css(self.INDUCTOR_BODY_COLOR)
             return body, body.darker(150)
         return fill, border
@@ -179,15 +182,24 @@ class DinColorBandRenderer(CylinderRenderer):
         # Code group from the pin-1 end…
         x = -half + gap
         for color in code:
-            canvas.addRect((x, -body_w / 2.0), (x + band_w, body_w / 2.0),
-                           fill=color, pen_width=0.0, z_offset=0.01)
+            canvas.addRect(
+                (x, -body_w / 2.0),
+                (x + band_w, body_w / 2.0),
+                fill=color,
+                pen_width=0.0,
+                z_offset=0.01,
+            )
             x += band_w + gap
         # …and the tolerance band at the far end (±20 % = no band).
         tolerance = self._tolerance_color()
         if tolerance is not None:
-            canvas.addRect((half - gap - band_w, -body_w / 2.0),
-                           (half - gap, body_w / 2.0),
-                           fill=tolerance, pen_width=0.0, z_offset=0.01)
+            canvas.addRect(
+                (half - gap - band_w, -body_w / 2.0),
+                (half - gap, body_w / 2.0),
+                fill=tolerance,
+                pen_width=0.0,
+                z_offset=0.01,
+            )
         items.extend(canvas.items)
         return items
 

@@ -8,7 +8,8 @@ to all-bottom instead of toggling each fragment. The fix splits the method
 into a move-only ``_move_selected_wires_to_side(side: str)`` and a new
 ``_flip_selected_wires()`` that delegates to ``EditController.flip_wires``
 (fragment-wise toggle, never flattens).
-"""
+"""  # noqa: E501
+
 from __future__ import annotations
 
 import uuid

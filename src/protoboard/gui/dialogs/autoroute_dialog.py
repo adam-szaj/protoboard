@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QPushButton,
     QRadioButton,
     QSpinBox,
     QVBoxLayout,
@@ -31,9 +30,10 @@ if TYPE_CHECKING:
     from protoboard.services.routing.postprocess import SimplifyMode
 
 
-def _simplify_mode_from_combo(raw: object) -> "SimplifyMode":
+def _simplify_mode_from_combo(raw: object) -> SimplifyMode:
     """Translate combobox data-role into SimplifyMode (defaults to BARE_PARITY)."""
     from protoboard.services.routing.postprocess import SimplifyMode
+
     if isinstance(raw, str):
         try:
             return SimplifyMode(raw)
@@ -74,6 +74,7 @@ class AutorouteDialog(QDialog):
         import protoboard.services.routing.builtin  # noqa: F401
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
         from protoboard.services.routing.protocol import registry as _router_registry
+
         router_row = QHBoxLayout()
         router_row.addWidget(QLabel("Router:"))
         self._combo_router = QComboBox()
@@ -83,7 +84,9 @@ class AutorouteDialog(QDialog):
             caps = r.capabilities()
             if caps.notes:
                 self._combo_router.setItemData(
-                    self._combo_router.count() - 1, caps.notes, 3,  # Qt.ToolTipRole
+                    self._combo_router.count() - 1,
+                    caps.notes,
+                    3,  # Qt.ToolTipRole
                 )
         # Default selection: load user's last choice from settings, with
         # graceful fallback when the saved router is no longer registered
@@ -106,7 +109,7 @@ class AutorouteDialog(QDialog):
         self._rb_bare_diag = QRadioButton(
             "Bare diagonal — parity-restricted, crossings between pads"
         )
-        self._rb_ins  = QRadioButton("Always insulated")
+        self._rb_ins = QRadioButton("Always insulated")
 
         self._wire_mode_group = QButtonGroup(self)
         self._wire_mode_group.addButton(self._rb_auto, 0)
@@ -137,6 +140,7 @@ class AutorouteDialog(QDialog):
         def _sync_jumpers_enabled() -> None:
             bare_family = self._rb_bare.isChecked() or self._rb_bare_diag.isChecked()
             self._chk_jumpers.setEnabled(not bare_family)
+
         self._rb_bare.toggled.connect(lambda _c: _sync_jumpers_enabled())
         self._rb_bare_diag.toggled.connect(lambda _c: _sync_jumpers_enabled())
         _sync_jumpers_enabled()
@@ -213,9 +217,7 @@ class AutorouteDialog(QDialog):
         simplify_mode_row = QHBoxLayout()
         simplify_mode_row.addWidget(QLabel("Simplify mode:"))
         self._combo_simplify_mode = QComboBox()
-        self._combo_simplify_mode.addItem(
-            "Chebyshev (shortcut via diag)", "chebyshev"
-        )
+        self._combo_simplify_mode.addItem("Chebyshev (shortcut via diag)", "chebyshev")
         self._combo_simplify_mode.addItem(
             "Bare-parity (respect anti-short rule)", "bare_parity"
         )
@@ -238,6 +240,7 @@ class AutorouteDialog(QDialog):
         from protoboard.services.routing.optimizer import (
             registry as _opt_registry,
         )
+
         self._optimizer_list: QListWidget | None = None
         opt_names = [n for n in _opt_registry.list_available() if n != "simplify"]
         if opt_names:
@@ -271,6 +274,7 @@ class AutorouteDialog(QDialog):
             from protoboard.services.routing.optimizer import (
                 incompatibility_reasons,
             )
+
             for opt_name in ordered:
                 opt = _opt_registry.get(opt_name)
                 item = QListWidgetItem(getattr(opt, "display_name", opt_name))
@@ -324,7 +328,9 @@ class AutorouteDialog(QDialog):
         root.addWidget(self._chk_skip)
 
         buttons = QDialogButtonBox()
-        self._route_btn = buttons.addButton("Route", QDialogButtonBox.ButtonRole.AcceptRole)
+        self._route_btn = buttons.addButton(
+            "Route", QDialogButtonBox.ButtonRole.AcceptRole
+        )
         buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -386,7 +392,9 @@ class AutorouteDialog(QDialog):
             simplify_all_after_autoroute=self._chk_simplify_all_after.isChecked(),
             simplify_all_max_iterations=rs_in.simplify_all_max_iterations,
             hierarchical=self._chk_hierarchical.isChecked(),
-            simplify_mode=_simplify_mode_from_combo(self._combo_simplify_mode.currentData()),
+            simplify_mode=_simplify_mode_from_combo(
+                self._combo_simplify_mode.currentData()
+            ),
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
             optimizer_chain=chain,

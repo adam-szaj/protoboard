@@ -28,21 +28,20 @@ if TYPE_CHECKING:
     from protoboard.domain.schematic.net import Net
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
-    from protoboard.gui.session import EditorSession
     from protoboard.services.routing.cost_model import RoutingCostModel
 
-_COL_NAME   = 0
-_COL_PINS   = 1
-_COL_WIRES  = 2
+_COL_NAME = 0
+_COL_PINS = 1
+_COL_WIRES = 2
 _COL_LENGTH = 3
-_COL_RATIO  = 4   # wire length / MST manhattan
-_COL_HULL   = 5   # convex hull area (wires) / convex hull area (pins)
-_COL_COST   = 6   # total routing cost under current cost_model
+_COL_RATIO = 4  # wire length / MST manhattan
+_COL_HULL = 5  # convex hull area (wires) / convex hull area (pins)
+_COL_COST = 6  # total routing cost under current cost_model
 _ROLE = Qt.ItemDataRole.UserRole
 
 _UNROUTED_COLOR = QColor("#E07B00")
 _NA = "—"
-_NA_SORT = -1.0   # sentinel for numeric sort of N/A cells
+_NA_SORT = -1.0  # sentinel for numeric sort of N/A cells
 
 
 class _SortableItem(QTreeWidgetItem):
@@ -63,7 +62,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 
     def __init__(
         self,
-        board_view: "BoardView",
+        board_view: BoardView,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -82,12 +81,12 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         self._tree.setHeaderLabels(
             ["Name", "Pins", "Wires", "Length (r.u.)", "Wire/MST", "Hull", "Cost"]
         )
-        self._tree.setColumnWidth(_COL_PINS,   38)
-        self._tree.setColumnWidth(_COL_WIRES,  42)
+        self._tree.setColumnWidth(_COL_PINS, 38)
+        self._tree.setColumnWidth(_COL_WIRES, 42)
         self._tree.setColumnWidth(_COL_LENGTH, 76)
-        self._tree.setColumnWidth(_COL_RATIO,  68)
-        self._tree.setColumnWidth(_COL_HULL,   58)
-        self._tree.setColumnWidth(_COL_COST,   72)
+        self._tree.setColumnWidth(_COL_RATIO, 68)
+        self._tree.setColumnWidth(_COL_HULL, 58)
+        self._tree.setColumnWidth(_COL_COST, 72)
         self._tree.setSortingEnabled(True)
         self._tree.header().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch
@@ -108,7 +107,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         wire_ids: object,
         net_id: object,
     ) -> None:
-        """Highlight the row matching net_id. Called by MainWindow on board selection."""
+        """Highlight the row matching net_id. Called by MainWindow on board selection."""  # noqa: E501
         del comp_ids, wire_ids  # unused: this panel keys off net_id only
         if not self.isVisible():
             return
@@ -163,8 +162,6 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
             return
         self._refresh_pending = False
 
-        from protoboard.domain.layout.placement import pin_world_position
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.services.routing.cost_analyzer import analyze_wires
         from protoboard.services.routing.net_status import routed_net_ids
 
@@ -188,18 +185,20 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         # and definitely not per net.
         cost_under_pads = (
             session.cached_under_component_pads()
-            if cm.get("under_component_top", 0.0) > 0.0 else set()
+            if cm.get("under_component_top", 0.0) > 0.0
+            else set()
         )
         cost_plated_pads = (
             session.cached_plated_through_pads()
-            if cm.get("layer_change", 0.0) > 0.0 else set()
+            if cm.get("layer_change", 0.0) > 0.0
+            else set()
         )
 
         unrouted_brush = QBrush(_UNROUTED_COLOR)
 
         for net in sorted(session.schematic.nets.values(), key=lambda n: n.name):
             wires = net_wires.get(net.id, [])
-            pin_count  = len(net.pins)
+            pin_count = len(net.pins)
             wire_count = len(wires)
 
             # Collect placed pin positions for this net.
@@ -227,30 +226,30 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 
     def _make_net_item(
         self,
-        net: "Net",
+        net: Net,
         pin_count: int,
         wire_count: int,
-        metrics: "_NetMetrics",
+        metrics: _NetMetrics,
         unrouted_brush: QBrush,
-        routed: "set[uuid.UUID]",
+        routed: set[uuid.UUID],
     ) -> _SortableItem:
         """Build the sortable tree row for one net from its computed metrics."""
         item = _SortableItem()
-        item.setText(_COL_NAME,   net.name)
-        item.setText(_COL_PINS,   str(pin_count))
-        item.setText(_COL_WIRES,  str(wire_count))
+        item.setText(_COL_NAME, net.name)
+        item.setText(_COL_PINS, str(pin_count))
+        item.setText(_COL_WIRES, str(wire_count))
         item.setText(_COL_LENGTH, f"{metrics.length:.1f}")
-        item.setText(_COL_RATIO,  metrics.ratio_txt)
-        item.setText(_COL_HULL,   metrics.hull_txt)
-        item.setText(_COL_COST,   metrics.cost_txt)
+        item.setText(_COL_RATIO, metrics.ratio_txt)
+        item.setText(_COL_HULL, metrics.hull_txt)
+        item.setText(_COL_COST, metrics.cost_txt)
 
-        item.setData(_COL_NAME,   _ROLE, str(net.id))
-        item.setData(_COL_PINS,   _ROLE, pin_count)
-        item.setData(_COL_WIRES,  _ROLE, wire_count)
+        item.setData(_COL_NAME, _ROLE, str(net.id))
+        item.setData(_COL_PINS, _ROLE, pin_count)
+        item.setData(_COL_WIRES, _ROLE, wire_count)
         item.setData(_COL_LENGTH, _ROLE, metrics.length)
-        item.setData(_COL_RATIO,  _ROLE, metrics.ratio_key)
-        item.setData(_COL_HULL,   _ROLE, metrics.hull_key)
-        item.setData(_COL_COST,   _ROLE, metrics.cost_key)
+        item.setData(_COL_RATIO, _ROLE, metrics.ratio_key)
+        item.setData(_COL_HULL, _ROLE, metrics.hull_key)
+        item.setData(_COL_COST, _ROLE, metrics.cost_key)
 
         if net.id not in routed:
             item.setForeground(_COL_NAME, unrouted_brush)
@@ -276,6 +275,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 # Metric aggregation
 # ---------------------------------------------------------------------------
 
+
 class _NetMetrics(NamedTuple):
     """Computed per-net display metrics: cell text plus numeric sort keys."""
 
@@ -289,15 +289,15 @@ class _NetMetrics(NamedTuple):
 
 
 def _compute_net_metrics(
-    wires: list["Wire"],
-    pin_pts: list["Point"],
+    wires: list[Wire],
+    pin_pts: list[Point],
     *,
-    cost_model: "RoutingCostModel",
-    under_component_pads: "set[Point]",
-    plated_through_pads: "set[Point]",
-    all_board_wires: list["Wire"],
-    pad_index: "PadIndex",
-    analyze_wires: "Callable[..., object]",
+    cost_model: RoutingCostModel,
+    under_component_pads: set[Point],
+    plated_through_pads: set[Point],
+    all_board_wires: list[Wire],
+    pad_index: PadIndex,
+    analyze_wires: Callable[..., object],
 ) -> _NetMetrics:
     """Compute length / MST ratio / hull ratio / routing cost for one net.
 
@@ -309,7 +309,7 @@ def _compute_net_metrics(
     # Wire/MST ratio.
     mst = _mst_manhattan(pin_pts)
     if mst > 0.0:
-        ratio     = length / mst
+        ratio = length / mst
         ratio_txt = f"{ratio:.2f}"
         ratio_key: float = ratio
     else:
@@ -323,8 +323,8 @@ def _compute_net_metrics(
     hull_w = _convex_hull_area(wire_pts)
     hull_p = _pin_hull_area(pin_pts)
     if hull_p > 0.0:
-        hull_ratio     = hull_w / hull_p
-        hull_txt       = f"{hull_ratio:.2f}"
+        hull_ratio = hull_w / hull_p
+        hull_txt = f"{hull_ratio:.2f}"
         hull_key: float = hull_ratio
     else:
         hull_txt = _NA
@@ -365,7 +365,8 @@ def _compute_net_metrics(
 # Pure geometry helpers
 # ---------------------------------------------------------------------------
 
-def _manhattan_length(wires: list["Wire"]) -> float:
+
+def _manhattan_length(wires: list[Wire]) -> float:
     total = 0.0
     for wire in wires:
         pts = wire.path
@@ -374,7 +375,7 @@ def _manhattan_length(wires: list["Wire"]) -> float:
     return total
 
 
-def _mst_manhattan(points: list["Point"]) -> float:
+def _mst_manhattan(points: list[Point]) -> float:
     """Minimum spanning tree length in Manhattan metric (Prim's algorithm)."""
     n = len(points)
     if n < 2:
@@ -401,21 +402,22 @@ def _mst_manhattan(points: list["Point"]) -> float:
         for j in range(n):
             if j in in_tree:
                 continue
-            d = (abs(points[next_j].x - points[j].x)
-                 + abs(points[next_j].y - points[j].y))
+            d = abs(points[next_j].x - points[j].x) + abs(
+                points[next_j].y - points[j].y
+            )
             if d < min_dist[j]:
                 min_dist[j] = d
                 nearest[j] = next_j
     return total
 
 
-def _convex_hull_area(points: list["Point"]) -> float:
+def _convex_hull_area(points: list[Point]) -> float:
     """Convex hull area via Graham scan + shoelace formula. Returns 0 for <3 pts."""
     if len(points) < 3:
         return 0.0
     pivot = min(points, key=lambda p: (p.y, p.x))
 
-    def _angle(p: "Point") -> float:
+    def _angle(p: Point) -> float:
         return (p - pivot).angle()
 
     sorted_pts = sorted(points, key=_angle)
@@ -438,7 +440,7 @@ def _convex_hull_area(points: list["Point"]) -> float:
     return abs(area) / 2.0
 
 
-def _pin_hull_area(points: list["Point"]) -> float:
+def _pin_hull_area(points: list[Point]) -> float:
     """Hull area for the pin set, where each pad = 1 (r.u.)².
 
     - 0 pins  → 0
@@ -452,6 +454,5 @@ def _pin_hull_area(points: list["Point"]) -> float:
     if n == 1:
         return 1.0
     if n == 2:
-        return (abs(points[0].x - points[1].x)
-                + abs(points[0].y - points[1].y))
+        return abs(points[0].x - points[1].x) + abs(points[0].y - points[1].y)
     return _convex_hull_area(points)

@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, Qt
 
-from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
+from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.gui.qt_geometry import (
     from_qpointf,
     from_qtransform,
@@ -90,9 +90,7 @@ class QtViewport:
         self._view.centerOn(to_qpointf(scene_pt))
 
     def fit_in_view(self, scene_rect: Rect) -> None:
-        self._view.fitInView(
-            to_qrectf(scene_rect), Qt.AspectRatioMode.KeepAspectRatio
-        )
+        self._view.fitInView(to_qrectf(scene_rect), Qt.AspectRatioMode.KeepAspectRatio)
 
     # -- output --------------------------------------------------------------
 

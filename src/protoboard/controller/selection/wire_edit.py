@@ -41,9 +41,9 @@ from protoboard.domain.commands.component_cmds import (
     SetWireInsulatedCommand,
 )
 from protoboard.domain.layout.wire import Fragment, Wire, fragments_for_slice
-from protoboard.types import Side
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
         wire_to_net: dict[uuid.UUID, uuid.UUID | None]
         pad_index: object
 
+
 #: Builds the "add this freshly-minted wire" command for the range ops that cut
 #: a wire and re-add a surviving/replacement piece (cross-wire excise, reroute,
 #: same-wire cut). The default mints a plain, net-unaware ``AddWireCommand`` —
@@ -71,7 +72,7 @@ if TYPE_CHECKING:
 AddWireFactory = Callable[[Wire], "Command[ComponentState]"]
 
 
-def _default_add_factory(wire: Wire) -> "Command[ComponentState]":
+def _default_add_factory(wire: Wire) -> Command[ComponentState]:
     """The purity-preserving default: a plain, net-unaware ``AddWireCommand``."""
     return cast("Command[ComponentState]", AddWireCommand(wire=wire))
 
@@ -241,7 +242,7 @@ def net_wires_ordered(
 
     adj: dict[uuid.UUID, list[uuid.UUID]] = {w.id: [] for w in net_wires}
     for i, wa in enumerate(net_wires):
-        for wb in net_wires[i + 1:]:
+        for wb in net_wires[i + 1 :]:
             if _shares_point(wa, wb):
                 adj[wa.id].append(wb.id)
                 adj[wb.id].append(wa.id)
@@ -338,12 +339,16 @@ def excise_cross_wire_range(
     def _add(wire: Wire, lo: int, hi: int) -> None:
         # Fragment-style slice — keeps the live per-segment sides of a
         # mixed wire (path-style + scalar wire.side would flatten them).
-        cmds.append(add_factory(Wire(
-            id=uuid.uuid4(),
-            fragments=fragments_for_slice(wire, lo, hi),
-            insulated=wire.insulated,
-            color=wire.color,
-        )))
+        cmds.append(
+            add_factory(
+                Wire(
+                    id=uuid.uuid4(),
+                    fragments=fragments_for_slice(wire, lo, hi),
+                    insulated=wire.insulated,
+                    color=wire.color,
+                )
+            )
+        )
 
     def _keep_fragment(wire: Wire, edit_idx: int, outer_idx: int) -> None:
         """Keep the path slice from outer_idx to edit_idx via Remove + AddWire.
@@ -357,10 +362,7 @@ def excise_cross_wire_range(
             _remove(wire)
             return
         _remove(wire)
-        lo, hi = (
-            (0, edit_idx) if outer_idx == 0
-            else (edit_idx, len(wire.path) - 1)
-        )
+        lo, hi = (0, edit_idx) if outer_idx == 0 else (edit_idx, len(wire.path) - 1)
         if hi > lo:
             _add(wire, lo, hi)
 
@@ -416,7 +418,8 @@ def build_reroute_command(
         # construction-time snapshot and goes stale after a fragment flip.
         side = (
             _segment_side(start_wire, state.start_idx)
-            if start_wire is not None else "bottom"
+            if start_wire is not None
+            else "bottom"
         )
         # Inherit insulation from the rerouted wire — a bare reroute must
         # stay bare (forcing insulated=True silently changed bare wires).
@@ -428,9 +431,7 @@ def build_reroute_command(
         new_path = dedupe_adjacent([start_pt, *waypoints, end_pt])
         if len(new_path) < 2:
             return excise_macro
-        new_wire = Wire(
-            id=uuid.uuid4(), path=new_path, insulated=insulated, side=side
-        )
+        new_wire = Wire(id=uuid.uuid4(), path=new_path, insulated=insulated, side=side)
         add_cmd = add_factory(new_wire)
         macro = MacroCommand(
             [excise_macro, add_cmd],
@@ -442,8 +443,8 @@ def build_reroute_command(
     wire = _find_wire(wires, state.start_wire_id)
     if wire is None:
         return None
-    prefix = list(wire.path[:state.start_idx + 1])
-    suffix = list(wire.path[state.end_idx:])
+    prefix = list(wire.path[: state.start_idx + 1])
+    suffix = list(wire.path[state.end_idx :])
     new_path = dedupe_adjacent(prefix + waypoints + suffix)
     if len(new_path) < 2:
         return None
@@ -487,12 +488,16 @@ def build_delete_command(
     # Fragment-style halves keep the live per-segment sides of a mixed wire.
     for lo, hi in ((0, start), (end, n - 1)):
         if hi > lo:
-            cmds.append(add_factory(Wire(
-                id=uuid.uuid4(),
-                fragments=fragments_for_slice(wire, lo, hi),
-                insulated=wire.insulated,
-                color=wire.color,
-            )))
+            cmds.append(
+                add_factory(
+                    Wire(
+                        id=uuid.uuid4(),
+                        fragments=fragments_for_slice(wire, lo, hi),
+                        insulated=wire.insulated,
+                        color=wire.color,
+                    )
+                )
+            )
     if len(cmds) == 1:
         return cmds[0]
     return cast(
@@ -511,7 +516,7 @@ class WireRangeEdit:
     empty / False.
     """
 
-    command: "Command[ComponentState]"
+    command: Command[ComponentState]
     survivor_wire_ids: tuple[uuid.UUID, ...]
     was_cut: bool
 
@@ -567,12 +572,16 @@ def build_set_insulated_range_command(
     ):
         if hi > lo:
             new_id = uuid.uuid4()
-            cmds.append(add_factory(Wire(
-                id=new_id,
-                fragments=fragments_for_slice(wire, lo, hi),
-                insulated=keep_insulated,
-                color=wire.color,
-            )))
+            cmds.append(
+                add_factory(
+                    Wire(
+                        id=new_id,
+                        fragments=fragments_for_slice(wire, lo, hi),
+                        insulated=keep_insulated,
+                        color=wire.color,
+                    )
+                )
+            )
             if is_survivor:
                 survivors.append(new_id)
     macro_desc = "Insulate wire fragment" if insulated else "Bare wire fragment"
@@ -600,16 +609,14 @@ def build_delete_range_edit(
     """
     survivors: list[uuid.UUID] = []
 
-    def _capture(wire: Wire) -> "Command[ComponentState]":
+    def _capture(wire: Wire) -> Command[ComponentState]:
         survivors.append(wire.id)
         return add_factory(wire)
 
     cmd = build_delete_command(wires, wire_net_map, state, _capture)
     if cmd is None:
         return None
-    return WireRangeEdit(
-        command=cmd, survivor_wire_ids=tuple(survivors), was_cut=True
-    )
+    return WireRangeEdit(command=cmd, survivor_wire_ids=tuple(survivors), was_cut=True)
 
 
 def _segment_side(wire: Wire, seg_idx: int) -> Side:
@@ -721,7 +728,7 @@ def build_simplify_range_command(
         # Slice as a standalone wire, KEEPING the id (self-exclusion + parity).
         slice_wire = Wire(
             id=wire.id,
-            path=list(wire.path[start:end + 1]),
+            path=list(wire.path[start : end + 1]),
             insulated=wire.insulated,
             side=wire.side,
             color=wire.color,
@@ -746,7 +753,7 @@ def build_simplify_range_command(
         new_path = list(simplified.path)
     else:
         prefix = list(wire.path[:start])
-        suffix = list(wire.path[end + 1:])
+        suffix = list(wire.path[end + 1 :])
         new_path = dedupe_adjacent(prefix + list(simplified.path) + suffix)
     if new_path == list(wire.path) or len(new_path) < 2:
         return None

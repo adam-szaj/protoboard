@@ -27,8 +27,8 @@ if TYPE_CHECKING:
 
     from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-    from protoboard.geometry import Point
     from protoboard.controller.theme import Theme
+    from protoboard.geometry import Point
     from protoboard.services.routing.astar import RoutingResult
 
 _PREVIEW_WIDTH = 0.12

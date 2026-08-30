@@ -6,29 +6,36 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.controller.editing.drag_commit import classify_drag_commit
+from protoboard.controller.tools.drag_commit_decision import DragSeverity
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily, PackageVariant
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
-from protoboard.controller.editing.drag_commit import classify_drag_commit
-
 
 # ---------------------------------------------------------------------------
 # Minimal EditorSession stand-in — covers the attributes classify_drag_commit
 # uses (layout, instances, components, schematic, get_pin_position).
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _SessionStub:
     layout: Layout
     instances: dict[uuid.UUID, ComponentInstance]
     components: dict[str, ComponentDefinition]
+    package_families: dict[str, PackageFamily]
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
 
     def get_pin_position(self, comp_id: uuid.UUID, pin_num: int) -> Point | None:
@@ -39,12 +46,28 @@ class _SessionStub:
         defn = self.components.get(inst.definition_ref)
         if defn is None:
             return None
-        return pin_world_position(defn.default_footprint(), pl, pin_num)
+        return pin_world_position(
+            defn.default_footprint(self.package_families), pl, pin_num
+        )
+
+
+_TEST_FAMILIES: dict[str, PackageFamily] = {}
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name, footprint=SIL(n), pin_names={i: str(i) for i in range(1, n + 1)}
+    family = sil_family(n)
+    assert family is not None
+    _TEST_FAMILIES[family.family_id] = family
+    return ComponentDefinition(
+        name=name,
+        meta_pins=tuple(MetaPin((str(pin),)) for pin in range(1, n + 1)),
+        package_options=(
+            PackageOption(
+                name=f"SIL-{n}",
+                ref=f"{family.family_id}/std",
+                pin_map={pin: (pin,) for pin in range(1, n + 1)},
+            ),
+        ),
     )
 
 
@@ -64,17 +87,30 @@ def _rigid_defn(name: str, n: int = 2) -> ComponentDefinition:
     pkg = synth_generic_package(SIL(n))
     assert isinstance(pkg, Prism)
     pkg = dataclasses.replace(pkg, bend_holes=0.0, kind=None)
+    family_id = f"{name}-package"
+    _TEST_FAMILIES[family_id] = PackageFamily(
+        family_id=family_id,
+        variants=(PackageVariant("std", "std", pkg),),
+    )
     return ComponentDefinition(
         name=name,
-        package=pkg,
-        pin_names={i: str(i) for i in range(1, n + 1)},
+        meta_pins=tuple(MetaPin((str(pin),)) for pin in range(1, n + 1)),
+        package_options=(
+            PackageOption(
+                name=name,
+                ref=f"{family_id}/std",
+                pin_map={pin: (pin,) for pin in range(1, n + 1)},
+            ),
+        ),
     )
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, _TEST_FAMILIES)
 
 
 def _pl(x: float, y: float) -> ComponentPlacement:
@@ -100,13 +136,18 @@ def _build(
         layout.wires.extend(wires)
     sch = Schematic(nets={n.id: n for n in (nets or [])})
     return _SessionStub(
-        layout=layout, instances=instances, components=components, schematic=sch
+        layout=layout,
+        instances=instances,
+        components=components,
+        package_families=dict(_TEST_FAMILIES),
+        schematic=sch,
     )
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestClassifyDragCommit:
     def test_clear_when_nothing_conflicts(self) -> None:
@@ -169,10 +210,16 @@ class TestClassifyDragCommit:
             component_id=inst_b.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
         nets = [
-            Net(id=net_a, name="VCC",
-                pins={PinRef(component_id=inst_a.id, pin_number=1)}),
-            Net(id=net_b, name="GND",
-                pins={PinRef(component_id=inst_b.id, pin_number=1)}),
+            Net(
+                id=net_a,
+                name="VCC",
+                pins={PinRef(component_id=inst_a.id, pin_number=1)},
+            ),
+            Net(
+                id=net_b,
+                name="GND",
+                pins={PinRef(component_id=inst_b.id, pin_number=1)},
+            ),
         ]
         session = _build(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
@@ -209,8 +256,9 @@ class TestClassifyDragCommit:
         )
         net_n = uuid.uuid4()
         nets = [
-            Net(id=net_n, name="N1",
-                pins={PinRef(component_id=inst_b.id, pin_number=1)}),
+            Net(
+                id=net_n, name="N1", pins={PinRef(component_id=inst_b.id, pin_number=1)}
+            ),
         ]
         session = _build(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
@@ -288,10 +336,16 @@ class TestClassifyDragCommit:
             component_id=inst_b.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
         nets = [
-            Net(id=net_a, name="VCC",
-                pins={PinRef(component_id=inst_a.id, pin_number=1)}),
-            Net(id=net_b, name="GND",
-                pins={PinRef(component_id=inst_b.id, pin_number=1)}),
+            Net(
+                id=net_a,
+                name="VCC",
+                pins={PinRef(component_id=inst_a.id, pin_number=1)},
+            ),
+            Net(
+                id=net_b,
+                name="GND",
+                pins={PinRef(component_id=inst_b.id, pin_number=1)},
+            ),
         ]
         skewed = Wire(
             id=uuid.uuid4(),
@@ -322,6 +376,7 @@ class TestClassifyDoesNotShowDialogs:
         # the function works without QApplication present and without
         # touching dialog modules — proxy: run the CLEAR case from above.
         import sys
+
         # Remove dialog modules from sys.modules if present, then assert they
         # aren't re-imported by classify_drag_commit.
         for mod in (

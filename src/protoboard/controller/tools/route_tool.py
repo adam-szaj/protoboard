@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.geometry import Point
-from protoboard.controller.tools.base import ControllerTool
-from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
@@ -20,11 +20,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.editing import EditState
-    from protoboard.controller.tools.base import _ViewProto
+    from protoboard.controller.editing.wire_nets import NetMergePrompt
     from protoboard.controller.ports import PointerInput
+    from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.route_preview import RoutePreview
-    from protoboard.controller.editing.wire_nets import NetMergePrompt
 
 _log = structlog.get_logger(__name__)
 
@@ -103,7 +103,9 @@ class RouteTool(ControllerTool):
         return self.__view
 
     @_view.setter
-    def _view(self, value: _ViewProto | None) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
+    def _view(
+        self, value: _ViewProto | None
+    ) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
         self.__view = value
 
     def deactivate(self) -> None:
@@ -115,11 +117,15 @@ class RouteTool(ControllerTool):
             return False
         pt = inp.scene_pos
         if self._view.is_locked_pin(pt):
-            self._view.notify_status(StatusEvent(
-                "route.locked_pin",
-                {"text": "Pad belongs to a group — export it first (right-click → Export pin)",
-                 "timeout_ms": 3000},
-            ))
+            self._view.notify_status(
+                StatusEvent(
+                    "route.locked_pin",
+                    {
+                        "text": "Pad belongs to a group — export it first (right-click → Export pin)",  # noqa: E501
+                        "timeout_ms": 3000,
+                    },
+                )
+            )
             return True  # consume event, block routing
         snapped = self._view.snap(pt)
 
@@ -131,7 +137,12 @@ class RouteTool(ControllerTool):
             self.preview.add_segment(self._points[-1], snapped)
         self._points.append(snapped)
         if len(self._points) == 1:
-            _log.debug("route.started", start=(snapped.x, snapped.y), insulated=self._insulated, side=self._side)
+            _log.debug(
+                "route.started",
+                start=(snapped.x, snapped.y),
+                insulated=self._insulated,
+                side=self._side,
+            )
             self._highlight_start_net(snapped)
         # Immediately show live segment from new point to current cursor.
         self.preview.show_live(snapped, snapped)
@@ -171,7 +182,7 @@ class RouteTool(ControllerTool):
         if updater is not None:
             updater(self._insulated, self._side)
 
-    def command_table(self) -> dict[str, "Callable[[], object]"]:
+    def command_table(self) -> dict[str, Callable[[], object]]:
         """``action_id -> command`` — the data ``EditController.dispatch_tool_
         command`` runs (the GUI subclass's ``on_key`` resolves a key to one of
         these ids via the KeyMap and calls it)."""
@@ -199,10 +210,12 @@ class RouteTool(ControllerTool):
     def commit_op(self) -> bool:
         decision = self._route_conflict()
         if decision is not None and decision.is_hard:
-            self._view.notify_status(StatusEvent(
-                "route.conflict",
-                {"text": decision.description, "timeout_ms": 3000},
-            ))
+            self._view.notify_status(
+                StatusEvent(
+                    "route.conflict",
+                    {"text": decision.description, "timeout_ms": 3000},
+                )
+            )
             return False  # park — stay armed, points intact, wire not added
         self._commit()  # already stays in routing
         return True
@@ -357,7 +370,8 @@ class RouteTool(ControllerTool):
                     continue
                 pin_pos = pin_world_position(
                     resolved_footprint(defn, inst, families),
-                    placement, pin_ref.pin_number
+                    placement,
+                    pin_ref.pin_number,
                 )
                 pin_node = graph.node_for_pad(pin_pos, placement.side)
                 if pin_node is not None and pin_node == source_node:
@@ -376,10 +390,9 @@ class RouteTool(ControllerTool):
                             continue
                         targets.append(
                             pin_world_position(
-                                resolved_footprint(
-                                    other_defn, other_inst, families
-                                ),
-                                other_pl, other_ref.pin_number
+                                resolved_footprint(other_defn, other_inst, families),
+                                other_pl,
+                                other_ref.pin_number,
                             )
                         )
                     break
@@ -426,7 +439,7 @@ class RouteTool(ControllerTool):
     # Route-active visual treatment (Etap 2 + 3)
     # ------------------------------------------------------------------
 
-    def _set_route_highlight(self, *, net_id: "uuid.UUID | None") -> None:
+    def _set_route_highlight(self, *, net_id: uuid.UUID | None) -> None:
         """Push transient highlight entry + show background dim overlay.
 
         Idempotent — repeat calls within the same drag are no-ops.
@@ -435,9 +448,10 @@ class RouteTool(ControllerTool):
         if self._route_highlight_active:
             return
         from protoboard.controller.highlight_entry import (
-            HighlightEntry,
             PROFILE_ROUTE_ACTIVE,
+            HighlightEntry,
         )
+
         comp_ids: frozenset[uuid.UUID] = frozenset()
         if net_id is not None:
             net = self._session.schematic.nets.get(net_id)

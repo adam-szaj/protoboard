@@ -16,8 +16,14 @@ from collections import defaultdict
 from dataclasses import replace
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
+from protoboard.domain.components.package.family import PackageFamily, PackageVariant
+from protoboard.domain.components.package.generated_families import sil_family
+from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire
@@ -39,8 +45,10 @@ def assert_no_net_fusion(
     """
     final_layout = replace(layout, wires=list(layout.wires) + list(extra_wires))
     graph = ConnectivityGraph(
-        board=board, layout=final_layout,
-        components=components, instances=instances,
+        board=board,
+        layout=final_layout,
+        components=components,
+        instances=instances,
     )
 
     key_to_nets: dict[object, set[str]] = defaultdict(set)
@@ -96,16 +104,19 @@ def assert_no_redundant_routes(
         others = [ww for ww in all_wires if ww.id != w.id]
         test_layout = replace(layout, wires=others)
         graph = ConnectivityGraph(
-            board=board, layout=test_layout,
-            components=components, instances=instances,
+            board=board,
+            layout=test_layout,
+            components=components,
+            instances=instances,
         )
         if graph.are_connected(w.path[0], w.side, w.path[-1], w.side):
             redundant.append(w)
     if not redundant:
         return
 
-    lines = [f"Redundant routes detected ({len(redundant)} of "
-             f"{len(extra_wires)} wires):"]
+    lines = [
+        f"Redundant routes detected ({len(redundant)} of " f"{len(extra_wires)} wires):"
+    ]
     for w in redundant:
         lines.append(
             f"  id={str(w.id)[:8]} side={w.side} ins={w.insulated} "
@@ -119,55 +130,98 @@ def assert_no_redundant_routes(
 # Layout factories shared by handcrafted + property tests
 # ---------------------------------------------------------------------------
 
-from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
-from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.footprints import SIL
-from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point
+from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy  # noqa: E402
+from protoboard.domain.board.pads import PadLayers  # noqa: E402
+from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
+from protoboard.geometry import Point  # noqa: E402
 
 
 def make_perfboard(rows: int, cols: int) -> Board:
     """Plain plated-through perfboard, both layers."""
     return Board(
         root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
         )
     )
 
 
 def make_sil(name: str, n_pins: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name, footprint=SIL(n=n_pins),
-        pin_names={i: str(i) for i in range(1, n_pins + 1)},
+    return ComponentDefinition(
+        name=name,
+        meta_pins=tuple(MetaPin((str(pin),)) for pin in range(1, n_pins + 1)),
+        package_options=(
+            PackageOption(
+                name=f"SIL-{n_pins}",
+                ref=f"sil-{n_pins}/std",
+                pin_map={pin: (pin,) for pin in range(1, n_pins + 1)},
+            ),
+        ),
     )
+
+
+def sil_families(defn: ComponentDefinition) -> dict[str, PackageFamily]:
+    family = sil_family(len(defn.meta_pins))
+    if len(defn.meta_pins) == 1:
+        package = build_package(
+            {
+                "shape": "prism",
+                "dims": {"lx": 2.0, "ly": 2.0},
+                "arrangement": "axial",
+                "mount": "through_hole",
+                "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": []},
+                    "board_offset": "default",
+                },
+            },
+            "sil-1",
+        )
+        family = PackageFamily(
+            family_id="sil-1",
+            variants=(PackageVariant("std", "std", package),),
+        )
+    assert family is not None
+    return {family.family_id: family}
 
 
 def place(cid, x: float, y: float, rotation: int = 90) -> ComponentPlacement:
     """rotation=90 → horizontal pins (pin1=(x,y), pin2=(x+1,y))."""
     return ComponentPlacement(
-        component_id=cid, position=Point(x, y),
-        rotation=rotation, side="top",
+        component_id=cid,
+        position=Point(x, y),
+        rotation=rotation,
+        side="top",
     )
 
 
 def bare(*pts: tuple[float, float], side: str = "top") -> Wire:
     import uuid as _u
+
     return Wire(
         id=_u.uuid4(),
         path=[Point(*p) for p in pts],
-        insulated=False, side=side,  # type: ignore[arg-type]
+        insulated=False,
+        side=side,  # type: ignore[arg-type]
     )
 
 
 def insulated(*pts: tuple[float, float], side: str = "top") -> Wire:
     import uuid as _u
+
     return Wire(
         id=_u.uuid4(),
         path=[Point(*p) for p in pts],
-        insulated=True, side=side,  # type: ignore[arg-type]
+        insulated=True,
+        side=side,  # type: ignore[arg-type]
     )

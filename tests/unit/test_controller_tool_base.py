@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 import inspect
-from protoboard.controller.tools.base import ControllerTool
+
 from protoboard.controller.ports import KeyInput, Mods
+from protoboard.controller.tools.base import ControllerTool
 
 
 class _FakeKeymap:
@@ -15,6 +16,7 @@ class _FakeView:
 
 def test_controller_tool_is_qt_free_source():
     import protoboard.controller.tools.base as base
+
     src = inspect.getsource(base)
     assert "PySide6" not in src
     assert "gui.keymap" not in src

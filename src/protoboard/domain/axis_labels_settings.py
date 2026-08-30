@@ -17,13 +17,13 @@ choice, not whether anything is drawn.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class AxisLabelFormat(str, Enum):
-    DISABLED   = "disabled"
-    NUMERIC_0  = "numeric_0"
-    NUMERIC_1  = "numeric_1"
+class AxisLabelFormat(StrEnum):
+    DISABLED = "disabled"
+    NUMERIC_0 = "numeric_0"
+    NUMERIC_1 = "numeric_1"
     ALPHABETIC = "alphabetic"
 
 

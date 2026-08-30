@@ -107,12 +107,12 @@ class _RubberBandRect:
         self.item: QGraphicsRectItem | None = None
 
     def show(self, a: Point, b: Point, ltr: bool) -> None:
-        from PySide6.QtCore import QRectF
         from PySide6.QtWidgets import QGraphicsRectItem
 
         x0, y0 = min(a.x, b.x), min(a.y, b.y)
-        from protoboard.gui.qt_geometry import to_qrectf
         from protoboard.geometry import Rect
+        from protoboard.gui.qt_geometry import to_qrectf
+
         rect = to_qrectf(Rect.of(x0, y0, abs(b.x - a.x), abs(b.y - a.y)))
         if self.item is None:
             item = QGraphicsRectItem(rect)
@@ -223,8 +223,10 @@ class _WireEditOverlay:
         self.items: list[QGraphicsItem] = []
 
     def show_wire(
-        self, path: list[Point], marked: Collection[int],
-        span: "list[Point] | None" = None,
+        self,
+        path: list[Point],
+        marked: Collection[int],
+        span: list[Point] | None = None,
     ) -> None:
         from PySide6.QtGui import QBrush
         from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
@@ -240,8 +242,10 @@ class _WireEditOverlay:
         span_pts = span or []
         for i in range(len(span_pts) - 1):
             hi = QGraphicsLineItem(
-                span_pts[i].x, span_pts[i].y,
-                span_pts[i + 1].x, span_pts[i + 1].y,
+                span_pts[i].x,
+                span_pts[i].y,
+                span_pts[i + 1].x,
+                span_pts[i + 1].y,
             )
             hi.setPen(_WIRE_SPAN_PEN)
             hi.setZValue(9.3)
@@ -358,8 +362,10 @@ class QtSelectPreview:
 
     # wire-edit
     def show_wire_edit_wire(
-        self, path: list[Point], marked: Collection[int],
-        span: "list[Point] | None" = None,
+        self,
+        path: list[Point],
+        marked: Collection[int],
+        span: list[Point] | None = None,
     ) -> None:
         self.wire_edit.show_wire(path, marked, span)
 

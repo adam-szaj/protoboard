@@ -156,7 +156,9 @@ class DeleteNetCommand(Command[NetState]):
 
     net_id: uuid.UUID
     _saved_name: str = field(default="", init=False, repr=False)
-    _saved_pins: object = field(default=None, init=False, repr=False)  # set[PinRef]|None
+    _saved_pins: object = field(
+        default=None, init=False, repr=False
+    )  # set[PinRef]|None
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -229,7 +231,9 @@ class UnassignPinCommand(Command[NetState]):
     pin_number: int
     _saved_net_id: uuid.UUID | None = field(default=None, init=False, repr=False)
     _saved_net_name: str = field(default="", init=False, repr=False)
-    _saved_pins: object = field(default=None, init=False, repr=False)  # set[PinRef]|None
+    _saved_pins: object = field(
+        default=None, init=False, repr=False
+    )  # set[PinRef]|None
 
     @property
     def description(self) -> str:  # type: ignore[override]

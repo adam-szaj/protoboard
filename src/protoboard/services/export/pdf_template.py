@@ -67,30 +67,36 @@ def export_template_pdf(
         raster_pitch_mm = snapshot.board.raster_pitch_mm
 
     panels: list[tuple[str, str, ViewTransform]] = [
-        ("Top",                 "top",    "normal"),
-        ("Top — Mirror H",      "top",    "mirror_h"),
-        ("Bottom",              "bottom", "normal"),
-        ("Bottom — Mirror H",   "bottom", "mirror_h"),
+        ("Top", "top", "normal"),
+        ("Top — Mirror H", "top", "mirror_h"),
+        ("Bottom", "bottom", "normal"),
+        ("Bottom — Mirror H", "bottom", "mirror_h"),
     ]
 
     printer = QPrinter(QPrinter.PrinterMode.HighResolution)
     printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
     printer.setOutputFileName(str(path))
     page_size = QPageSize(
-        QSizeF(_A4_W_MM, _A4_H_MM), QPageSize.Unit.Millimeter,
+        QSizeF(_A4_W_MM, _A4_H_MM),
+        QPageSize.Unit.Millimeter,
     )
-    printer.setPageLayout(QPageLayout(
-        page_size,
-        QPageLayout.Orientation.Portrait,
-        QMarginsF(0, 0, 0, 0),
-        QPageLayout.Unit.Millimeter,
-    ))
+    printer.setPageLayout(
+        QPageLayout(
+            page_size,
+            QPageLayout.Orientation.Portrait,
+            QMarginsF(0, 0, 0, 0),
+            QPageLayout.Unit.Millimeter,
+        )
+    )
 
     painter = QPainter()
     painter.begin(printer)
     try:
         _draw_template_page(
-            painter, printer, snapshot, panels,
+            painter,
+            printer,
+            snapshot,
+            panels,
             raster_pitch_mm=raster_pitch_mm,
         )
     finally:
@@ -149,8 +155,10 @@ def _draw_template_page(
 
         # Panel canvas (below label).
         canvas_rect = QRectF(
-            x, y + label_px,
-            panel_w, panel_h - label_px,
+            x,
+            y + label_px,
+            panel_w,
+            panel_h - label_px,
         )
         painter.setPen(border_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)

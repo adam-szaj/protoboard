@@ -21,7 +21,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import (
     QGraphicsItem,
@@ -29,14 +29,14 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from protoboard.services.debug_trace import traced
 from protoboard.geometry import Insets
 from protoboard.gui.qt_geometry import to_qrectf
+from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
+    from protoboard.controller.theme import Theme
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
-    from protoboard.controller.theme import Theme
 
 _click_log = structlog.get_logger("protoboard.gui.highlight.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -175,10 +175,9 @@ class HighlightRenderer:
         or on anything else (``None``).  Re-runs the highlight pass so the ring
         appears / disappears immediately.
         """
-        same = (
-            pos is None and self._free_pad_ring_pos is None
-        ) or (
-            pos is not None and self._free_pad_ring_pos is not None
+        same = (pos is None and self._free_pad_ring_pos is None) or (
+            pos is not None
+            and self._free_pad_ring_pos is not None
             and abs(pos.x - self._free_pad_ring_pos.x) < 1e-6
             and abs(pos.y - self._free_pad_ring_pos.y) < 1e-6
         )
@@ -202,7 +201,8 @@ class HighlightRenderer:
         new_rgb = qcolor.rgb() & 0x00FFFFFF if qcolor is not None else None
         cur_rgb = (
             self._select_outline_override.rgb() & 0x00FFFFFF
-            if self._select_outline_override is not None else None
+            if self._select_outline_override is not None
+            else None
         )
         if new_rgb == cur_rgb:
             return  # no change → skip the repaint
@@ -287,8 +287,8 @@ class HighlightRenderer:
         Comps/wires belonging to *any* contributing set are shown at full
         opacity; everything else is dimmed by the active profile.
         """
-        from protoboard.gui.highlight_state import PROFILE_DIMMED_1, HighlightEntry
         from protoboard.controller.interaction_mode import HighlightProfile
+        from protoboard.gui.highlight_state import PROFILE_DIMMED_1, HighlightEntry
 
         session = self._view.session
         _base = self._view.theme
@@ -351,8 +351,7 @@ class HighlightRenderer:
         for comp_id, grp in self._view.component_groups().items():
             if isinstance(grp, QGraphicsItemGroup):
                 _alpha = (
-                    hi_alpha if comp_id in highlighted_comp_ids
-                    else max(0.04, dim_c)
+                    hi_alpha if comp_id in highlighted_comp_ids else max(0.04, dim_c)
                 )
                 grp.setOpacity(_alpha)
                 # Mirror the opacity onto the component's label group so
@@ -393,13 +392,15 @@ class HighlightRenderer:
         # changes plus the active profile id (different profile = items
         # rendered at a different intrinsic alpha during build).  The
         # selected set joins it so a cyan-outline change rebuilds the cache.
-        new_signature = hash((
-            frozenset(highlighted_comp_ids),
-            frozenset(highlighted_wire_ids),
-            frozenset(net_ids),
-            frozenset(selected_comp_ids),
-            id(profile_obj),
-        ))
+        new_signature = hash(
+            (
+                frozenset(highlighted_comp_ids),
+                frozenset(highlighted_wire_ids),
+                frozenset(net_ids),
+                frozenset(selected_comp_ids),
+                id(profile_obj),
+            )
+        )
         if new_signature != self._last_highlight_signature:
             self._last_highlight_signature = new_signature
             self._view.invalidate_back_cache()
@@ -431,9 +432,14 @@ class HighlightRenderer:
         self._recolour_selected_outlines()
         # No net in context → no net-pad discs.
         self._redraw_net_pad_highlights(set())
-        cleared_signature = hash((
-            frozenset(), frozenset(), frozenset(), id(None),
-        ))
+        cleared_signature = hash(
+            (
+                frozenset(),
+                frozenset(),
+                frozenset(),
+                id(None),
+            )
+        )
         if cleared_signature != self._last_highlight_signature:
             self._last_highlight_signature = cleared_signature
             self._view.invalidate_back_cache()
@@ -487,7 +493,9 @@ class HighlightRenderer:
             grp = comp_groups.get(cid)
             if isinstance(grp, QGraphicsItemGroup):
                 self._set_outline_colour(
-                    grp, select_rgb, QColor(theme.comp_border),
+                    grp,
+                    select_rgb,
+                    QColor(theme.comp_border),
                     match_rgb=prev_rgb,
                 )
         self._cyan_outlined &= selected
@@ -545,10 +553,7 @@ class HighlightRenderer:
         # Index group_outline rects by their group id (one scene scan).
         outline_by_gid: dict[str, QGraphicsRectItem] = {}
         for item in self._view.scene().items():
-            if (
-                isinstance(item, QGraphicsRectItem)
-                and item.data(1) == "group_outline"
-            ):
+            if isinstance(item, QGraphicsRectItem) and item.data(1) == "group_outline":
                 gid_str = item.data(0)
                 if isinstance(gid_str, str):
                     outline_by_gid[gid_str] = item
@@ -585,8 +590,11 @@ class HighlightRenderer:
     @staticmethod
     @traced()
     def _set_outline_colour(
-        grp: QGraphicsItemGroup, from_colour: QColor, to_colour: QColor,
-        *, match_rgb: int | None = None,
+        grp: QGraphicsItemGroup,
+        from_colour: QColor,
+        to_colour: QColor,
+        *,
+        match_rgb: int | None = None,
     ) -> bool:
         """Recolour every child pen matching the body outline; return True if any.
 
@@ -635,9 +643,7 @@ class HighlightRenderer:
         if bbox is None:
             return
         m = 0.06
-        rect = QGraphicsRectItem(
-            to_qrectf(bbox.inflate(Insets.all(m)))
-        )
+        rect = QGraphicsRectItem(to_qrectf(bbox.inflate(Insets.all(m))))
         rect.setPen(self._selection_bbox_pen())
         rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         rect.setZValue(Z_SELECTION)
@@ -736,9 +742,7 @@ class HighlightRenderer:
             group = QGraphicsItemGroup()
             pts = wire.path
             for i in range(len(pts) - 1):
-                seg = QGraphicsLineItem(
-                    pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
-                )
+                seg = QGraphicsLineItem(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y)
                 seg.setPen(pen)
                 group.addToGroup(seg)
             # Below the pin-modifier glyphs (Z 9.5) so pin markers on the

@@ -19,17 +19,22 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import Qt
 
+from protoboard.controller.app_settings import AppSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily, PackageVariant
+from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.gui import keybindings as KB
-from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool
@@ -73,13 +78,38 @@ def _place(mw: MainWindow, x: float, y: float, refdes: str = "U1") -> ComponentI
     """Add a 1-pin component directly (no PlaceTool drag loop)."""
     sess = mw._session
     if "D1" not in sess.components:
-        sess.components["D1"] = ComponentDefinition.from_footprint(
+        package = build_package(
+            {
+                "shape": "prism",
+                "dims": {"lx": 2.0, "ly": 2.0},
+                "arrangement": "axial",
+                "mount": "through_hole",
+                "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": []},
+                    "board_offset": "default",
+                },
+            },
+            "D1-package",
+        )
+        sess.package_families["D1-package"] = PackageFamily(
+            family_id="D1-package",
+            variants=(PackageVariant("std", "std", package),),
+        )
+        sess.components["D1"] = ComponentDefinition(
             name="D1",
-            footprint=SIL(1),
-            pin_names={1: "A"},
+            meta_pins=(MetaPin(("A",)),),
+            package_options=(
+                PackageOption(
+                    name="D1",
+                    ref="D1-package/std",
+                    pin_map={1: (1,)},
+                ),
+            ),
         )
     inst = ComponentInstance.new(definition_ref="D1", refdes=refdes, value="")
-    inst = inst.bind(sess.components["D1"], {})
+    inst = inst.bind(sess.components["D1"], sess.package_families)
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id,

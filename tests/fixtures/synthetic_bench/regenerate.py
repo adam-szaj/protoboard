@@ -13,12 +13,11 @@ Usage::
     uv run python -m tests.fixtures.synthetic_bench.regenerate            # all
     uv run python -m tests.fixtures.synthetic_bench.regenerate small medium
 """
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-
-from protoboard.services.persistence.project_yaml import save_project
 
 from tests.fixtures.synthetic_bench.generator import (
     LARGE,
@@ -29,9 +28,9 @@ from tests.fixtures.synthetic_bench.generator import (
     generate_project,
 )
 
-_ALL = {
-    s.name: s for s in (SMALL, MEDIUM, LARGE, PLATED_THROUGH, STRIPBOARD_MIXED)
-}
+from protoboard.services.persistence.project_yaml import save_project
+
+_ALL = {s.name: s for s in (SMALL, MEDIUM, LARGE, PLATED_THROUGH, STRIPBOARD_MIXED)}
 
 
 def main(argv: list[str]) -> int:

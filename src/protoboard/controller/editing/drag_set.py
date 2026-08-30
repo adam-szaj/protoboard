@@ -68,7 +68,7 @@ class DragSet:
 
     def all_component_ids(
         self,
-        groups_map: "dict[uuid.UUID, ComponentGroup]",
+        groups_map: dict[uuid.UUID, ComponentGroup],
     ) -> frozenset[uuid.UUID]:
         """All component IDs participating in this drag.
 
@@ -96,10 +96,10 @@ class DragSet:
     def with_added(
         self,
         *,
-        free_components: "frozenset[uuid.UUID] | None" = None,
-        groups: "frozenset[uuid.UUID] | None" = None,
-        wires: "frozenset[uuid.UUID] | None" = None,
-    ) -> "DragSet":
+        free_components: frozenset[uuid.UUID] | None = None,
+        groups: frozenset[uuid.UUID] | None = None,
+        wires: frozenset[uuid.UUID] | None = None,
+    ) -> DragSet:
         """Return a new DragSet with the given members union-added.
 
         Convenience for incremental construction in tests.  ``None``
@@ -112,28 +112,20 @@ class DragSet:
                 if free_components is not None
                 else self.free_components
             ),
-            groups=(
-                self.groups | groups
-                if groups is not None
-                else self.groups
-            ),
-            wires=(
-                self.wires | wires
-                if wires is not None
-                else self.wires
-            ),
+            groups=(self.groups | groups if groups is not None else self.groups),
+            wires=(self.wires | wires if wires is not None else self.wires),
         )
 
     @classmethod
     def from_selection(
         cls,
         *,
-        selected_ids: "set[uuid.UUID] | frozenset[uuid.UUID]",
-        selected_wire_ids: "set[uuid.UUID] | frozenset[uuid.UUID]",
-        selected_group_ids: "set[uuid.UUID] | frozenset[uuid.UUID]",
-        groups_map: "dict[uuid.UUID, ComponentGroup]",
+        selected_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        selected_wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        selected_group_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        groups_map: dict[uuid.UUID, ComponentGroup],
         is_locked_in_group: Callable[[uuid.UUID], bool],
-    ) -> "DragSet":
+    ) -> DragSet:
         """Build a DragSet from SelectTool's storage fields.
 
         Args:

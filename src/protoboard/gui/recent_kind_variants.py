@@ -78,10 +78,7 @@ def add(kind: str, values: Mapping[str, object], label: str) -> None:
     key = _canonical(values)
     if key is None:
         return
-    existing = [
-        e for e in load()
-        if (e.kind, _canonical(e.values)) != (kind, key)
-    ]
+    existing = [e for e in load() if (e.kind, _canonical(e.values)) != (kind, key)]
     entry = RecentKindVariant(kind=kind, values=dict(values), label=label)
     updated = ([entry] + existing)[:_MAX]
     try:

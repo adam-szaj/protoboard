@@ -17,7 +17,6 @@ explicit snapshot via :func:`export_svg_from_snapshot`.
 
 from __future__ import annotations
 
-import io
 import uuid
 from typing import TYPE_CHECKING
 
@@ -25,9 +24,9 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, QSizeF
 from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgGenerator
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot
 
@@ -39,11 +38,11 @@ if TYPE_CHECKING:
 
 
 def export_svg(
-    board: "Board",
-    layout: "Layout",
-    components: dict[str, "ComponentDefinition"],
-    instances: dict[uuid.UUID, "ComponentInstance"],
-    schematic: "Schematic | None" = None,
+    board: Board,
+    layout: Layout,
+    components: dict[str, ComponentDefinition],
+    instances: dict[uuid.UUID, ComponentInstance],
+    schematic: Schematic | None = None,
     scale: float | None = None,
     theme: Theme = DEFAULT_THEME,
     package_families: dict | None = None,
@@ -61,16 +60,26 @@ def export_svg(
     """
     sch = schematic if schematic is not None else Schematic(nets={})
     pad_index = PadIndex(
-        board=board, layout=layout, schematic=sch,
-        components=components, instances=instances,
+        board=board,
+        layout=layout,
+        schematic=sch,
+        components=components,
+        instances=instances,
     )
-    families = (package_families if package_families is not None else
-                getattr(theme, "package_families", None)) or {}
+    families = (
+        package_families
+        if package_families is not None
+        else getattr(theme, "package_families", None)
+    ) or {}
     snapshot = BoardSnapshot(
-        board=board, layout=layout,
-        components=components, instances=instances,
-        schematic=sch, pad_index=pad_index,
-        package_families=families, theme=theme,
+        board=board,
+        layout=layout,
+        components=components,
+        instances=instances,
+        schematic=sch,
+        pad_index=pad_index,
+        package_families=families,
+        theme=theme,
     )
     return export_svg_from_snapshot(snapshot, scale=scale)
 

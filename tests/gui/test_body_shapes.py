@@ -46,23 +46,26 @@ def _kind_pkg(kind: str, pins: int, values: dict | None = None) -> Package:
     Test adapter for the Phase-2 generator signature: the behaviour assertions
     below are unchanged; only the call shape moved."""
     ctx = build_kind_package(
-        kind, GeneratorContext(pin_count=pins, values=values or {}))
+        kind, GeneratorContext(pin_count=pins, values=values or {})
+    )
     assert ctx.package is not None
     return ctx.package
-from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point
-from protoboard.gui.renderers.body_shapes import (
+
+
+from protoboard.controller.theme import DEFAULT_THEME  # noqa: E402
+from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
+from protoboard.geometry import Point  # noqa: E402
+from protoboard.gui.renderers.body_shapes import (  # noqa: E402
     BodyShape,
     GenericBody,
     PackageBody,
     body_shape_for,
 )
-from protoboard.gui.renderers.prism_silhouette import (
+from protoboard.gui.renderers.prism_silhouette import (  # noqa: E402
     DipSilhouette,
     SilSilhouette,
     silhouette_for,
 )
-from protoboard.controller.theme import DEFAULT_THEME
 
 if TYPE_CHECKING:
     from protoboard.domain.components.package import PackageFamily
@@ -107,8 +110,7 @@ def _largest_path(items: list[QGraphicsItem]) -> QGraphicsPathItem:
     paths = [it for it in items if isinstance(it, QGraphicsPathItem)]
     return max(
         paths,
-        key=lambda it: it.sceneBoundingRect().width()
-        * it.sceneBoundingRect().height(),
+        key=lambda it: it.sceneBoundingRect().width() * it.sceneBoundingRect().height(),
     )
 
 
@@ -129,18 +131,11 @@ def _cylinder_package(edge_radius: float = 0.0) -> Package:
     return build_package(
         {
             "shape": "cylinder",
-            "dims": {
-                "diameter": 2.5,
-                "length": 6.3,
-                "edge_radius": edge_radius
-            },
+            "dims": {"diameter": 2.5, "length": 6.3, "edge_radius": edge_radius},
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[4, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
                 "board_offset": "default",
             },
         },
@@ -155,14 +150,13 @@ def _prism_package() -> Package:
     longer column-guesses a silhouette for explicitly declared packages.
     """
     import dataclasses
+
     from protoboard.domain.components.package.shapes import Prism as _Prism
+
     pkg = build_package(
         {
             "shape": "prism",
-            "dims": {
-                "ly": 7.62,
-                "lx": 10.0
-            },
+            "dims": {"ly": 7.62, "lx": 10.0},
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],
@@ -184,21 +178,14 @@ def _smd_chip_package() -> Package:
     return build_package(
         {
             "shape": "prism",
-            "dims": {
-                "lx": 2.0,
-                "ly": 1.25,
-                "corner_radius": 0.12
-            },
+            "dims": {"lx": 2.0, "ly": 1.25, "corner_radius": 0.12},
             "color": "#cdd2d6",
             "edge": "sharp",
             "arrangement": "axial",
             "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, -1]],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[1, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                 "board_offset": "default",
             },
         },
@@ -206,25 +193,18 @@ def _smd_chip_package() -> Package:
     )
 
 
-def _colored_cylinder_package(color: str = "#d6c08c",
-                              edge: str = "rounded") -> Package:
+def _colored_cylinder_package(color: str = "#d6c08c", edge: str = "rounded") -> Package:
     """An axial cylinder declaring an explicit body colour and edge style."""
     return build_package(
         {
             "shape": "cylinder",
-            "dims": {
-                "diameter": 2.5,
-                "length": 6.3
-            },
+            "dims": {"diameter": 2.5, "length": 6.3},
             "bend": 0,
             "color": color,
             "edge": edge,
             "leads": {
                 "direction": [0, 0, -1],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[4, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
                 "board_offset": "default",
             },
         },
@@ -232,16 +212,11 @@ def _colored_cylinder_package(color: str = "#d6c08c",
     )
 
 
-def _colored_prism_package(color: str = "#d6c08c",
-                           edge: str = "sharp") -> Package:
+def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> Package:
     return build_package(
         {
             "shape": "prism",
-            "dims": {
-                "ly": 7.62,
-                "lx": 10.0,
-                "corner_radius": 1.0
-            },
+            "dims": {"ly": 7.62, "lx": 10.0, "corner_radius": 1.0},
             "bend": 0,
             "color": color,
             "edge": edge,
@@ -264,17 +239,12 @@ def _bbox_prism_positions() -> list[Point]:
     return _pts((0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1))
 
 
-def _bbox_prism_package(color: str = "#d6c08c",
-                        edge: str = "sharp") -> Package:
+def _bbox_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> Package:
     """A three-column prism (silhouette_for → None → bbox rendering)."""
     return build_package(
         {
             "shape": "prism",
-            "dims": {
-                "ly": 7.62,
-                "lx": 7.62,
-                "corner_radius": 1.0
-            },
+            "dims": {"ly": 7.62, "lx": 7.62, "corner_radius": 1.0},
             "bend": 0,
             "color": color,
             "edge": edge,
@@ -309,8 +279,7 @@ class TestGenericBody:
         assert isinstance(items[0], QGraphicsRectItem)
 
     def test_two_pins_horizontal(self, qtbot: QtBot) -> None:
-        items = _flat(
-            GenericBody().draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
+        items = _flat(GenericBody().draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
         assert len(items) == 1
         rect = items[0]
         assert isinstance(rect, QGraphicsRectItem)
@@ -325,24 +294,34 @@ class TestGenericBody:
         # The bare-bbox fallback honours the style override like PackageBody:
         # the declared colour replaces the caller-supplied fill.
         from protoboard.domain.components.appearance import Appearance
-        items = _flat(GenericBody(Appearance(color="#123456")).draw(
-            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z))
+
+        items = _flat(
+            GenericBody(Appearance(color="#123456")).draw(
+                _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z
+            )
+        )
         body = items[0]
         assert isinstance(body, QGraphicsRectItem)
         assert body.brush().color().name() == "#123456"
 
     def test_appearance_corner_radius_rounds_bbox(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
-        items = _flat(GenericBody(Appearance(corner_radius_mm=(1.0,))).draw(
-            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z))
+
+        items = _flat(
+            GenericBody(Appearance(corner_radius_mm=(1.0,))).draw(
+                _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z
+            )
+        )
         body = items[0]
         assert isinstance(body, QGraphicsPathItem)
         assert _path_is_rounded(body)
 
     def test_no_override_keeps_plain_rect(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
-        items = _flat(GenericBody(Appearance()).draw(
-            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z))
+
+        items = _flat(
+            GenericBody(Appearance()).draw(_pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        )
         assert isinstance(items[0], QGraphicsRectItem)
 
 
@@ -371,10 +350,7 @@ def _radial_cylinder_package(
             "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, -1]],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[1, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                 "board_offset": "default",
             },
         },
@@ -385,8 +361,11 @@ def _radial_cylinder_package(
 def _radial_body(pkg: object) -> QGraphicsItem:
     """The single body item (ellipse or D-shape path) for a non-polar radial
     cylinder — leads aside, the first non-line item is the body."""
-    items = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
-        _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z))
+    items = _flat(
+        PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z
+        )
+    )
     bodies = [it for it in items if not isinstance(it, QGraphicsLineItem)]
     assert len(bodies) == 1
     return bodies[0]
@@ -400,8 +379,8 @@ class TestFlatSidedCylinderRender:
 
     def test_flat_side_draws_d_shape_path(self, qtbot: QtBot) -> None:
         body = _radial_body(
-            _radial_cylinder_package(flat_radius=1.175,
-                                     flat_normal=[-1.0, 0.0]))
+            _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0])
+        )
         # A chord-cut body is a custom path, not a full ellipse.
         assert isinstance(body, QGraphicsPathItem)
         assert not isinstance(body, QGraphicsEllipseItem)
@@ -411,32 +390,35 @@ class TestFlatSidedCylinderRender:
         # frame. The flat chord must sit on the correct side: the bounding rect
         # of the kept arc is narrower on the flat side than a full circle.
         body = _radial_body(
-            _radial_cylinder_package(flat_radius=1.175,
-                                     flat_normal=[-1.0, 0.0]))
+            _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0])
+        )
         full = _radial_body(_radial_cylinder_package())
         # The D-shape loses area on one side → its scene bounding rect is
         # strictly smaller in one dimension than the full circle's.
         fb = body.sceneBoundingRect()
         cb = full.sceneBoundingRect()
-        assert fb.width() < cb.width() - 1e-6 or fb.height(
-        ) < cb.height() - 1e-6
+        assert fb.width() < cb.width() - 1e-6 or fb.height() < cb.height() - 1e-6
 
     def test_flat_side_rotates_with_pad_axis(self, qtbot: QtBot) -> None:
         # Same package, different world pad orientations → the flat chord points
         # a different world direction (the D-shape follows the part's rotation).
-        pkg = _radial_cylinder_package(flat_radius=1.175,
-                                       flat_normal=[-1.0, 0.0])
-        items_v = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z))
-        items_h = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
-        body_v = next(it for it in items_v
-                      if isinstance(it, QGraphicsPathItem))
-        body_h = next(it for it in items_h
-                      if isinstance(it, QGraphicsPathItem))
+        pkg = _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0])
+        items_v = _flat(
+            PackageBody(pkg).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z
+            )
+        )
+        items_h = _flat(
+            PackageBody(pkg).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
+        body_v = next(it for it in items_v if isinstance(it, QGraphicsPathItem))
+        body_h = next(it for it in items_h if isinstance(it, QGraphicsPathItem))
         # Different pad axis → different body transform rotation.
-        assert body_v.transform().m11() != pytest.approx(body_h.transform().m11()) \
-            or body_v.transform().m12() != pytest.approx(body_h.transform().m12())
+        assert body_v.transform().m11() != pytest.approx(
+            body_h.transform().m11()
+        ) or body_v.transform().m12() != pytest.approx(body_h.transform().m12())
 
     def test_flat_normal_mirrors_on_bottom_side(self, qtbot: QtBot) -> None:
         # An asymmetric body (a flat face perpendicular to the lead axis) is
@@ -445,8 +427,7 @@ class TestFlatSidedCylinderRender:
         # test package's pins run along +x, so the flip axis is parallel to x
         # (reflect y); a flat_normal of [0,-1] (perpendicular to the pin row)
         # flips sign top vs bottom.
-        pkg = _radial_cylinder_package(flat_radius=1.175,
-                                       flat_normal=[0.0, -1.0])
+        pkg = _radial_cylinder_package(flat_radius=1.175, flat_normal=[0.0, -1.0])
         top = PackageBody(pkg, side="top")  # type: ignore[arg-type]
         bot = PackageBody(pkg, side="bottom")  # type: ignore[arg-type]
         world_axis_deg = 0.0  # pins run along +x
@@ -458,14 +439,11 @@ class TestFlatSidedCylinderRender:
         diff = (flat_top[0] - flat_bot[0]) % 360.0
         assert diff == pytest.approx(180.0, abs=1e-6)
 
-    def test_flat_normal_along_pin_row_unchanged_on_bottom(
-        self, qtbot: QtBot
-    ) -> None:
+    def test_flat_normal_along_pin_row_unchanged_on_bottom(self, qtbot: QtBot) -> None:
         # A flat normal PARALLEL to the pin row lies on the flip axis, so a
         # board-side flip leaves it unchanged (rotating about the row can't move
         # a direction along that row).  Pins run along +x, flat_normal [-1,0].
-        pkg = _radial_cylinder_package(flat_radius=1.175,
-                                       flat_normal=[-1.0, 0.0])
+        pkg = _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0])
         top = PackageBody(pkg, side="top")  # type: ignore[arg-type]
         bot = PackageBody(pkg, side="bottom")  # type: ignore[arg-type]
         flat_top = top._flat_side_world(pkg, 0.0)  # type: ignore[arg-type]
@@ -488,10 +466,10 @@ def _dip8_prism() -> Prism:
     import dataclasses
 
     from protoboard.domain.components.package.shapes import Prism
+
     prism = _prism_from_footprint(DIL(n=8, rows_spacing=3))
     assert isinstance(prism, Prism)
-    return dataclasses.replace(
-        prism, lineage=("prism", "dip_ic"))
+    return dataclasses.replace(prism, lineage=("prism", "dip_ic"))
 
 
 def _dip8_positions() -> list[Point]:
@@ -501,6 +479,7 @@ def _dip8_positions() -> list[Point]:
 def _sil6_prism() -> Prism:
     """The prism synthesized for a 6-pin single-row (SIL) footprint."""
     from protoboard.domain.components.package.shapes import Prism
+
     prism = _prism_from_footprint(SIL(n=6))
     assert isinstance(prism, Prism)
     return prism
@@ -513,12 +492,16 @@ class TestParametricDIPBody:
 
     def test_dip_footprint_synthesizes_dip_silhouette(self) -> None:
         prism = _dip8_prism()
-        assert isinstance(silhouette_for(prism),
-                          DipSilhouette)  # type: ignore[arg-type]
+        assert isinstance(
+            silhouette_for(prism), DipSilhouette
+        )  # type: ignore[arg-type]
 
     def test_produces_items_for_dip8(self, qtbot: QtBot) -> None:
-        items = _flat(PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+                _dip8_positions(), _RED, _DARK, 1.0, _Z
+            )
+        )
         assert len(items) >= 1
         # The body is a path (the notched silhouette), not a plain rect.
         assert any(isinstance(it, QGraphicsPathItem) for it in items)
@@ -530,8 +513,12 @@ class TestParametricDIPBody:
         # row midpoint x=1.5.  A point in that carved zone is OUTSIDE the body;
         # the interior and the un-notched part of the top edge stay filled.
         from PySide6.QtCore import QPointF
-        items = _flat(PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z))
+
+        items = _flat(
+            PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+                _dip8_positions(), _RED, _DARK, 1.0, _Z
+            )
+        )
         body = max(
             (it for it in items if isinstance(it, QGraphicsPathItem)),
             key=lambda it: it.sceneBoundingRect().width(),
@@ -545,8 +532,11 @@ class TestParametricDIPBody:
     def test_too_few_pins_falls_back(self, qtbot: QtBot) -> None:
         # A single position can't form a body → the bbox fallback (a rect or
         # generic rectangle), never a crash.
-        items = _flat(PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
-            _pts((0, 0)), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+                _pts((0, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
         assert items
         assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
 
@@ -560,24 +550,25 @@ class TestDeclaredKindSilhouette:
 
     def test_dip_ic_kind_selects_notch(self) -> None:
         from protoboard.gui.renderers.packages import DipIcRenderer
+
         pkg = _kind_pkg("dip_ic", 8)
         shape = PackageBody(pkg)  # type: ignore[arg-type]
         assert type(shape) is DipIcRenderer
-        assert isinstance(shape._silhouette(pkg),  # type: ignore[arg-type]
-                          DipSilhouette)
+        assert isinstance(
+            shape._silhouette(pkg), DipSilhouette  # type: ignore[arg-type]
+        )
 
-    def test_dip_switch_kind_is_plain_overriding_the_column_guess(
-            self) -> None:
+    def test_dip_switch_kind_is_plain_overriding_the_column_guess(self) -> None:
         # dip_switch has DIP geometry (two columns) so the COLUMN guess would put
         # a notch on it — the declared kind dispatches PlainBodyRenderer, and
         # that wins.
+        from protoboard.domain.components.package.shapes import Prism
         from protoboard.gui.renderers.packages import PlainBodyRenderer
         from protoboard.gui.renderers.prism_silhouette import silhouette_for
-        from protoboard.domain.components.package.shapes import Prism
+
         pkg = _kind_pkg("dip_switch", 8)
         assert isinstance(pkg, Prism)
-        assert isinstance(silhouette_for(pkg),
-                          DipSilhouette)
+        assert isinstance(silhouette_for(pkg), DipSilhouette)
         shape = PackageBody(pkg)  # type: ignore[arg-type]
         assert type(shape) is PlainBodyRenderer
         assert shape._silhouette(pkg) is None  # type: ignore[arg-type]
@@ -590,8 +581,10 @@ class TestDeclaredKindSilhouette:
         import dataclasses
 
         from protoboard.gui.renderers.packages import PrismRenderer
+
         prism = dataclasses.replace(
-            _dip8_prism(), kind="totally_new_kind",
+            _dip8_prism(),
+            kind="totally_new_kind",
             lineage=("prism", "totally_new_kind"),
         )
         shape = PackageBody(prism)  # type: ignore[arg-type]
@@ -606,10 +599,20 @@ class TestDeclaredKindSilhouette:
         # the dip_ic silhouette carries extra elements for the pin-1 notch.
         sw = _kind_pkg("dip_switch", 8)
         ic = _kind_pkg("dip_ic", 8)
-        sw_body = _largest_path(_flat(PackageBody(sw).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z)))
-        ic_body = _largest_path(_flat(PackageBody(ic).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z)))
+        sw_body = _largest_path(
+            _flat(
+                PackageBody(sw).draw(  # type: ignore[arg-type]
+                    _dip8_positions(), _RED, _DARK, 1.0, _Z
+                )
+            )
+        )
+        ic_body = _largest_path(
+            _flat(
+                PackageBody(ic).draw(  # type: ignore[arg-type]
+                    _dip8_positions(), _RED, _DARK, 1.0, _Z
+                )
+            )
+        )
         # The plain bbox rectangle is a simple 5-element closed rect; the notched
         # DIP silhouette has strictly more path elements (the notch geometry).
         assert sw_body.path().elementCount() <= 6
@@ -650,13 +653,10 @@ class TestConnectorKind:
         # slots / DIP notch the column guess would add — the kind dispatches
         # PlainBodyRenderer, whose declared silhouette is None (plain rect).
         from protoboard.gui.renderers.packages import PlainBodyRenderer
+
         for kind, n, params in [
-            ("pin_header", 6, {
-                "rows": 1
-            }),
-            ("pin_header", 6, {
-                "rows": 2
-            }),
+            ("pin_header", 6, {"rows": 1}),
+            ("pin_header", 6, {"rows": 2}),
             ("jst", 4, {}),
         ]:
             pkg = _kind_pkg(kind, n, params)
@@ -671,8 +671,7 @@ class TestConnectorPlacement:
 
     def _setup(
         self, name: str
-    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str,
-                                                            PackageFamily]]:
+    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
 
         from protoboard.domain.components.instance import ComponentInstance
@@ -680,6 +679,7 @@ class TestConnectorPlacement:
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         cat = load_full_package_catalogue()
         lib = load_library([Path("library")], cat)
         defn = lib.get(name)
@@ -694,22 +694,20 @@ class TestConnectorPlacement:
             assert len(defn.package_options) == 1, name
             assert defn.package_options[0].ref == f"{name}-package/std"
 
-    def test_preview_and_placed_render_same_kind_prism(self,
-                                                       qtbot: QtBot) -> None:
+    def test_preview_and_placed_render_same_kind_prism(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.package.shapes import Prism
+
         for name in ("PinHeader_1x04", "PinHeader_2x05", "JST_XH_5pin"):
             defn, inst, cat = self._setup(name)
             preview = body_shape_for(defn, package_families=cat)
-            placed = body_shape_for(defn,
-                                    _make_placement(),
-                                    inst,
-                                    package_families=cat)
+            placed = body_shape_for(defn, _make_placement(), inst, package_families=cat)
             assert isinstance(preview, PackageBody), name
             assert isinstance(placed, PackageBody), name
-            assert isinstance(preview._pkg,
-                              Prism), name  # type: ignore[attr-defined]
+            assert isinstance(preview._pkg, Prism), name  # type: ignore[attr-defined]
             assert preview._pkg.kind in (
-                "pin_header", "jst"), name  # type: ignore[attr-defined]
+                "pin_header",
+                "jst",
+            ), name  # type: ignore[attr-defined]
 
 
 class TestTO92PackageParity:
@@ -723,8 +721,7 @@ class TestTO92PackageParity:
 
     def _setup(
         self,
-    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str,
-                                                            PackageFamily]]:
+    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
 
         from protoboard.domain.components.instance import ComponentInstance
@@ -732,34 +729,31 @@ class TestTO92PackageParity:
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         cat = load_full_package_catalogue()
         lib = load_library([Path("library")], cat)
         defn = lib.get("2N2222")
-        inst = ComponentInstance.new("2N2222",
-                                     "Q1",
-                                     "",
-                                     package_variant="TO-92")
+        inst = ComponentInstance.new("2N2222", "Q1", "", package_variant="q-tht/TO-92")
         return defn, inst, cat
 
     def test_transistor_declares_to92_footprint(self) -> None:
         defn, _inst, _cat = self._setup()
         assert defn.symbol == "Q"
-        assert [(o.name, o.ref)
-                for o in defn.package_options] == [("TO92", "TO-92")]
+        assert [(o.name, o.ref) for o in defn.package_options] == [
+            ("TO92", "q-tht/TO-92")
+        ]
 
     def test_preview_and_placed_render_the_same_flat_cylinder(
         self,
         qtbot: QtBot,
     ) -> None:
         from protoboard.domain.components.package.shapes import Cylinder
+
         defn, inst, cat = self._setup()
         # Preview: no instance. Placed: instance carries the auto-selected
         # "TO-92" address. Both must resolve the flat-sided cylinder package.
         preview = body_shape_for(defn, package_families=cat)
-        placed = body_shape_for(defn,
-                                _make_placement(),
-                                inst,
-                                package_families=cat)
+        placed = body_shape_for(defn, _make_placement(), inst, package_families=cat)
         # Both go through the parametric PackageBody (not TO92Body/GenericBody).
         assert isinstance(preview, PackageBody)
         assert isinstance(placed, PackageBody)
@@ -770,10 +764,7 @@ class TestTO92PackageParity:
 
     def test_placed_is_not_generic_body(self, qtbot: QtBot) -> None:
         defn, inst, cat = self._setup()
-        placed = body_shape_for(defn,
-                                _make_placement(),
-                                inst,
-                                package_families=cat)
+        placed = body_shape_for(defn, _make_placement(), inst, package_families=cat)
         assert not isinstance(placed, GenericBody)
 
 
@@ -786,10 +777,8 @@ class TestTO220PackageParity:
     """
 
     def _setup(
-        self,
-        name: str = "7805"
-    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str,
-                                                            PackageFamily]]:
+        self, name: str = "7805"
+    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
 
         from protoboard.domain.components.instance import ComponentInstance
@@ -797,47 +786,44 @@ class TestTO220PackageParity:
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         cat = load_full_package_catalogue()
         lib = load_library([Path("library")], cat)
         defn = lib.get(name)
-        inst = ComponentInstance.new(name, "U1", "", package_variant="TO-220")
+        inst = ComponentInstance.new(name, "U1", "", package_variant="q-tht/TO-220")
         return defn, inst, cat
 
     def test_regulator_declares_to220_footprint(self) -> None:
         defn, _inst, _cat = self._setup("7805")
-        assert [(o.name, o.ref)
-                for o in defn.package_options] == [("TO220", "TO-220")]
+        assert [(o.name, o.ref) for o in defn.package_options] == [
+            ("TO220", "q-tht/TO-220")
+        ]
 
-    def test_preview_and_placed_render_the_same_prism(self,
-                                                      qtbot: QtBot) -> None:
+    def test_preview_and_placed_render_the_same_prism(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.package.shapes import Prism
+
         for name in ("7805", "LM317", "IRF540_N"):
             defn, inst, cat = self._setup(name)
             preview = body_shape_for(defn, package_families=cat)
-            placed = body_shape_for(defn,
-                                    _make_placement(),
-                                    inst,
-                                    package_families=cat)
+            placed = body_shape_for(defn, _make_placement(), inst, package_families=cat)
             assert isinstance(preview, PackageBody), name
             assert isinstance(placed, PackageBody), name
-            assert isinstance(preview._pkg,
-                              Prism), name  # type: ignore[attr-defined]
-            assert isinstance(placed._pkg,
-                              Prism), name  # type: ignore[attr-defined]
+            assert isinstance(preview._pkg, Prism), name  # type: ignore[attr-defined]
+            assert isinstance(placed._pkg, Prism), name  # type: ignore[attr-defined]
 
     def test_board_pins_one_hole_apart(self) -> None:
         from protoboard.domain.components.package.shapes import Prism
+
         _defn, inst, cat = self._setup("7805")
         from protoboard.domain.components.package.component_package import (
             resolve_component_package,
         )
+
         pkg = resolve_component_package(_defn, inst, cat)
         assert isinstance(pkg, Prism)
         from protoboard.geometry import Point
-        assert pkg.pin_positions() == [
-            Point(0, 0), Point(1.0, 0),
-            Point(2.0, 0)
-        ]
+
+        assert pkg.pin_positions() == [Point(0, 0), Point(1.0, 0), Point(2.0, 0)]
 
 
 def _colored_prism(color: str) -> Package:
@@ -845,21 +831,14 @@ def _colored_prism(color: str) -> Package:
     return build_package(
         {
             "shape": "prism",
-            "dims": {
-                "lx": 2.0,
-                "ly": 1.25,
-                "lz": 0.55
-            },
+            "dims": {"lx": 2.0, "ly": 1.25, "lz": 0.55},
             "color": color,
             "edge": "sharp",
             "arrangement": "axial",
             "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, -1]],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[1, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                 "board_offset": "default",
             },
         },
@@ -873,41 +852,52 @@ class TestAppearanceOverride:
 
     def _body_brush(self, items: list) -> QColor:
         body = max(
-            (it for it in items
-             if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))),
-            key=lambda it: it.sceneBoundingRect().width() * it.
-            sceneBoundingRect().height(),
+            (
+                it
+                for it in items
+                if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))
+            ),
+            key=lambda it: it.sceneBoundingRect().width()
+            * it.sceneBoundingRect().height(),
         )
         return body.brush().color()  # type: ignore[attr-defined]
 
     def test_color_override_beats_package_color(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         pkg = _colored_prism("#cdd2d6")  # shared package color
         black = PackageBody(
-            pkg,
-            appearance=Appearance(color="#1a1a1a"))  # type: ignore[arg-type]
+            pkg, appearance=Appearance(color="#1a1a1a")
+        )  # type: ignore[arg-type]
         beige = PackageBody(
-            pkg,
-            appearance=Appearance(color="#d9c7a3"))  # type: ignore[arg-type]
+            pkg, appearance=Appearance(color="#d9c7a3")
+        )  # type: ignore[arg-type]
         pts = _pts((0, 0), (1, 0))
-        assert self._body_brush(_flat(black.draw(pts, _RED, _DARK, 1.0,
-                                                 _Z))).name() == "#1a1a1a"
-        assert self._body_brush(_flat(beige.draw(pts, _RED, _DARK, 1.0,
-                                                 _Z))).name() == "#d9c7a3"
+        assert (
+            self._body_brush(_flat(black.draw(pts, _RED, _DARK, 1.0, _Z))).name()
+            == "#1a1a1a"
+        )
+        assert (
+            self._body_brush(_flat(beige.draw(pts, _RED, _DARK, 1.0, _Z))).name()
+            == "#d9c7a3"
+        )
         # No override → the package color shows through.
         plain = PackageBody(pkg)  # type: ignore[arg-type]
-        assert self._body_brush(_flat(plain.draw(pts, _RED, _DARK, 1.0,
-                                                 _Z))).name() == "#cdd2d6"
+        assert (
+            self._body_brush(_flat(plain.draw(pts, _RED, _DARK, 1.0, _Z))).name()
+            == "#cdd2d6"
+        )
 
     def test_color_alpha_channel_flows_to_brush(self, qtbot: QtBot) -> None:
         # CSS #rrggbbaa (alpha last): the declared alpha lands on the body
         # brush and MULTIPLIES with the layer alpha (ghosting/dimming) rather
         # than replacing it.
         from protoboard.domain.components.appearance import Appearance
+
         pkg = _colored_prism("#cdd2d6")
         body = PackageBody(
-            pkg,
-            appearance=Appearance(color="#1a1a1a80"))  # type: ignore[arg-type]
+            pkg, appearance=Appearance(color="#1a1a1a80")
+        )  # type: ignore[arg-type]
         pts = _pts((0, 0), (1, 0))
         brush = self._body_brush(_flat(body.draw(pts, _RED, _DARK, 1.0, _Z)))
         assert brush.name() == "#1a1a1a"
@@ -919,13 +909,18 @@ class TestAppearanceOverride:
         # The package-level ``color:`` uses the same CSS convention.
         pkg = _colored_prism("#cdd2d680")
         brush = self._body_brush(
-            _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)))
+            _flat(
+                PackageBody(pkg).draw(  # type: ignore[arg-type]
+                    _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+                )
+            )
+        )
         assert brush.name() == "#cdd2d6"
         assert brush.alphaF() == pytest.approx(0x80 / 255, abs=0.01)
 
     def test_dip_body_fill_follows_override(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         body = PackageBody(  # type: ignore[arg-type]
             _dip8_prism(),
             component_class=ComponentClass.IC,
@@ -934,20 +929,20 @@ class TestAppearanceOverride:
         items = _flat(body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))
         assert self._body_brush(items).name() == "#3050a0"
 
-    def test_corner_radius_zero_is_square_gt0_is_rounded(self,
-                                                         qtbot: QtBot) -> None:
+    def test_corner_radius_zero_is_square_gt0_is_rounded(self, qtbot: QtBot) -> None:
         # The bbox/devboard path: override 0 → square body path, > 0 → rounded
         # body path.  Use a 3-column prism (no silhouette → bbox path).  The
         # body is always a placed QGraphicsPathItem (so it rotates with the
         # pins); square vs rounded is read off the path geometry.
         from protoboard.domain.components.appearance import Appearance
+
         prism = _bbox_prism_package()
         sharp = PackageBody(  # type: ignore[arg-type]
-            prism,
-            appearance=Appearance(corner_radius_mm=(0.0, )))
+            prism, appearance=Appearance(corner_radius_mm=(0.0,))
+        )
         rounded = PackageBody(  # type: ignore[arg-type]
-            prism,
-            appearance=Appearance(corner_radius_mm=(0.5, )))
+            prism, appearance=Appearance(corner_radius_mm=(0.5,))
+        )
         pts = _bbox_prism_positions()
         s_body = _largest_path(_flat(sharp.draw(pts, _RED, _DARK, 1.0, _Z)))
         r_body = _largest_path(_flat(rounded.draw(pts, _RED, _DARK, 1.0, _Z)))
@@ -955,7 +950,8 @@ class TestAppearanceOverride:
         assert _path_is_rounded(r_body)
 
     def test_per_corner_radii_round_only_declared_corners(
-        self, qtbot: QtBot,
+        self,
+        qtbot: QtBot,
     ) -> None:
         # CSS border-radius order (TL, TR, BR, BL): only the third value is
         # non-zero → only the bottom-right corner is cut, the other three stay
@@ -964,42 +960,48 @@ class TestAppearanceOverride:
         # the cut.  Identity placement (pin 1 at origin, pin 2 straight down),
         # so world path coords equal the package-local bbox.
         from PySide6.QtCore import QPointF
+
         from protoboard.domain.components.appearance import Appearance
+
         prism = _bbox_prism_package()
         body = PackageBody(  # type: ignore[arg-type]
-            prism,
-            appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)))
+            prism, appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0))
+        )
         path = _largest_path(
-            _flat(body.draw(_bbox_prism_positions(), _RED, _DARK, 1.0,
-                            _Z))).path()
+            _flat(body.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
+        ).path()
         box = prism.bbox()
         x0, y0 = box.x, box.y
         x1, y1 = box.x + box.lx, box.y + box.ly
         eps = 0.08  # holes; well inside the 2 mm (≈0.79-hole) corner cut
-        assert path.contains(QPointF(x0 + eps, y0 + eps))      # TL sharp
-        assert path.contains(QPointF(x1 - eps, y0 + eps))      # TR sharp
-        assert path.contains(QPointF(x0 + eps, y1 - eps))      # BL sharp
+        assert path.contains(QPointF(x0 + eps, y0 + eps))  # TL sharp
+        assert path.contains(QPointF(x1 - eps, y0 + eps))  # TR sharp
+        assert path.contains(QPointF(x0 + eps, y1 - eps))  # BL sharp
         assert not path.contains(QPointF(x1 - eps, y1 - eps))  # BR rounded
 
     def test_per_corner_radii_reach_dip_silhouette(self, qtbot: QtBot) -> None:
         # The DIP notched silhouette takes the same per-corner radii: the
         # bottom-right corner rounds while the pin-1 notch stays carved.
         from PySide6.QtCore import QPointF
+
         from protoboard.domain.components.appearance import Appearance
+
         prism = _dip8_prism()
         body = PackageBody(  # type: ignore[arg-type]
             prism,
             component_class=ComponentClass.IC,
-            appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)))
+            appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)),
+        )
         path = _largest_path(
-            _flat(body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))).path()
+            _flat(body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))
+        ).path()
         box = prism.bbox()
-        x0, y0 = box.x, box.y
+        x0, _y0 = box.x, box.y
         x1, y1 = box.x + box.lx, box.y + box.ly
         eps = 0.08
-        assert not path.contains(QPointF(1.5, -0.4))            # notch carved
-        assert path.contains(QPointF(x0 + eps, y1 - eps))       # BL sharp
-        assert not path.contains(QPointF(x1 - eps, y1 - eps))   # BR rounded
+        assert not path.contains(QPointF(1.5, -0.4))  # notch carved
+        assert path.contains(QPointF(x0 + eps, y1 - eps))  # BL sharp
+        assert not path.contains(QPointF(x1 - eps, y1 - eps))  # BR rounded
 
 
 class TestDevboardBody:
@@ -1009,15 +1011,19 @@ class TestDevboardBody:
 
     def test_devboard_has_no_notch(self, qtbot: QtBot) -> None:
         from PySide6.QtCore import QPointF
+
         body_dev = PackageBody(  # type: ignore[arg-type]
-            _dip8_prism(),
-            component_class=ComponentClass.DEVBOARD)
+            _dip8_prism(), component_class=ComponentClass.DEVBOARD
+        )
         items = _flat(body_dev.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z))
         body = max(
-            (it for it in items
-             if isinstance(it, (QGraphicsRectItem, QGraphicsPathItem))),
-            key=lambda it: it.sceneBoundingRect().width() * it.
-            sceneBoundingRect().height(),
+            (
+                it
+                for it in items
+                if isinstance(it, (QGraphicsRectItem, QGraphicsPathItem))
+            ),
+            key=lambda it: it.sceneBoundingRect().width()
+            * it.sceneBoundingRect().height(),
         )
         # The point the DIP notch carves out (row midpoint, top edge) is now
         # INSIDE the plain rectangle — no notch was cut.
@@ -1029,36 +1035,40 @@ class TestDevboardBody:
         # Control: the very same prism rendered as an IC keeps the DIP notch, so
         # the gate is class-driven (devboard), not a change to the silhouette.
         from PySide6.QtCore import QPointF
-        items = _flat(PackageBody(  # type: ignore[arg-type]
-            _dip8_prism(),
-            component_class=ComponentClass.IC).draw(_dip8_positions(), _RED,
-                                                    _DARK, 1.0, _Z))
+
+        items = _flat(
+            PackageBody(  # type: ignore[arg-type]
+                _dip8_prism(), component_class=ComponentClass.IC
+            ).draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)
+        )
         body = max(
             (it for it in items if isinstance(it, QGraphicsPathItem)),
             key=lambda it: it.sceneBoundingRect().width(),
         )
-        assert not body.path().contains(QPointF(1.5,
-                                                -0.4))  # notch still carved
+        assert not body.path().contains(QPointF(1.5, -0.4))  # notch still carved
 
     def test_devboard_dispatches_class_axis_renderer(self, qtbot: QtBot) -> None:
         # The devboard look is a component-class registration
         # (@register_renderer(component_class="devboard")), threaded from the
         # PackageBody constructor through renderer_for — not a hardcoded gate.
         from protoboard.gui.renderers.packages import DevboardRenderer
+
         body = PackageBody(  # type: ignore[arg-type]
-            _dip8_prism(),
-            component_class=ComponentClass.DEVBOARD)
+            _dip8_prism(), component_class=ComponentClass.DEVBOARD
+        )
         assert type(body) is DevboardRenderer
 
     def test_pad_active_rings_one_per_pin(self, qtbot: QtBot) -> None:
         # Each pin gets a faint pad-sized ring (the click-active marker) on top
         # of the body; the body itself is one item, so rings == pin count.
         from PySide6.QtWidgets import QGraphicsEllipseItem
+
         positions = _dip8_positions()
-        items = _flat(PackageBody(  # type: ignore[arg-type]
-            _dip8_prism(),
-            component_class=ComponentClass.DEVBOARD).draw(
-                positions, _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(  # type: ignore[arg-type]
+                _dip8_prism(), component_class=ComponentClass.DEVBOARD
+            ).draw(positions, _RED, _DARK, 1.0, _Z)
+        )
         rings = [it for it in items if isinstance(it, QGraphicsEllipseItem)]
         assert len(rings) == len(positions)
 
@@ -1075,6 +1085,7 @@ class TestFootprintOptionStyle:
     def _defn(self):
         from protoboard.domain.components.appearance import Appearance
         from protoboard.domain.components.definition import MetaPin, PackageOption
+
         return ComponentDefinition(
             name="R",
             component_class=ComponentClass.RESISTOR,
@@ -1085,9 +1096,12 @@ class TestFootprintOptionStyle:
                     ref="din-0207/typ",
                     pin_map={1: (1,), 2: (2,)},
                 ),
-                PackageOption(name="SMD-0805", ref="smd-0805/typ",
-                              style=Appearance(color="#222222"),
-                              pin_map={1: (1,), 2: (2,)}),
+                PackageOption(
+                    name="SMD-0805",
+                    ref="smd-0805/typ",
+                    style=Appearance(color="#222222"),
+                    pin_map={1: (1,), 2: (2,)},
+                ),
             ),
         )
 
@@ -1096,43 +1110,57 @@ class TestFootprintOptionStyle:
             PackageFamily,
             PackageVariant,
         )
+
         fams = {}
         for fam in ("din-0207", "smd-0805"):
             pkg = _colored_prism("#cdd2d6")
             fams[fam] = PackageFamily(
-                family_id=fam, label=fam,
-                variants=(PackageVariant(variant_id="typ", label=fam,
-                                         package=pkg),),
+                family_id=fam,
+                label=fam,
+                variants=(PackageVariant(variant_id="typ", label=fam, package=pkg),),
             )
         return fams
 
     def _instance(self, variant: str | None, appearance=None):
         import uuid as _uuid
+
         return ComponentInstance(
-            id=_uuid.uuid4(), definition_ref="R", refdes="R1", value="10k",
-            package_variant=variant, appearance=appearance,
+            id=_uuid.uuid4(),
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
+            package_variant=variant,
+            appearance=appearance,
         )
 
     def test_default_option_without_style_keeps_package_color(self) -> None:
-        shape = body_shape_for(self._defn(), instance=self._instance(None),
-                               package_families=self._families())
+        shape = body_shape_for(
+            self._defn(),
+            instance=self._instance(None),
+            package_families=self._families(),
+        )
         assert isinstance(shape, PackageBody)
         assert shape._appearance.color is None
 
     def test_picked_option_style_applies(self) -> None:
         shape = body_shape_for(
-            self._defn(), instance=self._instance("smd-0805/typ"),
-            package_families=self._families())
+            self._defn(),
+            instance=self._instance("smd-0805/typ"),
+            package_families=self._families(),
+        )
         assert isinstance(shape, PackageBody)
         assert shape._appearance.color == "#222222"
 
     def test_instance_override_beats_option_style(self) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         shape = body_shape_for(
             self._defn(),
-            instance=self._instance("smd-0805/typ",
-                                    appearance=Appearance(color="#ff0000")),
-            package_families=self._families())
+            instance=self._instance(
+                "smd-0805/typ", appearance=Appearance(color="#ff0000")
+            ),
+            package_families=self._families(),
+        )
         assert isinstance(shape, PackageBody)
         assert shape._appearance.color == "#ff0000"
 
@@ -1140,8 +1168,10 @@ class TestFootprintOptionStyle:
         # An address not present in the options list (e.g. a picker-built kind
         # variant) applies no per-option style.
         shape = body_shape_for(
-            self._defn(), instance=self._instance("din-0207/typ"),
-            package_families=self._families())
+            self._defn(),
+            instance=self._instance("din-0207/typ"),
+            package_families=self._families(),
+        )
         assert isinstance(shape, PackageBody)
         assert shape._appearance.color is None
 
@@ -1171,7 +1201,9 @@ class TestBodyShapeFor:
         definition = ComponentDefinition(
             name=name,
             component_class=component_class,
-            meta_pins=tuple(MetaPin((str(index),)) for index in range(1, pin_count + 1)),
+            meta_pins=tuple(
+                MetaPin((str(index),)) for index in range(1, pin_count + 1)
+            ),
             package_options=(
                 PackageOption(
                     name="generic",
@@ -1191,6 +1223,7 @@ class TestBodyShapeFor:
         from protoboard.domain.components.package.kind import (
             is_generic_package,
         )
+
         shape = body_shape_for(defn, package_families=families)
         assert isinstance(shape, PackageBody)
         assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
@@ -1204,6 +1237,7 @@ class TestBodyShapeFor:
             from protoboard.domain.components.package.kind import (
                 is_generic_package,
             )
+
             shape = body_shape_for(defn, package_families=families)
             assert isinstance(shape, PackageBody)
             assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
@@ -1213,14 +1247,11 @@ class TestBodyShapeFor:
         # first (parametric package) dispatch arm and renders via PackageBody —
         # which, for the DEVBOARD class, draws a plain rect (no notch).
         from protoboard.domain.components.package.loader import build_package
+
         pkg = build_package(
             {
                 "shape": "prism",
-                "dims": {
-                    "ly": 18.0,
-                    "lx": 38.1,
-                    "lz": 1.6
-                },
+                "dims": {"ly": 18.0, "lx": 38.1, "lz": 1.6},
                 "bend": 0,
                 "leads": {
                     "direction": [0, 0, -1],
@@ -1259,9 +1290,7 @@ class TestBodyShapeFor:
                 ),
             ),
         )
-        shape = body_shape_for(
-            defn, package_families={family.family_id: family}
-        )
+        shape = body_shape_for(defn, package_families={family.family_id: family})
         assert isinstance(shape, PackageBody)
 
     def test_placed_instance_reaches_the_renderer(self) -> None:
@@ -1269,17 +1298,19 @@ class TestBodyShapeFor:
         # for plugins that draw part identity: instance.value (a resistance
         # for colour bands), instance.definition (part name), refdes.
         import uuid as _uuid
+
         defn, families = self._generic_definition(
             name="R",
             component_class=ComponentClass.RESISTOR,
             footprint=SIL(n=2),
         )
         inst = ComponentInstance(
-            id=_uuid.uuid4(), definition_ref="R", refdes="R1", value="10k",
+            id=_uuid.uuid4(),
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
         ).bind(defn, families)
-        shape = body_shape_for(
-            defn, instance=inst, package_families=families
-        )
+        shape = body_shape_for(defn, instance=inst, package_families=families)
         assert isinstance(shape, PackageBody)
         assert shape._instance is inst
         # A bound instance reaches the rest: definition (part name) + value.
@@ -1292,10 +1323,10 @@ class TestBodyShapeFor:
         # bare footprint (it draws GenericBody; a SIL header declares a package),
         # but the prism→silhouette path that PackageBody uses is intact.
         from protoboard.domain.components.package.shapes import Prism
+
         prism = _prism_from_footprint(SIL(n=6))
         assert isinstance(prism, Prism)
-        assert isinstance(silhouette_for(prism),
-                          SilSilhouette)
+        assert isinstance(silhouette_for(prism), SilSilhouette)
 
     def test_generic_fallback_for_large_connector(self) -> None:
         # 10-pin SIL connector — no special shape.
@@ -1313,12 +1344,8 @@ class TestBodyShapeFor:
         pl_flipped = _make_placement()
         pl_flipped.vertical_flipped = True
         # Both should return a valid BodyShape without error.
-        s1 = body_shape_for(
-            defn, placement=pl_normal, package_families=families
-        )
-        s2 = body_shape_for(
-            defn, placement=pl_flipped, package_families=families
-        )
+        s1 = body_shape_for(defn, placement=pl_normal, package_families=families)
+        s2 = body_shape_for(defn, placement=pl_flipped, package_families=families)
         assert isinstance(s1, BodyShape)
         assert isinstance(s2, BodyShape)
 
@@ -1370,9 +1397,7 @@ class TestPackageBodyDispatch:
             component_class=ComponentClass.IC,
             pin_count=package.pin_count(),  # type: ignore[union-attr]
         )
-        shape = body_shape_for(
-            defn, package_families={family.family_id: family}
-        )
+        shape = body_shape_for(defn, package_families={family.family_id: family})
         assert isinstance(shape, PackageBody)
         assert shape._pkg is not None  # type: ignore[attr-defined]
 
@@ -1382,13 +1407,16 @@ class TestPackageBodyDispatch:
         # 2×3 pin grid via GenericFootprint — the removed grid factory had no
         # replacement.)
         from protoboard.geometry import Vector
-        grid = GenericFootprint([
-            Vector(0.0, 1.0),  # (0,0)->(0,1)
-            Vector(0.0, 1.0),  # (0,1)->(0,2)
-            Vector(1.0, -2.0),  # (0,2)->(1,0)
-            Vector(0.0, 1.0),  # (1,0)->(1,1)
-            Vector(0.0, 1.0),  # (1,1)->(1,2)
-        ])
+
+        grid = GenericFootprint(
+            [
+                Vector(0.0, 1.0),  # (0,0)->(0,1)
+                Vector(0.0, 1.0),  # (0,1)->(0,2)
+                Vector(1.0, -2.0),  # (0,2)->(1,0)
+                Vector(0.0, 1.0),  # (1,0)->(1,1)
+                Vector(0.0, 1.0),  # (1,1)->(1,2)
+            ]
+        )
         from protoboard.domain.components.package import PackageFamily, PackageVariant
         from protoboard.domain.components.package.kind import synth_generic_package
 
@@ -1407,9 +1435,8 @@ class TestPackageBodyDispatch:
         from protoboard.domain.components.package.kind import (
             is_generic_package,
         )
-        shape = body_shape_for(
-            defn, package_families={family.family_id: family}
-        )
+
+        shape = body_shape_for(defn, package_families={family.family_id: family})
         assert isinstance(shape, PackageBody)
         assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
 
@@ -1418,34 +1445,34 @@ class TestPackageBodyDispatch:
             PackageFamily,
             PackageVariant,
         )
+
         return {
-            "DO-35":
-            PackageFamily(
-                family_id="DO-35",
+            "d-tht/DO": PackageFamily(
+                family_id="d-tht/DO",
                 variants=(
                     PackageVariant(
-                        "typ", "typ",
-                        _cylinder_package()),  # type: ignore[arg-type]
+                        "35", "35", _cylinder_package()
+                    ),  # type: ignore[arg-type]
                 ),
             ),
         }
 
     def test_family_ref_resolves_to_package_body(self) -> None:
         defn = self._definition(
-            PackageOption(name="DO-35/typ", ref="DO-35/typ"),
+            PackageOption(name="d-tht/DO/35", ref="d-tht/DO/35"),
         )
         shape = body_shape_for(defn, package_families=self._families())
         assert isinstance(shape, PackageBody)
 
     def test_instance_variant_resolves_to_package_body(self) -> None:
         defn = self._definition(
-            PackageOption(name="DO-35/typ", ref="DO-35/typ"),
+            PackageOption(name="d-tht/DO/35", ref="d-tht/DO/35"),
         )
         inst = ComponentInstance.new(
             definition_ref="D1",
             refdes="D1",
             value="",
-            package_variant="DO-35/typ",
+            package_variant="d-tht/DO/35",
         )
         shape = body_shape_for(
             defn,
@@ -1478,23 +1505,26 @@ class TestPackageBodyDraw:
         # Default edge_radius=0 → the body rectangle's corner is inside the
         # path (sharp corner), not carved away.
         shape = PackageBody(
-            _cylinder_package(edge_radius=0.0))  # type: ignore[arg-type]
+            _cylinder_package(edge_radius=0.0)
+        )  # type: ignore[arg-type]
         items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
         # Local body rect is (-len/2,-w/2, len, w) = (-1.26,-0.5, 2.52, 1.0).
         # Its corner (-1.26, -0.5) belongs to a sharp rectangle.
         from PySide6.QtCore import QPointF
+
         assert body.path().contains(QPointF(-1.26 + 0.02, -0.5 + 0.02))
 
-    def test_cylinder_full_edge_radius_carves_corner(self,
-                                                     qtbot: QtBot) -> None:
+    def test_cylinder_full_edge_radius_carves_corner(self, qtbot: QtBot) -> None:
         # edge_radius = diameter/2 → capsule: the rectangle corner is carved
         # away (outside the rounded path).
         shape = PackageBody(
-            _cylinder_package(edge_radius=1.25))  # type: ignore[arg-type]
+            _cylinder_package(edge_radius=1.25)
+        )  # type: ignore[arg-type]
         items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
         from PySide6.QtCore import QPointF
+
         assert not body.path().contains(QPointF(-1.26 + 0.02, -0.5 + 0.02))
 
     def test_cylinder_short_spacing_renders_upright(self, qtbot: QtBot) -> None:
@@ -1505,16 +1535,20 @@ class TestPackageBodyDraw:
         # drew a full-length horizontal capsule even on adjacent pads.)
         items = _flat(shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
         # A round body (ellipse, or a path for a D-shaped/polar body).
-        assert any(isinstance(it, (QGraphicsEllipseItem, QGraphicsPathItem))
-                   for it in items)
+        assert any(
+            isinstance(it, (QGraphicsEllipseItem, QGraphicsPathItem)) for it in items
+        )
         # And a lead stub from the upright body to the adjacent pad.
         assert any(isinstance(it, QGraphicsLineItem) for it in items)
         # The body spans about the diameter (1 hole), far less than body_len.
         mm = DEFAULT_THEME.raster_pitch_mm
         body_len = _cylinder_package().length_mm / mm  # type: ignore[attr-defined]
         body = max(
-            (it for it in items if isinstance(
-                it, (QGraphicsEllipseItem, QGraphicsPathItem))),
+            (
+                it
+                for it in items
+                if isinstance(it, (QGraphicsEllipseItem, QGraphicsPathItem))
+            ),
             key=lambda it: it.sceneBoundingRect().width(),
         )
         assert body.sceneBoundingRect().width() < body_len - 1e-6
@@ -1527,8 +1561,7 @@ class TestPackageBodyDraw:
     def test_prism_draws_dip_silhouette(self, qtbot: QtBot) -> None:
         # A two-column prism is a DIP: a notched body path plus a pin-1 marker.
         shape = PackageBody(_prism_package())  # type: ignore[arg-type]
-        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i)
-                                                   for i in range(4)]))
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
         items = _flat(shape.draw(pts, _RED, _DARK, 1.0, _Z))
         assert all(isinstance(it, QGraphicsPathItem) for it in items)
         assert len(items) == 2  # body + pin-1 marker
@@ -1539,8 +1572,7 @@ class TestPackageBodyDraw:
 
     def test_z_value_is_set(self, qtbot: QtBot) -> None:
         shape = PackageBody(_prism_package())  # type: ignore[arg-type]
-        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i)
-                                                   for i in range(4)]))
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
         items = _flat(shape.draw(pts, _RED, _DARK, 1.0, _Z))
         assert items[0].zValue() == _Z
 
@@ -1550,13 +1582,14 @@ class TestSmdChipBody:
 
     def test_no_dip_silhouette_for_two_pin_prism(self) -> None:
         # A two-pin (two single-pin columns) prism is not a DIP — no notch.
-        assert silhouette_for(
-            _smd_chip_package()) is None  # type: ignore[arg-type]
+        assert silhouette_for(_smd_chip_package()) is None  # type: ignore[arg-type]
 
     def test_single_body_no_marker_no_leads(self, qtbot: QtBot) -> None:
-        items = _flat(PackageBody(
-            _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
         # One body path; no pin-1 marker and no lead lines (a chip has neither).
         assert len(items) == 1
         assert isinstance(items[0], QGraphicsPathItem)
@@ -1565,9 +1598,11 @@ class TestSmdChipBody:
     def test_body_centred_on_pad_midpoint(self, qtbot: QtBot) -> None:
         # Pads at (0,0)-(2,0): the chip body is centred at the midpoint (1,0),
         # not anchored at pin 1.
-        items = _flat(PackageBody(
-            _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
         c = items[0].sceneBoundingRect().center()
         assert (round(c.x(), 2), round(c.y(), 2)) == (1.0, 0.0)
 
@@ -1578,12 +1613,14 @@ class TestSmdChipBody:
         import dataclasses
 
         from protoboard.domain.components.package.shapes import Prism
+
         base = _smd_chip_package()
         assert isinstance(base, Prism)
         pkg = dataclasses.replace(base, lineage=("prism", "prism_smd"))
         items, _labels = PackageBody(pkg).draw(
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert len(items) == 3           # body + 2 caps
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+        )
+        assert len(items) == 3  # body + 2 caps
         body, cap_a, cap_b = items
         assert cap_a.zValue() > body.zValue()
         assert cap_a.zValue() == cap_b.zValue()
@@ -1596,19 +1633,23 @@ class TestSmdChipBody:
     def test_plain_two_pin_prism_keeps_single_body(self, qtbot: QtBot) -> None:
         # Without the ``prism_smd`` lineage the base renderer draws exactly
         # the historical single chip rectangle — no caps (parity guard).
-        items = _flat(PackageBody(
-            _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
         assert len(items) == 1
 
     def test_dimless_two_pin_prism_degrades_to_generic(
-        self, qtbot: QtBot,
+        self,
+        qtbot: QtBot,
     ) -> None:
         # Regression: a two-pin prism with neither dims nor a margin used to
         # crash the SMD-chip branch (lead_axis_extents → bbox() ValueError,
         # which only the bbox fallback caught).  It must degrade to the
         # generic pin-cloud rectangle instead — rendering never blocks.
         from protoboard.domain.components.package.loader import build_package
+
         pkg = build_package(
             {
                 "shape": "prism",
@@ -1621,17 +1662,20 @@ class TestSmdChipBody:
             },
             "DIMLESS_CHIP",
         )
-        items = _flat(PackageBody(pkg).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(pkg).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
         assert items  # generic bbox body, not a ValueError
         # The prism_smd caps overlay must survive the same degenerate package.
         import dataclasses
 
         from protoboard.domain.components.package.shapes import Prism
+
         assert isinstance(pkg, Prism)
         smd = dataclasses.replace(pkg, lineage=("prism", "prism_smd"))
-        assert PackageBody(smd).draw(
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert PackageBody(smd).draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
 
     def test_body_shorter_than_pad_span(self, qtbot: QtBot) -> None:
         # A real chip sits *between* its pads at its declared length, shorter
@@ -1639,14 +1683,16 @@ class TestSmdChipBody:
         # The body covers the midpoint but leaves the terminals (pad centres)
         # outside, so the metallised pads stay visible at each end.
         from PySide6.QtCore import QPointF
-        items = _flat(PackageBody(
-            _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+
+        items = _flat(
+            PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
         body = items[0]
         assert isinstance(body, QGraphicsPathItem)
         place = body.sceneTransform()
-        midpoint, pads = QPointF(0.5, 0.0), (QPointF(0.0,
-                                                     0.0), QPointF(1.0, 0.0))
+        midpoint, pads = QPointF(0.5, 0.0), (QPointF(0.0, 0.0), QPointF(1.0, 0.0))
         # Map scene points into the body's local frame, then test coverage.
         assert body.path().contains(place.inverted()[0].map(midpoint))
         for pad in pads:
@@ -1655,9 +1701,11 @@ class TestSmdChipBody:
     def test_diagonal_placement_aligns_to_pad_axis(self, qtbot: QtBot) -> None:
         # Diagonally-adjacent pads → the body rotates to the 45° pad axis and
         # still centres on the midpoint.
-        items = _flat(PackageBody(
-            _smd_chip_package()).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 1)), _RED, _DARK, 1.0, _Z))
+        items = _flat(
+            PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 1)), _RED, _DARK, 1.0, _Z
+            )
+        )
         c = items[0].sceneBoundingRect().center()
         assert (round(c.x(), 2), round(c.y(), 2)) == (0.5, 0.5)
 
@@ -1669,44 +1717,42 @@ class TestPackageBodyColor:
         # The body fill lives on the largest path/rect item — the silhouette /
         # capsule — not the small pin-1 marker that a prism also emits.
         bodies = [
-            it for it in items
-            if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))
+            it for it in items if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))
         ]
         return max(
             bodies,
-            key=lambda it:
-            (it.sceneBoundingRect().width() * it.sceneBoundingRect().height()),
+            key=lambda it: (
+                it.sceneBoundingRect().width() * it.sceneBoundingRect().height()
+            ),
         )
 
     def test_cylinder_uses_package_color(self, qtbot: QtBot) -> None:
         shape = PackageBody(
-            _colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
+            _colored_cylinder_package("#d6c08c")
+        )  # type: ignore[arg-type]
         items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
-        assert body.brush().color().name(
-        ) == "#d6c08c"  # type: ignore[attr-defined]
+        assert body.brush().color().name() == "#d6c08c"  # type: ignore[attr-defined]
 
     def test_prism_uses_package_color(self, qtbot: QtBot) -> None:
-        shape = PackageBody(
-            _colored_prism_package("#abcdef"))  # type: ignore[arg-type]
-        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i)
-                                                   for i in range(4)]))
+        shape = PackageBody(_colored_prism_package("#abcdef"))  # type: ignore[arg-type]
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
         items = _flat(shape.draw(pts, _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
-        assert body.brush().color().name(
-        ) == "#abcdef"  # type: ignore[attr-defined]
+        assert body.brush().color().name() == "#abcdef"  # type: ignore[attr-defined]
 
     def test_no_color_falls_back_to_caller_fill(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
-        items = _flat(shape.draw(_pts((0, 0), (4, 0)), QColor("#404858"), _DARK,
-                                 1.0, _Z))
+        items = _flat(
+            shape.draw(_pts((0, 0), (4, 0)), QColor("#404858"), _DARK, 1.0, _Z)
+        )
         body = self._body_item(items)
-        assert body.brush().color().name(
-        ) == "#404858"  # type: ignore[attr-defined]
+        assert body.brush().color().name() == "#404858"  # type: ignore[attr-defined]
 
     def test_border_is_darker_than_fill(self, qtbot: QtBot) -> None:
         shape = PackageBody(
-            _colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
+            _colored_cylinder_package("#d6c08c")
+        )  # type: ignore[arg-type]
         items = _flat(shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
         fill = body.brush().color()  # type: ignore[attr-defined]
@@ -1718,19 +1764,17 @@ class TestPackageBodyColor:
         # is declared but edge=sharp forces 0 → a square (non-rounded) body path.
         # (The body is a placed QPainterPath so it rotates with the pins; square
         # vs rounded is a path-geometry distinction, not a Rect-vs-Path type one.)
-        shape = PackageBody(
-            _bbox_prism_package(edge="sharp"))  # type: ignore[arg-type]
-        items = _flat(
-            shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
+        shape = PackageBody(_bbox_prism_package(edge="sharp"))  # type: ignore[arg-type]
+        items = _flat(shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
         body = self._body_item(items)
         assert isinstance(body, QGraphicsPathItem)
         assert not _path_is_rounded(body)
 
     def test_rounded_edge_rounds_prism_corners(self, qtbot: QtBot) -> None:
         shape = PackageBody(
-            _bbox_prism_package(edge="rounded"))  # type: ignore[arg-type]
-        items = _flat(
-            shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
+            _bbox_prism_package(edge="rounded")
+        )  # type: ignore[arg-type]
+        items = _flat(shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z))
         assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
@@ -1738,19 +1782,12 @@ def _axial_cyl_package(edge_radius: float = 0.0) -> Package:
     return build_package(
         {
             "shape": "cylinder",
-            "dims": {
-                "diameter": 2.5,
-                "length": 6.3,
-                "edge_radius": edge_radius
-            },
+            "dims": {"diameter": 2.5, "length": 6.3, "edge_radius": edge_radius},
             "arrangement": "axial",
             "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, 1]],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[4, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
                 "board_offset": "default",
                 "lead_r": 0.27,
             },
@@ -1763,18 +1800,12 @@ def _radial_cyl_package() -> Package:
     return build_package(
         {
             "shape": "cylinder",
-            "dims": {
-                "diameter": 6.3,
-                "length": 11.0
-            },
+            "dims": {"diameter": 6.3, "length": 11.0},
             "arrangement": "radial",
             "bend": 4,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, -1]],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[1, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                 "board_offset": "default",
                 "lead_r": 0.25,
             },
@@ -1787,19 +1818,12 @@ def _radial_prism_package() -> Package:
     return build_package(
         {
             "shape": "prism",
-            "dims": {
-                "ly": 4.5,
-                "lx": 11.0,
-                "lz": 3.5
-            },
+            "dims": {"ly": 4.5, "lx": 11.0, "lz": 3.5},
             "arrangement": "radial",
             "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, -1]],
-                "body_offset": {
-                    "unit": 2.5,
-                    "value": [[1, 0]]
-                },
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                 "board_offset": "default",
                 "lead_r": 0.25,
             },
@@ -1820,27 +1844,29 @@ class TestPackageBodyParity:
         plain = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]
         d_paths = sum(
             isinstance(it, QGraphicsPathItem)
-            for it in _flat(diode.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0,
-                                       _Z)))
+            for it in _flat(diode.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
+        )
         p_paths = sum(
             isinstance(it, QGraphicsPathItem)
-            for it in _flat(plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0,
-                                       _Z)))
+            for it in _flat(plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
+        )
         assert d_paths == p_paths + 1
 
     @staticmethod
-    def _upright_body(shape: PackageBody, p1: tuple[float, float],
-                      p2: tuple[float, float]) -> QGraphicsItem:
+    def _upright_body(
+        shape: PackageBody, p1: tuple[float, float], p2: tuple[float, float]
+    ) -> QGraphicsItem:
         items = _flat(shape.draw(_pts(p1, p2), _RED, _DARK, 1.0, _Z))
         return max(
-            (it for it in items if isinstance(
-                it, (QGraphicsPathItem, QGraphicsEllipseItem))),
+            (
+                it
+                for it in items
+                if isinstance(it, (QGraphicsPathItem, QGraphicsEllipseItem))
+            ),
             key=lambda it: it.sceneBoundingRect().width(),
         )
 
-    def test_axial_upright_body_sits_over_anchor_pad(
-        self, qtbot: QtBot
-    ) -> None:
+    def test_axial_upright_body_sits_over_anchor_pad(self, qtbot: QtBot) -> None:
         # An axial cylinder whose pads are CLOSER than its body length stands
         # UPRIGHT, the body sitting directly OVER ONE pad (the anchor), the bent
         # lead reaching the other — NOT centred between the pads (that is the
@@ -1848,8 +1874,8 @@ class TestPackageBodyParity:
         pkg = _axial_cyl_package()  # diameter 2.5, length 6.3 → body_len 2.52
         shape = PackageBody(pkg)  # type: ignore[arg-type]
         mm = DEFAULT_THEME.raster_pitch_mm
-        body_len = pkg.length_mm / mm   # type: ignore[attr-defined]
-        diam = pkg.diameter_mm / mm     # type: ignore[attr-defined]
+        body_len = pkg.length_mm / mm  # type: ignore[attr-defined]
+        diam = pkg.diameter_mm / mm  # type: ignore[attr-defined]
 
         body = self._upright_body(shape, (0, 0), (1, 0))
         c = body.sceneBoundingRect().center()
@@ -1859,25 +1885,22 @@ class TestPackageBodyParity:
         assert body.sceneBoundingRect().width() == pytest.approx(diam, abs=0.2)
         assert body.sceneBoundingRect().width() < body_len - 1e-6
 
-    def test_axial_upright_flip_moves_body_to_other_pad(
-        self, qtbot: QtBot
-    ) -> None:
+    def test_axial_upright_flip_moves_body_to_other_pad(self, qtbot: QtBot) -> None:
         # Flip (vertical_flipped) chooses WHICH pad the upright body stands on:
         # unflipped → over pin 1; flipped → over pin 2.
         pkg = _axial_cyl_package()
         unflipped = PackageBody(pkg)  # type: ignore[arg-type]
-        flipped = PackageBody(
-            pkg, vertical_flipped=True)  # type: ignore[arg-type]
+        flipped = PackageBody(pkg, vertical_flipped=True)  # type: ignore[arg-type]
         cu = self._upright_body(unflipped, (0, 0), (1, 0)).sceneBoundingRect()
         cf = self._upright_body(flipped, (0, 0), (1, 0)).sceneBoundingRect()
         assert (cu.center().x(), cu.center().y()) == pytest.approx(
-            (0.0, 0.0), abs=0.05)   # over pin 1
+            (0.0, 0.0), abs=0.05
+        )  # over pin 1
         assert (cf.center().x(), cf.center().y()) == pytest.approx(
-            (1.0, 0.0), abs=0.05)   # over pin 2
+            (1.0, 0.0), abs=0.05
+        )  # over pin 2
 
-    def test_axial_flat_body_spans_more_than_upright(
-        self, qtbot: QtBot
-    ) -> None:
+    def test_axial_flat_body_spans_more_than_upright(self, qtbot: QtBot) -> None:
         shape = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]
         up = self._upright_body(shape, (0, 0), (1, 0)).sceneBoundingRect()
         flat = self._upright_body(shape, (0, 0), (4, 0)).sceneBoundingRect()
@@ -1891,22 +1914,23 @@ class TestPackageBodyParity:
         # the straight segment, never on the curved end cap: its outer edge is
         # at most body_len/2 - r from the centre.
         from protoboard.domain.components.package.shapes import Cylinder
+
         pkg = _axial_cyl_package(edge_radius=1.25)  # D=2.5 → r = D/2
         assert isinstance(pkg, Cylinder)
         shape = PackageBody(pkg, component_class=ComponentClass.DIODE)
         items = _flat(shape.draw(_pts((0, 0), (8, 0)), _RED, _DARK, 1.0, _Z))
-        body, stripe = [
+        body, stripe = [it for it in items if isinstance(it, QGraphicsPathItem)][0], [
             it for it in items if isinstance(it, QGraphicsPathItem)
-        ][0], [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
+        ][-1]
         mm = DEFAULT_THEME.raster_pitch_mm
         body_len = pkg.length_mm / mm
-        r = min(pkg.edge_radius_mm / mm,
-                body_len / 2.0)
+        r = min(pkg.edge_radius_mm / mm, body_len / 2.0)
         mid_x = 4.0  # midpoint of (0,0)-(8,0)
         stripe_right = stripe.sceneBoundingRect().right() - mid_x
         assert stripe_right <= body_len / 2.0 - r + 1e-6
         # And the stripe's near corner lies inside the body silhouette.
         from PySide6.QtCore import QPointF
+
         sbb = stripe.sceneBoundingRect()
         assert body.path().contains(QPointF(sbb.right() - mid_x, 0.0))
 
@@ -1965,19 +1989,13 @@ class TestPackageBodyParity:
         return build_package(
             {
                 "shape": "disc",
-                "dims": {
-                    "diameter": 5.0,
-                    "thickness": 2.0
-                },
+                "dims": {"diameter": 5.0, "thickness": 2.0},
                 "arrangement": "radial",
                 "disc_profile": profile,
                 "bend": 0,
                 "leads": {
                     "direction": [[0, 0, -1], [0, 0, -1]],
-                    "body_offset": {
-                        "unit": 2.5,
-                        "value": [[1, 0]]
-                    },
+                    "body_offset": {"unit": 2.5, "value": [[1, 0]]},
                     "board_offset": "default",
                     "lead_r": 0.25,
                 },
@@ -1985,8 +2003,7 @@ class TestPackageBodyParity:
             "D",
         )
 
-    def test_disc_drawn_as_side_lens_not_face_circle(self,
-                                                     qtbot: QtBot) -> None:
+    def test_disc_drawn_as_side_lens_not_face_circle(self, qtbot: QtBot) -> None:
         # A disc mounts on its edge → a thin side lens (path), not the round
         # face (ellipse); thickness across, diameter along the lead axis.
         shape = PackageBody(self._disc("candy"))  # type: ignore[arg-type]
@@ -1998,18 +2015,23 @@ class TestPackageBodyParity:
         assert round(br.width(), 1) == 2.0
         assert round(br.height(), 1) == 0.8
 
-    def test_disc_candy_has_sharp_tips_flat_is_rounded(self,
-                                                       qtbot: QtBot) -> None:
+    def test_disc_candy_has_sharp_tips_flat_is_rounded(self, qtbot: QtBot) -> None:
         from PySide6.QtCore import QPointF
-        candy = _flat(PackageBody(
-            self._disc("candy")).draw(  # type: ignore[arg-type]
-                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
-        flat = _flat(PackageBody(self._disc("flat")).draw(  # type: ignore[arg-type]
-            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
-        candy_path = next(it for it in candy
-                          if isinstance(it, QGraphicsPathItem)).path()
-        flat_path = next(it for it in flat
-                         if isinstance(it, QGraphicsPathItem)).path()
+
+        candy = _flat(
+            PackageBody(self._disc("candy")).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
+        flat = _flat(
+            PackageBody(self._disc("flat")).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+            )
+        )
+        candy_path = next(
+            it for it in candy if isinstance(it, QGraphicsPathItem)
+        ).path()
+        flat_path = next(it for it in flat if isinstance(it, QGraphicsPathItem)).path()
         # Near a tip but off-axis: the candy lens has tapered there, the flat
         # ellipse still carries material.  (path is in the local body frame,
         # length -1..+1 along x, so 0.7 is near the +x tip.)
@@ -2028,8 +2050,7 @@ class TestPackageBodyParity:
         # D=6.3 mm (~2.52 holes, r~1.26).  At 1-hole spacing the body is
         # centred at (0.5, 0) and covers both pads.
         shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
-        assert shape.drawn_pin_numbers(_pts((0, 0),
-                                            (1, 0))) == frozenset({1, 2})
+        assert shape.drawn_pin_numbers(_pts((0, 0), (1, 0))) == frozenset({1, 2})
 
     def test_radial_body_clears_wide_pins(self, qtbot: QtBot) -> None:
         # At 4-hole spacing the midpoint (2, 0) is farther than the radius from
@@ -2050,48 +2071,56 @@ class TestPackageBodyParity:
 class TestBodyShapeContract:
     """Every shape must honour BodyShape.draw → (body_items, label_items)."""
 
-    @pytest.mark.parametrize("shape_factory,positions", [
-        (lambda: GenericBody(), _pts((0, 0), (2, 0))),
-        (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
-        (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
-        (lambda: PackageBody(_dip8_prism()),
-         _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
-        (lambda: PackageBody(_sil6_prism()), _pts(*[(0, i)
-                                                    for i in range(6)])),
-    ])
+    @pytest.mark.parametrize(
+        "shape_factory,positions",
+        [
+            (lambda: GenericBody(), _pts((0, 0), (2, 0))),
+            (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
+            (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
+            (
+                lambda: PackageBody(_dip8_prism()),
+                _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)])),
+            ),
+            (lambda: PackageBody(_sil6_prism()), _pts(*[(0, i) for i in range(6)])),
+        ],
+    )
     def test_draw_returns_list_of_qgraphicsitem(
         self,
         qtbot: QtBot,
         shape_factory,
         positions: list[Point],
     ) -> None:
-        body_items, label_items = shape_factory().draw(
-            positions, _RED, _DARK, 1.0, _Z)
+        body_items, label_items = shape_factory().draw(positions, _RED, _DARK, 1.0, _Z)
         assert isinstance(body_items, list)
         assert isinstance(label_items, list)
         for item in body_items + label_items:
             assert isinstance(item, QGraphicsItem)
 
-    @pytest.mark.parametrize("shape_factory,positions", [
-        (lambda: GenericBody(), _pts((0, 0), (2, 0))),
-        (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
-    ])
+    @pytest.mark.parametrize(
+        "shape_factory,positions",
+        [
+            (lambda: GenericBody(), _pts((0, 0), (2, 0))),
+            (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
+        ],
+    )
     def test_draw_alpha_zero_still_returns_items(
         self,
         qtbot: QtBot,
         shape_factory,
         positions: list[Point],
     ) -> None:
-        body_items, label_items = shape_factory().draw(
-            positions, _RED, _DARK, 0.0, _Z)
+        body_items, label_items = shape_factory().draw(positions, _RED, _DARK, 0.0, _Z)
         assert isinstance(body_items, list)
         assert isinstance(label_items, list)
 
-    @pytest.mark.parametrize("shape_factory,positions", [
-        (lambda: GenericBody(), _pts((0, 0), (2, 0))),
-        (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
-        (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
-    ])
+    @pytest.mark.parametrize(
+        "shape_factory,positions",
+        [
+            (lambda: GenericBody(), _pts((0, 0), (2, 0))),
+            (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
+            (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
+        ],
+    )
     def test_drawn_pin_numbers_returns_frozenset(
         self,
         qtbot: QtBot,

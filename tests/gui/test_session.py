@@ -82,7 +82,7 @@ class TestGetPinPosition:
         inst = _place_r(session, x=3.0, y=4.0)
         pos = session.get_pin_position(inst.id, 1)
         assert pos is not None
-        # R footprint is SIL(2): pin1 at local (0,0), so world pos == placement.position.
+        # R footprint is SIL(2): pin1 at local (0,0), so world pos == placement.position.  # noqa: E501
         assert pytest.approx(pos.x) == 3.0
         assert pytest.approx(pos.y) == 4.0
 

@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import uuid
 
+from protoboard.controller.ports import StatusEvent
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
-from protoboard.controller.ports import StatusEvent
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
 
 
@@ -31,9 +31,7 @@ class TestStatusEvent:
 
 
 class TestNotificationChannel:
-    def test_notify_status_reemits_status_changed(
-        self, board_view: BoardView
-    ) -> None:
+    def test_notify_status_reemits_status_changed(self, board_view: BoardView) -> None:
         events: list[StatusEvent] = []
         board_view.status_changed.connect(events.append)
         evt = StatusEvent("route.locked_pin", {"text": "x", "timeout_ms": 3000})
@@ -48,9 +46,7 @@ class TestNotificationChannel:
         board_view.notify_cursor_moved(Point(1.5, 2.5))
         assert seen == [(1.5, 2.5)]
 
-    def test_escape_to_select_reemits_escape_tool(
-        self, board_view: BoardView
-    ) -> None:
+    def test_escape_to_select_reemits_escape_tool(self, board_view: BoardView) -> None:
         fired: list[bool] = []
         board_view.escape_tool.connect(lambda: fired.append(True))
         board_view.escape_to_select()
@@ -91,7 +87,7 @@ class TestWheelNotchAccumulator:
         from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 
         acc = WheelNotchAccumulator()
-        assert acc.add(100) == 0    # residue +100
+        assert acc.add(100) == 0  # residue +100
         assert acc.add(-120) == -1  # flip: residue dropped, clean notch down
 
 
@@ -107,21 +103,21 @@ class TestInteractionContext:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         session.layout.wires.append(wire)
         session.invalidate_graph()
         board_view.set_tool(SelectTool())
         tool = WireEditTool(
-            WireRange.full_span(wire), wire.id,
+            WireRange.full_span(wire),
+            wire.id,
             return_to=lambda: None,
         )
         board_view.set_tool(tool)
         return tool
 
-    def test_get_context_at_lists_tool_actions(
-        self, board_view: BoardView
-    ) -> None:
+    def test_get_context_at_lists_tool_actions(self, board_view: BoardView) -> None:
         # A pure query — no menu, no fake, no exec (qt-ports §2.4).  reroute is
         # a WireEditTool action after the Task-8 swap.
         self._arm_wire_edit(board_view)
@@ -131,8 +127,7 @@ class TestInteractionContext:
         ids = [opt.action_id for opt in ctx.actions]
         assert "select-tool.action.reroute" in ids
         reroute = next(
-            o for o in ctx.actions
-            if o.action_id == "select-tool.action.reroute"
+            o for o in ctx.actions if o.action_id == "select-tool.action.reroute"
         )
         assert reroute.shortcut_hint == "W"
 
@@ -152,7 +147,6 @@ class TestInteractionContext:
         self._arm_wire_edit(board_view)
         ctx = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
         reroute = next(
-            o for o in ctx.actions
-            if o.action_id == "select-tool.action.reroute"
+            o for o in ctx.actions if o.action_id == "select-tool.action.reroute"
         )
         assert reroute.shortcut_hint == "Q"

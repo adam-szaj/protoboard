@@ -16,13 +16,13 @@ from typing import Any
 
 import structlog
 
+from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
     MountStyle,
 )
-from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.offsets import (
     cumulative_positions,
     expand_direction,

@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -20,7 +21,6 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
 from protoboard.services.library.loader import load_library
 from protoboard.services.routing.autorouter import AutorouteResult
 
@@ -52,11 +52,16 @@ def _session() -> HeadlessSession:
 def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -72,7 +77,8 @@ def _wire(a: Point, b: Point) -> Wire:
 def test_apply_autoroute_commits_wires() -> None:
     session = _session()
     result = AutorouteResult(
-        wires=[_wire(Point(1, 1), Point(3, 1))], unrouted_nets=[],
+        wires=[_wire(Point(1, 1), Point(3, 1))],
+        unrouted_nets=[],
     )
     applied = session.edit_controller.apply_autoroute(result)
     assert applied == 1
@@ -147,7 +153,8 @@ def test_autoroute_propagates_drc_precondition_failure() -> None:
     # A 2-pin R at the very edge pushes pin 2 off the board.
     a = _place(session, 7.0, 7.0, "R1")
     net = Net(
-        id=uuid.uuid4(), name="N1",
+        id=uuid.uuid4(),
+        name="N1",
         pins={PinRef(component_id=a, pin_number=1)},
     )
     session.schematic.nets = {net.id: net}

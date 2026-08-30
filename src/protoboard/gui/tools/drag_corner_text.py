@@ -88,13 +88,11 @@ class DragCornerText:
         # local coordinate system (pixels). Convert padding via the port.
         text_rect = self._text_item.boundingRect()
         origin_scene = port.map_view_to_scene(Point(0.0, 0.0))
-        pad = port.map_view_to_scene(
-            Point(float(_PADDING_PX), float(_PADDING_PX))
-        )
+        pad = port.map_view_to_scene(Point(float(_PADDING_PX), float(_PADDING_PX)))
         pad_x, pad_y = pad.x - origin_scene.x, pad.y - origin_scene.y
-        size = port.map_view_to_scene(Point(
-            float(round(text_rect.width())), float(round(text_rect.height()))
-        ))
+        size = port.map_view_to_scene(
+            Point(float(round(text_rect.width())), float(round(text_rect.height())))
+        )
         size_x, size_y = size.x - origin_scene.x, size.y - origin_scene.y
         self._bg_item.setRect(
             top_left_scene.x - pad_x,

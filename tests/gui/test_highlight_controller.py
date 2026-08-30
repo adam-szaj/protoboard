@@ -10,18 +10,18 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
-from protoboard.geometry import Point
-from protoboard.gui.highlight import HighlightController
-from protoboard.gui.highlight_state import HighlightStack
 from protoboard.controller.interaction_mode import HighlightProfile
 from protoboard.controller.selection import (
     ComponentSelectable,
     GroupSelectable,
     WireSelectable,
 )
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import Wire
+from protoboard.geometry import Point
+from protoboard.gui.highlight import HighlightController
+from protoboard.gui.highlight_state import HighlightStack
 
 
 def _comp(cid: uuid.UUID | None = None) -> ComponentSelectable:

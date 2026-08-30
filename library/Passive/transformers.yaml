@@ -1,15 +1,27 @@
 components:
-  - name: T
-    description: "Transformer (4-pin: primary + secondary)"
-    component_class: transformer
-    pins: {count: 4}
-    package:
-      shape: prism
+- name: T
+  description: "Transformer (4-pin: primary + secondary)"
+  component_class: transformer
+  package:
+    shape: prism
       # Plain block body (2x2 pins, 3-hole row spacing) — a transformer
       # carries no DIP notch.
-      leads:
-        direction: [0, 0, -1]
-        body_offset: {unit: 2.5, value: [[0, 1], [3, 0], [0, -1]]}
-        board_offset: default
-      bend: 0
-    pin_names: {1: P1, 2: P2, 3: S1, 4: S2}
+    leads:
+      direction: [0, 0, -1]
+      body_offset: {unit: 2.5, value: [[0, 1], [3, 0], [0, -1]]}
+      board_offset: default
+    bend: 0
+  meta_pins:
+  - P1
+  - P2
+  - S1
+  - S2
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4

@@ -65,14 +65,21 @@ def _update_wires_for_move(
 
 
 def _perfboard(rows: int = 6, cols: int = 6) -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 class _State:
@@ -86,7 +93,9 @@ class _State:
 
 
 def _place(
-    state: _State, refdes: str, pos: Point,
+    state: _State,
+    refdes: str,
+    pos: Point,
 ) -> tuple[ComponentInstance, ComponentPlacement]:
     defn_name = f"_J_{refdes}"
     family = sil_family(2)
@@ -94,17 +103,20 @@ def _place(
     defn = ComponentDefinition(
         name=defn_name,
         meta_pins=(MetaPin(("P",)),),
-        package_options=(
-            PackageOption("SIL-2", "sil-2/std", pin_map={1: (1,)}),
-        ),
+        package_options=(PackageOption("SIL-2", "sil-2/std", pin_map={1: (1,)}),),
     )
     state.components[defn_name] = defn
     inst = ComponentInstance.new(
-        definition_ref=defn_name, refdes=refdes, value="",
+        definition_ref=defn_name,
+        refdes=refdes,
+        value="",
     ).bind(defn, {family.family_id: family})
     state.instances[inst.id] = inst
     pl = ComponentPlacement(
-        component_id=inst.id, position=pos, rotation=0, side="top",
+        component_id=inst.id,
+        position=pos,
+        rotation=0,
+        side="top",
     )
     state.layout.placements[inst.id] = pl
     return inst, pl
@@ -134,19 +146,26 @@ class TestForeignWireNotDraggedByMove:
         foreign_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(5.5, 5.5), Point(2.5, 2.5)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
             a=KnotRef(id=pinknot_a.id),
         )
         state.layout.wires.append(foreign_wire)
         # J1 moves.
         j1_new_pl = ComponentPlacement(
-            component_id=j1.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=j1.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[j1.id] = j1_new_pl
 
         _update_wires_for_move(
-            state, j1.id, j1_old_pl, j1_new_pl, frozenset(),
+            state,
+            j1.id,
+            j1_old_pl,
+            j1_new_pl,
+            frozenset(),
         )
 
         # Foreign wire path unchanged — (2.5, 2.5) endpoint stays put.
@@ -162,24 +181,33 @@ class TestForeignWireNotDraggedByMove:
         foreign_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 2.5), Point(2.5, 2.5), Point(3.5, 2.5)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         state.layout.wires.append(foreign_wire)
         j1_new_pl = ComponentPlacement(
-            component_id=j1.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=j1.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[j1.id] = j1_new_pl
 
         _update_wires_for_move(
-            state, j1.id, j1_old_pl, j1_new_pl, frozenset(),
+            state,
+            j1.id,
+            j1_old_pl,
+            j1_new_pl,
+            frozenset(),
         )
 
         # Path unchanged — even though path[1] == old_pin, the wire's
         # endpoints (path[0], path[-1]) don't coincide with it, so the
         # weak-fallback anchor check returns False.
         assert [(p.x, p.y) for p in foreign_wire.path] == [
-            (1.5, 2.5), (2.5, 2.5), (3.5, 2.5)
+            (1.5, 2.5),
+            (2.5, 2.5),
+            (3.5, 2.5),
         ]
 
     def test_own_wire_with_pinknot_anchor_does_translate(self) -> None:
@@ -195,18 +223,25 @@ class TestForeignWireNotDraggedByMove:
         own_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(2.5, 2.5), Point(4.5, 4.5)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
             a=KnotRef(id=pinknot.id),
         )
         state.layout.wires.append(own_wire)
         j1_new_pl = ComponentPlacement(
-            component_id=j1.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=j1.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[j1.id] = j1_new_pl
 
         _update_wires_for_move(
-            state, j1.id, j1_old_pl, j1_new_pl, frozenset(),
+            state,
+            j1.id,
+            j1_old_pl,
+            j1_new_pl,
+            frozenset(),
         )
 
         # Wire endpoint followed the pin from (2.5,2.5) to (0.5,0.5).
@@ -221,18 +256,25 @@ class TestForeignWireNotDraggedByMove:
         orphan_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(2.5, 2.5), Point(4.5, 4.5)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
             # no a/b refs
         )
         state.layout.wires.append(orphan_wire)
         j1_new_pl = ComponentPlacement(
-            component_id=j1.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=j1.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         state.layout.placements[j1.id] = j1_new_pl
 
         _update_wires_for_move(
-            state, j1.id, j1_old_pl, j1_new_pl, frozenset(),
+            state,
+            j1.id,
+            j1_old_pl,
+            j1_new_pl,
+            frozenset(),
         )
 
         assert orphan_wire.path[0] == Point(0.5, 0.5)

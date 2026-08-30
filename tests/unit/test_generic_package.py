@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""The synthetic generic-package invariant.
-
-The loader injects a rigid generic bbox package (tagged ``kind="_generic"``)
-for any library part that declares no real package, so ``defn.package`` is always
-set. The fallback preserves pin geometry but does not invent package mechanics.
-"""
+"""The synthetic generic-package invariant."""
 
 from __future__ import annotations
 
@@ -21,6 +16,12 @@ from protoboard.services.library.loader import load_library
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
+
+
+def _loaded_library():  # type: ignore[no-untyped-def]
+    families = load_full_package_catalogue()
+    lib = load_library([BUILTIN_LIBRARY_DIR], families)
+    return lib, {**families, **lib.package_families}
 
 
 class TestSynthGenericPackage:
@@ -51,30 +52,34 @@ class TestSynthGenericPackage:
         # A real catalogue body (SMD-0805) must NOT be flagged generic.
         from protoboard.domain.components.package.family import resolve_variant
 
-        var = resolve_variant(families, "SMD-0805/typ")
+        var = resolve_variant(families, "chip-smd/imperial/0805")
         assert var is not None
         assert not is_generic_package(var.package)
 
 
 class TestPackageInvariant:
     def test_every_library_part_has_a_package(self) -> None:
-        families = load_full_package_catalogue()
-        lib = load_library([BUILTIN_LIBRARY_DIR], families)
-        missing = [n for n in lib.names() if lib.get(n).package is None]
-        assert missing == []
+        from protoboard.domain.components.package import resolve_component_package
+
+        lib, families = _loaded_library()
+        assert all(
+            resolve_component_package(lib.get(name), None, families) is not None
+            for name in lib.names()
+        )
 
     def test_family_ref_part_defaults_to_its_variant(self) -> None:
-        families = load_full_package_catalogue()
-        lib = load_library([BUILTIN_LIBRARY_DIR], families)
+        from protoboard.domain.components.package import resolve_component_package
+
+        lib, families = _loaded_library()
         # A diode declares only a package reference — since the 'footprint:'
         # field removal, the referenced variant IS its default geometry
         # (a real bendable axial body, not the synthetic generic).
         from protoboard.domain.components.package import is_rigid_package
 
         diode = lib.get("1N4148")
-        assert diode.package is not None
-        assert not is_generic_package(diode.package)
-        assert not is_rigid_package(diode.package)
+        package = resolve_component_package(diode, None, families)
+        assert not is_generic_package(package)
+        assert not is_rigid_package(package)
 
 
 class TestBendSpecParityFrozen:
@@ -82,29 +87,36 @@ class TestBendSpecParityFrozen:
     ``bendable_pins`` — the invariant must not regress bendability (the same
     class of bug the SMD bend-spec fix addressed)."""
 
-    def _lib(self):  # type: ignore[no-untyped-def]
-        families = load_full_package_catalogue()
-        return load_library([BUILTIN_LIBRARY_DIR], families)
-
     def test_diode_bend_comes_from_its_axial_package(self) -> None:
         # The diode's default is the real DO-35 axial body now (like R): the
         # lead reach comes from that package, both leads bend.
-        defn = self._lib().get("1N4148")
-        assert not is_generic_package(defn.package)
-        specs = effective_bend_specs(defn)
+        from protoboard.domain.components.package import resolve_component_package
+
+        lib, families = _loaded_library()
+        defn = lib.get("1N4148")
+        assert not is_generic_package(resolve_component_package(defn, None, families))
+        specs = effective_bend_specs(defn, families=families)
         assert set(specs) == {1, 2}
 
     def test_generic_resistor_uses_package_bend_specs(self) -> None:
         # R's default is now the real DIN-0207 axial body (the dead
         # ``footprint: TwoPin`` neutral default was dropped), so its lead reach
         # comes from that package geometry, not its empty explicit map.
-        defn = self._lib().get("R")
-        assert not is_generic_package(defn.package)
-        specs = effective_bend_specs(defn)
+        from protoboard.domain.components.package import resolve_component_package
+
+        lib, families = _loaded_library()
+        defn = lib.get("R")
+        package = resolve_component_package(defn, None, families)
+        assert not is_generic_package(package)
+        specs = effective_bend_specs(defn, families=families)
         # Both leads bend, with the package-derived reach (not the YAML ring).
         assert set(specs) == {1, 2}
-        assert specs != defn.package.bendable_pins
+        assert specs != package.bendable_pins
 
     def test_crystal_with_no_bend_stays_empty(self) -> None:
-        defn = self._lib().get("OSC_1MHz")
-        assert effective_bend_specs(defn) == defn.package.bendable_pins
+        from protoboard.domain.components.package import resolve_component_package
+
+        lib, families = _loaded_library()
+        defn = lib.get("OSC_1MHz")
+        package = resolve_component_package(defn, None, families)
+        assert effective_bend_specs(defn, families=families) == package.bendable_pins

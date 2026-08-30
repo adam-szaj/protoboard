@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 
+from protoboard.controller.editing.item_handle import ItemId
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
@@ -20,7 +21,6 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool
-from protoboard.controller.editing.item_handle import ItemId
 
 
 def _activate_select(board_view: BoardView) -> SelectTool:
@@ -34,11 +34,16 @@ def _activate_select(board_view: BoardView) -> SelectTool:
 def _place(session: EditorSession, x: float, y: float, refdes: str) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -47,14 +52,16 @@ def _place(session: EditorSession, x: float, y: float, refdes: str) -> uuid.UUID
 def _make_group(session: EditorSession, member_ids: list[uuid.UUID]) -> uuid.UUID:
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G1",
+        id=grp_id,
+        name="G1",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,

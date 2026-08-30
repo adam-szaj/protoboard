@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 
     from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-    from protoboard.geometry import Point
     from protoboard.controller.theme import Theme
+    from protoboard.geometry import Point
 
 _PREVIEW_WIDTH = 0.12
 

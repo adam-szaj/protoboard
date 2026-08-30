@@ -5,6 +5,9 @@ Pure Python + ``protoboard.geometry`` imports only — the same mechanical
 rule that protects ``domain/`` protects this package.
 """
 
+from protoboard.controller.ports.executor import BlockingJob, ExecutorPort
+from protoboard.controller.ports.help_overlay import HelpOverlayPort
+from protoboard.controller.ports.hover import HoverEvent
 from protoboard.controller.ports.inputs import (
     LEFT_BUTTON,
     MIDDLE_BUTTON,
@@ -15,9 +18,6 @@ from protoboard.controller.ports.inputs import (
     PointerInput,
     WheelInput,
 )
-from protoboard.controller.ports.executor import BlockingJob, ExecutorPort
-from protoboard.controller.ports.help_overlay import HelpOverlayPort
-from protoboard.controller.ports.hover import HoverEvent
 from protoboard.controller.ports.interaction_context import (
     ActionOption,
     InteractionContext,

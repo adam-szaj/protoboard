@@ -20,8 +20,9 @@ not crash the app.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from protoboard.services.routing.autorouter import AutorouteResult
@@ -49,8 +50,8 @@ class RouterCapabilities:
 
 # Progress callback signatures match the legacy AutorouteWorker contract so
 # the worker can wire signals directly without adapter glue.
-ProgressFn = Callable[[int, str, int], None]            # pass_num, net_name, pct
-OptimizeProgressFn = Callable[[int, int], None]         # done, total
+ProgressFn = Callable[[int, str, int], None]  # pass_num, net_name, pct
+OptimizeProgressFn = Callable[[int, int], None]  # done, total
 # Per-iteration progress for the iterative simplify-all post-pass.
 # Signature: (iter_num, max_iter, n_wires_simplified_this_iter).
 # When n_wires_simplified_this_iter == 0 the loop has converged and will
@@ -93,14 +94,14 @@ class Router(Protocol):
       progress bar moves.
     """
 
-    name: str          # registry key — must be unique
+    name: str  # registry key — must be unique
     display_name: str  # human-readable, shown in UI
 
     def route(
         self,
-        request: "RouteRequest",
+        request: RouteRequest,
         sink: ProgressSink,
-    ) -> "AutorouteResult": ...
+    ) -> AutorouteResult: ...
 
     def capabilities(self) -> RouterCapabilities: ...
 
@@ -143,6 +144,7 @@ class Router(Protocol):
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _Registry:

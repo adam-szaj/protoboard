@@ -65,7 +65,11 @@ def _empty_schematic() -> Schematic:
 
 def _new_index() -> PadIndex:
     return PadIndex(
-        _perfboard(5, 5), _empty_layout(), _empty_schematic(), {}, {},
+        _perfboard(5, 5),
+        _empty_layout(),
+        _empty_schematic(),
+        {},
+        {},
     )
 
 
@@ -99,8 +103,12 @@ class TestSoftInsulatedCrossingShift:
         candidate = [Point(0.5, 2.5), Point(1.5, 2.5), Point(4.5, 2.5)]
         # Both have exactly 1 soft contact with foreign insulated — accept.
         assert _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_growing_soft_count_rejected(self) -> None:
@@ -114,17 +122,27 @@ class TestSoftInsulatedCrossingShift:
             pad = idx.pad_at(pos)
             assert pad is not None
             pad._add_item(
-                InsulatedWireCrossing(id=uuid.uuid4(), net=their_net), "top",
+                InsulatedWireCrossing(id=uuid.uuid4(), net=their_net),
+                "top",
             )
         # Original ortho path: only (2.5, 2.5) touches a foreign pad.
         # Use pure-ortho moves to avoid mid-segment ambiguity.
         original = [Point(2.5, 0.5), Point(2.5, 2.5), Point(2.5, 4.5)]
         # Candidate path runs along y=2.5: hits all three foreign pads.
-        candidate = [Point(0.5, 2.5), Point(1.5, 2.5), Point(2.5, 2.5),
-                     Point(3.5, 2.5), Point(4.5, 2.5)]
+        candidate = [
+            Point(0.5, 2.5),
+            Point(1.5, 2.5),
+            Point(2.5, 2.5),
+            Point(3.5, 2.5),
+            Point(4.5, 2.5),
+        ]
         assert not _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_zero_baseline_one_candidate_rejected(self) -> None:
@@ -136,15 +154,20 @@ class TestSoftInsulatedCrossingShift:
         pad_b = idx.pad_at(Point(2.5, 2.5))
         assert pad_b is not None
         pad_b._add_item(
-            InsulatedWireCrossing(id=uuid.uuid4(), net=their_net), "top",
+            InsulatedWireCrossing(id=uuid.uuid4(), net=their_net),
+            "top",
         )
         # Original does NOT touch (2.5, 2.5).
         original = [Point(0.5, 0.5), Point(4.5, 0.5)]
         # Candidate WOULD touch (2.5, 2.5) — first new contact → reject.
         candidate = [Point(0.5, 0.5), Point(2.5, 2.5), Point(4.5, 0.5)]
         assert not _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_same_net_insulated_pad_is_not_counted(self) -> None:
@@ -156,14 +179,19 @@ class TestSoftInsulatedCrossingShift:
         pad_b = idx.pad_at(Point(2.5, 2.5))
         assert pad_b is not None
         pad_b._add_item(
-            InsulatedWireCrossing(id=uuid.uuid4(), net=our_net), "top",
+            InsulatedWireCrossing(id=uuid.uuid4(), net=our_net),
+            "top",
         )
         original = [Point(0.5, 0.5), Point(4.5, 0.5)]
         candidate = [Point(0.5, 0.5), Point(2.5, 2.5), Point(4.5, 0.5)]
         # Same-net — not a foreign contact → accept.
         assert _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_opposite_side_alien_insulated_does_not_block(self) -> None:
@@ -175,14 +203,19 @@ class TestSoftInsulatedCrossingShift:
         pad_b = idx.pad_at(Point(2.5, 2.5))
         assert pad_b is not None
         pad_b._add_item(
-            InsulatedWireCrossing(id=uuid.uuid4(), net=their_net), "bottom",
+            InsulatedWireCrossing(id=uuid.uuid4(), net=their_net),
+            "bottom",
         )
         original = [Point(0.5, 0.5), Point(4.5, 0.5)]
         candidate = [Point(0.5, 0.5), Point(2.5, 2.5), Point(4.5, 0.5)]
         # Top wire over bottom-side foreign insulated — irrelevant.
         assert _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
 
@@ -197,13 +230,18 @@ class TestHardContactsAbsoluteReject:
         pad = idx.pad_at(Point(2.5, 2.5))
         assert pad is not None
         pad._add_item(
-            PinItem(id=uuid.uuid4(), pin_number=1, net=their_net), "top",
+            PinItem(id=uuid.uuid4(), pin_number=1, net=their_net),
+            "top",
         )
         original = [Point(0.5, 0.5), Point(4.5, 0.5)]
         candidate = [Point(0.5, 0.5), Point(2.5, 2.5), Point(4.5, 0.5)]
         assert not _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_hard_component_body_on_candidate_rejects(self) -> None:
@@ -213,13 +251,18 @@ class TestHardContactsAbsoluteReject:
         assert pad is not None
         # SMD-like body that physically blocks routing.
         pad._add_item(
-            ComponentBody(id=uuid.uuid4(), blocks_routing=True), "top",
+            ComponentBody(id=uuid.uuid4(), blocks_routing=True),
+            "top",
         )
         original = [Point(0.5, 0.5), Point(4.5, 0.5)]
         candidate = [Point(0.5, 0.5), Point(2.5, 2.5), Point(4.5, 0.5)]
         assert not _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_non_blocking_component_body_does_not_reject(self) -> None:
@@ -230,13 +273,18 @@ class TestHardContactsAbsoluteReject:
         pad = idx.pad_at(Point(2.5, 2.5))
         assert pad is not None
         pad._add_item(
-            ComponentBody(id=uuid.uuid4(), blocks_routing=False), "top",
+            ComponentBody(id=uuid.uuid4(), blocks_routing=False),
+            "top",
         )
         original = [Point(0.5, 0.5), Point(4.5, 0.5)]
         candidate = [Point(0.5, 0.5), Point(2.5, 2.5), Point(4.5, 0.5)]
         assert _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )
 
     def test_alien_insulated_endpoint_counted_as_soft(self) -> None:
@@ -250,13 +298,15 @@ class TestHardContactsAbsoluteReject:
         pad_a = idx.pad_at(Point(2.5, 0.5))
         assert pad_a is not None
         pad_a._add_item(
-            InsulatedWireItem(id=uuid.uuid4(), net=their_net), "top",
+            InsulatedWireItem(id=uuid.uuid4(), net=their_net),
+            "top",
         )
         # Foreign mid-vertex on (2.5, 4.5).
         pad_b = idx.pad_at(Point(2.5, 4.5))
         assert pad_b is not None
         pad_b._add_item(
-            InsulatedWireCrossing(id=uuid.uuid4(), net=their_net), "top",
+            InsulatedWireCrossing(id=uuid.uuid4(), net=their_net),
+            "top",
         )
         # Original passes through the endpoint pad — 1 soft contact.
         # Layout: pin1(0.5,2.5) → (2.5, 0.5) → pin2(4.5,2.5).  Diagonal
@@ -265,6 +315,10 @@ class TestHardContactsAbsoluteReject:
         # Candidate shifts to the mid-vertex pad — also 1 soft contact.
         candidate = [Point(0.5, 2.5), Point(2.5, 4.5), Point(4.5, 2.5)]
         assert _candidate_no_new_pin_contact(
-            candidate, original, idx,
-            wire_side="top", wire_net_id=our_net, wire_is_insulated=True,
+            candidate,
+            original,
+            idx,
+            wire_side="top",
+            wire_net_id=our_net,
+            wire_is_insulated=True,
         )

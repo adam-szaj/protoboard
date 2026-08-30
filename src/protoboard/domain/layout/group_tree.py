@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.placement import (
-        ComponentPlacement,
         PlacementMap,
     )
     from protoboard.domain.schematic.schematic import Schematic
@@ -62,9 +61,7 @@ class GroupTree:
             result |= self._all_component_ids(child_id, visited)
         return frozenset(result)
 
-    def top_level_group_for(
-        self, component_id: uuid.UUID
-    ) -> uuid.UUID | None:
+    def top_level_group_for(self, component_id: uuid.UUID) -> uuid.UUID | None:
         """Top-level group that directly/indirectly contains *component_id*,
         or None if it is in no group."""
         parent: dict[uuid.UUID, uuid.UUID] = {}
@@ -107,17 +104,14 @@ class GroupTree:
                 return gid
         return None
 
-    def groups_containing_component(
-        self, component_id: uuid.UUID
-    ) -> set[uuid.UUID]:
+    def groups_containing_component(self, component_id: uuid.UUID) -> set[uuid.UUID]:
         """Every group id whose *recursive* component set contains *component_id*.
 
         Direct-member match plus the parent chain up to the root. Used to
         recompute the origin of every affected group when a member moves.
         """
         direct: set[uuid.UUID] = {
-            gid for gid, g in self._groups.items()
-            if component_id in g.component_ids
+            gid for gid, g in self._groups.items() if component_id in g.component_ids
         }
         parent_map: dict[uuid.UUID, uuid.UUID] = {}
         for gid, g in self._groups.items():
@@ -199,9 +193,7 @@ class GroupTree:
                 world = world.compose(grp.transform)
         return world
 
-    def would_create_cycle(
-        self, parent_id: uuid.UUID, child_id: uuid.UUID
-    ) -> bool:
+    def would_create_cycle(self, parent_id: uuid.UUID, child_id: uuid.UUID) -> bool:
         """True if adding *child_id* under *parent_id* would create a cycle."""
         if parent_id == child_id:
             return True
@@ -273,9 +265,7 @@ class GroupTree:
             surface |= child.exported_pins
         return frozenset(surface)
 
-    def validate_exported_pins(
-        self, group_id: uuid.UUID
-    ) -> frozenset[PinRef]:
+    def validate_exported_pins(self, group_id: uuid.UUID) -> frozenset[PinRef]:
         """Subset of ``G.exported_pins`` that violates encapsulation (component
         neither a direct member of G nor re-exported by a direct child)."""
         group = self._groups.get(group_id)
@@ -321,14 +311,10 @@ class GroupTree:
         for net in schematic.nets.values():
             if not net.pins:
                 continue
-            has_inside = any(
-                p.component_id in recursive_members for p in net.pins
-            )
+            has_inside = any(p.component_id in recursive_members for p in net.pins)
             if not has_inside:
                 continue
-            has_outside = any(
-                p.component_id not in recursive_members for p in net.pins
-            )
+            has_outside = any(p.component_id not in recursive_members for p in net.pins)
             if not (has_outside or net.global_net):
                 continue
             for p in net.pins:
@@ -379,9 +365,7 @@ class GroupTree:
 
         projected_nets: dict[uuid.UUID, Net] = {}
         for net in schematic.nets.values():
-            internal_pins = {
-                p for p in net.pins if p.component_id in component_ids
-            }
+            internal_pins = {p for p in net.pins if p.component_id in component_ids}
             if len(internal_pins) < 2:
                 continue
             projected_nets[net.id] = Net(
@@ -418,9 +402,7 @@ class GroupTree:
         for cid in component_ids:
             pl = placements.get(cid)
             inst = instances.get(cid) if pl is not None else None
-            defn = (
-                definitions.get(inst.definition_ref) if inst is not None else None
-            )
+            defn = definitions.get(inst.definition_ref) if inst is not None else None
             if not isinstance(pl, ComponentPlacement) or not isinstance(
                 defn, ComponentDefinition
             ):
@@ -461,9 +443,7 @@ class GroupTree:
         for cid in component_ids:
             pl = placements.get(cid)
             inst = instances.get(cid) if pl is not None else None
-            defn = (
-                definitions.get(inst.definition_ref) if inst is not None else None
-            )
+            defn = definitions.get(inst.definition_ref) if inst is not None else None
             if not isinstance(pl, ComponentPlacement) or not isinstance(
                 defn, ComponentDefinition
             ):

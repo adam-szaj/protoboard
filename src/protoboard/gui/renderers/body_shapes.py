@@ -61,7 +61,7 @@ def _active_option_style(
     """The ``style:`` of the footprint option the placed part uses, or None.
 
     With an explicit ``instance.package_variant`` the option is matched by
-    catalogue address. Without one, the first ``footprints:`` entry is the
+    catalogue address. Without one, the first package option is the
     part's default geometry source, so its style applies.
     """
     if not defn.package_options:
@@ -78,6 +78,7 @@ def _active_option_style(
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
+
 
 def body_shape_for(
     defn: ComponentDefinition,
@@ -115,12 +116,17 @@ def body_shape_for(
     # Polarity / anchor come from the class and placement, not the
     # (class-agnostic) package.
     from protoboard.domain.components.package import resolve_component_package
+
     pkg = resolve_component_package(defn, instance, package_families or {})
     if pkg is not None:
         return PackageBody(
-            pkg, component_class=cls, vertical_flipped=vf,
-            appearance=eff_appearance, side=side,
-            placement=placement, instance=instance,
+            pkg,
+            component_class=cls,
+            vertical_flipped=vf,
+            appearance=eff_appearance,
+            side=side,
+            placement=placement,
+            instance=instance,
         )
 
     # No explicit package resolved: a footprint is only a pin cloud (pin count

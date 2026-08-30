@@ -49,9 +49,7 @@ class TestTransformBridge:
         cases = [
             Transform2D.rotation(1),
             Transform2D.reflection(),
-            Transform2D.rotation(3).compose(
-                Transform2D.translation(Vector(2.0, -1.0))
-            ),
+            Transform2D.rotation(3).compose(Transform2D.translation(Vector(2.0, -1.0))),
             Transform2D(2.0, 0.5, -0.25, 1.5, 3.0, 4.0),
         ]
         points = [Point(0.0, 0.0), Point(1.0, 0.0), Point(-2.5, 3.75)]

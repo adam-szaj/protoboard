@@ -24,7 +24,7 @@ toolbar means:
 1. Add the literal to ``ToolbarGroup`` in ``actions.py``.
 2. Add an entry (possibly empty) to ``default_toolbars.yaml``.
 3. The builder picks it up automatically.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
@@ -89,19 +89,25 @@ def load_toolbar_config(
             raw = loaded
             source = str(default_path)
     if raw is None:
-        _log.warning("toolbar_config.no_source", user=str(user_path), default=str(default_path))
+        _log.warning(
+            "toolbar_config.no_source", user=str(user_path), default=str(default_path)
+        )
         return {}
 
     cleaned: dict[ToolbarGroup, list[str]] = {}
     for group_str, items in raw.items():
         if group_str not in KNOWN_GROUPS:
             _log.warning(
-                "toolbar_config.unknown_group", group=group_str, source=source,
+                "toolbar_config.unknown_group",
+                group=group_str,
+                source=source,
             )
             continue
         if not isinstance(items, list):
             _log.warning(
-                "toolbar_config.non_list_value", group=group_str, source=source,
+                "toolbar_config.non_list_value",
+                group=group_str,
+                source=source,
             )
             continue
         action_ids: list[str] = []
@@ -111,7 +117,9 @@ def load_toolbar_config(
             else:
                 _log.warning(
                     "toolbar_config.non_string_action",
-                    group=group_str, entry=repr(entry), source=source,
+                    group=group_str,
+                    entry=repr(entry),
+                    source=source,
                 )
         cleaned[cast(ToolbarGroup, group_str)] = action_ids
     return cleaned
@@ -121,6 +129,7 @@ def _read_yaml(path: Path) -> dict[str, list[str]] | None:
     """Defensive YAML reader.  Returns ``None`` on any failure."""
     try:
         from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
+
         yaml = YAML(typ="safe")
         data = yaml.load(path)
         if not isinstance(data, dict):
@@ -153,6 +162,7 @@ def save_toolbar_config(
         user_path = TOOLBARS_FILE
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
+
     yaml = YAML()
     yaml.default_flow_style = False
 

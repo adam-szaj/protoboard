@@ -42,7 +42,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 
 from protoboard.errors import ProtoboardError
-from protoboard.services.call_counters import disable
 from protoboard.services.debug_trace import traced
 
 __all__ = [
@@ -138,8 +137,9 @@ def _chord(atom: str, modifiers: Qt.KeyboardModifier) -> str:
     return "+".join(parts)
 
 
-def mouse_button_chord(button: Qt.MouseButton,
-                       modifiers: Qt.KeyboardModifier) -> str | None:
+def mouse_button_chord(
+    button: Qt.MouseButton, modifiers: Qt.KeyboardModifier
+) -> str | None:
     """The canonical chord of a button press, or None for unbindable buttons."""
     atom = {
         Qt.MouseButton.LeftButton: "LMB",
@@ -149,8 +149,7 @@ def mouse_button_chord(button: Qt.MouseButton,
     return _chord(atom, modifiers) if atom else None
 
 
-def wheel_chord(angle_delta_y: int,
-                modifiers: Qt.KeyboardModifier) -> str | None:
+def wheel_chord(angle_delta_y: int, modifiers: Qt.KeyboardModifier) -> str | None:
     """The canonical chord of a wheel tick (None for a pure horizontal one)."""
     if angle_delta_y == 0:
         return None
@@ -193,13 +192,17 @@ class KeyAction:
         return self.shortcuts
 
     def __json_repr__(self) -> dict:
-        return {'id': self.id, 'shortcuts': self.shortcuts, 'display': self.display, 'final': self.final}
+        return {
+            "id": self.id,
+            "shortcuts": self.shortcuts,
+            "display": self.display,
+            "final": self.final,
+        }
 
     def clone(self) -> KeyAction:
-        return KeyAction(id=self.id,
-                         shortcuts=self.shortcuts,
-                         display=self.display,
-                         final=self.final)
+        return KeyAction(
+            id=self.id, shortcuts=self.shortcuts, display=self.display, final=self.final
+        )
 
     @property
     @traced()
@@ -217,9 +220,7 @@ GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
     # (see TestDynamicRebind) — tools inherit whatever the user picks.
     KeyAction(_global_id("delete"), ["Del"], "Delete"),
     KeyAction(_global_id("cancel"), ["Esc"], "Cancel", final=True),
-    KeyAction(_global_id("confirm"), ["Return", "Space"],
-              "Confirm",
-              final=True),
+    KeyAction(_global_id("confirm"), ["Return", "Space"], "Confirm", final=True),
     KeyAction(_global_id("edit"), ["E"], "Edit"),
     # Generic transform ops shared by Select / Place (defaults match the legacy
     # flat table so behaviour is identical until the Stage-2 migration).
@@ -227,13 +228,9 @@ GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
     KeyAction(_global_id("rotate_ccw"), ["Shift+R"], "Rotate CCW"),
     KeyAction(_global_id("flip"), ["Alt+R"], "Flip"),
     KeyAction(_global_id("redrag"), ["Ctrl+R"], "Re-drag Pins"),
-    KeyAction(_global_id("show_shortcuts"), ["?"],
-              "Show Shortcuts",
-              final=True),
+    KeyAction(_global_id("show_shortcuts"), ["?"], "Show Shortcuts", final=True),
     # Example of a protected shortcut a tool may not re-purpose.
-    KeyAction("session.action.save_as", ["Ctrl+Shift+S"],
-              "Save As",
-              final=True),
+    KeyAction("session.action.save_as", ["Ctrl+Shift+S"], "Save As", final=True),
 )
 
 
@@ -253,8 +250,7 @@ VIEW_ACTIONS: tuple[KeyAction, ...] = (
 # Event → QKeySequence matcher
 # ---------------------------------------------------------------------------
 @traced()
-def event_to_sequence(key: int,
-                      modifiers: int | Qt.KeyboardModifier) -> QKeySequence:
+def event_to_sequence(key: int, modifiers: int | Qt.KeyboardModifier) -> QKeySequence:
     """Build the :class:`QKeySequence` a key press represents.
 
     ``QKeySequence(int(modifiers) | int(key))`` is the canonical construction;
@@ -304,58 +300,47 @@ class AbstractKeyMap(ABC):
         ...
 
     @abstractmethod
-    def register_tool_actions(
-            self, actions: dict[str, str | None]) -> None:
-        ...
+    def register_tool_actions(self, actions: dict[str, str | None]) -> None: ...
 
     @abstractmethod
-    def resolve(self, action_id: str) -> str:
-        ...
+    def resolve(self, action_id: str) -> str: ...
 
     @abstractmethod
-    def resolve_action(self, action_id: str) -> KeyAction | None:
-        ...
+    def resolve_action(self, action_id: str) -> KeyAction | None: ...
 
     @abstractmethod
-    def display_of(self, action_id: str) -> str:
-        ...
+    def display_of(self, action_id: str) -> str: ...
 
     @abstractmethod
-    def is_final(self, action_id: str) -> bool:
-        ...
+    def is_final(self, action_id: str) -> bool: ...
 
     @abstractmethod
-    def matches(self, key: int, modifiers: int | Qt.KeyboardModifier,
-                action_id: str) -> bool:
-        ...
+    def matches(
+        self, key: int, modifiers: int | Qt.KeyboardModifier, action_id: str
+    ) -> bool: ...
 
     @abstractmethod
-    def set_override(self, action_id: str,
-                     shortcuts: list[str] | str) -> KeyAction | None:
-        ...
+    def set_override(
+        self, action_id: str, shortcuts: list[str] | str
+    ) -> KeyAction | None: ...
 
     @abstractmethod
-    def known_actions(self) -> tuple[KeyAction, ...]:
-        ...
+    def known_actions(self) -> tuple[KeyAction, ...]: ...
 
     @abstractmethod
     def __json_repr__(self) -> dict[str, dict]: ...
 
     @abstractmethod
-    def actions_in(self, category: str) -> tuple[KeyAction, ...]:
-        ...
+    def actions_in(self, category: str) -> tuple[KeyAction, ...]: ...
 
     @abstractmethod
-    def load_defaults(self) -> None:
-        ...
+    def load_defaults(self) -> None: ...
 
     @abstractmethod
-    def load_overrides(self) -> None:
-        ...
+    def load_overrides(self) -> None: ...
 
     @abstractmethod
-    def save_overrides(self) -> None:
-        ...
+    def save_overrides(self) -> None: ...
 
 
 @dataclass
@@ -425,11 +410,12 @@ class KeyMap(AbstractKeyMap):
                 if owner is not None and owner != action_id:
                     raise FinalShortcutError(
                         f"{action_id!r} cannot bind {shortcut!r}: reserved by "
-                        f"final action {owner!r}")
+                        f"final action {owner!r}"
+                    )
             display = self._inherited_display(action_id)
-            self._actions[action_id] = KeyAction(id=action_id,
-                                                 shortcuts=shortcut,
-                                                 display=display)
+            self._actions[action_id] = KeyAction(
+                id=action_id, shortcuts=shortcut, display=display
+            )
 
     @traced()
     def _final_shortcut_owner(self, alternatives: set[str]) -> str | None:
@@ -477,11 +463,11 @@ class KeyMap(AbstractKeyMap):
             # with additional triggers (union, parent first) — the protected
             # base trigger can never be shadowed away, only added to.
             parent = self._parent
-            if parent is not None and not action.final \
-                    and parent.is_final(action_id):
+            if parent is not None and not action.final and parent.is_final(action_id):
                 base = parent.resolve(action_id)
-                extra = [a for a in text.split("|")
-                         if a and a not in _alternatives(base)]
+                extra = [
+                    a for a in text.split("|") if a and a not in _alternatives(base)
+                ]
                 return "|".join([base, *extra]) if base else text
             return text
         gid = _global_id(name_of(action_id))
@@ -514,8 +500,9 @@ class KeyMap(AbstractKeyMap):
         return []
 
     @traced()
-    def matches(self, key: int, modifiers: int | Qt.KeyboardModifier,
-                action_id: str) -> bool:
+    def matches(
+        self, key: int, modifiers: int | Qt.KeyboardModifier, action_id: str
+    ) -> bool:
         """True when a key press equals *action_id*'s resolved shortcut.
 
         A shifted *symbol* (``?``, ``:``, ``+`` …) reaches us as its
@@ -535,12 +522,15 @@ class KeyMap(AbstractKeyMap):
         # Mouse chords in the list belong to :meth:`mouse_matches` — skipped.
         return any(
             self._seq_matches(key, modifiers, alt)
-            for alt in shortcut.split("|") if alt and not is_mouse_trigger(alt))
+            for alt in shortcut.split("|")
+            if alt and not is_mouse_trigger(alt)
+        )
 
     @staticmethod
     @traced()
-    def _seq_matches(key: int, modifiers: int | Qt.KeyboardModifier,
-                     shortcut: str) -> bool:
+    def _seq_matches(
+        key: int, modifiers: int | Qt.KeyboardModifier, shortcut: str
+    ) -> bool:
         """True when a key press equals one (single, non-``|``) shortcut string.
 
         A shifted *symbol* (``?``, ``:``, ``+`` …) reaches us as its
@@ -552,13 +542,17 @@ class KeyMap(AbstractKeyMap):
         symbol keycode* — for a letter/digit, Shift is a deliberate, additive
         modifier, so ``Shift+R`` must stay distinct from ``R``.
         """
-        mods = (Qt.KeyboardModifier(modifiers)
-                if isinstance(modifiers, int) else modifiers)
+        mods = (
+            Qt.KeyboardModifier(modifiers) if isinstance(modifiers, int) else modifiers
+        )
         target = QKeySequence(shortcut)
         if event_to_sequence(key, mods) == target:
             return True
-        if (mods & Qt.KeyboardModifier.ShiftModifier
-                and _is_symbol_key(key) and not _has_shift(target)):
+        if (
+            mods & Qt.KeyboardModifier.ShiftModifier
+            and _is_symbol_key(key)
+            and not _has_shift(target)
+        ):
             without_shift = mods & ~Qt.KeyboardModifier.ShiftModifier
             if event_to_sequence(key, without_shift) == target:
                 return True
@@ -568,8 +562,9 @@ class KeyMap(AbstractKeyMap):
 
     @traced()
     @override
-    def set_override(self, action_id: str,
-                     shortcuts: list[str] | str) -> KeyAction | None:
+    def set_override(
+        self, action_id: str, shortcuts: list[str] | str
+    ) -> KeyAction | None:
         """Set a user override for *action_id* (does not persist by itself).
 
         The override sticks even when the action is not registered yet (a
@@ -581,13 +576,13 @@ class KeyMap(AbstractKeyMap):
         :class:`FinalShortcutError`.
         """
         if self.is_final(action_id):
-            raise FinalShortcutError(
-                f"{action_id!r} is final and cannot be rebound")
+            raise FinalShortcutError(f"{action_id!r} is final and cannot be rebound")
         owner = self._final_shortcut_owner(_alternatives(shortcuts))
         if owner is not None:
             raise FinalShortcutError(
                 f"{action_id!r} cannot bind {_shortcut_text(shortcuts)!r}: "
-                f"reserved by final action {owner!r}")
+                f"reserved by final action {owner!r}"
+            )
         self._overrides[action_id] = _shortcut_text(shortcuts) or ""
         return self.resolve_action(action_id)
 
@@ -602,8 +597,7 @@ class KeyMap(AbstractKeyMap):
             self._actions[action.id] = action.clone()
 
     @traced()
-    def lookup(self, key: int, modifiers: Qt.KeyboardModifier
-               ) -> tuple[str, ...]:
+    def lookup(self, key: int, modifiers: Qt.KeyboardModifier) -> tuple[str, ...]:
         """Action ids whose *resolved* triggers match the key press.
 
         The reverse of :meth:`matches`: walks the chain leaf-first (declaration
@@ -612,8 +606,7 @@ class KeyMap(AbstractKeyMap):
         actions may share a trigger (e.g. an armed step and a tool op); the
         caller's state gates pick the live one.
         """
-        return self._lookup(
-            lambda action_id: self.matches(key, modifiers, action_id))
+        return self._lookup(lambda action_id: self.matches(key, modifiers, action_id))
 
     @traced()
     def mouse_matches(self, chord: str, action_id: str) -> bool:
@@ -627,8 +620,7 @@ class KeyMap(AbstractKeyMap):
     @traced()
     def mouse_lookup(self, chord: str) -> tuple[str, ...]:
         """Action ids bound to the mouse *chord*, leaf-first (shadowing order)."""
-        return self._lookup(
-            lambda action_id: self.mouse_matches(chord, action_id))
+        return self._lookup(lambda action_id: self.mouse_matches(chord, action_id))
 
     def _lookup(self, pred: Callable[[str], bool]) -> tuple[str, ...]:
         seen: set[str] = set()
@@ -652,8 +644,7 @@ class KeyMap(AbstractKeyMap):
     @traced()
     def actions_in(self, category: str) -> tuple[KeyAction, ...]:
         """Every declared action in *category* (text before the first dot)."""
-        return tuple(a for a in self._actions.values()
-                     if a.category == category)
+        return tuple(a for a in self._actions.values() if a.category == category)
 
     @traced()
     def display_of(self, action_id: str) -> str:
@@ -679,7 +670,10 @@ class KeyMap(AbstractKeyMap):
         (:meth:`load_overrides`, loaded after this) still wins either way.
         Missing file / missing section / corrupt file are no-ops.
         """
-        from protoboard.paths import BUILTIN_DEFAULT_KEYBINDINGS_FILE, KEYBINDINGS_V2_FILE
+        from protoboard.paths import (
+            BUILTIN_DEFAULT_KEYBINDINGS_FILE,
+            KEYBINDINGS_V2_FILE,
+        )
 
         self._load_defaults_tree(BUILTIN_DEFAULT_KEYBINDINGS_FILE)
         self._load_defaults_tree(KEYBINDINGS_V2_FILE)
@@ -692,8 +686,7 @@ class KeyMap(AbstractKeyMap):
         if not path.exists():
             return
         try:
-            from ruamel.yaml import \
-                YAML  # type: ignore[import-untyped,unused-ignore]
+            from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
 
             yaml = YAML()
             raw = yaml.load(path)
@@ -703,8 +696,7 @@ class KeyMap(AbstractKeyMap):
             if not isinstance(defaults, dict):
                 return
             for category, entries in defaults.items():
-                if not isinstance(category, str) or not isinstance(
-                        entries, dict):
+                if not isinstance(category, str) or not isinstance(entries, dict):
                     continue
                 actions: dict[str, str | None] = {}
                 for name, value in entries.items():
@@ -736,8 +728,7 @@ class KeyMap(AbstractKeyMap):
         if not KEYBINDINGS_V2_FILE.exists():
             return
         try:
-            from ruamel.yaml import \
-                YAML  # type: ignore[import-untyped,unused-ignore]
+            from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
 
             yaml = YAML()
             raw = yaml.load(KEYBINDINGS_V2_FILE)
@@ -748,8 +739,7 @@ class KeyMap(AbstractKeyMap):
             # dict IS the override tree (backward compat).
             tree = raw.get("overrides", raw)
             for category, entries in tree.items():
-                if not isinstance(category, str) or not isinstance(
-                        entries, dict):
+                if not isinstance(category, str) or not isinstance(entries, dict):
                     continue
                 for name, value in entries.items():
                     if not isinstance(name, str) or not isinstance(value, str):
@@ -766,9 +756,9 @@ class KeyMap(AbstractKeyMap):
         so the file stays minimal and future default changes propagate.  Any
         existing ``defaults:`` section is read back and re-emitted unchanged.
         """
+        from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
+
         from protoboard.paths import CONFIG_DIR, KEYBINDINGS_V2_FILE
-        from ruamel.yaml import \
-            YAML  # type: ignore[import-untyped,unused-ignore]
 
         tree: dict[str, dict[str, str]] = {}
         for action_id, shortcut in self._overrides.items():
@@ -799,8 +789,7 @@ class KeyMap(AbstractKeyMap):
         yaml.default_flow_style = False
         with KEYBINDINGS_V2_FILE.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — namespaced keyboard shortcuts\n")
-            fh.write(
-                "# Grouped by category. null = inherit the global default.\n")
+            fh.write("# Grouped by category. null = inherit the global default.\n")
             yaml.dump(out, fh)
 
     @override

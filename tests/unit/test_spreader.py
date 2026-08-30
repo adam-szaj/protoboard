@@ -17,8 +17,7 @@ from protoboard.domain.commands.component_cmds import (
     ComponentState,
     MoveComponentCommand,
 )
-from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -34,7 +33,7 @@ from protoboard.services.placement.spreader import (
     spread_components,
 )
 from tests.instance_utils import bind
-
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -63,12 +62,7 @@ def _make_perfboard(rows: int = 20, cols: int = 20) -> Board:
 
 
 def _resistor_defn(name: str = "R") -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n=2),
-        pin_names={},
-        component_class=ComponentClass.RESISTOR,
-    )
+    return make_sil(name, 2)
 
 
 def _inst(
@@ -82,7 +76,7 @@ def _inst(
         refdes=refdes,
         value="",
     )
-    return inst if defn is None else bind(inst, defn, {})
+    return inst if defn is None else bind(inst, defn, sil_families(defn))
 
 
 def _place(comp_id: uuid.UUID, x: float, y: float) -> ComponentPlacement:
@@ -149,9 +143,7 @@ class TestBuildNetGraph:
         a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         net_id = uuid.uuid4()
         schematic = Schematic(
-            nets={
-                net_id: Net(id=net_id, name="N", pins={PinRef(a, 1), PinRef(c, 1)})
-            }
+            nets={net_id: Net(id=net_id, name="N", pins={PinRef(a, 1), PinRef(c, 1)})}
         )
         graph = _build_net_graph({a, b}, schematic)
         assert c not in graph
@@ -161,9 +153,7 @@ class TestBuildNetGraph:
         a = uuid.uuid4()
         net_id = uuid.uuid4()
         schematic = Schematic(
-            nets={
-                net_id: Net(id=net_id, name="N", pins={PinRef(a, 1), PinRef(a, 2)})
-            }
+            nets={net_id: Net(id=net_id, name="N", pins={PinRef(a, 1), PinRef(a, 2)})}
         )
         graph = _build_net_graph({a}, schematic)
         assert graph[a] == {}
@@ -214,19 +204,19 @@ class TestAssignGridCells:
         result = _assign_grid_cells([a, b, c, d], net_graph, positions, bounds)
 
         dist_ab = math.hypot(result[b].x - result[a].x, result[b].y - result[a].y)
-        dist_cd = math.hypot(result[d].x - result[c].x, result[d].y - result[c].y)
+        math.hypot(result[d].x - result[c].x, result[d].y - result[c].y)
         # Connected pair should land in adjacent cells (distance ≈ cell_size).
         # Unconnected pair has no attraction — should be no closer on average.
         # We assert a/b are within 2 cell-diagonals of each other.
         cell_w = bounds.lx / 2
         cell_h = bounds.ly / 2
         cell_diag = math.hypot(cell_w, cell_h)
-        assert dist_ab <= 2 * cell_diag, (
-            f"Connected pair too far apart: {dist_ab:.2f} > 2×{cell_diag:.2f}"
-        )
+        assert (
+            dist_ab <= 2 * cell_diag
+        ), f"Connected pair too far apart: {dist_ab:.2f} > 2×{cell_diag:.2f}"
 
     def test_single_component_gets_a_cell(self) -> None:
-        # _assign_grid_cells is only called when len >= 2, but should handle 1 gracefully.
+        # _assign_grid_cells is only called when len >= 2, but should handle 1 gracefully.  # noqa: E501
         a, b = uuid.uuid4(), uuid.uuid4()
         positions = {a: Point(3.0, 3.0), b: Point(7.0, 7.0)}
         net_graph = {a: {}, b: {}}
@@ -305,11 +295,11 @@ class TestSnapToGrid:
             session=session,
         )
         from protoboard.services.placement.auto_placer import _has_collision
+
         placed_list = list(result.items())
         for i, (cid_i, pl_i) in enumerate(placed_list):
             existing = {
-                cid_j: (pl_j, defn, insts[cid_j])
-                for cid_j, pl_j in placed_list[:i]
+                cid_j: (pl_j, defn, insts[cid_j]) for cid_j, pl_j in placed_list[:i]
             }
             assert not _has_collision(pl_i, defn, insts[cid_i], existing)
 
@@ -339,9 +329,13 @@ class TestSnapToGrid:
             session=session,
         )
         from protoboard.domain.layout.placement import component_bbox
-        fixed_bbox = component_bbox(defn.default_footprint(), fixed_pl, defn.component_class)
+
+        families = sil_families(defn)
+        fixed_bbox = component_bbox(
+            defn.default_footprint(families), fixed_pl, defn.component_class
+        )
         mobile_bbox = component_bbox(
-            defn.default_footprint(), result[mobile_id], defn.component_class
+            defn.default_footprint(families), result[mobile_id], defn.component_class
         )
         assert not fixed_bbox.intersects(mobile_bbox)
 
@@ -361,7 +355,9 @@ class TestSpreadComponents:
         for c in ids:
             layout.placements[c] = _place(c, 5.5, 5.5)
 
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         result = spread_components(ids, session)
 
         assert result.moved_ids, "Expected at least some components to move"
@@ -378,7 +374,9 @@ class TestSpreadComponents:
         for i, c in enumerate(ids):
             layout.placements[c] = _place(c, float(i) + 0.5, 0.5)
 
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         result = spread_components(ids, session)
 
         for cid in ids:
@@ -393,15 +391,16 @@ class TestSpreadComponents:
         for c in ids:
             layout.placements[c] = _place(c, 10.5, 10.5)
 
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         result = spread_components(ids, session)
 
         from protoboard.services.placement.auto_placer import _has_collision
+
         placed = [(cid, result.new_placements[cid]) for cid in ids]
         for i, (cid_i, pl_i) in enumerate(placed):
-            existing = {
-                cid_j: (pl_j, defn, insts[cid_j]) for cid_j, pl_j in placed[:i]
-            }
+            existing = {cid_j: (pl_j, defn, insts[cid_j]) for cid_j, pl_j in placed[:i]}
             assert not _has_collision(pl_i, defn, insts[cid_i], existing)
 
     def test_components_cover_board_area_evenly(self) -> None:
@@ -414,7 +413,9 @@ class TestSpreadComponents:
         for c in ids:
             layout.placements[c] = _place(c, 5.5, 5.5)  # all stacked
 
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         result = spread_components(ids, session)
 
         bounds = board.bounds
@@ -438,7 +439,9 @@ class TestSpreadComponents:
         for c in all_ids:
             layout.placements[c] = _place(c, orig_positions[c].x, orig_positions[c].y)
 
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         result = spread_components(mobile_ids, session)
 
         for cid in fixed_ids:
@@ -452,7 +455,9 @@ class TestSpreadComponents:
         layout = Layout()
         layout.placements[c] = _place(c, 0.5, 0.5)
         session = _FakeSession(
-            board=board, layout=layout, components={"R": defn},
+            board=board,
+            layout=layout,
+            components={"R": defn},
             instances={c: _inst("R1", "R", defn)},
         )
         result = spread_components([c], session)
@@ -475,10 +480,14 @@ class TestSpreadComponents:
         rotations = [0, 90, 180]
         for i, c in enumerate(ids):
             layout.placements[c] = ComponentPlacement(
-                component_id=c, position=Point(5.5, 5.5),
-                rotation=rotations[i], side="top",
+                component_id=c,
+                position=Point(5.5, 5.5),
+                rotation=rotations[i],
+                side="top",
             )
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         result = spread_components(ids, session)
         for i, c in enumerate(ids):
             assert result.new_placements[c].rotation == rotations[i]
@@ -492,13 +501,16 @@ class TestSpreadComponents:
         for c in ids:
             layout.placements[c] = _place(c, 10.5, 10.5)
 
-        session = _FakeSession(board=board, layout=layout, components={"R": defn}, instances=insts)
+        session = _FakeSession(
+            board=board, layout=layout, components={"R": defn}, instances=insts
+        )
         orig_positions = {c: layout.placements[c].position for c in ids}
 
         result = spread_components(ids, session)
         assert result.moved_ids, "No components moved; test is vacuous"
 
         from typing import cast
+
         cmds = [
             cast(
                 "Command[ComponentState]",

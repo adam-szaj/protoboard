@@ -17,6 +17,7 @@ from protoboard.domain.components.definition import (
 )
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import Package, PackageFamily, PackageVariant
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -26,6 +27,8 @@ from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point, Vector, Vector3D
 from protoboard.services.drc.engine import DRCEngine, DRCIssue, _check_overlap
 from tests.instance_utils import bind
+
+_TEST_FAMILIES: dict[str, PackageFamily] = {}
 
 
 def _perfboard(rows: int, cols: int) -> Board:
@@ -46,9 +49,41 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"}
+    from protoboard.domain.components.package.kind import synth_generic_package
+
+    return _package_defn("R", synth_generic_package(SIL(2)), ("A", "B"))
+
+
+def _package_defn(
+    name: str,
+    package: Package,
+    labels: tuple[str, ...],
+) -> ComponentDefinition:
+    family_id = f"{name}-package"
+    _TEST_FAMILIES[family_id] = PackageFamily(
+        family_id=family_id,
+        variants=(PackageVariant("std", "std", package),),
     )
+    return ComponentDefinition(
+        name=name,
+        meta_pins=tuple(MetaPin((label,)) for label in labels),
+        package_options=(
+            PackageOption(
+                name=name,
+                ref=f"{family_id}/std",
+                pin_map={pin: (pin,) for pin in range(1, len(labels) + 1)},
+            ),
+        ),
+    )
+
+
+def _bind(
+    instance: ComponentInstance,
+    defn: ComponentDefinition,
+    families: dict[str, PackageFamily] | None = None,
+) -> ComponentInstance:
+    catalogue = {**_TEST_FAMILIES, **(families or {})}
+    return bind(instance, defn, catalogue)
 
 
 def test_overlap_uses_physical_pins_but_reports_metapins() -> None:
@@ -107,12 +142,12 @@ class TestDRCClean:
         # a mid-point. All pins assigned → DRC clean.
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -174,12 +209,12 @@ class TestDRCMissingNet:
     def test_missing_connection_detected(self) -> None:
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -223,12 +258,12 @@ class TestDRCShort:
         # Two separate nets, but a wire accidentally connects both.
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -280,12 +315,12 @@ class TestDRCOverlap:
         # Two components placed at the same position → pin overlap.
         board = _perfboard(1, 3)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -320,24 +355,19 @@ class TestDRCOverlap:
         board = _perfboard(1, 3)
         # Two component definitions where both pin 1 and pin 2 are bendable.
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
-        defn = ComponentDefinition.from_footprint(
-            name="R_bend",
-            footprint=SIL(2),
-            pin_names={1: "A", 2: "B"},
+        from protoboard.domain.components.package.kind import synth_generic_package
+
+        package = replace(
+            synth_generic_package(SIL(2)),
+            bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
         )
-        defn = replace(
-            defn,
-            package=replace(
-                defn.package,
-                bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
-            ),
-        )
-        r1 = bind(
+        defn = _package_defn("R_bend", package, ("A", "B"))
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R_bend", refdes="R2", value="10k"),
             defn,
             {},
@@ -368,7 +398,7 @@ class TestDRCOverlap:
         assert [i for i in issues if i.code == "OVERLAP"] == []
 
     def test_overlap_skipped_when_package_pins_bendable(self) -> None:
-        # DRC queries defn.package via is_pin_bendable. The component ORIGIN is
+        # DRC queries the resolved package via is_pin_bendable. The origin is
         # fixed at [0,0]; EVERY pin (incl. pin 1) may bend within the ring, so a
         # bendable package makes all pins bendable — fully-coincident placement
         # is intentional sharing → no OVERLAP (mirrors the legacy bendable test).
@@ -390,17 +420,13 @@ class TestDRCOverlap:
         assert is_pin_bendable(pkg, 2) is True
 
         board = _perfboard(1, 3)
-        defn = ComponentDefinition(
-            name="C_pkg",
-            pin_names={1: "+", 2: "-"},
-            package=pkg,
-        )
-        c1 = bind(
+        defn = _package_defn("C_pkg", pkg, ("+", "-"))
+        c1 = _bind(
             ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u"),
             defn,
             {},
         )
-        c2 = bind(
+        c2 = _bind(
             ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u"),
             defn,
             {},
@@ -431,25 +457,20 @@ class TestDRCOverlap:
         board = _perfboard(1, 3)
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
         # Only one of the two definitions declares bendable pins.
-        bendy = ComponentDefinition.from_footprint(
-            name="R_bend",
-            footprint=SIL(2),
-            pin_names={1: "A", 2: "B"},
+        from protoboard.domain.components.package.kind import synth_generic_package
+
+        bendy_package = replace(
+            synth_generic_package(SIL(2)),
+            bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
         )
-        bendy = replace(
-            bendy,
-            package=replace(
-                bendy.package,
-                bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
-            ),
-        )
+        bendy = _package_defn("R_bend", bendy_package, ("A", "B"))
         rigid = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"),
             bendy,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             rigid,
             {},
@@ -483,12 +504,12 @@ class TestDRCOverlap:
     def test_overlap_populates_affected_components_and_pins(self) -> None:
         board = _perfboard(1, 3)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -541,12 +562,7 @@ def _prism_defn() -> ComponentDefinition:
         },
         "DIP4",
     )
-    return ComponentDefinition(
-        name="U",
-        # type: ignore[arg-type]
-        pin_names={},
-        package=pkg,  # type: ignore[arg-type]
-    )
+    return _package_defn("U", pkg, ("1", "2", "3", "4"))
 
 
 class TestDRCBodyOverlap:
@@ -558,7 +574,7 @@ class TestDRCBodyOverlap:
         insts: dict = {}
         pls: dict = {}
         for refdes, pos, side in placements:
-            inst = bind(
+            inst = _bind(
                 ComponentInstance.new(
                     definition_ref=defn.name,
                     refdes=refdes,
@@ -684,12 +700,12 @@ class TestDRCMessages:
 
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -730,12 +746,12 @@ class TestDRCMessages:
     def test_axis_labels_fallback_to_col_row(self) -> None:
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -800,7 +816,7 @@ class TestDRCFloatingPin:
     def _setup(self) -> tuple[Board, ComponentDefinition, ComponentInstance]:
         board = _perfboard(1, 3)
         defn = _r_defn()
-        inst = bind(
+        inst = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
@@ -865,10 +881,10 @@ class TestDRCBareWireCross:
         # They share pad (1.5,1.5) → BARE_WIRE_CROSS.
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="1k"), defn, {}
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="1k"), defn, {}
         )
         pl_r1 = ComponentPlacement(
@@ -1073,17 +1089,17 @@ class TestDRCGroupExports:
 
         board = _perfboard(1, 7)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
         )
-        r3 = bind(
+        r3 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R3", value="10k"),
             defn,
             {},
@@ -1218,12 +1234,12 @@ class TestDRCGroupExports:
 
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r2 = bind(
+        r2 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -1369,12 +1385,12 @@ class TestDRCGroupInvalidExport:
 
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = bind(
+        r_inner = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r_outside = bind(
+        r_outside = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -1474,12 +1490,12 @@ class TestDRCGroupInvalidExport:
 
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = bind(
+        r_inner = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r_outside = bind(
+        r_outside = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -1565,12 +1581,12 @@ class TestDRCGroupInvalidExport:
 
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = bind(
+        r_inner = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
         )
-        r_outside = bind(
+        r_outside = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"),
             defn,
             {},
@@ -1683,7 +1699,7 @@ class TestDRCOffBoardPin:
     def test_component_fully_on_board_no_issue(self) -> None:
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
@@ -1711,7 +1727,7 @@ class TestDRCOffBoardPin:
     def test_component_overhanging_board_flags_pin(self) -> None:
         board = _perfboard(1, 2)  # pads at x=0.5, 1.5
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
@@ -1758,7 +1774,7 @@ class TestDRCOffBoardPin:
         )
         board = Board(root=grid)
         defn = _r_defn()
-        r1 = bind(
+        r1 = _bind(
             ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"),
             defn,
             {},
@@ -1787,7 +1803,7 @@ class TestDRCOffBoardPin:
 
 # ---------------------------------------------------------------------------
 # HALF_ORPHAN_WIRE + WIRE_PIN_OFF_PLATED_THROUGH
-# (docs/archive/wire-pin-implementation.md §3.5; rule 9 in pad-pin-wire-junction-semantics)
+# (docs/archive/wire-pin-implementation.md §3.5; rule 9 in pad-pin-wire-junction-semantics)  # noqa: E501
 # ---------------------------------------------------------------------------
 
 
@@ -2022,7 +2038,7 @@ class TestDRCWirePinOffPlatedThrough:
 
 class TestDRCBodyOverlapResolvedVariant:
     """The body-overlap mask must come from the INSTANCE-resolved package —
-    never ``defn.package`` (the default footprint option's body). Regression
+    never the definition's default package option. Regression
     for a placed SMD resistor colliding via its phantom axial default body
     with a TO-220 five rasters away."""
 
@@ -2051,17 +2067,32 @@ class TestDRCBodyOverlapResolvedVariant:
         axial = self._build([[4, 0]], {"ly": 2.5, "lx": 7.5}, "AXIAL")
         smd = self._build([[1, 0]], {"ly": 1.25, "lx": 2.0}, "SMD")
         families = {
+            "R-axial": PackageFamily(
+                family_id="R-axial",
+                label="Axial",
+                variants=(PackageVariant("std", "std", axial),),
+            ),
             "smd-0805": PackageFamily(
                 family_id="smd-0805",
                 label="SMD 0805",
                 variants=(PackageVariant(variant_id="typ", label="typ", package=smd),),
-            )
+            ),
         }
         defn = ComponentDefinition(
             name="R",
-            # type: ignore[arg-type]
-            pin_names={},
-            package=axial,  # type: ignore[arg-type]
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=(
+                PackageOption(
+                    "Axial",
+                    "R-axial/std",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
+                PackageOption(
+                    "SMD-0805",
+                    "smd-0805/typ",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
+            ),
         )
         return defn, families
 
@@ -2079,7 +2110,7 @@ class TestDRCBodyOverlapResolvedVariant:
     ) -> None:
         defn_r, families = self._smd_resistor_defn_and_families()
         defn_u = _prism_defn()
-        r = bind(
+        r = _bind(
             ComponentInstance.new(
                 definition_ref="R",
                 refdes="R1",
@@ -2089,7 +2120,7 @@ class TestDRCBodyOverlapResolvedVariant:
             defn_r,
             families,
         )
-        u = bind(
+        u = _bind(
             ComponentInstance.new(definition_ref="U", refdes="U1", value=""), defn_u, {}
         )
         insts = {r.id: r, u.id: u}
@@ -2112,21 +2143,16 @@ class TestDRCBodyOverlapResolvedVariant:
         not claim holes two rows away perpendicular to the row — and must
         claim them along the row."""
         to220ish = self._build([[1, 0], [1, 0]], {"ly": 4.5, "lx": 10.0}, "TO220ISH")
-        defn_t = ComponentDefinition(
-            name="Q",
-            # type: ignore[arg-type]
-            pin_names={},
-            package=to220ish,  # type: ignore[arg-type]
-        )
+        defn_t = _package_defn("Q", to220ish, ("1", "2", "3"))
         defn_u = _prism_defn()
 
         def place(upos: Point):
-            t = bind(
+            t = _bind(
                 ComponentInstance.new(definition_ref="Q", refdes="Q1", value=""),
                 defn_t,
                 {},
             )
-            u = bind(
+            u = _bind(
                 ComponentInstance.new(definition_ref="U", refdes="U1", value=""),
                 defn_u,
                 {},

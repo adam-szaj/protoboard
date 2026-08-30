@@ -17,16 +17,14 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
-    QPushButton,
-    QHBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt
 
 # The decision enum lives with the (Qt-free) resolution policy in
 # placement_conflict.py; re-exported here so dialog-side imports keep
@@ -34,7 +32,7 @@ from PySide6.QtCore import Qt
 from protoboard.gui.placement_conflict import WireConflictAction
 
 if TYPE_CHECKING:
-    from protoboard.domain.layout.pad_conflict import ConflictKind, PadConflict
+    from protoboard.domain.layout.pad_conflict import PadConflict
 
 __all__ = ["WireConflictAction", "WireConflictDialog"]
 
@@ -52,7 +50,7 @@ class WireConflictDialog(QDialog):
 
     def __init__(
         self,
-        conflicts: "list[PadConflict]",
+        conflicts: list[PadConflict],
         incoming_refdes: str,
         parent: QWidget | None = None,
     ) -> None:
@@ -73,9 +71,11 @@ class WireConflictDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        layout.addWidget(QLabel(
-            f"Moving <b>{incoming_refdes}</b> would place pin(s) on existing wires:"
-        ))
+        layout.addWidget(
+            QLabel(
+                f"Moving <b>{incoming_refdes}</b> would place pin(s) on existing wires:"
+            )
+        )
 
         tree = QTreeWidget()
         tree.setHeaderLabels(["Pin", "Wire net", "Conflict"])
@@ -84,7 +84,9 @@ class WireConflictDialog(QDialog):
         tree.setAlternatingRowColors(True)
         for c in conflicts:
             net_name = c.existing_net_name or "(unconnected)"
-            kind_label = c.kind.name.replace("PIN_ON_WIRE_", "").replace("_", " ").title()
+            kind_label = (
+                c.kind.name.replace("PIN_ON_WIRE_", "").replace("_", " ").title()
+            )
             item = QTreeWidgetItem([f"Pin {c.incoming_pin}", net_name, kind_label])
             tree.addTopLevelItem(item)
         layout.addWidget(tree)
@@ -104,13 +106,17 @@ class WireConflictDialog(QDialog):
         elif can_create_net:
             create_btn = QPushButton("Create net")
             create_btn.setDefault(True)
-            create_btn.clicked.connect(lambda: self._accept(WireConflictAction.CREATE_NET))
+            create_btn.clicked.connect(
+                lambda: self._accept(WireConflictAction.CREATE_NET)
+            )
             btn_row.addWidget(create_btn)
 
         remove_btn = QPushButton("Remove wire(s) && reroute")
         if not can_add_to_net and not can_create_net:
             remove_btn.setDefault(True)
-        remove_btn.clicked.connect(lambda: self._accept(WireConflictAction.REMOVE_AND_REROUTE))
+        remove_btn.clicked.connect(
+            lambda: self._accept(WireConflictAction.REMOVE_AND_REROUTE)
+        )
         btn_row.addWidget(remove_btn)
 
         cancel_btn = QPushButton("Cancel")

@@ -22,6 +22,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.app_settings import AppSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -32,7 +33,6 @@ from protoboard.gui.actions import (
     ActionSpec,
     strip_mnemonic,
 )
-from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
@@ -41,14 +41,21 @@ _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
 
 
 def _make_perfboard(rows: int = 5, cols: int = 5) -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -79,18 +86,14 @@ class TestDefaultsAndSpecsAlignment:
     def test_every_kb_default_has_spec(self) -> None:
         spec_ids = {s.id for s in ALL_ACTIONS}
         missing = sorted(set(KB.DEFAULTS) - spec_ids)
-        assert missing == [], (
-            f"KB.DEFAULTS entries without an ActionSpec: {missing}"
-        )
+        assert missing == [], f"KB.DEFAULTS entries without an ActionSpec: {missing}"
 
     def test_every_spec_id_in_kb_defaults(self) -> None:
         # Defensive: a spec with an id not in KB.DEFAULTS would silently
         # have no shortcut at all (KB.get returns "").  Forbidden.
         kb_ids = set(KB.DEFAULTS)
         extra = sorted({s.id for s in ALL_ACTIONS} - kb_ids)
-        assert extra == [], (
-            f"ActionSpec ids not in KB.DEFAULTS: {extra}"
-        )
+        assert extra == [], f"ActionSpec ids not in KB.DEFAULTS: {extra}"
 
     def test_no_duplicate_spec_ids(self) -> None:
         counts = Counter(s.id for s in ALL_ACTIONS)
@@ -110,9 +113,7 @@ class TestShortcutHygiene:
         for aid, sc in non_empty:
             seen.setdefault(sc, []).append(aid)
         clashes = {sc: aids for sc, aids in seen.items() if len(aids) > 1}
-        assert clashes == {}, (
-            f"Multiple actions bound to the same shortcut: {clashes}"
-        )
+        assert clashes == {}, f"Multiple actions bound to the same shortcut: {clashes}"
 
 
 # ---------------------------------------------------------------------------
@@ -138,12 +139,12 @@ class TestSlotResolution:
             # real cross-owner slots, extend this test with an allowlist.
             return
         method = getattr(MainWindow, spec.slot_name, None)
-        assert method is not None, (
-            f"Spec {spec.id!r}: MainWindow.{spec.slot_name} does not exist."
-        )
-        assert callable(method), (
-            f"Spec {spec.id!r}: MainWindow.{spec.slot_name} is not callable."
-        )
+        assert (
+            method is not None
+        ), f"Spec {spec.id!r}: MainWindow.{spec.slot_name} does not exist."
+        assert callable(
+            method
+        ), f"Spec {spec.id!r}: MainWindow.{spec.slot_name} is not callable."
 
     @pytest.mark.parametrize("spec", list(ALL_ACTIONS), ids=lambda s: s.id)
     def test_slot_arity_matches_shortcut_args(self, spec: ActionSpec) -> None:
@@ -159,8 +160,10 @@ class TestSlotResolution:
         # Drop "self" (first positional param for unbound methods).
         params = list(sig.parameters.values())[1:]
         positional = [
-            p for p in params
-            if p.kind in (
+            p
+            for p in params
+            if p.kind
+            in (
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 inspect.Parameter.POSITIONAL_ONLY,
             )
@@ -182,9 +185,9 @@ class TestSlotResolution:
 class TestLabelConsistency:
     def test_strip_mnemonic_matches_display_names(self) -> None:
         for spec in ALL_ACTIONS:
-            assert DISPLAY_NAMES_FROM_SPECS[spec.id] == strip_mnemonic(spec.label), (
-                f"Spec {spec.id!r}: derived display name diverges from spec.label."
-            )
+            assert DISPLAY_NAMES_FROM_SPECS[spec.id] == strip_mnemonic(
+                spec.label
+            ), f"Spec {spec.id!r}: derived display name diverges from spec.label."
 
     def test_display_names_lookup_covers_every_default(self) -> None:
         # KB.DISPLAY_NAMES is the legacy lookup used by Preferences.
@@ -194,10 +197,10 @@ class TestLabelConsistency:
         # exist in the spec list (Phase 2 wire-pin actions).
         for aid in KB.DEFAULTS:
             has_legacy = aid in KB.DISPLAY_NAMES
-            has_spec   = aid in DISPLAY_NAMES_FROM_SPECS
-            assert has_legacy or has_spec, (
-                f"Action {aid!r} has no human-readable label anywhere."
-            )
+            has_spec = aid in DISPLAY_NAMES_FROM_SPECS
+            assert (
+                has_legacy or has_spec
+            ), f"Action {aid!r} has no human-readable label anywhere."
 
 
 # ---------------------------------------------------------------------------
@@ -247,14 +250,14 @@ class TestMenuCoverage:
         assert spec.menu_path is not None
         top_title = spec.menu_path[0]
         top = _menu_bar_top_menu(main_window, top_title)
-        assert top is not None, (
-            f"Spec {spec.id!r}: top-level menu {top_title!r} not found."
-        )
+        assert (
+            top is not None
+        ), f"Spec {spec.id!r}: top-level menu {top_title!r} not found."
         reachable = _menu_action_ids(top)
         act = main_window._actions[spec.id]
-        assert act in reachable, (
-            f"Spec {spec.id!r}: QAction not reachable from {top_title!r} menu."
-        )
+        assert (
+            act in reachable
+        ), f"Spec {spec.id!r}: QAction not reachable from {top_title!r} menu."
 
 
 class TestOrphansHaveNoMenu:
@@ -288,7 +291,9 @@ class TestOrphansHaveNoMenu:
 
 
 _ORPHAN_COMMENT_RE = re.compile(r"#\s*orphan:\s*\S+")
-_ACTIONS_PATH = Path(__file__).resolve().parents[2] / "src" / "protoboard" / "gui" / "actions.py"
+_ACTIONS_PATH = (
+    Path(__file__).resolve().parents[2] / "src" / "protoboard" / "gui" / "actions.py"
+)
 
 
 def _orphan_ids_with_comment() -> set[str]:
@@ -302,12 +307,13 @@ def _orphan_ids_with_comment() -> set[str]:
     for idx, line in enumerate(lines):
         if "ActionSpec(" not in line:
             continue
-        m = re.search(r"id=KB\.(ACTION_[A-Z0-9_]+)", line)
+        block = "\n".join(lines[idx : idx + 12])
+        m = re.search(r"id=KB\.(ACTION_[A-Z0-9_]+)", block)
         if m is None:
             continue
         # Look back up to 10 lines for an "# orphan:" justification —
         # contiguous spec blocks share one comment for the whole group.
-        window = lines[max(0, idx - 10):idx]
+        window = lines[max(0, idx - 10) : idx]
         if any(_ORPHAN_COMMENT_RE.search(prev) for prev in window):
             attr = m.group(1)
             value = getattr(KB, attr, None)
@@ -334,9 +340,9 @@ class TestOrphansAreJustified:
 
 class TestRegistryRoundTrip:
     def test_registry_has_one_action_per_spec(self, main_window: MainWindow) -> None:
-        assert set(main_window._actions) >= {s.id for s in ALL_ACTIONS}, (
-            "MainWindow registry is missing actions from ALL_ACTIONS."
-        )
+        assert set(main_window._actions) >= {
+            s.id for s in ALL_ACTIONS
+        }, "MainWindow registry is missing actions from ALL_ACTIONS."
 
     def test_action_groups_match_specs(self, main_window: MainWindow) -> None:
         expected: dict[str, set[str]] = {}
@@ -351,7 +357,8 @@ class TestRegistryRoundTrip:
             )
             members = {a.text() for a in group.actions()}  # debug visibility
             actual_ids = {
-                aid for aid, act in main_window._actions.items()
+                aid
+                for aid, act in main_window._actions.items()
                 if act in group.actions()
             }
             assert actual_ids == ids, (
@@ -366,9 +373,9 @@ class TestRegistryRoundTrip:
             if not spec.shortcut_args:
                 continue
             handler = main_window._action_handlers[spec.id]
-            assert isinstance(handler, functools.partial), (
-                f"Spec {spec.id!r}: expected functools.partial handler."
-            )
+            assert isinstance(
+                handler, functools.partial
+            ), f"Spec {spec.id!r}: expected functools.partial handler."
             assert handler.args == spec.shortcut_args, (
                 f"Spec {spec.id!r}: handler args {handler.args!r} "
                 f"diverge from spec.shortcut_args {spec.shortcut_args!r}."

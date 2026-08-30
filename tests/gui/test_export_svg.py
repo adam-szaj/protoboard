@@ -7,7 +7,6 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import pytest
 from pytestqt.qtbot import QtBot
 
 from protoboard.domain.board.board import Board
@@ -36,8 +35,10 @@ def _perfboard(rows: int, cols: int) -> Board:
             height_policy=SizePolicy.HUG,
             layers=PadLayers(top=True, bottom=True, plated_through=True),
         ),
-        rows=rows, cols=cols,
-        row_gap=0.0, col_gap=0.0,
+        rows=rows,
+        cols=cols,
+        row_gap=0.0,
+        col_gap=0.0,
     )
     return Board(root=grid)
 
@@ -111,13 +112,15 @@ class TestSvgExport:
         # which we don't pin in tests; we just confirm the painter ran.
         board = _perfboard(2, 4)
         defn, families = _r_setup()
-        inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="10k"
-        ).bind(defn, families)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
+            defn, families
+        )
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([])
+        )
         result = export_svg(
             board,
             lay,
@@ -133,7 +136,8 @@ class TestSvgExport:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         lay = Layout(placements=PlacementCollection({}), wires=WireCollection([wire]))
         result = export_svg(board, lay, components={}, instances={})

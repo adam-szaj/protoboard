@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -37,7 +37,7 @@ from protoboard.gui.dialogs.kind_variant_dialog import KindVariantDialog
 if TYPE_CHECKING:
     from protoboard.gui.footprint_choice import (
         FootprintChoiceProvider,
-        FootprintOptionView,
+        PackageOptionView,
     )
 
 _VIEW_ROLE = Qt.ItemDataRole.UserRole
@@ -49,8 +49,8 @@ class FootprintPickerDialog(QDialog):
     def __init__(
         self,
         provider: FootprintChoiceProvider,
-        recent: list[FootprintOptionView],
-        options: list[FootprintOptionView],
+        recent: list[PackageOptionView],
+        options: list[PackageOptionView],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -66,49 +66,98 @@ class FootprintPickerDialog(QDialog):
         self._search.textChanged.connect(self._on_search)
         layout.addWidget(self._search)
 
-        self._list = QListWidget()
-        # Recent first (★), then the full offered list — both carry their view.
-        for view in recent:
-            item = QListWidgetItem(f"★ {view.label}")
-            item.setData(_VIEW_ROLE, view)
-            self._list.addItem(item)
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        groups: dict[tuple[str, ...], QTreeWidgetItem] = {}
+
+        def add_view(
+            view: PackageOptionView,
+            *,
+            namespace: tuple[str, ...] | None = None,
+            prefix: str = "",
+        ) -> None:
+            parent: QTreeWidgetItem | QTreeWidget = self._tree
+            path: tuple[str, ...] = ()
+            for segment in view.namespace if namespace is None else namespace:
+                path += (segment,)
+                group = groups.get(path)
+                if group is None:
+                    group = QTreeWidgetItem(parent, [segment])
+                    group.setFlags(group.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    groups[path] = group
+                parent = group
+            item = QTreeWidgetItem(parent, [f"{prefix}{view.label}"])
+            item.setData(0, _VIEW_ROLE, view)
+
+        if recent:
+            for view in recent:
+                add_view(view, namespace=("Recently used",), prefix="★ ")
         for view in options:
-            item = QListWidgetItem(view.label)
-            item.setData(_VIEW_ROLE, view)
-            self._list.addItem(item)
-        if self._list.count():
-            self._list.setCurrentRow(0)  # first row pre-selected
-        self._list.itemActivated.connect(self._confirm_item)
-        self._list.itemDoubleClicked.connect(self._confirm_item)
-        layout.addWidget(self._list)
+            add_view(view)
+        self._tree.expandAll()
+        first = self._first_visible_leaf()
+        if first is not None:
+            self._tree.setCurrentItem(first)
+        self._tree.itemActivated.connect(self._confirm_item)
+        self._tree.itemDoubleClicked.connect(self._confirm_item)
+        layout.addWidget(self._tree)
 
     # -- interaction ---------------------------------------------------------
 
     def _on_search(self, text: str) -> None:
         q = text.strip().lower()
-        first_visible: int | None = None
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            hidden = bool(q) and q not in item.text().lower()
-            item.setHidden(hidden)
-            if not hidden and first_visible is None:
-                first_visible = i
-        if first_visible is not None:
-            self._list.setCurrentRow(first_visible)
+
+        def filter_item(item: QTreeWidgetItem) -> bool:
+            view = item.data(0, _VIEW_ROLE)
+            if view is not None:
+                visible = (
+                    not q or q in item.text(0).lower() or q in view.address.lower()
+                )
+            else:
+                child_visibility = [
+                    filter_item(item.child(index)) for index in range(item.childCount())
+                ]
+                visible = any(child_visibility)
+            item.setHidden(not visible)
+            return visible
+
+        for index in range(self._tree.topLevelItemCount()):
+            filter_item(self._tree.topLevelItem(index))
+        first = self._first_visible_leaf()
+        if first is not None:
+            self._tree.setCurrentItem(first)
+
+    def _first_visible_leaf(self) -> QTreeWidgetItem | None:
+        def find(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+            if item.isHidden():
+                return None
+            if item.data(0, _VIEW_ROLE) is not None:
+                return item
+            for index in range(item.childCount()):
+                found = find(item.child(index))
+                if found is not None:
+                    return found
+            return None
+
+        for index in range(self._tree.topLevelItemCount()):
+            found = find(self._tree.topLevelItem(index))
+            if found is not None:
+                return found
+        return None
 
     def keyPressEvent(self, event: object) -> None:  # noqa: N802 (Qt override)
         # Space confirms the current row (Enter is delivered as itemActivated).
         key = event.key()  # type: ignore[attr-defined]
-        if key == Qt.Key.Key_Space and self._list.currentItem() is not None:
-            self._confirm_item(self._list.currentItem())
+        if key == Qt.Key.Key_Space and self._tree.currentItem() is not None:
+            self._confirm_item(self._tree.currentItem())
             return
         super().keyPressEvent(event)  # type: ignore[arg-type]
 
-    def _confirm_item(self, item: QListWidgetItem) -> None:
-        view: FootprintOptionView = item.data(_VIEW_ROLE)
-        alt = bool(
-            QApplication.keyboardModifiers() & Qt.KeyboardModifier.AltModifier
-        )
+    def _confirm_item(self, item: QTreeWidgetItem, _column: int = 0) -> None:
+        view: PackageOptionView | None = item.data(0, _VIEW_ROLE)
+        if view is None:
+            return
+        alt = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.AltModifier)
         # A kind always parameterises; Alt forces the variant pop-up even on a
         # recent (already-built) pick, to derive a new variant of the same kind.
         if view.is_kind or alt:

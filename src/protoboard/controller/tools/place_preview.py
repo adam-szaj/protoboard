@@ -12,9 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from protoboard.controller.theme import Theme
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.geometry import Point, Vector
-    from protoboard.controller.theme import Theme
 
 
 class PlacePreview(Protocol):

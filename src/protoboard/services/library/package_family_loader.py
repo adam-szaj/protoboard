@@ -61,8 +61,24 @@ _BUILTIN_DIR: Path = _BUILTIN_ASSETS_DIR / "package_families"
 _FAMILY_STRUCTURAL = frozenset({"family", "label", "default", "variants"})
 
 
+def validate_catalogue_addresses(
+    families: dict[str, PackageFamily],
+) -> None:
+    """Reject a family id that is also another family's variant address."""
+    family_ids = set(families)
+    for family in families.values():
+        for variant in family.variants:
+            address = family.address(variant.variant_id)
+            if address in family_ids:
+                raise ValueError(
+                    f"ambiguous package address {address!r}: both a family "
+                    "and a variant"
+                )
+
+
 def load_package_families(
-    directory: Path | None = None, ) -> dict[str, PackageFamily]:
+    directory: Path | None = None,
+) -> dict[str, PackageFamily]:
     """Load every ``*.yaml`` family file from *directory* (default: builtin).
 
     Returns a dict keyed by ``family_id``.  Malformed files are logged and
@@ -77,9 +93,7 @@ def load_package_families(
         try:
             families = _load_one_file(path, generics)
         except Exception as exc:  # noqa: BLE001 — one bad asset must not break startup
-            _log.warning("package_family.load_failed",
-                         path=str(path),
-                         error=str(exc))
+            _log.warning("package_family.load_failed", path=str(path), error=str(exc))
             continue
         for fam in families:
             if fam.family_id in out:
@@ -90,11 +104,13 @@ def load_package_families(
                 )
                 continue
             out[fam.family_id] = fam
+    validate_catalogue_addresses(out)
     return out
 
 
 def load_full_package_catalogue(
-    directory: Path | None = None, ) -> dict[str, PackageFamily]:
+    directory: Path | None = None,
+) -> dict[str, PackageFamily]:
     """The complete body catalogue: generated in-line families + authored YAML.
 
     Generated ``dip-N`` / ``wdip-N`` / ``sil-N`` bodies (from
@@ -107,14 +123,17 @@ def load_full_package_catalogue(
         generate_inline_families,
     )
 
-    return {
+    catalogue = {
         **generate_inline_families(),
         **load_package_families(directory),
     }
+    validate_catalogue_addresses(catalogue)
+    return catalogue
 
 
-def _load_one_file(path: Path,
-                   generics: dict[str, dict[str, Any]]) -> list[PackageFamily]:
+def _load_one_file(
+    path: Path, generics: dict[str, dict[str, Any]]
+) -> list[PackageFamily]:
     with path.open(encoding="utf-8") as fh:
         data: Any = _yaml.load(fh)
     if not isinstance(data, dict):
@@ -125,8 +144,9 @@ def _load_one_file(path: Path,
     return [parse_family(entry, path, generics) for entry in raw]
 
 
-def parse_family(entry: dict[str, Any], path: Path,
-                 generics: dict[str, dict[str, Any]]) -> PackageFamily:
+def parse_family(
+    entry: dict[str, Any], path: Path, generics: dict[str, dict[str, Any]]
+) -> PackageFamily:
     """Parse one raw ``families:`` entry into a :class:`PackageFamily`.
 
     *generics* is the registry the entry's ``extends`` may resolve against.
@@ -148,10 +168,8 @@ def parse_family(entry: dict[str, Any], path: Path,
     variants: list[PackageVariant] = []
     for v in raw_variants:
         if not isinstance(v, dict) or "id" not in v:
-            raise ValueError(
-                f"{path}:{family_id}: every variant needs an 'id'")
-        variants.append(_build_variant(family_id, inherited, v, generics,
-                                       path))
+            raise ValueError(f"{path}:{family_id}: every variant needs an 'id'")
+        variants.append(_build_variant(family_id, inherited, v, generics, path))
     return PackageFamily(
         family_id=family_id,
         label=label,
@@ -192,6 +210,7 @@ def _build_variant(
     try:
         merged = resolve_extends(synthetic_name, registry)
         from protoboard.domain.components.package.loader import extends_chain
+
         # Lineage: extends ancestry, with the family id spliced in before the
         # variant leaf — a renderer registered for the family (e.g. "TO-220")
         # covers every variant unless a more specific one claims the leaf.

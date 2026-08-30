@@ -21,7 +21,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -39,8 +38,8 @@ from protoboard.services.routing.protocol import (
     registry,
 )
 from protoboard.services.routing.snapshot import RouteRequest
-
 from tests.instance_utils import bind
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _perfboard(rows: int = 6, cols: int = 6) -> Board:
@@ -62,12 +61,12 @@ def _perfboard(rows: int = 6, cols: int = 6) -> Board:
 
 
 def _sil2() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
-    )
+    return make_sil("COMP")
 
 
-def _place(cid: uuid.UUID, x: float, y: float, rotation: int = 90) -> ComponentPlacement:
+def _place(
+    cid: uuid.UUID, x: float, y: float, rotation: int = 90
+) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=cid, position=Point(x, y), rotation=rotation, side="top"
     )
@@ -78,17 +77,31 @@ def _two_pin_project(
 ) -> RouteRequest:
     board = _perfboard()
     defn = _sil2()
+    families = sil_families(defn)
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
     insts = {
-        cid_a: bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {}),
-        cid_b: bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {}),
+        cid_a: bind(
+            ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""),
+            defn,
+            families,
+        ),
+        cid_b: bind(
+            ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""),
+            defn,
+            families,
+        ),
     }
-    layout = Layout(placements=PlacementCollection({
-        cid_a: _place(cid_a, 0.5, 0.5),
-        cid_b: _place(cid_b, 3.5, 3.5),
-    }))
+    layout = Layout(
+        placements=PlacementCollection(
+            {
+                cid_a: _place(cid_a, 0.5, 0.5),
+                cid_b: _place(cid_b, 3.5, 3.5),
+            }
+        )
+    )
     net = Net(
-        id=uuid.uuid4(), name="N1",
+        id=uuid.uuid4(),
+        name="N1",
         pins={
             PinRef(component_id=cid_a, pin_number=2),
             PinRef(component_id=cid_b, pin_number=1),
@@ -96,8 +109,11 @@ def _two_pin_project(
     )
     schematic = Schematic(nets={net.id: net})
     return RouteRequest.from_session(
-        board=board, layout=layout, schematic=schematic,
-        components={"COMP": defn}, instances=insts,
+        board=board,
+        layout=layout,
+        schematic=schematic,
+        components={"COMP": defn},
+        instances=insts,
         routing_settings=RoutingSettings(wire_mode=wire_mode),
     )
 
@@ -105,8 +121,7 @@ def _two_pin_project(
 def _canon(wires):
     """Order-independent canonical form for wire comparisons."""
     return sorted(
-        (tuple(sorted((p.x, p.y) for p in w.path)), w.side, w.insulated)
-        for w in wires
+        (tuple(sorted((p.x, p.y) for p in w.path)), w.side, w.insulated) for w in wires
     )
 
 
@@ -114,18 +129,21 @@ def _canon(wires):
 # Protocol & registry conformance
 # ---------------------------------------------------------------------------
 
+
 class TestProtocolConformance:
     def test_satisfies_router_protocol(self) -> None:
         assert isinstance(EnhancedAStarRouter(), Router)
 
     def test_registered_at_import(self) -> None:
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
+
         assert "astar_enhanced" in registry.list_available()
 
     def test_default_router_is_still_astar(self) -> None:
         """Adding the enhanced router must not change registry.default()."""
         import protoboard.services.routing.builtin  # noqa: F401
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
+
         assert registry.default().name == "astar"
 
     def test_capabilities_advertise_experimental_notes(self) -> None:
@@ -140,6 +158,7 @@ class TestProtocolConformance:
 # ---------------------------------------------------------------------------
 # Parity with default astar (defaults state)
 # ---------------------------------------------------------------------------
+
 
 class TestParityWithDefaultAStar:
     def test_two_pin_insulated_matches_astar(self) -> None:

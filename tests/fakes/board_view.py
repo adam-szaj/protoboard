@@ -13,8 +13,6 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, cast
 
-from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
-from protoboard.gui.layer_state import LayerOverrides, LayerState
 from protoboard.controller.ports import (
     BlockingJob,
     ExecutorPort,
@@ -27,6 +25,8 @@ from protoboard.controller.ports import (
 from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
 from protoboard.controller.ports.viewport_details import CameraMath
 from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
+from protoboard.gui.layer_state import LayerOverrides, LayerState
 from protoboard.gui.tool_host import ToolHost
 
 if TYPE_CHECKING:
@@ -156,6 +156,7 @@ class _HighlightRecorder:
     def __getattr__(self, name: str) -> object:
         def _record(*args: object, **kwargs: object) -> None:
             self.calls.append((name, args))
+
         return _record
 
 
@@ -182,6 +183,7 @@ class HeadlessBoardView:
         self._theme: Theme = DEFAULT_THEME
         self._active_group_id: uuid.UUID
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
         self._active_group_id = ROOT_GROUP_ID
         self._layer_overrides = LayerOverrides()
         self._pad_positions: list[Point] = []
@@ -202,6 +204,7 @@ class HeadlessBoardView:
         self.composer = cast("SceneComposer", _HighlightRecorder())
         self.tools = ToolHost(cast("AbstractBoardView", self))
         from protoboard.gui.view_camera import ViewCamera as _VC
+
         self.camera: ViewCamera = _VC(cast("AbstractBoardView", self))
 
     # -- view state ----------------------------------------------------------
@@ -260,9 +263,7 @@ class HeadlessBoardView:
         self.dirty_flags.append("board_layer")
 
     def rebuild_pad_cache(self) -> None:
-        self._pad_positions = [
-            pos for _atom, pos in self._session.board.atoms()
-        ]
+        self._pad_positions = [pos for _atom, pos in self._session.board.atoms()]
 
     @property
     def layer_overrides(self) -> LayerOverrides:
@@ -291,9 +292,7 @@ class HeadlessBoardView:
                 best, best_d = p, d
         if best is not None:
             return best
-        return Point(
-            math.floor(scene_pt.x) + 0.5, math.floor(scene_pt.y) + 0.5
-        )
+        return Point(math.floor(scene_pt.x) + 0.5, math.floor(scene_pt.y) + 0.5)
 
     def is_locked_pin(self, scene_pt: Point, tol: float = 0.6) -> bool:
         return False
@@ -364,6 +363,7 @@ class HeadlessBoardView:
 
 
 if TYPE_CHECKING:
+
     def _conformance(view: HeadlessBoardView) -> AbstractBoardView:
         """Static-only: the double must satisfy the Protocol."""
         return view

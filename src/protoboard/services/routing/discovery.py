@@ -25,14 +25,16 @@ never crash the host application.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from importlib.metadata import EntryPoint, entry_points
-from typing import Any, Callable
+from typing import Any
 
 import structlog
 
 from protoboard.services.routing.optimizer import WireOptimizer
 from protoboard.services.routing.optimizer import registry as optimizer_registry
-from protoboard.services.routing.protocol import Router, registry as router_registry
+from protoboard.services.routing.protocol import Router
+from protoboard.services.routing.protocol import registry as router_registry
 
 # Backward-compat alias — older tests monkeypatch
 # ``protoboard.services.routing.discovery.registry`` to inject a temp
@@ -82,11 +84,7 @@ def _load_and_construct(
     # attribute (route/optimize) is treated as a factory.  This keeps the
     # "already-built instance" case working without extra ceremony.
     is_class = isinstance(obj, type)
-    is_factory = (
-        not is_class
-        and callable(obj)
-        and not protocol_check(obj)
-    )
+    is_factory = not is_class and callable(obj) and not protocol_check(obj)
 
     if is_class or is_factory:
         try:
@@ -155,6 +153,7 @@ def _discover_into(
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def discover_router_plugins() -> list[str]:
     """Walk ``protoboard.routers`` and register all valid routers.
 
@@ -163,6 +162,7 @@ def discover_router_plugins() -> list[str]:
     registry continue to work.
     """
     import sys as _sys
+
     _self = _sys.modules[__name__]
     return _discover_into(
         group=ROUTER_GROUP,
@@ -213,9 +213,9 @@ __all__ = [
     "discover_all_plugins",
     "discover_router_plugins",
     "discover_optimizer_plugins",
-    "discover_plugins",       # legacy alias
-    "_load_one",              # legacy
+    "discover_plugins",  # legacy alias
+    "_load_one",  # legacy
     "ROUTER_GROUP",
     "OPTIMIZER_GROUP",
-    "ENTRY_POINT_GROUP",      # legacy alias
+    "ENTRY_POINT_GROUP",  # legacy alias
 ]

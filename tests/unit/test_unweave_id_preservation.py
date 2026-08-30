@@ -86,12 +86,14 @@ class TestRemergeIdPreservation:
         seg1 = Wire(
             id=first_id,
             path=[Point(0, 0), Point(1, 0)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         seg2 = Wire(
             id=uuid.uuid4(),
             path=[Point(1, 0), Point(2, 0)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         out = _remerge([seg1, seg2])
         assert len(out) == 1
@@ -102,12 +104,14 @@ class TestRemergeIdPreservation:
         seg1 = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 0)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         seg2 = Wire(
             id=uuid.uuid4(),
             path=[Point(1, 0), Point(2, 0)],
-            insulated=False, side="bottom",
+            insulated=False,
+            side="bottom",
         )
         out = _remerge([seg1, seg2])
         assert len(out) == 2

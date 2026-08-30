@@ -25,7 +25,9 @@ from protoboard.gui.board_view import BoardView, _Tool
 from protoboard.gui.board_view_tool import _DefaultTool
 
 
-def _key_event(key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier) -> QKeyEvent:
+def _key_event(
+    key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
+) -> QKeyEvent:
     ev = QKeyEvent(QEvent.Type.KeyPress, key, mods)
     ev.ignore()
     return ev
@@ -85,14 +87,14 @@ class TestConsumptionParity:
         assert tool.seen == [Qt.Key.Key_H]
         assert not ev.isAccepted()
 
-    def test_auto_repeat_is_dropped(
-        self, board_view: BoardView, monkeypatch
-    ) -> None:
+    def test_auto_repeat_is_dropped(self, board_view: BoardView, monkeypatch) -> None:
         tool = _ClaimingTool(set())
         win = _install(board_view, tool, monkeypatch)
         ev = QKeyEvent(
-            QEvent.Type.KeyPress, Qt.Key.Key_H,
-            Qt.KeyboardModifier.NoModifier, autorep=True,
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_H,
+            Qt.KeyboardModifier.NoModifier,
+            autorep=True,
         )
         board_view.tools.handle_key_press(ev)
         assert tool.seen == []

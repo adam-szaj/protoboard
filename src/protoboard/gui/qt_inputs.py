@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 
-from protoboard.geometry import Point
 from protoboard.controller.ports import KeyInput, Mods, PointerInput, WheelInput
+from protoboard.geometry import Point
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent

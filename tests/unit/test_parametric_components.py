@@ -39,10 +39,9 @@ JST_RAW = {
 
 def _parse(raw: dict, families: dict | None = None) -> ComponentDefinition:
     from pathlib import Path
+
     catalogue = families if families is not None else {}
-    return _component_from_dict(
-        dict(raw), Path("test.yaml"), catalogue, catalogue
-    )
+    return _component_from_dict(dict(raw), Path("test.yaml"), catalogue, catalogue)
 
 
 class TestLoaderParametric:
@@ -50,13 +49,16 @@ class TestLoaderParametric:
         defn = _parse(PIN_HEADER_RAW)
         assert defn.parametric_pins
         # Preview body at the generator's preview count.
-        assert defn.pin_count == 4
+        assert len(defn.meta_pins) == 4
 
-    def test_declared_pins_stay_concrete(self) -> None:
-        raw = {**PIN_HEADER_RAW, "pins": {"count": 6}}
+    def test_declared_meta_pins_stay_concrete(self) -> None:
+        raw = {
+            **PIN_HEADER_RAW,
+            "meta_pins": [f"P{index}" for index in range(1, 7)],
+        }
         defn = _parse(raw)
         assert not defn.parametric_pins
-        assert defn.pin_count == 6
+        assert len(defn.meta_pins) == 6
 
 
 class TestConcretize:
@@ -65,7 +67,7 @@ class TestConcretize:
         base = _parse(PIN_HEADER_RAW, families)
         c = concretize(base, 5, families, {"rows": 1})
         assert c.name == "PinHeader_1x05"
-        assert c.pin_count == 5
+        assert len(c.meta_pins) == 5
         assert not c.parametric_pins
         assert c.default_package_ref() == "PinHeader_1x05-package/std"
         assert "PinHeader_1x05-package" in families
@@ -82,14 +84,14 @@ class TestConcretize:
         base = _parse(PIN_HEADER_RAW, families)
         c = concretize(base, 16, families, {"rows": 2})
         assert c.name == "PinHeader_2x08"
-        assert c.pin_count == 16
+        assert len(c.meta_pins) == 16
 
     def test_jst_name(self) -> None:
         families: dict = {}
         base = _parse(JST_RAW, families)
         c = concretize(base, 4, families, {})
         assert c.name == "JST_XH_4pin"
-        assert c.pin_count == 4
+        assert len(c.meta_pins) == 4
 
     def test_unrealisable_parameters_raise(self) -> None:
         families: dict = {}
@@ -100,7 +102,8 @@ class TestConcretize:
     def test_non_parametric_definition_raises(self) -> None:
         families: dict = {}
         concrete = _parse(
-            {**PIN_HEADER_RAW, "pins": {"count": 4}}, families
+            {**PIN_HEADER_RAW, "meta_pins": ["P1", "P2", "P3", "P4"]},
+            families,
         )
         with pytest.raises(PackageDefError):
             concretize(concrete, 5, families, {})
@@ -119,14 +122,14 @@ class TestResolveByName:
             synth = resolve_parametric_name(components, name, families)
             assert synth is not None, name
             assert synth.name == name
-            assert synth.pin_count == count
+            assert len(synth.meta_pins) == count
 
     def test_legacy_jst_names_resolve(self) -> None:
         families: dict = {}
         components = {"JST_XH": _parse(JST_RAW, families)}
         synth = resolve_parametric_name(components, "JST_XH_4pin", families)
         assert synth is not None
-        assert synth.pin_count == 4
+        assert len(synth.meta_pins) == 4
 
     def test_garbage_and_unrealisable_names_do_not(self) -> None:
         families: dict = {}
@@ -144,7 +147,7 @@ class TestComponentCatalog:
             package_families=families,
         )
         c = catalog["PinHeader_1x06"]
-        assert c.pin_count == 6
+        assert len(c.meta_pins) == 6
         assert "PinHeader_1x06" in catalog  # cached
         assert catalog.get("PinHeader_1x06") is c
 
@@ -165,9 +168,9 @@ class TestBuiltinLibrary:
         base = lib.get("PinHeader")
         assert base.parametric_pins
         # Legacy fixed-count catalogue names synthesize through get().
-        assert lib.get("PinHeader_1x04").pin_count == 4
-        assert lib.get("PinHeader_2x03").pin_count == 6
-        assert lib.get("JST_PH_2pin").pin_count == 2
-        assert lib.get("JST_XH_5pin").pin_count == 5
+        assert len(lib.get("PinHeader_1x04").meta_pins) == 4
+        assert len(lib.get("PinHeader_2x03").meta_pins) == 6
+        assert len(lib.get("JST_PH_2pin").meta_pins) == 2
+        assert len(lib.get("JST_XH_5pin").meta_pins) == 5
         with pytest.raises(KeyError):
             lib.get("PinHeader_3x04")  # rows > 2 never realises

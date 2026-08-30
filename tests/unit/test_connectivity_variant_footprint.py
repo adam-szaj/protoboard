@@ -8,21 +8,26 @@ part whose default footprint orients pins along one axis but whose chosen varian
 orients them along the other, pins 2/3 were registered at the *wrong* world
 positions.  A bare wire physically touching the real pad then found no pin node
 there, so it (and the pin) got no net — the path-dependent "MISSING_NET".
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-    pin_world_position,
     PlacementCollection,
+    pin_world_position,
 )
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -45,14 +50,33 @@ def _perfboard(rows: int, cols: int):  # type: ignore[no-untyped-def]
     from protoboard.domain.board.pads import PadLayers
 
     grid = BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        width_policy=SizePolicy.HUG,
+        height_policy=SizePolicy.HUG,
         cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             layers=PadLayers(top=True, bottom=True, plated_through=True),
         ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+        rows=rows,
+        cols=cols,
+        row_gap=0.0,
+        col_gap=0.0,
     )
     return Board(root=grid)
+
+
+def _with_sil3_option(defn: ComponentDefinition) -> ComponentDefinition:
+    return dataclasses.replace(
+        defn,
+        package_options=defn.package_options
+        + (
+            PackageOption(
+                name="SIL-3",
+                ref="sil-3/std",
+                pin_map={1: (1,), 2: (2,), 3: (3,)},
+            ),
+        ),
+    )
 
 
 class TestVariantPinConnectivity:
@@ -60,12 +84,14 @@ class TestVariantPinConnectivity:
 
     def test_bare_wire_on_rotated_pin2_shares_node(self) -> None:
         lib, families = _catalogue()
-        defn = lib.get("IRF9540_P")
+        defn = _with_sil3_option(lib.get("IRF9540_P"))
         # The bug repro: the instance chose the SIL-3 variant (pins along the
         # local Y), whose footprint differs from the TO-220 default (pins along
-        # local X).  This is exactly the ActiveLoad2 project's saved state.
+        # local X).
         inst = ComponentInstance.new(
-            definition_ref="IRF9540_P", refdes="Q1", value="",
+            definition_ref="IRF9540_P",
+            refdes="Q1",
+            value="",
             package_variant="sil-3/std",
         ).bind(defn, families)
 
@@ -73,7 +99,10 @@ class TestVariantPinConnectivity:
         # rotation 90: the variant orients pins along the placement's local Y,
         # which rotates to +x in world — pin2 lands one hole right of pin1.
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(2.5, 2.5), rotation=90, side="top",
+            component_id=inst.id,
+            position=Point(2.5, 2.5),
+            rotation=90,
+            side="top",
         )
         fp = inst.resolved_footprint()
         pin2_world = pin_world_position(fp, pl, 2)
@@ -83,12 +112,17 @@ class TestVariantPinConnectivity:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(pin2_world.x, pin2_world.y), neighbour],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([wire])
+        )
         graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
         )
 
         node_pin2 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=2))
@@ -101,26 +135,35 @@ class TestVariantPinConnectivity:
     def test_pin3_registered_at_variant_position(self) -> None:
         """node_for_pad at the variant's pin-3 world position is the pin-3 node."""
         lib, families = _catalogue()
-        defn = lib.get("IRF9540_P")
+        defn = _with_sil3_option(lib.get("IRF9540_P"))
         # The bug repro: the instance chose the SIL-3 variant (pins along the
         # local Y), whose footprint differs from the TO-220 default (pins along
-        # local X).  This is exactly the ActiveLoad2 project's saved state.
+        # local X).
         inst = ComponentInstance.new(
-            definition_ref="IRF9540_P", refdes="Q1", value="",
+            definition_ref="IRF9540_P",
+            refdes="Q1",
+            value="",
             package_variant="sil-3/std",
         ).bind(defn, families)
 
         board = _perfboard(8, 8)
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(2.5, 2.5), rotation=90, side="top",
+            component_id=inst.id,
+            position=Point(2.5, 2.5),
+            rotation=90,
+            side="top",
         )
         fp = inst.resolved_footprint()
         pin3_world = pin_world_position(fp, pl, 3)
 
-        lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
+        lay = Layout(
+            placements=PlacementCollection({inst.id: pl}), wires=WireCollection([])
+        )
         graph = ConnectivityGraph(
-            board=board, layout=lay,
-            components={defn.name: defn}, instances={inst.id: inst},
+            board=board,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
         )
 
         node_pin3 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=3))

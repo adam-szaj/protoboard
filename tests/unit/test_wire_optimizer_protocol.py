@@ -34,6 +34,7 @@ class _GoodOptimizer:
 
 class _NotAnOptimizer:
     """Missing the `optimize` method — fails the Protocol runtime check."""
+
     name = "nope"
     display_name = "Nope"
 
@@ -70,6 +71,7 @@ class TestRegistry:
         class _Anon:
             name = ""
             display_name = "x"
+
         reg = _OptimizerRegistry()
         with pytest.raises(ValueError):
             reg.register(_Anon())  # type: ignore[arg-type]
@@ -78,13 +80,20 @@ class TestRegistry:
         reg = _OptimizerRegistry()
 
         class _Zeta:
-            name = "zeta"; display_name = "Z"
+            name = "zeta"
+            display_name = "Z"
+
             def optimize(self, *_a, **_k): ...
-            def capabilities(self): return OptimizerCapabilities()
+            def capabilities(self):
+                return OptimizerCapabilities()
+
         class _Alpha:
-            name = "alpha"; display_name = "A"
+            name = "alpha"
+            display_name = "A"
+
             def optimize(self, *_a, **_k): ...
-            def capabilities(self): return OptimizerCapabilities()
+            def capabilities(self):
+                return OptimizerCapabilities()
 
         reg.register(_Zeta())  # type: ignore[arg-type]
         reg.register(_Alpha())  # type: ignore[arg-type]
@@ -96,6 +105,7 @@ class TestGlobalRegistry:
         # Sanity check that the module-level registry is the same object
         # everywhere — tests rely on this for plugin discovery.
         from protoboard.services.routing.optimizer import registry as reg2
+
         assert reg2 is registry
 
 

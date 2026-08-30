@@ -24,19 +24,19 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from protoboard.geometry import Point
 from protoboard.controller.selection_fsm import Hit
+from protoboard.geometry import Point
 
 if TYPE_CHECKING:
+    from protoboard.controller.selection.selectable import (
+        ConnQuery,
+        SelectableKey,
+    )
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.net import PinRef
     from protoboard.geometry import Rect
-    from protoboard.controller.selection.selectable import (
-        ConnQuery,
-        SelectableKey,
-    )
     from protoboard.types import NetId
 
 _PHASE2 = "Selectable.bbox lands with rubber-band hit-test (Phase 2)"

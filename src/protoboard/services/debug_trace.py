@@ -26,16 +26,16 @@ attribute load + branch per call. ::
 Output goes through structlog at DEBUG (event ``"trace.call[<label>]"`` /
 ``"trace.return[<label>]"`` / ``"trace.raise[<label>]"``). Long values are truncated to keep the
 log readable; override the cap with ``PROTOBOARD_TRACE_MAXLEN``.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
 import functools
 import os
 import reprlib
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 import structlog
 
@@ -45,7 +45,7 @@ _ENABLED: bool = os.environ.get("PROTOBOARD_TRACE", "0") == "1"
 
 # Registry of every wrapper so ``tracing_enabled`` can flip the active bit
 # without re-decorating hosts.
-_REGISTRY: list["_TracedWrapper"] = []
+_REGISTRY: list[_TracedWrapper] = []
 
 _MAXLEN: int = int(os.environ.get("PROTOBOARD_TRACE_MAXLEN", "200"))
 
@@ -66,13 +66,12 @@ def _abbr(value: object) -> str:
         return f"<unreprable {type(value).__name__}>"
 
 
-from json import JSONEncoder
+from json import JSONEncoder  # noqa: E402
 
-from PySide6.QtCore import Qt
 
 class TraceJSONEncoder(JSONEncoder):
     def default(self, o):
-        from enum import Flag
+
         try:
             if hasattr(o, "__json_repr__"):
                 return o.__json_repr__()
@@ -83,6 +82,7 @@ class TraceJSONEncoder(JSONEncoder):
     def __call__(self, o):
         return self.default(o)
 
+
 # Step: 1
 # Deliberate runtime monkeypatch of the stdlib JSONEncoder: we stash the
 # original default on both the function object and the class, then swap in a
@@ -90,19 +90,28 @@ class TraceJSONEncoder(JSONEncoder):
 # something a static checker can model (function objects / class have no such
 # declared members), so they are suppressed rather than restructured.
 def wrapped_default(self, obj):
-    return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(obj)  # pyright: ignore[reportFunctionMemberAccess]
-wrapped_default.default = JSONEncoder().default  # pyright: ignore[reportFunctionMemberAccess]
+    return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(
+        obj
+    )  # pyright: ignore[reportFunctionMemberAccess]
+
+
+wrapped_default.default = (
+    JSONEncoder().default
+)  # pyright: ignore[reportFunctionMemberAccess]
 # apply the patch
 
-JSONEncoder.original_default = JSONEncoder.default  # pyright: ignore[reportAttributeAccessIssue]
+JSONEncoder.original_default = (
+    JSONEncoder.default
+)  # pyright: ignore[reportAttributeAccessIssue]
 JSONEncoder.default = wrapped_default  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _json(value: object) -> str:
     import json
+
     try:
         return json.dumps(value, default=TraceJSONEncoder())
-    except Exception as e:
+    except Exception:
         return repr(value)
 
 

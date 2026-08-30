@@ -23,22 +23,27 @@ from protoboard.domain.layout.placement import ComponentPlacement, PlacementColl
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 
-
 # ---------------------------------------------------------------------------
 # Minimal fake session used by the command
 # ---------------------------------------------------------------------------
 
+
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=4, cols=4, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=4,
+            cols=4,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @dataclass
@@ -49,7 +54,9 @@ class _FakeState:
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
 
 
-def _make_placement(cid: uuid.UUID, x: float, y: float, rotation: int = 0) -> ComponentPlacement:
+def _make_placement(
+    cid: uuid.UUID, x: float, y: float, rotation: int = 0
+) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=cid,
         position=Point(x, y),
@@ -61,6 +68,7 @@ def _make_placement(cid: uuid.UUID, x: float, y: float, rotation: int = 0) -> Co
 # ---------------------------------------------------------------------------
 # Unit tests for _rotation_about (rotate a point CW about an origin)
 # ---------------------------------------------------------------------------
+
 
 def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
     return _rotation_about(origin, delta).apply(p)
@@ -111,6 +119,7 @@ def test_rotate_around_360_is_identity() -> None:
 # Wire fixture helper (used by the internal-wire rotation test below)
 # ---------------------------------------------------------------------------
 
+
 def _wire(path: list[tuple[float, float]]) -> Wire:
     return Wire(
         id=uuid.uuid4(),
@@ -124,6 +133,7 @@ def _wire(path: list[tuple[float, float]]) -> Wire:
 # RotateGroupCommand — using simple components with no footprint (empty group)
 # We test position and rotation changes directly without a footprint.
 # ---------------------------------------------------------------------------
+
 
 def _simple_group(comp_ids: frozenset[uuid.UUID]) -> ComponentGroup:
     return ComponentGroup(
@@ -141,11 +151,14 @@ def _layout_with_group(
     layout = Layout(
         placements=PlacementCollection(placements),
         wires=WireCollection(wires or []),
-        groups={ROOT_GROUP_ID: ComponentGroup(
-            id=ROOT_GROUP_ID,
-            name="root",
-            child_group_ids=frozenset([group.id]),
-        ), group.id: group},
+        groups={
+            ROOT_GROUP_ID: ComponentGroup(
+                id=ROOT_GROUP_ID,
+                name="root",
+                child_group_ids=frozenset([group.id]),
+            ),
+            group.id: group,
+        },
     )
     return layout
 
@@ -217,9 +230,7 @@ def test_rotate_group_undo_stores_no_member_placements() -> None:
     state = _FakeState(layout=layout)
 
     # Capture the stored LOCAL placements (bypass the compose seam).
-    local_before = {
-        cid: layout.placements.local_get(cid) for cid in (cid1, cid2)
-    }
+    local_before = {cid: layout.placements.local_get(cid) for cid in (cid1, cid2)}
 
     cmd = RotateGroupCommand(group_id=group.id, delta=90)
     cmd.apply(state)

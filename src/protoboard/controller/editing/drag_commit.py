@@ -15,9 +15,9 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.domain.board.pad_state import PadIndex
 
 
 def classify_drag_commit(
@@ -107,6 +107,7 @@ def _build_drag_pad_index(session: EditState) -> PadIndex | None:
         return None
     try:
         from protoboard.domain.board.pad_state import PadIndex
+
         return PadIndex(
             board=session.board,
             layout=session.layout,

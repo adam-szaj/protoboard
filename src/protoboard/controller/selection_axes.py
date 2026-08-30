@@ -41,10 +41,10 @@ class RelationClass(Enum):
     """
 
     NONE = "none"
-    SAME_LOGICAL_NET = "same_logical_net"        # default
+    SAME_LOGICAL_NET = "same_logical_net"  # default
     SAME_PHYSICAL_NET = "same_physical_net"
-    UNCONNECTED_PINS = "unconnected_pins"        # logical net minus already connected
-    NEIGHBORS = "neighbors"                      # comps sharing any net with clicked
+    UNCONNECTED_PINS = "unconnected_pins"  # logical net minus already connected
+    NEIGHBORS = "neighbors"  # comps sharing any net with clicked
 
 
 # Human-readable labels for status-bar dropdowns.

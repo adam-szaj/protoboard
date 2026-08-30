@@ -87,10 +87,10 @@ class WireOptimizer(Protocol):
 
     def optimize(
         self,
-        request: "RouteRequest",
-        result: "AutorouteResult",
-        sink: "ProgressSink",
-    ) -> "AutorouteResult": ...
+        request: RouteRequest,
+        result: AutorouteResult,
+        sink: ProgressSink,
+    ) -> AutorouteResult: ...
 
     def capabilities(self) -> OptimizerCapabilities: ...
 
@@ -98,6 +98,7 @@ class WireOptimizer(Protocol):
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _OptimizerRegistry:
@@ -140,9 +141,10 @@ registry = _OptimizerRegistry()
 # UI filtering — capabilities-vs-routing-settings compatibility check
 # ---------------------------------------------------------------------------
 
+
 def incompatibility_reasons(
     caps: OptimizerCapabilities,
-    rs: "RoutingSettings",
+    rs: RoutingSettings,
 ) -> list[str]:
     """Return human-readable reasons why *caps* would be a no-op under *rs*.
 
@@ -176,9 +178,7 @@ def incompatibility_reasons(
             )
     # inserts_jumpers additionally needs jumpers to be legal at all.
     if caps.inserts_jumpers and not rs.allow_jumpers:
-        reasons.append(
-            "Disabled: inserting jumpers requires allow_jumpers=True."
-        )
+        reasons.append("Disabled: inserting jumpers requires allow_jumpers=True.")
     # insulated→bare conversion only meaningful when bare wires are even
     # allowed.  wire_mode="insulated" forces every wire insulated, so a
     # plugin that wants to strip insulation can't.

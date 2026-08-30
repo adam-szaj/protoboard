@@ -36,9 +36,9 @@ from protoboard.geometry import round_coord as _round
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from protoboard.controller.editing.controller import EditState
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.controller.editing.controller import EditState
 
 _log = structlog.get_logger(__name__)
 
@@ -248,9 +248,7 @@ def check_and_resolve(
         return None
 
     if pad_decision:
-        accepted = _ask_pad_conflicts(
-            session, pure_pad, defn, instance_id, prompts
-        )
+        accepted = _ask_pad_conflicts(session, pure_pad, defn, instance_id, prompts)
         if not accepted:
             return None
 
@@ -282,9 +280,7 @@ def check_and_resolve(
 
     result = placement.copy()
     result.shared_pins = frozenset(new_shared)
-    return PlacementResolution(
-        placement=result, wire_cmds=tuple(wire_action_cmds)
-    )
+    return PlacementResolution(placement=result, wire_cmds=tuple(wire_action_cmds))
 
 
 def _ask_pad_conflicts(
@@ -331,7 +327,8 @@ def _update_schematic(
 
     _PAD_KINDS = {ConflictKind.ONE_UNCONNECTED, ConflictKind.BOTH_UNCONNECTED}
     _WIRE_KINDS = {
-        ConflictKind.PIN_ON_WIRE_UNCONNECTED, ConflictKind.PIN_ON_WIRE_WITH_NET
+        ConflictKind.PIN_ON_WIRE_UNCONNECTED,
+        ConflictKind.PIN_ON_WIRE_WITH_NET,
     }
 
     for c in conflicts:
@@ -401,6 +398,7 @@ def _resolve_wire_conflicts(
     if action == WireConflictAction.REMOVE_AND_REROUTE:
         # Collect unique wire IDs to remove.
         from protoboard.domain.commands.component_cmds import RemoveWireCommand
+
         seen: set[uuid.UUID] = set()
         for c in wire_conflicts:
             if c.wire_id is not None and c.wire_id not in seen:
@@ -471,6 +469,7 @@ def _try_reroute_wire(
     import uuid as _uuid
 
     from protoboard.domain.layout.wire import Wire as WS
+
     new_wire = WS(
         id=_uuid.uuid4(),
         path=[pt for pt, _side in best.path],
@@ -478,6 +477,7 @@ def _try_reroute_wire(
         side=wire.side,
     )
     from protoboard.domain.commands.component_cmds import AddWireCommand
+
     return AddWireCommand(wire=new_wire)
 
 

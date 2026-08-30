@@ -26,12 +26,12 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.controller.ports import LEFT_BUTTON, PointerInput
+from protoboard.controller.tools.select_tool import SelectTool
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
-from protoboard.controller.ports import LEFT_BUTTON, PointerInput
-from protoboard.controller.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
     generic_simplify_wire,
@@ -78,10 +78,12 @@ def compute_simplified_wire(
                 pad_to_net.setdefault(pos, net_obj.id)
 
     from protoboard.domain.layout.wire_utils import board_pads_for_side
-    all_board_pads = (
-        board_pads_for_side(session.board, "top")  # type: ignore[attr-defined]
-        | board_pads_for_side(session.board, "bottom")  # type: ignore[attr-defined]
-    )
+
+    all_board_pads = board_pads_for_side(
+        session.board, "top"
+    ) | board_pads_for_side(  # type: ignore[attr-defined]
+        session.board, "bottom"
+    )  # type: ignore[attr-defined]
 
     # Map each wire id → its net id (first pad-pin hit on the wire's path).
     wire_to_net: dict[uuid.UUID, uuid.UUID | None] = {}

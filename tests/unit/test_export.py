@@ -13,8 +13,11 @@ import io
 import uuid
 from pathlib import Path
 
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -24,7 +27,17 @@ from protoboard.services.export.bom import export_bom_csv
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition(
+        name="R",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(
+            PackageOption(
+                name="test",
+                ref="test/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
+    )
 
 
 class TestBomExport:
@@ -42,7 +55,10 @@ class TestBomExport:
         pl_r2 = ComponentPlacement(
             component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}), wires=WireCollection())
+        lay = Layout(
+            placements=PlacementCollection({r1.id: pl_r1, r2.id: pl_r2}),
+            wires=WireCollection(),
+        )
         return lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}
 
     def test_returns_string(self) -> None:

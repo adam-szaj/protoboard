@@ -9,6 +9,7 @@ The real ``gui.board_view_tool.AbstractBoardView`` (which the concrete
 otherwise a tool typed against ``_ViewProto`` would call a method the live view
 does not have. This test fails loudly if the two drift apart.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -98,8 +99,7 @@ def test_headless_session_covers_edit_state() -> None:
     available = set(dir(_headless_session()))
     missing = required - available
     assert not missing, (
-        "HeadlessSession is missing EditState members (drift): "
-        f"{sorted(missing)}"
+        "HeadlessSession is missing EditState members (drift): " f"{sorted(missing)}"
     )
 
 
@@ -116,6 +116,5 @@ def test_preview_state_covers_edit_state() -> None:
     available = set(dir(preview))
     missing = required - available
     assert not missing, (
-        "PreviewState is missing EditState members (drift): "
-        f"{sorted(missing)}"
+        "PreviewState is missing EditState members (drift): " f"{sorted(missing)}"
     )

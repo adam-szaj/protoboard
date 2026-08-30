@@ -36,13 +36,16 @@ def _arm_wire_edit(view: HeadlessBoardView) -> WireEditTool:
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5)],
-        insulated=True, side="top",
+        insulated=True,
+        side="top",
     )
     session.layout.wires.append(wire)
     session.invalidate_graph()
     view.tools.set_tool(SelectTool())
     tool = WireEditTool(
-        WireRange.full_span(wire), wire.id, return_to=lambda: None,
+        WireRange.full_span(wire),
+        wire.id,
+        return_to=lambda: None,
     )
     view.tools.set_tool(tool)
     return tool
@@ -102,7 +105,8 @@ class TestKeyDispatchHeadless:
         view = _headless(session)
         view.tools.set_tool(SelectTool())
         ev = QKeyEvent(
-            QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Escape,
             Qt.KeyboardModifier.NoModifier,
         )
         ev.ignore()
@@ -122,9 +126,7 @@ class TestKeyDispatchHeadless:
         view.tools._toggle_shortcuts_overlay()
         assert not view.help_overlay.help_visible
 
-    def test_tool_consumes_key_through_dispatch(
-        self, session: EditorSession
-    ) -> None:
+    def test_tool_consumes_key_through_dispatch(self, session: EditorSession) -> None:
         view = _headless(session)
         tool = SelectTool()
         view.tools.set_tool(tool)
@@ -157,9 +159,7 @@ class TestCameraMathHeadless:
         visible = view.viewport_port.visible_scene_rect()
         b = session.board.bounds
         assert visible.contains(Point(b.x + 0.1, b.y + 0.1))
-        assert visible.contains(
-            Point(b.x + b.lx - 0.1, b.y + b.ly - 0.1)
-        )
+        assert visible.contains(Point(b.x + b.lx - 0.1, b.y + b.ly - 0.1))
 
     def test_mirror_toggle_flips_sign(self, session: EditorSession) -> None:
         view = _headless(session)
@@ -207,10 +207,7 @@ class TestExecutorHeadless:
         def _length(path: list[Point]) -> float:
             import math
 
-            return sum(
-                math.hypot(b.x - a.x, b.y - a.y)
-                for a, b in zip(path, path[1:])
-            )
+            return sum(math.hypot(b.x - a.x, b.y - a.y) for a, b in zip(path, path[1:]))
 
         new_path = session.layout.wires[0].path
         assert new_path != orig_path
@@ -253,10 +250,12 @@ class TestGroupPromptHeadless:
         """Select every placed component through the selection service."""
         from protoboard.controller.selection.adapters import ComponentSelectable
 
-        tool._selection.set_many([
-            ComponentSelectable(component_id=cid, placement=pl)
-            for cid, pl in session.layout.placements.items()
-        ])
+        tool._selection.set_many(
+            [
+                ComponentSelectable(component_id=cid, placement=pl)
+                for cid, pl in session.layout.placements.items()
+            ]
+        )
 
     def test_group_for_selection_via_injected_prompt(
         self, session: EditorSession
@@ -292,9 +291,7 @@ class TestGroupPromptHeadless:
         assert len(grp.component_ids) == 2
         assert asked and asked[0].default_name.startswith("Group")
 
-    def test_group_prompt_cancel_is_noop(
-        self, session: EditorSession
-    ) -> None:
+    def test_group_prompt_cancel_is_noop(self, session: EditorSession) -> None:
         view = _headless(session)
         self._place_two(view)
         groups_before = set(session.layout.groups)
@@ -308,15 +305,11 @@ class TestGroupPromptHeadless:
 
 
 class TestContextHeadless:
-    def test_get_context_at_needs_no_widget(
-        self, session: EditorSession
-    ) -> None:
+    def test_get_context_at_needs_no_widget(self, session: EditorSession) -> None:
         view = _headless(session)
         # autoroute is a WireEditTool op after the Task-8 swap.
         _arm_wire_edit(view)
         ctx = view.tools.get_context_at(Point(1.5, 1.5), Point(30.0, 40.0))
-        assert any(
-            o.action_id == "select-tool.action.autoroute" for o in ctx.actions
-        )
+        assert any(o.action_id == "select-tool.action.autoroute" for o in ctx.actions)
         view.notify_context(ctx)
         assert view.notifications.contexts == [ctx]

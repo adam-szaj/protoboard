@@ -9,7 +9,7 @@ to AppSettings.  Clicking OK persists the user-preset dict back to
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -59,8 +58,7 @@ class CostPresetsDialog(QDialog):
         self._settings = settings
         # Work on a deep copy so Cancel discards.
         self._user_presets: dict[str, dict[str, float]] = {
-            name: dict(weights)
-            for name, weights in settings.cost_presets.items()
+            name: dict(weights) for name, weights in settings.cost_presets.items()
         }
         # Filter visible keys to user-tunable subset, intersected with
         # the union of every router's supported_cost_keys (if provided).
@@ -73,9 +71,7 @@ class CostPresetsDialog(QDialog):
         if allowed_keys is None:
             self._allowed_keys: list[str] = sorted(tunable & set(self._docs))
         else:
-            self._allowed_keys = sorted(
-                set(allowed_keys) & tunable & set(self._docs)
-            )
+            self._allowed_keys = sorted(set(allowed_keys) & tunable & set(self._docs))
 
         root = QVBoxLayout(self)
 
@@ -83,7 +79,9 @@ class CostPresetsDialog(QDialog):
         top = QHBoxLayout()
         top.addWidget(QLabel("Preset:"))
         self._combo = QComboBox()
-        self._combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._combo.currentIndexChanged.connect(self._on_preset_changed)
         top.addWidget(self._combo, 1)
 
@@ -171,7 +169,9 @@ class CostPresetsDialog(QDialog):
             key_item = QTableWidgetItem(key)
             key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             doc = self._docs.get(key, "")
-            key_item.setToolTip(doc + "\n\nTip: enter -1 to mean ∞ (hard-disable this kind of step).")
+            key_item.setToolTip(
+                doc + "\n\nTip: enter -1 to mean ∞ (hard-disable this kind of step)."
+            )
             self._table.setItem(row, 0, key_item)
             # Column 1: spinbox with -1 sentinel for ∞.  range starts at -1
             # and uses setSpecialValueText so "-1" renders as "∞" in the UI
@@ -222,13 +222,15 @@ class CostPresetsDialog(QDialog):
             return None
         if name in builtin_preset_names():
             QMessageBox.warning(
-                self, "Reserved name",
+                self,
+                "Reserved name",
                 f"{name!r} is a built-in preset name and cannot be used.",
             )
             return None
         if name in self._user_presets:
             QMessageBox.warning(
-                self, "Already exists",
+                self,
+                "Already exists",
                 f"A user preset named {name!r} already exists.",
             )
             return None
@@ -256,10 +258,14 @@ class CostPresetsDialog(QDialog):
         name = self._combo.currentData()
         if name in builtin_preset_names():
             return
-        if QMessageBox.question(
-            self, "Delete preset",
-            f"Delete user preset {name!r}?",
-        ) != QMessageBox.StandardButton.Yes:
+        if (
+            QMessageBox.question(
+                self,
+                "Delete preset",
+                f"Delete user preset {name!r}?",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
             return
         self._user_presets.pop(name, None)
         self._reload_combo()

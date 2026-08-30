@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Component definitions — name + package + pin name mapping."""
+"""Logical component definitions and their package choices."""
 
 from __future__ import annotations
 
@@ -93,8 +93,8 @@ class MetaPin:
 class PackageOption:
     """One available package choice a component offers (a picker entry).
 
-    A component's logical identity (name/pins/class) is separate from the
-    *footprints* it can be placed in. Every option is a reference into the
+    A component's logical identity (name/MetaPins/class) is separate from the
+    packages it can be placed in. Every option is a reference into the
     package-family catalogue. ``name`` is the picker leaf (joined with the
     component ``symbol`` as ``symbol_name``); ``style`` overrides the list's
     ``footprint_style`` for this entry only.
@@ -178,9 +178,7 @@ class ComponentDefinition:
         if not self.package_options:
             raise ValueError("ComponentDefinition requires a package option")
 
-    def default_footprint(
-        self, families: dict[str, PackageFamily]
-    ) -> Footprint:
+    def default_footprint(self, families: dict[str, PackageFamily]) -> Footprint:
         """Resolve the default package option into footprint geometry.
 
         For anything *placed*, use the instance-resolved geometry
@@ -205,25 +203,10 @@ class ComponentDefinition:
         option = self.default_package_option()
         return None if option is None else option.ref
 
-    @property
-    def pin_count(self) -> int:
-        """Temporary compatibility projection; use ``len(meta_pins)``."""
-        return len(self.meta_pins)
-
-    @property
-    def pin_names(self) -> dict[int, str]:
-        """Temporary compatibility projection of each MetaPin's first label."""
-        return {
-            index: meta_pin.labels[0]
-            for index, meta_pin in enumerate(self.meta_pins, start=1)
-        }
-
     def meta_pin(self, index: int) -> MetaPin:
         """Return the MetaPin at the given 1-based ordinal."""
         if index < 1 or index > len(self.meta_pins):
-            raise ValueError(
-                f"MetaPin {index} out of range (1..{len(self.meta_pins)})"
-            )
+            raise ValueError(f"MetaPin {index} out of range (1..{len(self.meta_pins)})")
         return self.meta_pins[index - 1]
 
     @property
@@ -233,9 +216,3 @@ class ComponentDefinition:
         ``symbol`` (e.g. 'R', 'U', 'LED') is also the footprint-picker label root.
         """
         return self.symbol or REFDES_PREFIX.get(self.component_class, "X")
-
-    def pin_name(self, pin_number: int) -> str:
-        """Return the user-facing name of the given pin (1-indexed)."""
-        if pin_number < 1 or pin_number > self.pin_count:
-            raise ValueError(f"pin {pin_number} out of range (1..{self.pin_count})")
-        return self.pin_names.get(pin_number, f"P{pin_number}")

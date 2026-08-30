@@ -80,7 +80,7 @@ class PaintPipeline:
             "fillRect": 0,
             "bg_cache_rebuild": 0,
             "back_cache_rebuild": 0,
-            "back_cache_empty": 0,   # back items list empty, no pixmap built
+            "back_cache_empty": 0,  # back items list empty, no pixmap built
             "blit_base": 0,
             "blit_back": 0,
             "blit_back_filter": 0,
@@ -128,9 +128,7 @@ class PaintPipeline:
         self._paint_db_ms = 0.0  # filled by draw_background
         self._paint_counters["paintEvent"] += 1
 
-    def end_paint_event(
-        self, started_at: float, click_press_ts: float | None
-    ) -> None:
+    def end_paint_event(self, started_at: float, click_press_ts: float | None) -> None:
         """Record total paint wall time and emit the profile logs."""
         session = self._view.session
         paint_ms = (time.monotonic() - started_at) * 1000.0
@@ -149,9 +147,7 @@ class PaintPipeline:
                 blit_ms=round(session.perf.blit_ms, 2),
             )
         if _CLICK_PROFILE:
-            if click_press_ts is not None and (
-                time.monotonic() - click_press_ts
-            ) < 1.0:
+            if click_press_ts is not None and (time.monotonic() - click_press_ts) < 1.0:
                 # Only log paints temporally close to a click — otherwise
                 # every viewport update spams the console.
                 since_press_ms = round((time.monotonic() - click_press_ts) * 1000, 1)
@@ -209,6 +205,7 @@ class PaintPipeline:
             # explicitly do NOT call ``_ensure_bg_cache`` here — that would
             # negate the whole point of the fast preview.
             from PySide6.QtGui import QTransform
+
             anchor_t: QTransform = self._bg_cache_anchor_transform  # type: ignore[assignment]
             cur_t = view.viewportTransform()
             # World-space coords mapped by current transform must land where
@@ -246,6 +243,7 @@ class PaintPipeline:
                 burst_alpha_mid = burst_layers.alpha_for_board_mid()
                 if burst_filter_alpha > 0.0:
                     from PySide6.QtGui import QColor as _QColor
+
                     filter_color = _QColor(view.theme.back_filter_color)
                     filter_color.setAlphaF(burst_filter_alpha)
                     # QGraphicsView calls drawBackground with the live
@@ -334,6 +332,7 @@ class PaintPipeline:
         # on top of this sandwich so they keep their colour.
         if alpha_back_filter > 0.0:
             from PySide6.QtGui import QColor as _QColor
+
             filter_color = _QColor(view.theme.back_filter_color)
             filter_color.setAlphaF(alpha_back_filter)
             painter.setOpacity(1.0)
@@ -406,8 +405,9 @@ class PaintPipeline:
         need_rebuild = (
             self._bg_cache_dirty
             or self._bg_cache is None
-            or (isinstance(self._bg_cache, QPixmap)
-                and self._bg_cache.size() != vp_size)
+            or (
+                isinstance(self._bg_cache, QPixmap) and self._bg_cache.size() != vp_size
+            )
         )
         if not need_rebuild:
             return 0.0
@@ -423,16 +423,21 @@ class PaintPipeline:
                 build_board_display_list,
                 build_pad_net_map,
             )
+
             _base = view.theme
             layers = view.layer_state()
-            _theme = _dc_replace(_base,
-                                 raster_pitch_mm=session.board.raster_pitch_mm,
-                                 package_families=session.package_families)
+            _theme = _dc_replace(
+                _base,
+                raster_pitch_mm=session.board.raster_pitch_mm,
+                package_families=session.package_families,
+            )
             # Reuse the same resolved colour map the wire renderer uses,
             # so a wire and the pad it lands on share an identical colour.
             from protoboard.gui.renderers.net_color import build_net_color_map
+
             pad_color_map = build_net_color_map(
-                session.schematic.nets, theme=_theme,
+                session.schematic.nets,
+                theme=_theme,
             )
             pad_net_map = build_pad_net_map(
                 session.layout.placements,
@@ -443,19 +448,20 @@ class PaintPipeline:
                 net_color_map=pad_color_map,
             )
             self._bg_display_list = build_board_display_list(
-                session.board, theme=_theme, layers=layers,
+                session.board,
+                theme=_theme,
+                layers=layers,
                 pad_net_map=pad_net_map,
             )
 
         # Allocate a fresh pixmap matching the viewport device size.
         from protoboard.gui.renderers.board_renderer import paint_board
+
         pix = QPixmap(vp_size)
         pix.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pix)
         try:
-            painter.setRenderHint(
-                QPainter.RenderHint.Antialiasing, view.antialiasing
-            )
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, view.antialiasing)
             # Apply the same world→viewport transform that QGraphicsView
             # uses for scene items so display-list coordinates land in
             # the right place on the pixmap.
@@ -481,6 +487,7 @@ class PaintPipeline:
         or there were no back items to draw).
         """
         from protoboard.gui.layer_state import Z_BOARD
+
         view = self._view
         if view.session is None:
             return 0.0
@@ -491,8 +498,10 @@ class PaintPipeline:
         need_rebuild = (
             self._back_cache_dirty
             or self._back_cache is None
-            or (isinstance(self._back_cache, QPixmap)
-                and self._back_cache.size() != vp_size)
+            or (
+                isinstance(self._back_cache, QPixmap)
+                and self._back_cache.size() != vp_size
+            )
         )
         if not need_rebuild:
             return 0.0
@@ -515,9 +524,9 @@ class PaintPipeline:
         # children would bake them at default z=0 even when their parent
         # sits well above Z_BOARD (e.g. PlaceTool ghost at z=20).
         back_items = [
-            it for it in scene.items()
-            if 0.0 <= it.zValue() < Z_BOARD - 1e-6
-            and it.parentItem() is None
+            it
+            for it in scene.items()
+            if 0.0 <= it.zValue() < Z_BOARD - 1e-6 and it.parentItem() is None
             # Group outlines stay as live scene items — hit-testing
             # (_hit_test_group_outline → scene.items(scene_pt)) skips
             # invisible items, so baking them into the back pixmap would
@@ -563,9 +572,7 @@ class PaintPipeline:
                     continue
                 it.setVisible(False)
                 temporarily_hidden.append(it)
-            painter.setRenderHint(
-                QPainter.RenderHint.Antialiasing, view.antialiasing
-            )
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, view.antialiasing)
             # Source rect = current visible scene area in scene coords.
             source = view.mapToScene(view.viewport().rect()).boundingRect()
             vp_w = float(vp_size.width())
@@ -588,10 +595,10 @@ class PaintPipeline:
                 # Build the inverted target by swapping left↔right or
                 # top↔bottom so width/height stay positive but Qt's
                 # source→target mapping picks up the negative scale.
-                left   = vp_w if sx < 0 else 0.0
-                right  = 0.0  if sx < 0 else vp_w
-                top    = vp_h if sy < 0 else 0.0
-                bottom = 0.0  if sy < 0 else vp_h
+                left = vp_w if sx < 0 else 0.0
+                right = 0.0 if sx < 0 else vp_w
+                top = vp_h if sy < 0 else 0.0
+                bottom = 0.0 if sy < 0 else vp_h
                 target = QRectF(
                     min(left, right),
                     min(top, bottom),

@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import uuid
 
+from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, PinKnot
@@ -32,10 +32,9 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.services.drag_detector import DragDetector, DragSnapshot
 from protoboard.services.pad_strategy import DRCEnforcingStrategy
-
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Builders
@@ -61,17 +60,15 @@ def _perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n),
-        pin_names={i: str(i) for i in range(1, n + 1)},
-    )
+    return make_sil(name, n)
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, sil_families(defn))
 
 
 def _detector() -> DragDetector:
@@ -79,9 +76,7 @@ def _detector() -> DragDetector:
 
 
 def _build_snapshot(
-    placements: list[
-        tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]
-    ],
+    placements: list[tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]],
     wires: list[Wire],
     knots: list[PinKnot | JointKnot],
     nets: list[Net],
@@ -104,8 +99,11 @@ def _build_snapshot(
     layout.wires.extend(wires)
     sch = Schematic(nets={n.id: n for n in nets})
     pad_index = PadIndex(
-        board=board, layout=layout, schematic=sch,
-        components=components, instances=instances,
+        board=board,
+        layout=layout,
+        schematic=sch,
+        components=components,
+        instances=instances,
     )
     return DragSnapshot(
         pad_index=pad_index,
@@ -133,8 +131,10 @@ class TestClassificationPresence:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         snap = _build_snapshot(
             placements=[(inst, defn, pl)],
@@ -153,8 +153,10 @@ class TestClassificationPresence:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         snap = _build_snapshot(
             placements=[(inst, defn, pl)],
@@ -185,12 +187,16 @@ class TestCrossGroupDisconnect:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(5.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(5.5, 0.5),
+            rotation=0,
+            side="top",
         )
         ka = PinKnot(id=uuid.uuid4(), pin=PinRef(inst_a.id, 1))
         kb = PinKnot(id=uuid.uuid4(), pin=PinRef(inst_b.id, 1))
@@ -231,14 +237,18 @@ class TestStationaryGroupBucketing:
         inst_g = _inst(defn, "Rg")
         inst_drag = _inst(defn, "Rd")
         pl_g = ComponentPlacement(
-            component_id=inst_g.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_g.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         # Place the dragged comp so its pin lands on (3.5, 0.5) — the
         # joint position of the owned wire.
         pl_drag = ComponentPlacement(
-            component_id=inst_drag.id, position=Point(3.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_drag.id,
+            position=Point(3.5, 0.5),
+            rotation=0,
+            side="top",
         )
         # Internal net of the group + joint at (3.5, 0.5).  Net must
         # have only group pins → internal.
@@ -251,11 +261,13 @@ class TestStationaryGroupBucketing:
             b=KnotRef(id=joint.id),
         )
         net = Net(
-            id=uuid.uuid4(), name="N",
+            id=uuid.uuid4(),
+            name="N",
             pins={PinRef(inst_g.id, 1)},
         )
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({inst_g.id}),
             exported_pins=frozenset(),
         )
@@ -319,12 +331,16 @@ class TestInternalWiresProtected:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(5.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(5.5, 0.5),
+            rotation=0,
+            side="top",
         )
         ka = PinKnot(id=uuid.uuid4(), pin=PinRef(inst_a.id, 1))
         kb = PinKnot(id=uuid.uuid4(), pin=PinRef(inst_b.id, 1))

@@ -38,9 +38,7 @@ class ShortcutRow:
     shortcut: str
 
 
-def tool_shortcut_rows(
-    keymap: KeyMap, action_ids: list[str]
-) -> list[ShortcutRow]:
+def tool_shortcut_rows(keymap: KeyMap, action_ids: list[str]) -> list[ShortcutRow]:
     """Rows for *action_ids*, resolved + labelled through *keymap*.
 
     Unbound actions (no resolved shortcut) are included with an empty string so

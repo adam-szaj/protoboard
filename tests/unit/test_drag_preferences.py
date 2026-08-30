@@ -17,7 +17,11 @@ import pytest
 from ruamel.yaml import YAML  # type: ignore[import-untyped]
 
 from protoboard.controller import app_settings as app_settings_mod
-from protoboard.controller.app_settings import AppSettings, load_app_settings, save_app_settings
+from protoboard.controller.app_settings import (
+    AppSettings,
+    load_app_settings,
+    save_app_settings,
+)
 from protoboard.controller.editing.drag_preferences import (
     DRAG_CONFLICT_VALUES,
     DragPreferences,
@@ -145,7 +149,8 @@ class TestDragSessionOverrides:
 
 class TestAppSettingsYamlRoundTrip:
     def test_drag_fields_persisted_and_loaded(
-        self, isolated_app_settings: Path,
+        self,
+        isolated_app_settings: Path,
     ) -> None:
         s = AppSettings()
         s.drag_free_wire_conflict = "ask-remove"
@@ -161,7 +166,8 @@ class TestAppSettingsYamlRoundTrip:
         assert loaded.drag_default_lock_internal_wires is True
 
     def test_yaml_uses_drag_block_structure(
-        self, isolated_app_settings: Path,
+        self,
+        isolated_app_settings: Path,
     ) -> None:
         s = AppSettings()
         save_app_settings(s)
@@ -173,7 +179,8 @@ class TestAppSettingsYamlRoundTrip:
         assert data["drag"]["default_lock_internal_wires"] is False
 
     def test_invalid_yaml_value_falls_back_to_default(
-        self, isolated_app_settings: Path,
+        self,
+        isolated_app_settings: Path,
     ) -> None:
         # Write garbage YAML and confirm load falls back to defaults
         # for the bad field while preserving the valid one.
@@ -194,7 +201,8 @@ class TestAppSettingsYamlRoundTrip:
         assert loaded.drag_default_lock_internal_wires is True
 
     def test_missing_drag_block_uses_defaults(
-        self, isolated_app_settings: Path,
+        self,
+        isolated_app_settings: Path,
     ) -> None:
         # YAML without `drag:` section — defaults apply.
         isolated_app_settings.write_text(
@@ -208,7 +216,8 @@ class TestAppSettingsYamlRoundTrip:
         assert loaded.drag_default_lock_internal_wires is False
 
     def test_partial_drag_block_keeps_unspecified_defaults(
-        self, isolated_app_settings: Path,
+        self,
+        isolated_app_settings: Path,
     ) -> None:
         isolated_app_settings.write_text(
             "drag:\n  cross_group_disconnect: auto-reroute\n",

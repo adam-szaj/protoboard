@@ -33,9 +33,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from protoboard.geometry import Point
     from protoboard.controller.ports.hover import HoverEvent
     from protoboard.controller.ports.inputs import Mods
+    from protoboard.geometry import Point
 
 
 @runtime_checkable

@@ -15,11 +15,11 @@ from pathlib import Path
 
 import pytest
 
+from protoboard.controller.app_settings import AppSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.gui import keybindings as KB
-from protoboard.controller.app_settings import AppSettings
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
@@ -37,12 +37,17 @@ def _isolate_keybindings_file(tmp_path, monkeypatch):
 
 def _make_perfboard(rows: int = 10, cols: int = 10) -> Board:
     grid = BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        width_policy=SizePolicy.HUG,
+        height_policy=SizePolicy.HUG,
         cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             layers=PadLayers(top=True, bottom=True, plated_through=True),
         ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+        rows=rows,
+        cols=cols,
+        row_gap=0.0,
+        col_gap=0.0,
     )
     return Board(root=grid)
 
@@ -59,22 +64,57 @@ def main_window(qtbot) -> MainWindow:
 def _place(mw: MainWindow, x: float, y: float):  # type: ignore[no-untyped-def]
     """Add a 1-pin component to the session directly (no PlaceTool drag loop —
     that spins under pytest-qt headless).  Returns the instance."""
-    from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.components.footprints import SIL
+    from protoboard.domain.components.definition import (
+        ComponentDefinition,
+        MetaPin,
+        PackageOption,
+    )
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package import PackageFamily, PackageVariant
+    from protoboard.domain.components.package.loader import build_package
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.geometry import Point
 
     sess = mw._session
     if "D1" not in sess.components:
-        sess.components["D1"] = ComponentDefinition.from_footprint(
-            name="D1", footprint=SIL(1), pin_names={1: "A"},
+        package = build_package(
+            {
+                "shape": "prism",
+                "dims": {"lx": 2.0, "ly": 2.0},
+                "arrangement": "axial",
+                "mount": "through_hole",
+                "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": []},
+                    "board_offset": "default",
+                },
+            },
+            "D1-package",
+        )
+        sess.package_families["D1-package"] = PackageFamily(
+            family_id="D1-package",
+            variants=(PackageVariant("std", "std", package),),
+        )
+        sess.components["D1"] = ComponentDefinition(
+            name="D1",
+            meta_pins=(MetaPin(("A",)),),
+            package_options=(
+                PackageOption(
+                    name="D1",
+                    ref="D1-package/std",
+                    pin_map={1: (1,)},
+                ),
+            ),
         )
     inst = ComponentInstance.new(definition_ref="D1", refdes="U1", value="")
-    inst = inst.bind(sess.components["D1"], {})
+    inst = inst.bind(sess.components["D1"], sess.package_families)
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     sess.invalidate_graph()
     mw._board_view.refresh()

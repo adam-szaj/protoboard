@@ -11,7 +11,6 @@ import pytest
 
 from protoboard.services.persistence import git_repo
 
-
 _GIT_AVAILABLE = shutil.which("git") is not None
 pytestmark = pytest.mark.skipif(not _GIT_AVAILABLE, reason="git binary not available")
 
@@ -32,14 +31,18 @@ def _isolate_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _log_count(path: Path) -> int:
     return int(
         subprocess.check_output(
-            ["git", "rev-list", "--count", "HEAD"], cwd=str(path), text=True,
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=str(path),
+            text=True,
         ).strip()
     )
 
 
 def _staged_paths(path: Path) -> list[str]:
     out = subprocess.check_output(
-        ["git", "status", "--porcelain"], cwd=str(path), text=True,
+        ["git", "status", "--porcelain"],
+        cwd=str(path),
+        text=True,
     )
     return [line[3:] for line in out.splitlines()]
 

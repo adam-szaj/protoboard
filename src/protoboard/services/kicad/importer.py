@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
+
 from protoboard.domain.components.footprints import (
     DIL,
     SIL,
@@ -49,20 +50,22 @@ class ImportWarning(UserWarning):
 # Raw component data — internal intermediate representation
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _RawComp:
     """Parsed component record from the netlist, before footprint resolution."""
 
     refdes: str
     value: str
-    kicad_fp: str        # raw KiCAD footprint string; may be empty
+    kicad_fp: str  # raw KiCAD footprint string; may be empty
     kicad_lib: str = ""  # libsource lib  (e.g. "Switch")
-    kicad_part: str = "" # libsource part (e.g. "SW_SPDT")
+    kicad_part: str = ""  # libsource part (e.g. "SW_SPDT")
 
 
 # ---------------------------------------------------------------------------
 # Importer
 # ---------------------------------------------------------------------------
+
 
 class KiCadNetlistImporter:
     """Parse KiCAD netlist files (XML or S-expression)."""
@@ -146,9 +149,7 @@ class KiCadNetlistImporter:
             # When libsource unambiguously identifies the component type, use a
             # libsource-derived key — even if a footprint string is present.
             # This prevents e.g. SW_SPDT and R from sharing the same R_2816 key.
-            authoritative = _libsource_is_authoritative(
-                comp.kicad_lib, comp.kicad_part
-            )
+            authoritative = _libsource_is_authoritative(comp.kicad_lib, comp.kicad_part)
             if authoritative and comp.kicad_part:
                 map_key = f"__libsource__{comp.kicad_lib}__{comp.kicad_part}"
             else:
@@ -223,12 +224,14 @@ class KiCadNetlistImporter:
         for comp in raw_comps:
             comp_id = refdes_to_id[comp.refdes]
             # Mirror the key logic from _build_footprint_map exactly.
-            if _libsource_is_authoritative(comp.kicad_lib, comp.kicad_part) and comp.kicad_part:
+            if (
+                _libsource_is_authoritative(comp.kicad_lib, comp.kicad_part)
+                and comp.kicad_part
+            ):
                 map_key = f"__libsource__{comp.kicad_lib}__{comp.kicad_part}"
             else:
                 map_key = (
-                    comp.kicad_fp
-                    or f"__libsource__{comp.kicad_lib}__{comp.kicad_part}"
+                    comp.kicad_fp or f"__libsource__{comp.kicad_lib}__{comp.kicad_part}"
                 )
             entry = fp_map.get(map_key)
 
@@ -254,10 +257,7 @@ class KiCadNetlistImporter:
                     seen_unresolved.add(comp.kicad_fp)
             else:
                 pin_count = entry.pin_count
-                definition_ref = (
-                    entry.definition_ref
-                    or f"placeholder_SIL_{pin_count}"
-                )
+                definition_ref = entry.definition_ref or f"placeholder_SIL_{pin_count}"
 
             instances[comp.refdes] = ComponentInstance(
                 id=comp_id,
@@ -335,9 +335,7 @@ class KiCadNetlistImporter:
 
         return None
 
-    def resolve_by_libsource(
-        self, kicad_lib: str, kicad_part: str
-    ) -> Footprint | None:
+    def resolve_by_libsource(self, kicad_lib: str, kicad_part: str) -> Footprint | None:
         """Resolve a Footprint from KiCAD libsource (lib, part) pair.
 
         Used as a fallback when the component has no footprint string.
@@ -386,7 +384,17 @@ class KiCadNetlistImporter:
                 return DIL(n=total)
 
         # Resistor / capacitor / inductor / diode — all 2-pin passives.
-        if part in ("R", "R_Small", "R_US", "C", "C_Small", "L", "L_Small", "D", "D_Zener"):
+        if part in (
+            "R",
+            "R_Small",
+            "R_US",
+            "C",
+            "C_Small",
+            "L",
+            "L_Small",
+            "D",
+            "D_Zener",
+        ):
             return SIL(n=2)
 
         # Transistors — 3 pins.
@@ -441,10 +449,15 @@ class KiCadNetlistImporter:
             kicad_lib = lib_el.get("lib", "") if lib_el is not None else ""
             kicad_part = lib_el.get("part", "") if lib_el is not None else ""
             _comp_id(ref)
-            raw_comps.append(_RawComp(
-                refdes=ref, value=val, kicad_fp=fp,
-                kicad_lib=kicad_lib, kicad_part=kicad_part,
-            ))
+            raw_comps.append(
+                _RawComp(
+                    refdes=ref,
+                    value=val,
+                    kicad_fp=fp,
+                    kicad_lib=kicad_lib,
+                    kicad_part=kicad_part,
+                )
+            )
 
         nets: dict[uuid.UUID, Net] = {}
         for net_el in root.findall("./nets/net"):
@@ -476,7 +489,7 @@ class KiCadNetlistImporter:
         root = parse(text)
         if not root or root[0] != "export":
             raise ValueError(
-                f"Expected top-level 'export' S-expression, got '{root[0] if root else '?'}'"
+                f"Expected top-level 'export' S-expression, got '{root[0] if root else '?'}'"  # noqa: E501
             )
 
         refdes_to_id: dict[str, uuid.UUID] = {}
@@ -488,7 +501,9 @@ class KiCadNetlistImporter:
 
         raw_comps: list[_RawComp] = []
         _components_node = child(root, "components")
-        for comp_node in (children(_components_node, "comp") if _components_node else []):
+        for comp_node in (
+            children(_components_node, "comp") if _components_node else []
+        ):
             ref = attr(comp_node, "ref") or ""
             if not ref:
                 continue
@@ -498,10 +513,15 @@ class KiCadNetlistImporter:
             kicad_lib = attr(ls, "lib") or "" if ls is not None else ""
             kicad_part = attr(ls, "part") or "" if ls is not None else ""
             _comp_id(ref)
-            raw_comps.append(_RawComp(
-                refdes=ref, value=val, kicad_fp=fp,
-                kicad_lib=kicad_lib, kicad_part=kicad_part,
-            ))
+            raw_comps.append(
+                _RawComp(
+                    refdes=ref,
+                    value=val,
+                    kicad_fp=fp,
+                    kicad_lib=kicad_lib,
+                    kicad_part=kicad_part,
+                )
+            )
 
         nets_section = child(root, "nets")
         nets: dict[uuid.UUID, Net] = {}
@@ -540,18 +560,20 @@ class KiCadNetlistImporter:
 # component's function — regardless of the physical footprint assigned.
 # When a component belongs to one of these libs, libsource wins over the
 # footprint string (which may be a placeholder like R_2816 on a switch).
-_AUTHORITATIVE_LIBS: frozenset[str] = frozenset({
-    "Switch",
-    "Crystal",
-    "Mechanical",
-    "Relay",
-    "Transformer",
-    "Fuse",
-    "Display",
-    "RF",
-    "Sensor",
-    "Motor",
-})
+_AUTHORITATIVE_LIBS: frozenset[str] = frozenset(
+    {
+        "Switch",
+        "Crystal",
+        "Mechanical",
+        "Relay",
+        "Transformer",
+        "Fuse",
+        "Display",
+        "RF",
+        "Sensor",
+        "Motor",
+    }
+)
 
 
 def _libsource_is_authoritative(kicad_lib: str, kicad_part: str) -> bool:
@@ -561,14 +583,14 @@ def _libsource_is_authoritative(kicad_lib: str, kicad_part: str) -> bool:
 
 
 def _part_to_definition_ref(kicad_part: str, template: Footprint) -> str:
-    """Generate a definition_ref from a KiCAD library part name (used when no footprint)."""
+    """Generate a definition_ref from a KiCAD library part name (used when no footprint)."""  # noqa: E501
     name = re.sub(r"[^\w]", "_", kicad_part)
     name = re.sub(r"_+", "_", name).strip("_")
     return name or f"generic_{template.pin_count()}pin"
 
 
 def _footprint_to_definition_ref(kicad_fp: str, template: Footprint) -> str:
-    """Generate a stable, human-readable definition_ref from a KiCAD footprint string."""
+    """Generate a stable, human-readable definition_ref from a KiCAD footprint string."""  # noqa: E501
     name = kicad_fp.split(":")[-1] if ":" in kicad_fp else kicad_fp
     # Trim long suffixes like _P2.54mm_Vertical, _DIN0207_L6.3mm_...
     name = re.sub(r"_P\d[\d.]*mm.*", "", name)

@@ -16,6 +16,7 @@ These are NEW asserts on the NEW tool; they do NOT touch
 ``TestWireEditExitParity`` in test_armed_subtool_lifecycle.py, which still guards
 SelectTool's CURRENT (pre-swap) behaviour and must stay green (8b flips it).
 """
+
 from __future__ import annotations
 
 from protoboard.controller.selection.wire_edit import WireRange
@@ -25,7 +26,6 @@ from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
 from tests.fakes.board_view import HeadlessBoardView
-
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -42,9 +42,15 @@ def _detour_wire(session: EditorSession) -> Wire:
     # knots -- required by FlipWireFragmentCommand.  Mirrors
     # test_armed_subtool_lifecycle.py::_detour_wire.
     wire_id = session.edit_controller.add_wire(
-        [Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
-         Point(3.5, 2.5), Point(3.5, 3.5)],
-        insulated=True, side="top",
+        [
+            Point(1.5, 1.5),
+            Point(2.5, 1.5),
+            Point(3.5, 1.5),
+            Point(3.5, 2.5),
+            Point(3.5, 3.5),
+        ],
+        insulated=True,
+        side="top",
     )
     assert wire_id is not None
     wire = session.layout.wires.get(wire_id)
@@ -62,9 +68,15 @@ def _knotless_wire(session: EditorSession) -> Wire:
 
     wire = Wire(
         id=uuid.uuid4(),
-        path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
-              Point(3.5, 2.5), Point(3.5, 3.5)],
-        insulated=True, side="top",
+        path=[
+            Point(1.5, 1.5),
+            Point(2.5, 1.5),
+            Point(3.5, 1.5),
+            Point(3.5, 2.5),
+            Point(3.5, 3.5),
+        ],
+        insulated=True,
+        side="top",
     )
     session.layout.wires[wire.id] = wire
     session.invalidate_graph()
@@ -73,9 +85,7 @@ def _knotless_wire(session: EditorSession) -> Wire:
     return wire
 
 
-def _arm(
-    view: HeadlessBoardView, wire: Wire
-) -> WireEditTool:
+def _arm(view: HeadlessBoardView, wire: Wire) -> WireEditTool:
     """Set a plain SelectTool as the return target, then arm a full-span
     WireEditTool on *wire* through the ToolHost (so activate() runs)."""
     select = SelectTool()
@@ -98,8 +108,10 @@ def _arm_range(
     view.tools.set_tool(select)
     tool = WireEditTool(
         WireRange(
-            start_wire_id=wire.id, start_idx=start_idx,
-            end_wire_id=wire.id, end_idx=end_idx,
+            start_wire_id=wire.id,
+            start_idx=start_idx,
+            end_wire_id=wire.id,
+            end_idx=end_idx,
         ),
         wire.id,
         return_to=lambda: view.tools.set_tool(select),
@@ -172,9 +184,7 @@ class TestFlipPreservesSubRange:
             f"({state.start_idx}, {state.end_idx}); expected (1, 3)"
         )
 
-    def test_double_flip_sub_range_is_net_zero(
-        self, session: EditorSession
-    ) -> None:
+    def test_double_flip_sub_range_is_net_zero(self, session: EditorSession) -> None:
         """Two flips of the same sub-range (as one physical [F] double-dispatches)
         return every segment to its original side -- no whole-wire corruption."""
         view = _headless(session)
@@ -203,9 +213,7 @@ class TestWireEditToolKnotlessWire:
     ``ValueError: replace_wire_fragments requires a Wire with both knots`` (only
     reroute worked, because its builder backfills knots)."""
 
-    def test_flip_on_knotless_wire_does_not_raise(
-        self, session: EditorSession
-    ) -> None:
+    def test_flip_on_knotless_wire_does_not_raise(self, session: EditorSession) -> None:
         view = _headless(session)
         wire = _knotless_wire(session)
         tool = _arm(view, wire)
@@ -335,8 +343,10 @@ class TestWireEditToolOverlaySpan:
         view.tools.set_tool(select)
         tool = WireEditTool(
             WireRange(
-                start_wire_id=wire.id, start_idx=1,
-                end_wire_id=wire.id, end_idx=3,
+                start_wire_id=wire.id,
+                start_idx=1,
+                end_wire_id=wire.id,
+                end_idx=3,
             ),
             wire.id,
             return_to=lambda: view.tools.set_tool(select),
@@ -371,9 +381,7 @@ class TestWireEditToolOverlaySpan:
 
 
 class TestWireEditToolConsecutiveOps:
-    def test_simplify_then_flip_both_execute(
-        self, session: EditorSession
-    ) -> None:
+    def test_simplify_then_flip_both_execute(self, session: EditorSession) -> None:
         view = _headless(session)
         wire = _detour_wire(session)
         tool = _arm(view, wire)
@@ -408,23 +416,18 @@ class TestWireEditOpsResyncSessionCaches:
         # layout_changed -> invalidate_graph; the headless fake does not.
         session.layout_changed.connect(session.invalidate_graph)
         view = _headless(session)
-        wire = _detour_wire(session)          # insulated=True
-        session.wire_spatial_index()          # warm the cache pre-op
-        tool = _arm_range(view, wire, 1, 3)   # sub-range → split on [I]
+        wire = _detour_wire(session)  # insulated=True
+        session.wire_spatial_index()  # warm the cache pre-op
+        tool = _arm_range(view, wire, 1, 3)  # sub-range → split on [I]
 
-        tool._set_insulated_fragment()        # toggle → bare → 3-way split
+        tool._set_insulated_fragment()  # toggle → bare → 3-way split
 
         live_ids = {w.id for w in session.layout.wires}
         assert wire.id not in live_ids, "original wire should be replaced"
-        indexed = {
-            wid
-            for ids in session.wire_spatial_index().values()
-            for wid in ids
-        }
-        assert indexed <= live_ids, (
-            f"spatial index holds dead wire ids: {indexed - live_ids}"
-        )
+        indexed = {wid for ids in session.wire_spatial_index().values() for wid in ids}
+        assert (
+            indexed <= live_ids
+        ), f"spatial index holds dead wire ids: {indexed - live_ids}"
         assert live_ids <= indexed, (
-            f"new wire pieces missing from the spatial index: "
-            f"{live_ids - indexed}"
+            f"new wire pieces missing from the spatial index: " f"{live_ids - indexed}"
         )

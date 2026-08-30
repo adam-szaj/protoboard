@@ -198,7 +198,7 @@ def _preferred_rotations(
 
     xs = [p.x for p in pin_positions]
     ys = [p.y for p in pin_positions]
-    fp_width = max(xs) - min(xs)   # extent in local X (rotation=0)
+    fp_width = max(xs) - min(xs)  # extent in local X (rotation=0)
     fp_height = max(ys) - min(ys)  # extent in local Y (rotation=0)
 
     board_landscape = board_bounds.lx >= board_bounds.ly
@@ -275,8 +275,10 @@ def _sort_by_gravity(
     ],
 ) -> list[ComponentInstance]:
     """Sort descending by number of gravity connections to already-placed comps."""
+
     def _key(inst: ComponentInstance) -> int:
         return -len(_gravity_points(inst, session, existing))
+
     return sorted(instances, key=_key)
 
 
@@ -291,9 +293,7 @@ def _sort_candidates(candidates: list[Point], center: Point | None) -> list[Poin
     return sorted(candidates, key=lambda p: (p - center).norm())
 
 
-def _extended_candidates(
-    board_pads: set[Point], board_bounds: Rect
-) -> list[Point]:
+def _extended_candidates(board_pads: set[Point], board_bounds: Rect) -> list[Point]:
     """Generate a virtual grid outside board boundaries (same 1.0 RU step)."""
     margin_x = max(10, int(board_bounds.lx * 0.5))
     margin_y = max(10, int(board_bounds.ly * 0.5))

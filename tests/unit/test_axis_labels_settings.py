@@ -33,12 +33,12 @@ class TestFormatIndex:
             (0, "a"),
             (1, "b"),
             (25, "z"),
-            (26, "a"),    # cycles back to 'a' after 'z'
+            (26, "a"),  # cycles back to 'a' after 'z'
             (27, "b"),
             (51, "z"),
-            (52, "a"),    # second wrap
-            (701, "z"),   # 701 % 26 == 25
-            (702, "a"),   # 702 % 26 == 0
+            (52, "a"),  # second wrap
+            (701, "z"),  # 701 % 26 == 25
+            (702, "a"),  # 702 % 26 == 0
         ],
     )
     def test_alphabetic_cycles_a_to_z(self, i: int, expected: str) -> None:
@@ -79,5 +79,7 @@ class TestAxisLabelSettings:
 
     def test_frozen_dataclass(self) -> None:
         s = AxisLabelSettings()
-        with pytest.raises(Exception):  # dataclasses.FrozenInstanceError or AttributeError
+        with pytest.raises(
+            Exception
+        ):  # dataclasses.FrozenInstanceError or AttributeError
             s.columns = AxisLabelFormat.NUMERIC_0  # type: ignore[misc]

@@ -35,7 +35,10 @@ def _module_name(namespace: str, path: Path) -> str:
 
 
 def load_plugin_modules(
-    library_dirs: Iterable[Path], subdir: str, *, namespace: str,
+    library_dirs: Iterable[Path],
+    subdir: str,
+    *,
+    namespace: str,
 ) -> list[Path]:
     """Import every ``<subdir>/*.py`` under *library_dirs*; return loaded paths.
 
@@ -96,7 +99,8 @@ def load_generator_plugins(library_dirs: Iterable[Path]) -> list[Path]:
                 return ctx.with_package(...)
     """
     return load_plugin_modules(
-        library_dirs, "generators", namespace="protoboard_generator_plugins")
+        library_dirs, "generators", namespace="protoboard_generator_plugins"
+    )
 
 
 __all__ = ["load_generator_plugins", "load_plugin_modules"]

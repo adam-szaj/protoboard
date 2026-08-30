@@ -9,7 +9,7 @@
 # hole apart on the board (``board_offset``, holes) — given explicitly so they
 # land on the 2.5 mm raster, not reused from a tighter body pitch.
 families:
-  - family: TO-220
+  - family: q-tht/TO-220
     extends: prism_radial
     label: "TO-220 (power package, 3-lead inline)"
     color: "#404040"

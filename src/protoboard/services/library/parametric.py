@@ -84,14 +84,15 @@ def concretize(
     kind = parametric_generator_kind(defn, families)
     if kind is None:
         raise PackageDefError(
-            f"{defn.name}: parametric definition has no generator kind")
+            f"{defn.name}: parametric definition has no generator kind"
+        )
     vals: dict[str, Any] = dict(values or {})
-    ctx = build_kind_package(
-        kind, GeneratorContext(pin_count=pin_count, values=vals))
+    ctx = build_kind_package(kind, GeneratorContext(pin_count=pin_count, values=vals))
     if ctx.package is None:
         raise PackageDefError(
             f"{defn.name}: kind {kind!r} left parameters unfilled for "
-            f"pin_count={pin_count}, values={vals!r}")
+            f"pin_count={pin_count}, values={vals!r}"
+        )
     suffix = KIND_GENERATORS[kind](kind).variant_suffix(pin_count, vals)
     name = f"{defn.name}_{suffix}"
     family_id = f"{name}-package"
@@ -103,9 +104,7 @@ def concretize(
     return dataclasses.replace(
         defn,
         name=name,
-        meta_pins=tuple(
-            MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1)
-        ),
+        meta_pins=tuple(MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1)),
         package_options=(
             PackageOption(
                 name="default",
@@ -139,16 +138,14 @@ def resolve_parametric_name(
         kind = parametric_generator_kind(base, families)
         if kind is None:
             continue
-        parsed = KIND_GENERATORS[kind](kind).parse_variant_suffix(
-            name[len(prefix):])
+        parsed = KIND_GENERATORS[kind](kind).parse_variant_suffix(name[len(prefix) :])
         if parsed is None:
             continue
         pin_count, values = parsed
         try:
             synth = concretize(base, pin_count, families, values)
         except PackageDefError:
-            _log.warning(
-                "parametric name does not realise", name=name, base=base_name)
+            _log.warning("parametric name does not realise", name=name, base=base_name)
             continue
         if synth.name == name:
             return synth
@@ -183,7 +180,9 @@ class ComponentCatalog(dict[str, ComponentDefinition]):
 
     # dict.get bypasses __missing__ — route it through __getitem__.
     def get(  # type: ignore[override]
-        self, name: str, default: ComponentDefinition | None = None,
+        self,
+        name: str,
+        default: ComponentDefinition | None = None,
     ) -> ComponentDefinition | None:
         try:
             return self[name]

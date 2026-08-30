@@ -31,13 +31,15 @@ __all__ = [
 
 
 #: All allowed values for any drag-conflict preference field.
-DRAG_CONFLICT_VALUES: frozenset[str] = frozenset({
-    "auto-remove",
-    "ask-remove",
-    "auto-reroute",
-    "ask-reroute",
-    "block",
-})
+DRAG_CONFLICT_VALUES: frozenset[str] = frozenset(
+    {
+        "auto-remove",
+        "ask-remove",
+        "auto-reroute",
+        "ask-reroute",
+        "block",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ class DragPreferences:
     default_lock_internal_wires: bool
 
     @classmethod
-    def from_app_settings(cls, s: "AppSettings") -> "DragPreferences":
+    def from_app_settings(cls, s: AppSettings) -> DragPreferences:
         return cls(
             free_wire=s.drag_free_wire_conflict,
             stationary_group_wire=s.drag_stationary_group_wire_conflict,

@@ -104,7 +104,9 @@ class CommandRecorder:
         try:
             payload = serialize_command(cmd)
         except UnknownCommandError as exc:
-            _log.warning("recorder.skip_unknown", cmd=type(cmd).__name__, error=str(exc))
+            _log.warning(
+                "recorder.skip_unknown", cmd=type(cmd).__name__, error=str(exc)
+            )
             return
         self._events.append({"kind": "execute", "command": payload})
         self._flush()

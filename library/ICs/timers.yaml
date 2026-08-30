@@ -1,36 +1,79 @@
 components:
-  - name: NE555
-    component_class: ic
-    pins: {count: 8}
-    package: {kind: dip_ic}
-    description: "555 timer IC"
-    pin_names:
-      1: GND
-      2: TRIG
-      3: OUT
-      4: NRST
-      5: CTRL
-      6: THR
-      7: DIS
-      8: VCC
-
-  - name: NE556
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Dual 555 timer IC"
-    pin_names:
-      1: DIS_A
-      2: THR_A
-      3: CTRL_A
-      4: NRST_A
-      5: OUT_A
-      6: TRIG_A
-      7: GND
-      8: TRIG_B
-      9: OUT_B
-      10: NRST_B
-      11: CTRL_B
-      12: THR_B
-      13: DIS_B
-      14: VCC
+- name: NE555
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "555 timer IC"
+  meta_pins:
+  - GND
+  - TRIG
+  - OUT
+  - NRST
+  - CTRL
+  - THR
+  - DIS
+  - VCC
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+- name: NE556
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Dual 555 timer IC"
+  meta_pins:
+  - DIS_A
+  - THR_A
+  - CTRL_A
+  - NRST_A
+  - OUT_A
+  - TRIG_A
+  - GND
+  - TRIG_B
+  - OUT_B
+  - NRST_B
+  - CTRL_B
+  - THR_B
+  - DIS_B
+  - VCC
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14

@@ -34,7 +34,10 @@ def _load_project_bound(fixture, library):  # type: ignore[no-untyped-def]
         set_migration_library,
     )
 
-    families = load_full_package_catalogue()
+    families = {
+        **load_full_package_catalogue(),
+        **library.package_families,
+    }
     set_migration_library(library)
     set_migration_families(families)
     try:
@@ -160,11 +163,18 @@ class TestUnweaveTwoWires:
         # from opposite sides — two shared-pad crossings with interleaved
         # directions.  Topological min = 0 (paired swap).
         w1 = _wire(
-            (0.0, 2.0), (2.0, 2.0), (4.0, 2.0), (6.0, 2.0),
+            (0.0, 2.0),
+            (2.0, 2.0),
+            (4.0, 2.0),
+            (6.0, 2.0),
         )
         w2 = _wire(
-            (2.0, 0.0), (2.0, 2.0), (2.0, 4.0),
-            (4.0, 4.0), (4.0, 2.0), (4.0, 0.0),
+            (2.0, 0.0),
+            (2.0, 2.0),
+            (2.0, 4.0),
+            (4.0, 4.0),
+            (4.0, 2.0),
+            (4.0, 0.0),
         )
         # Pre-swap: 2 shared-pad crossings.
         assert len(find_crossings(w1, w2)) == 2
@@ -174,10 +184,16 @@ class TestUnweaveTwoWires:
     def test_three_crossings_reduce_to_topological_min(self) -> None:
         # 3 crossings between two diagonals — topological min is 1.
         w1 = _wire(
-            (0.0, 0.0), (2.0, 2.0), (4.0, 0.0), (6.0, 2.0),
+            (0.0, 0.0),
+            (2.0, 2.0),
+            (4.0, 0.0),
+            (6.0, 2.0),
         )
         w2 = _wire(
-            (0.0, 2.0), (2.0, 0.0), (4.0, 2.0), (6.0, 0.0),
+            (0.0, 2.0),
+            (2.0, 0.0),
+            (4.0, 2.0),
+            (6.0, 0.0),
         )
         out = unweave_wires([w1, w2])
         # 3 crossings → 1 (paired swap removes 2, residual stays).
@@ -186,12 +202,20 @@ class TestUnweaveTwoWires:
     def test_five_crossings_reduce_to_topological_min(self) -> None:
         # 5 crossings — odd, should reduce to 1.
         w1 = _wire(
-            (0.0, 0.0), (2.0, 2.0), (4.0, 0.0), (6.0, 2.0),
-            (8.0, 0.0), (10.0, 2.0),
+            (0.0, 0.0),
+            (2.0, 2.0),
+            (4.0, 0.0),
+            (6.0, 2.0),
+            (8.0, 0.0),
+            (10.0, 2.0),
         )
         w2 = _wire(
-            (0.0, 2.0), (2.0, 0.0), (4.0, 2.0), (6.0, 0.0),
-            (8.0, 2.0), (10.0, 0.0),
+            (0.0, 2.0),
+            (2.0, 0.0),
+            (4.0, 2.0),
+            (6.0, 0.0),
+            (8.0, 2.0),
+            (10.0, 0.0),
         )
         out = unweave_wires([w1, w2])
         # 5 crossings → 1 (paired swaps remove 4, residual stays).
@@ -217,7 +241,11 @@ class TestUnweaveTwoWires:
         # (taken from the wire whose outer fragments it inherits).
         w1 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0))
         w2 = _wire(
-            (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
+            (4.0, 1.0),
+            (3.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
             side="bottom",
         )
         out = unweave_wires([w1, w2])
@@ -250,24 +278,30 @@ class TestUnweaveDoesNotIntroduceCrossingPointVertices:
 
     def test_no_crossing_point_vertex_inserted(self) -> None:
         w1 = _wire(
-            (2.5, 4.5), (3.5, 4.5), (4.5, 5.5), (5.5, 5.5), (6.5, 5.5),
-            (7.5, 4.5), (8.5, 4.5),
+            (2.5, 4.5),
+            (3.5, 4.5),
+            (4.5, 5.5),
+            (5.5, 5.5),
+            (6.5, 5.5),
+            (7.5, 4.5),
+            (8.5, 4.5),
         )
         w2 = _wire(
-            (8.5, 5.5), (7.5, 5.5), (6.5, 4.5), (5.5, 4.5), (4.5, 4.5),
-            (3.5, 5.5), (2.5, 5.5),
+            (8.5, 5.5),
+            (7.5, 5.5),
+            (6.5, 4.5),
+            (5.5, 4.5),
+            (4.5, 4.5),
+            (3.5, 5.5),
+            (2.5, 5.5),
         )
         out = unweave_wires([w1, w2])
         # The crossing point (4.0, 5.0) and (7.0, 5.0) must never appear as
         # a vertex of either output wire — only half-integer pad coords.
         for w in out:
             for p in w.path:
-                assert abs((p.x * 2) - round(p.x * 2)) < 1e-6, (
-                    f"non-pad x in path: {p}"
-                )
-                assert abs((p.y * 2) - round(p.y * 2)) < 1e-6, (
-                    f"non-pad y in path: {p}"
-                )
+                assert abs((p.x * 2) - round(p.x * 2)) < 1e-6, f"non-pad x in path: {p}"
+                assert abs((p.y * 2) - round(p.y * 2)) < 1e-6, f"non-pad y in path: {p}"
                 # And specifically reject the well-known crossing midpoints.
                 assert not (abs(p.x - 4.0) < 1e-6 and abs(p.y - 5.0) < 1e-6)
                 assert not (abs(p.x - 7.0) < 1e-6 and abs(p.y - 5.0) < 1e-6)
@@ -285,6 +319,7 @@ class TestUnweaveSideChangeSplitting:
         Used in unit tests that don't have a real ConnectivityGraph but want
         to exercise the splitting branch of the algorithm.
         """
+
         class _FakeLayout:
             placements: dict = {}
             groups: dict = {}
@@ -305,6 +340,7 @@ class TestUnweaveSideChangeSplitting:
 
         class _FakeSchematic:
             nets: dict = {}
+
         return _FakeGraph(), _FakeSchematic()
 
     def test_split_when_sides_differ_and_pad_safe(self) -> None:
@@ -313,11 +349,19 @@ class TestUnweaveSideChangeSplitting:
         """
         graph, schematic = self._make_safe_pad_safe()
         w1 = _wire(
-            (0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 0.0),
+            (3.0, 1.0),
+            (4.0, 0.0),
             side="top",
         )
         w2 = _wire(
-            (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
+            (4.0, 1.0),
+            (3.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
             side="bottom",
         )
         out = unweave_wires(
@@ -342,11 +386,19 @@ class TestUnweaveSideChangeSplitting:
         wire's attrs propagated to the middle).
         """
         w1 = _wire(
-            (0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 0.0),
+            (3.0, 1.0),
+            (4.0, 0.0),
             side="top",
         )
         w2 = _wire(
-            (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
+            (4.0, 1.0),
+            (3.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
             side="bottom",
         )
         out = unweave_wires([w1, w2])
@@ -361,11 +413,19 @@ class TestUnweaveSideChangeSplitting:
         the (fake) graph reports every pad as plated-through."""
         graph, schematic = self._make_safe_pad_safe()
         w1 = _wire(
-            (0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 0.0),
+            (3.0, 1.0),
+            (4.0, 0.0),
             side="top",
         )
         w2 = _wire(
-            (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
+            (4.0, 1.0),
+            (3.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
             side="bottom",
         )
         out = unweave_wires(
@@ -376,9 +436,9 @@ class TestUnweaveSideChangeSplitting:
         )
         # No wire may carry fragments on both sides.
         for w in out:
-            assert len(w.sides) == 1, (
-                f"wire {w.id} has fragments on multiple sides: {w.sides}"
-            )
+            assert (
+                len(w.sides) == 1
+            ), f"wire {w.id} has fragments on multiple sides: {w.sides}"
 
 
 class TestUnweaveConnectivityPreserved:
@@ -388,14 +448,23 @@ class TestUnweaveConnectivityPreserved:
     """
 
     def _connectivity_ok(
-        self, schematic, board, layout, components, instances,
+        self,
+        schematic,
+        board,
+        layout,
+        components,
+        instances,
     ) -> tuple[bool, str]:
+        from collections import defaultdict
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
         from protoboard.domain.schematic.net import PinRef
-        from collections import defaultdict
+
         g = ConnectivityGraph(
-            board=board, layout=layout,
-            components=components, instances=instances,
+            board=board,
+            layout=layout,
+            components=components,
+            instances=instances,
         )
         for net in schematic.nets.values():
             keys = {g.node_for_pin(ref) for ref in net.pins}
@@ -404,7 +473,8 @@ class TestUnweaveConnectivityPreserved:
                 return False, f"Net {net.name} pins split across {len(keys)} sets"
         pin_to_net = {
             (ref.component_id, ref.pin_number): net.id
-            for net in schematic.nets.values() for ref in net.pins
+            for net in schematic.nets.values()
+            for ref in net.pins
         }
         key_to_nets: dict = defaultdict(set)
         for (cid, pn), nid in pin_to_net.items():
@@ -422,55 +492,65 @@ class TestUnweaveConnectivityPreserved:
         check the algorithm would happily swap and merge those nets.
         """
         from pathlib import Path
-        from protoboard.services.persistence.project_yaml import load_project
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
         from protoboard.domain.layout.layout import Layout
-        from protoboard.services.library.loader import load_library
         from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
 
         if not BUILTIN_LIBRARY_DIR.exists():
             return
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_04"
         library = load_library([BUILTIN_LIBRARY_DIR])
         board, layout, schematic, instances, *_ = _load_project_bound(
-            fixture, library,
+            fixture,
+            library,
         )
         components = {n: library.get(n) for n in library.names()}
 
         graph = ConnectivityGraph(
-            board=board, layout=layout,
-            components=components, instances=instances,
+            board=board,
+            layout=layout,
+            components=components,
+            instances=instances,
         )
         out = unweave_wires(
-            list(layout.wires), schematic=schematic, graph=graph,
+            list(layout.wires),
+            schematic=schematic,
+            graph=graph,
         )
         # Validate connectivity.
         new_layout = Layout()
         new_layout.wires = cast(WireCollection, out)
         new_layout.placements = layout.placements
         ok, reason = self._connectivity_ok(
-            schematic, board, new_layout, components, instances,
+            schematic,
+            board,
+            new_layout,
+            components,
+            instances,
         )
         assert ok, reason
         # And the algorithm still makes progress (some swaps happen).
         assert count_mutual_crossings(out) < count_mutual_crossings(list(layout.wires))
 
     def test_tangled_03_upper_connectivity(self) -> None:
-        from pathlib import Path
         from collections import defaultdict
-        from protoboard.services.persistence.project_yaml import load_project
+        from pathlib import Path
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
         from protoboard.domain.layout.layout import Layout
-        from protoboard.services.library.loader import load_library
-        from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.domain.schematic.net import PinRef
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
 
         if not BUILTIN_LIBRARY_DIR.exists():
             return  # env-dependent, skip
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
         library = load_library([BUILTIN_LIBRARY_DIR])
         board, layout, schematic, instances, *_ = _load_project_bound(
-            fixture, library,
+            fixture,
+            library,
         )
         components = {name: library.get(name) for name in library.names()}
 
@@ -479,23 +559,29 @@ class TestUnweaveConnectivityPreserved:
             cid for cid, pl in layout.placements.items() if pl.position.y < 15
         }
         upper_instances = {k: v for k, v in instances.items() if k in upper_inst_ids}
-        upper_placements = {k: v for k, v in layout.placements.items() if k in upper_inst_ids}
+        upper_placements = {
+            k: v for k, v in layout.placements.items() if k in upper_inst_ids
+        }
         upper_wires = [w for w in layout.wires if max(p.y for p in w.path) < 15.0]
         upper_nets = [
-            n for n in schematic.nets.values()
+            n
+            for n in schematic.nets.values()
             if all(ref.component_id in upper_inst_ids for ref in n.pins)
         ]
         upper_pin_to_net = {
             (ref.component_id, ref.pin_number): n.id
-            for n in upper_nets for ref in n.pins
+            for n in upper_nets
+            for ref in n.pins
         }
 
         upper_layout = Layout()
         upper_layout.wires = cast(WireCollection, upper_wires)
         upper_layout.placements = PlacementCollection(upper_placements)
         graph = ConnectivityGraph(
-            board=board, layout=upper_layout,
-            components=components, instances=upper_instances,
+            board=board,
+            layout=upper_layout,
+            components=components,
+            instances=upper_instances,
         )
         out = unweave_wires(upper_wires, schematic=schematic, graph=graph)
 
@@ -504,17 +590,19 @@ class TestUnweaveConnectivityPreserved:
         new_layout.wires = cast(WireCollection, out)
         new_layout.placements = PlacementCollection(upper_placements)
         new_graph = ConnectivityGraph(
-            board=board, layout=new_layout,
-            components=components, instances=upper_instances,
+            board=board,
+            layout=new_layout,
+            components=components,
+            instances=upper_instances,
         )
 
         # Invariant 1: every net's pins land in exactly one electric set.
         for net in upper_nets:
             keys = {new_graph.node_for_pin(ref) for ref in net.pins}
             keys.discard(None)
-            assert len(keys) == 1, (
-                f"Net {net.name} pins split across {len(keys)} sets: {keys}"
-            )
+            assert (
+                len(keys) == 1
+            ), f"Net {net.name} pins split across {len(keys)} sets: {keys}"
 
         # Invariant 2: no electric set contains pins from two different nets.
         key_to_nets: dict = defaultdict(set)
@@ -523,9 +611,7 @@ class TestUnweaveConnectivityPreserved:
             if k is not None:
                 key_to_nets[k].add(nid)
         for k, nids in key_to_nets.items():
-            assert len(nids) == 1, (
-                f"Short circuit at {k}: pins from {len(nids)} nets"
-            )
+            assert len(nids) == 1, f"Short circuit at {k}: pins from {len(nids)} nets"
 
 
 class TestUnweaveSideRebalance:
@@ -537,23 +623,26 @@ class TestUnweaveSideRebalance:
 
     def test_tangled_04_rebalance_reduces_multi_side(self) -> None:
         from pathlib import Path
-        from protoboard.services.persistence.project_yaml import load_project
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
-        from protoboard.services.routing.unweave import _group_by_endpoints
-        from protoboard.services.library.loader import load_library
         from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.routing.unweave import _group_by_endpoints
 
         if not BUILTIN_LIBRARY_DIR.exists():
             return
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_04"
         library = load_library([BUILTIN_LIBRARY_DIR])
         board, layout, schematic, instances, *_ = _load_project_bound(
-            fixture, library,
+            fixture,
+            library,
         )
         components = {n: library.get(n) for n in library.names()}
         g = ConnectivityGraph(
-            board=board, layout=layout,
-            components=components, instances=instances,
+            board=board,
+            layout=layout,
+            components=components,
+            instances=instances,
         )
         out = unweave_wires(list(layout.wires), schematic=schematic, graph=g)
         chains = _group_by_endpoints(out)
@@ -563,9 +652,9 @@ class TestUnweaveSideRebalance:
         # the chain count stays sane.  Crossings/shorts regressions are
         # covered by the other tests in this file.
         multi = [c for c in chains if len({w.side for w in c}) > 1]
-        assert len(multi) <= len(chains), (
-            f"more multi-side chains ({len(multi)}) than chains ({len(chains)})"
-        )
+        assert len(multi) <= len(
+            chains
+        ), f"more multi-side chains ({len(multi)}) than chains ({len(chains)})"
 
 
 class TestUnweaveSubsetSelection:
@@ -580,26 +669,30 @@ class TestUnweaveSubsetSelection:
 
     def test_two_wires_with_two_crossings_unweave_to_zero(self) -> None:
         from pathlib import Path
-        from protoboard.services.persistence.project_yaml import load_project
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
-        from protoboard.services.library.loader import load_library
         from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
 
         if not BUILTIN_LIBRARY_DIR.exists():
             return
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_04"
         library = load_library([BUILTIN_LIBRARY_DIR])
         board, layout, schematic, instances, *_ = _load_project_bound(
-            fixture, library,
+            fixture,
+            library,
         )
         components = {n: library.get(n) for n in library.names()}
         g = ConnectivityGraph(
-            board=board, layout=layout,
-            components=components, instances=instances,
+            board=board,
+            layout=layout,
+            components=components,
+            instances=instances,
         )
 
         wires = list(layout.wires)
         from protoboard.services.routing.unweave import find_crossings
+
         two_cross_pairs = [
             (i, j)
             for i in range(len(wires))
@@ -608,14 +701,14 @@ class TestUnweaveSubsetSelection:
         ]
         assert two_cross_pairs, "fixture changed — expected some 2-crossing pairs"
 
-        for (i, j) in two_cross_pairs:
+        for i, j in two_cross_pairs:
             pair = [wires[i], wires[j]]
             before = count_mutual_crossings(pair)
             out = unweave_wires(pair, schematic=schematic, graph=g)
             after = count_mutual_crossings(out)
-            assert after <= before, (
-                f"pair {i}-{j}: crossings went up from {before} to {after}"
-            )
+            assert (
+                after <= before
+            ), f"pair {i}-{j}: crossings went up from {before} to {after}"
 
 
 class TestUnweaveRegroupAfterSwap:
@@ -630,21 +723,25 @@ class TestUnweaveRegroupAfterSwap:
         the same result as feeding the equivalent single-segment wire."""
         from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
+
         # Two-pin net split into 3 segments connected at shared pads.
         seg_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.0, 0.0), Point(1.0, 0.0)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         seg_b = Wire(
             id=uuid.uuid4(),
             path=[Point(1.0, 0.0), Point(2.0, 0.0)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         seg_c = Wire(
             id=uuid.uuid4(),
             path=[Point(2.0, 0.0), Point(3.0, 0.0)],
-            insulated=False, side="top",
+            insulated=False,
+            side="top",
         )
         chained = unweave_wires([seg_a, seg_b, seg_c])
         # No crossings, no opportunity to swap — output equals input
@@ -662,10 +759,18 @@ class TestUnweaveRemerge:
         # 4-zigzag wires on the same side+insulated should stay as one
         # Wire each after unweave (no splitting required).
         w1 = _wire(
-            (0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0),
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 0.0),
+            (3.0, 1.0),
+            (4.0, 0.0),
         )
         w2 = _wire(
-            (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
+            (4.0, 1.0),
+            (3.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 0.0),
+            (0.0, 1.0),
         )
         out = unweave_wires([w1, w2])
         assert len(out) == 2  # not split into pieces
@@ -677,14 +782,38 @@ class TestUnweaveTangledFixture:
     def test_pair_J1_J2_reduces_to_zero(self) -> None:
         # The two wires between J1 (left) and J2 (right) on rows y=4.5 / 5.5.
         w1 = _wire(
-            (2.5, 4.5), (3.5, 4.5), (4.5, 5.5), (5.5, 5.5), (6.5, 5.5),
-            (7.5, 4.5), (8.5, 4.5), (9.5, 4.5), (10.5, 5.5), (11.5, 5.5),
-            (12.5, 5.5), (13.5, 4.5), (14.5, 4.5), (15.5, 4.5), (16.5, 4.5),
+            (2.5, 4.5),
+            (3.5, 4.5),
+            (4.5, 5.5),
+            (5.5, 5.5),
+            (6.5, 5.5),
+            (7.5, 4.5),
+            (8.5, 4.5),
+            (9.5, 4.5),
+            (10.5, 5.5),
+            (11.5, 5.5),
+            (12.5, 5.5),
+            (13.5, 4.5),
+            (14.5, 4.5),
+            (15.5, 4.5),
+            (16.5, 4.5),
         )
         w2 = _wire(
-            (16.5, 5.5), (15.5, 5.5), (14.5, 5.5), (13.5, 5.5), (12.5, 4.5),
-            (11.5, 4.5), (10.5, 4.5), (9.5, 5.5), (8.5, 5.5), (7.5, 5.5),
-            (6.5, 4.5), (5.5, 4.5), (4.5, 4.5), (3.5, 5.5), (2.5, 5.5),
+            (16.5, 5.5),
+            (15.5, 5.5),
+            (14.5, 5.5),
+            (13.5, 5.5),
+            (12.5, 4.5),
+            (11.5, 4.5),
+            (10.5, 4.5),
+            (9.5, 5.5),
+            (8.5, 5.5),
+            (7.5, 5.5),
+            (6.5, 4.5),
+            (5.5, 4.5),
+            (4.5, 4.5),
+            (3.5, 5.5),
+            (2.5, 5.5),
         )
         assert count_mutual_crossings([w1, w2]) > 0
         out = unweave_wires([w1, w2])
@@ -699,19 +828,55 @@ class TestUnweaveTangledFixture:
         # 3 wires between J5 and J6 (rows 10.5 / 11.5 / 12.5).  Endpoints
         # mix two inverted permutations → topological minimum is 2.
         wA = _wire(
-            (2.5, 10.5), (3.5, 10.5), (4.5, 10.5), (5.5, 11.5), (6.5, 11.5),
-            (7.5, 11.5), (8.5, 10.5), (9.5, 10.5), (10.5, 10.5), (11.5, 11.5),
-            (12.5, 12.5), (13.5, 12.5), (14.5, 12.5), (15.5, 11.5), (16.5, 11.5),
+            (2.5, 10.5),
+            (3.5, 10.5),
+            (4.5, 10.5),
+            (5.5, 11.5),
+            (6.5, 11.5),
+            (7.5, 11.5),
+            (8.5, 10.5),
+            (9.5, 10.5),
+            (10.5, 10.5),
+            (11.5, 11.5),
+            (12.5, 12.5),
+            (13.5, 12.5),
+            (14.5, 12.5),
+            (15.5, 11.5),
+            (16.5, 11.5),
         )
         wB = _wire(
-            (2.5, 11.5), (3.5, 11.5), (4.5, 11.5), (5.5, 10.5), (6.5, 10.5),
-            (7.5, 10.5), (8.5, 11.5), (9.5, 11.5), (10.5, 11.5), (11.5, 10.5),
-            (12.5, 10.5), (13.5, 11.5), (14.5, 11.5), (15.5, 12.5), (16.5, 12.5),
+            (2.5, 11.5),
+            (3.5, 11.5),
+            (4.5, 11.5),
+            (5.5, 10.5),
+            (6.5, 10.5),
+            (7.5, 10.5),
+            (8.5, 11.5),
+            (9.5, 11.5),
+            (10.5, 11.5),
+            (11.5, 10.5),
+            (12.5, 10.5),
+            (13.5, 11.5),
+            (14.5, 11.5),
+            (15.5, 12.5),
+            (16.5, 12.5),
         )
         wC = _wire(
-            (16.5, 10.5), (15.5, 10.5), (14.5, 10.5), (13.5, 10.5), (12.5, 11.5),
-            (11.5, 12.5), (10.5, 12.5), (9.5, 12.5), (8.5, 12.5), (7.5, 12.5),
-            (6.5, 12.5), (5.5, 12.5), (4.5, 12.5), (3.5, 12.5), (2.5, 12.5),
+            (16.5, 10.5),
+            (15.5, 10.5),
+            (14.5, 10.5),
+            (13.5, 10.5),
+            (12.5, 11.5),
+            (11.5, 12.5),
+            (10.5, 12.5),
+            (9.5, 12.5),
+            (8.5, 12.5),
+            (7.5, 12.5),
+            (6.5, 12.5),
+            (5.5, 12.5),
+            (4.5, 12.5),
+            (3.5, 12.5),
+            (2.5, 12.5),
         )
         before = count_mutual_crossings([wA, wB, wC])
         assert before >= 4
@@ -735,6 +900,7 @@ class TestUnweaveTangled02Fixture:
 
     def test_reduces_total_crossings(self) -> None:
         from pathlib import Path
+
         from protoboard.services.persistence.project_yaml import load_project
 
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_02"
@@ -774,6 +940,7 @@ class TestUnweaveTangled03Fixture:
         backbones.
         """
         from pathlib import Path
+
         from protoboard.services.persistence.project_yaml import load_project
 
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
@@ -790,6 +957,7 @@ class TestUnweaveTangled03Fixture:
         layout for the same logical circuit.  It demonstrates the achievable
         minimum (4 crossings) when allowed to change wire side mid-path."""
         from pathlib import Path
+
         from protoboard.services.persistence.project_yaml import load_project
 
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
@@ -804,33 +972,42 @@ class TestUnweaveTangled03Fixture:
         count as the user's manual reference in the lower circuit.
         """
         from pathlib import Path
-        from protoboard.services.persistence.project_yaml import load_project
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
 
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
         # Pull component definitions from session loader if available;
         # otherwise skip the graph-driven path and assert legacy behaviour.
         try:
-            from protoboard.services.library.loader import load_library
             from protoboard.paths import BUILTIN_LIBRARY_DIR
-            library = load_library([BUILTIN_LIBRARY_DIR]) if BUILTIN_LIBRARY_DIR.exists() else None
+            from protoboard.services.library.loader import load_library
+
+            library = (
+                load_library([BUILTIN_LIBRARY_DIR])
+                if BUILTIN_LIBRARY_DIR.exists()
+                else None
+            )
         except Exception:
             library = None
         if library is None:
             return  # environment-dependent — skip
         board, layout, schematic, instances, *_ = _load_project_bound(
-            fixture, library,
+            fixture,
+            library,
         )
         # Build a minimal connectivity graph for the upper circuit only.
         from protoboard.domain.layout.layout import Layout
+
         upper_wires = [w for w in layout.wires if max(p.y for p in w.path) < 15.0]
         upper_layout = Layout()
         upper_layout.wires = cast(WireCollection, upper_wires)
         upper_layout.placements = layout.placements
         components = {name: library.get(name) for name in library.names()}
         graph = ConnectivityGraph(
-            board=board, layout=upper_layout,
-            components=components, instances=instances,
+            board=board,
+            layout=upper_layout,
+            components=components,
+            instances=instances,
         )
         before = count_mutual_crossings(upper_wires)
         out = unweave_wires(upper_wires, schematic=schematic, graph=graph)
@@ -859,7 +1036,7 @@ class TestUnweaveLivelockGuard:
         w2 = _wire((0.0, 4.0), (4.0, 0.0))
 
         original = w1.path[:]
-        flipped  = list(reversed(original))
+        flipped = list(reversed(original))
         call = {"n": 0}
 
         def fake_swap(logical, i, j, *, pad_safe, short_check, board_pads):
@@ -875,15 +1052,23 @@ class TestUnweaveLivelockGuard:
             # the very first fingerprint, which is in ``seen_fingerprints``.
             seg = logical[0][0]
             if call["n"] == 1:
-                logical[0] = [Wire(
-                    id=seg.id, path=list(flipped),
-                    insulated=seg.insulated, side=seg.side,
-                )]
+                logical[0] = [
+                    Wire(
+                        id=seg.id,
+                        path=list(flipped),
+                        insulated=seg.insulated,
+                        side=seg.side,
+                    )
+                ]
             else:
-                logical[0] = [Wire(
-                    id=seg.id, path=list(original),
-                    insulated=seg.insulated, side=seg.side,
-                )]
+                logical[0] = [
+                    Wire(
+                        id=seg.id,
+                        path=list(original),
+                        insulated=seg.insulated,
+                        side=seg.side,
+                    )
+                ]
             return True
 
         monkeypatch.setattr(uw_mod, "_attempt_pair_swap", fake_swap)
@@ -904,10 +1089,12 @@ class TestUnweaveLivelockGuard:
 
 
 def _make_board_pads(min_x: int, max_x: int, min_y: int, max_y: int) -> set[Point]:
-    """Dense set of unit-grid pads covering the rectangle [min_x..max_x] x [min_y..max_y]."""
-    return {Point(float(x), float(y))
-            for x in range(min_x, max_x + 1)
-            for y in range(min_y, max_y + 1)}
+    """Dense set of unit-grid pads covering the rectangle [min_x..max_x] x [min_y..max_y]."""  # noqa: E501
+    return {
+        Point(float(x), float(y))
+        for x in range(min_x, max_x + 1)
+        for y in range(min_y, max_y + 1)
+    }
 
 
 class TestOverlapRunSeparation:
@@ -922,10 +1109,12 @@ class TestOverlapRunSeparation:
         # W1: (0,0) → (1,1) → (2,1) → (3,1) → (4,1) → (5,2)
         # W2: (0,2) → (1,1) → (2,1) → (3,1) → (4,1) → (5,0)
         # Shared interior pads: (1,1), (2,1), (3,1), (4,1) → run of length 4
-        w1 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
-                   (4.0, 1.0), (5.0, 2.0))
-        w2 = _wire((0.0, 2.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
-                   (4.0, 1.0), (5.0, 0.0))
+        w1 = _wire(
+            (0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 2.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0), (5.0, 0.0)
+        )
         lp1 = _to_logical_path([w1])
         lp2 = _to_logical_path([w2])
         runs = _find_overlap_runs(lp1, lp2)
@@ -973,10 +1162,18 @@ class TestOverlapRunSeparation:
         # W1: (0,2) → (1,2) → (2,2) → (3,2) → (4,2) → (5,2)
         # W2: (0,0) → (1,1) → (2,2) → (3,2) → (4,2) → (5,1) → (6,0)
         # Free corridor: row y=3 (no pins, no other wires).
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0))
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        w1 = _wire(
+            (0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0), (4.0, 2.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+        )
         board_pads = _make_board_pads(0, 6, 0, 4)
         out = unweave_wires([w1, w2], board_pads=board_pads)
         # After the pass: no shared interior pads at the (2,2)-(4,2) run.
@@ -997,10 +1194,12 @@ class TestOverlapRunSeparation:
         # W1 and W2 share (2,2)→(3,2).
         # Other wires hog rows y=1 and y=3 around the same x range —
         # blocking every shift offset via the lp_other check.
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0))
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 1.0), (5.0, 0.0))
+        w1 = _wire(
+            (0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0), (4.0, 2.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0), (4.0, 1.0), (5.0, 0.0)
+        )
         # Tight board: only y in {0..2} → no free row above for shift.
         # No free row below either (W2 occupies y=0..1 around the overlap).
         board_pads = _make_board_pads(0, 5, 0, 2)
@@ -1017,17 +1216,20 @@ class TestOverlapRunSeparation:
         single-point crossing the canonical swap can resolve."""
         # Setup: two wires that overlap 3 pads, then diverge to opposite
         # corners.  Topological min after separation = 0 (no permutation).
-        w1 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
-                   (4.0, 1.0), (5.0, 0.0))
-        w2 = _wire((0.0, 2.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
-                   (4.0, 1.0), (5.0, 2.0))
+        w1 = _wire(
+            (0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0), (5.0, 0.0)
+        )
+        w2 = _wire(
+            (0.0, 2.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0), (5.0, 2.0)
+        )
         board_pads = _make_board_pads(0, 5, 0, 3)
         out = unweave_wires([w1, w2], board_pads=board_pads)
         # No interior pad shared anymore.
         interior1 = {(p.x, p.y) for p in out[0].path[1:-1]}
         interior2 = {(p.x, p.y) for p in out[1].path[1:-1]}
-        assert (interior1 & interior2) == set(), \
-            f"residual shared pads: {interior1 & interior2}"
+        assert (
+            interior1 & interior2
+        ) == set(), f"residual shared pads: {interior1 & interior2}"
         # And no geometric crossings either.
         assert count_mutual_crossings(out) == 0
 
@@ -1035,10 +1237,18 @@ class TestOverlapRunSeparation:
         """Running unweave twice on the same input is a no-op on pass two —
         the overlap pass produced strict reduction and there's nothing left
         to separate."""
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0))
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        w1 = _wire(
+            (0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0), (4.0, 2.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+        )
         board_pads = _make_board_pads(0, 6, 0, 4)
         out1 = unweave_wires([w1, w2], board_pads=board_pads)
         out2 = unweave_wires(out1, board_pads=board_pads)
@@ -1046,7 +1256,9 @@ class TestOverlapRunSeparation:
         for a, b in zip(out1, out2):
             assert [(p.x, p.y) for p in a.path] == [(p.x, p.y) for p in b.path]
 
-    def test_foreign_wire_blocks_default_corridor_other_offset_still_works(self) -> None:
+    def test_foreign_wire_blocks_default_corridor_other_offset_still_works(
+        self,
+    ) -> None:
         """A third wire (not part of the unweave selection) sits on the
         default shift corridor (row above the overlap).  The pass must
         skip that offset and try the row BELOW instead.
@@ -1058,39 +1270,53 @@ class TestOverlapRunSeparation:
         from protoboard.services.routing.unweave import (
             _separate_overlap_runs_pass,
             _to_logical_path,
-            _from_logical_path,
         )
 
         # W1 and W2 overlap at (2,2), (3,2), (4,2).
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0))
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        w1 = _wire(
+            (0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0), (4.0, 2.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+        )
         # Foreign wire occupies the row directly above the overlap (y=3).
         # Without the guard the pass would try (0, +1) shift, find no
         # collision in lp_other, accept it — and now we'd cross the
         # foreign wire's pads.
-        foreign = _wire((1.0, 3.0), (2.0, 3.0), (3.0, 3.0), (4.0, 3.0),
-                        (5.0, 3.0))
+        foreign = _wire((1.0, 3.0), (2.0, 3.0), (3.0, 3.0), (4.0, 3.0), (5.0, 3.0))
         board_pads = _make_board_pads(0, 6, 0, 4)
         # Foreign on same side as W1/W2 (default "top") so it actually blocks.
         foreign_pads = {(p, "top") for p in foreign.path}
 
         logical = [[w1], [w2]]
         _separate_overlap_runs_pass(
-            logical, pad_safe=None, short_check=None,
-            board_pads=board_pads, forbidden_pads=None,
+            logical,
+            pad_safe=None,
+            short_check=None,
+            board_pads=board_pads,
+            forbidden_pads=None,
             foreign_wire_pads=foreign_pads,
         )
         # Pass must NOT have placed any vertex on the foreign row.
         for chain in logical:
             for seg in chain:
                 for p in seg.path:
-                    assert (p.x, p.y) not in {(x, y) for x, y in
-                                              [(1.0, 3.0), (2.0, 3.0),
-                                               (3.0, 3.0), (4.0, 3.0),
-                                               (5.0, 3.0)]}, \
-                        f"shifted onto foreign wire pad {(p.x, p.y)}"
+                    assert (p.x, p.y) not in {
+                        (x, y)
+                        for x, y in [
+                            (1.0, 3.0),
+                            (2.0, 3.0),
+                            (3.0, 3.0),
+                            (4.0, 3.0),
+                            (5.0, 3.0),
+                        ]
+                    }, f"shifted onto foreign wire pad {(p.x, p.y)}"
         # And the overlap should still be separated (row below — y=1 — is
         # still free for half the run, even though (1,1) is on W2 itself).
         # We won't assert exact paths here, but the run should at least
@@ -1100,9 +1326,14 @@ class TestOverlapRunSeparation:
         interior1 = {(lp.point.x, lp.point.y) for lp in out_lp1[1:-1]}
         interior2 = {(lp.point.x, lp.point.y) for lp in out_lp2[1:-1]}
         # No new pad should be on the foreign corridor.
-        for cand in (interior1 | interior2):
-            assert cand not in {(1.0, 3.0), (2.0, 3.0), (3.0, 3.0),
-                                (4.0, 3.0), (5.0, 3.0)}
+        for cand in interior1 | interior2:
+            assert cand not in {
+                (1.0, 3.0),
+                (2.0, 3.0),
+                (3.0, 3.0),
+                (4.0, 3.0),
+                (5.0, 3.0),
+            }
 
     def test_foreign_wire_on_both_corridors_blocks_shift(self) -> None:
         """Foreign wires occupy BOTH free corridors (rows above and below
@@ -1112,10 +1343,18 @@ class TestOverlapRunSeparation:
             _separate_overlap_runs_pass,
         )
 
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0))
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        w1 = _wire(
+            (0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0), (4.0, 2.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+        )
         # Foreign wires on rows y=3 AND y=1, on the same side as W1/W2 (top).
         foreign_pads = {(Point(float(x), 3.0), "top") for x in range(0, 6)}
         foreign_pads |= {(Point(float(x), 1.0), "top") for x in range(0, 6)}
@@ -1126,8 +1365,11 @@ class TestOverlapRunSeparation:
 
         logical = [[w1], [w2]]
         _separate_overlap_runs_pass(
-            logical, pad_safe=None, short_check=None,
-            board_pads=board_pads, forbidden_pads=None,
+            logical,
+            pad_safe=None,
+            short_check=None,
+            board_pads=board_pads,
+            forbidden_pads=None,
             foreign_wire_pads=foreign_pads,
         )
         # No shift possible — paths must be untouched.
@@ -1156,16 +1398,29 @@ class TestOverlapRunSeparation:
 
         # Both wires share the interior pad sequence (2,2),(3,2),(4,2)
         # geometrically, but live on different sides.
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0), side="top")
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0), side="bottom")
+        w1 = _wire(
+            (0.0, 2.0),
+            (1.0, 2.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 2.0),
+            side="top",
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+            side="bottom",
+        )
         lp1 = _to_logical_path([w1])
         lp2 = _to_logical_path([w2])
         runs = _find_overlap_runs(lp1, lp2)
-        assert runs == [], (
-            f"cross-side wires must not produce overlap runs, got {runs}"
-        )
+        assert runs == [], f"cross-side wires must not produce overlap runs, got {runs}"
 
     def test_foreign_wire_other_side_does_not_block_shift(self) -> None:
         """A foreign wire on the side OPPOSITE to the wire being shifted
@@ -1182,20 +1437,37 @@ class TestOverlapRunSeparation:
         )
 
         # Two top-side wires with an overlap.
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0), side="top")
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0), side="top")
+        w1 = _wire(
+            (0.0, 2.0),
+            (1.0, 2.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 2.0),
+            side="top",
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+            side="top",
+        )
         # Foreign wire occupies row y=3 — but on BOTTOM side, so it must
         # not block top-side shift candidates.
-        foreign_pads_bottom = {(Point(float(x), 3.0), "bottom")
-                               for x in range(0, 6)}
+        foreign_pads_bottom = {(Point(float(x), 3.0), "bottom") for x in range(0, 6)}
         board_pads = _make_board_pads(0, 6, 0, 4)
 
         logical = [[w1], [w2]]
         _separate_overlap_runs_pass(
-            logical, pad_safe=None, short_check=None,
-            board_pads=board_pads, forbidden_pads=None,
+            logical,
+            pad_safe=None,
+            short_check=None,
+            board_pads=board_pads,
+            forbidden_pads=None,
             foreign_wire_pads=foreign_pads_bottom,
         )
         # The pass should have shifted at least one of the wires to y=3
@@ -1214,10 +1486,18 @@ class TestOverlapRunSeparation:
     def test_endpoints_always_preserved(self) -> None:  # noqa: D401
         """No matter what the pass does, both wires must keep their original
         first and last vertex."""
-        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 2.0))
-        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
-                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        w1 = _wire(
+            (0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0), (4.0, 2.0), (5.0, 2.0)
+        )
+        w2 = _wire(
+            (0.0, 0.0),
+            (1.0, 1.0),
+            (2.0, 2.0),
+            (3.0, 2.0),
+            (4.0, 2.0),
+            (5.0, 1.0),
+            (6.0, 0.0),
+        )
         board_pads = _make_board_pads(0, 6, 0, 4)
         out = unweave_wires([w1, w2], board_pads=board_pads)
         assert out[0].path[0] == Point(0.0, 2.0)
@@ -1242,9 +1522,10 @@ class TestSideFlipPass:
         w2 = _wire((0.0, 2.0), (2.0, 0.0), side="bottom")
         out = unweave_wires([w1, w2])
         sides_out = {w.side for w in out}
-        assert sides_out == {"top", "bottom"}, (
-            f"sides must not change without explicit allow_side_flip, got {sides_out}"
-        )
+        assert sides_out == {
+            "top",
+            "bottom",
+        }, f"sides must not change without explicit allow_side_flip, got {sides_out}"
 
     def test_enabled_can_flip_to_reduce_2d_crossing(self) -> None:
         """allow_side_flip=True — a wire may be flipped to the opposite
@@ -1280,10 +1561,12 @@ class TestSideFlipPass:
 
         # Both wires pass through (1, 1), (2, 1), (3, 1) — 3 shared pads in
         # 2D — but on different sides (no physical overlap).
-        w1 = _wire((0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0),
-                   side="top")
-        w2 = _wire((0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0),
-                   side="bottom")
+        w1 = _wire(
+            (0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0), side="top"
+        )
+        w2 = _wire(
+            (0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0), side="bottom"
+        )
         logical = [[w1], [w2]]
         # Without pad_safe / short_check the gate is just the count gate.
         _side_flip_pass(logical, pad_safe=None, short_check=None)
@@ -1291,9 +1574,10 @@ class TestSideFlipPass:
         # (both still share all 3 interior pads) AND cross_after == cross_before.
         # No strict improvement → rejected.
         sides_out = [chain[0].side for chain in logical]
-        assert sorted(sides_out) == ["bottom", "top"], (
-            f"flip must be rejected (no strict improvement), got {sides_out}"
-        )
+        assert sorted(sides_out) == [
+            "bottom",
+            "top",
+        ], f"flip must be rejected (no strict improvement), got {sides_out}"
 
     def test_short_check_can_veto_flip(self) -> None:
         """short_check predicate gets the proposed layout and can veto

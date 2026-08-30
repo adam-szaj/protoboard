@@ -20,10 +20,9 @@ Example::
 from __future__ import annotations
 
 import re
-from typing import Union
 
 # A node is either a string atom or a list whose first element is the tag.
-SNode = Union[str, list["SNode"]]
+SNode = str | list["SNode"]
 
 
 def parse(text: str) -> list[SNode]:
@@ -46,8 +45,8 @@ def parse(text: str) -> list[SNode]:
 
 _TOKEN_RE = re.compile(
     r'"(?:[^"\\]|\\.)*"'  # quoted string
-    r"|[()]"               # parens
-    r"|[^\s()\"]+",        # unquoted atom
+    r"|[()]"  # parens
+    r"|[^\s()\"]+",  # unquoted atom
     re.DOTALL,
 )
 
@@ -82,6 +81,7 @@ def _build(tokens: list[str], pos: int) -> tuple[int, SNode]:
 # Query helpers
 # ---------------------------------------------------------------------------
 
+
 def child(node: list[SNode], tag: str) -> list[SNode] | None:
     """Return the first child list whose first element equals *tag*, or None."""
     for item in node[1:]:
@@ -93,9 +93,7 @@ def child(node: list[SNode], tag: str) -> list[SNode] | None:
 def children(node: list[SNode], tag: str) -> list[list[SNode]]:
     """Return all child lists whose first element equals *tag*."""
     return [
-        item
-        for item in node[1:]
-        if isinstance(item, list) and item and item[0] == tag
+        item for item in node[1:] if isinstance(item, list) and item and item[0] == tag
     ]
 
 

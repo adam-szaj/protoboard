@@ -19,12 +19,6 @@ from __future__ import annotations
 import uuid
 from typing import cast
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QMouseEvent
-
-from protoboard.domain.components.instance import ComponentInstance
-from protoboard.geometry import Point
-from protoboard.gui.board_view import BoardView
 from protoboard.controller.editing.drag_set import DragSet
 from protoboard.controller.selection.drag_controller import (
     DragContext,
@@ -32,11 +26,14 @@ from protoboard.controller.selection.drag_controller import (
     FloatingPhase,
 )
 from protoboard.controller.selection.mouse_input import Intent, Mods
-from protoboard.gui.session import EditorSession
 from protoboard.controller.tools.drag_commit_decision import (
     DragCommitDecision,
     DragSeverity,
 )
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.geometry import Point
+from protoboard.gui.board_view import BoardView
+from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import PlaceTool
 from tests.gui.input_helpers import pointer
 

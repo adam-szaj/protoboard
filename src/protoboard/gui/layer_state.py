@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from protoboard.types import Side
@@ -45,15 +45,15 @@ ViewTransform = Literal["normal", "mirror_h", "mirror_v", "mirror_hv"]
 # Z-value anchors
 # ---------------------------------------------------------------------------
 
-Z_BACK_LABELS      = 0.0
-Z_BACK_COMPONENTS  = 1.0
-Z_BACK_WIRES       = 2.0
-Z_BOARD            = 3.0
-Z_PIN_PADS         = 3.5
-Z_FRONT_WIRES      = 4.0
+Z_BACK_LABELS = 0.0
+Z_BACK_COMPONENTS = 1.0
+Z_BACK_WIRES = 2.0
+Z_BOARD = 3.0
+Z_PIN_PADS = 3.5
+Z_FRONT_WIRES = 4.0
 Z_FRONT_COMPONENTS = 5.0
-Z_FRONT_LABELS     = 6.0
-Z_OVERLAY          = 7.0
+Z_FRONT_LABELS = 6.0
+Z_OVERLAY = 7.0
 # Net-pad highlight (the bright-yellow discs drawn on a net's pads when the
 # user selects a wire / net).  Sits ABOVE the coloured pads, wires, components
 # and the back-side filter wash so the highlight reads cleanly, but BELOW the
@@ -65,31 +65,31 @@ Z_NET_PAD_HIGHLIGHT = 9.4
 # wire's route stay visible on top, but above pads/components/back-filter so
 # the highlight reads cleanly.  Wire-edit *node* handles stay at Z_SELECTION
 # (they must remain on top and clickable).
-Z_WIRE_HIGHLIGHT   = 9.4
-Z_PIN_MODIFIERS    = 9.5
+Z_WIRE_HIGHLIGHT = 9.4
+Z_PIN_MODIFIERS = 9.5
 # Front-side labels (component refdes/value, pin names, group names) sit above
 # the pin-modifier glyphs so an on-demand label is never occluded by a pin
 # decorator.  Back-side labels stay low (Z_BACK_LABELS) — they belong under the
 # board when viewed from the other side.  See ``LayerState.z_for_label``.
-Z_LABELS_TOP       = 9.7
-Z_SELECTION        = 10.0
+Z_LABELS_TOP = 9.7
+Z_SELECTION = 10.0
 
 # Automatic alpha constants (used when override is AUTO).
 # These are default values; the active theme may override them.
 # Use theme.back_alpha / theme.board_ghost_alpha / theme.ghost_comp_alpha
 # when you have a Theme instance.  These module-level names are kept for
 # backward compatibility and for code that does not have a theme reference.
-BACK_ALPHA        = 0.30
+BACK_ALPHA = 0.30
 # Back-side WIRE fragments only — kept clearly below the front so a fragment
 # flipped to the other side reads as recessed (see theme.wire_back_alpha).
-WIRE_BACK_ALPHA   = 0.45
+WIRE_BACK_ALPHA = 0.45
 BOARD_GHOST_ALPHA = 0.55
-GHOST_COMP_ALPHA  = 0.25
+GHOST_COMP_ALPHA = 0.25
 
 # Alpha values per LayerVisibility state (GHOST/HIDDEN only; FULL is tool-driven)
 _VIS_ALPHA = {
-    "full":   1.0,
-    "ghost":  GHOST_COMP_ALPHA,
+    "full": 1.0,
+    "ghost": GHOST_COMP_ALPHA,
     "hidden": 0.0,
 }
 # Note: AUTO was removed; FULL now means "respect tool-driven ghosting".
@@ -99,9 +99,10 @@ _VIS_ALPHA = {
 # Per-layer manual visibility
 # ---------------------------------------------------------------------------
 
-class LayerVisibility(str, Enum):
-    FULL   = "full"    # always 100%
-    GHOST  = "ghost"   # always ~25%
+
+class LayerVisibility(StrEnum):
+    FULL = "full"  # always 100%
+    GHOST = "ghost"  # always ~25%
     HIDDEN = "hidden"  # 0% (not drawn, not hit-tested)
 
     def cycle(self) -> LayerVisibility:
@@ -118,23 +119,24 @@ class LayerVisibility(str, Enum):
 @dataclass
 class LayerOverrides:
     """Manual per-layer visibility overrides."""
-    board:             LayerVisibility = LayerVisibility.FULL
-    components_top:    LayerVisibility = LayerVisibility.FULL
+
+    board: LayerVisibility = LayerVisibility.FULL
+    components_top: LayerVisibility = LayerVisibility.FULL
     components_bottom: LayerVisibility = LayerVisibility.FULL
-    wires_top:         LayerVisibility = LayerVisibility.FULL
-    wires_bottom:      LayerVisibility = LayerVisibility.FULL
-    labels:            LayerVisibility = LayerVisibility.FULL
-    pin_names:         LayerVisibility = LayerVisibility.FULL
+    wires_top: LayerVisibility = LayerVisibility.FULL
+    wires_bottom: LayerVisibility = LayerVisibility.FULL
+    labels: LayerVisibility = LayerVisibility.FULL
+    meta_pin_labels: LayerVisibility = LayerVisibility.FULL
     # "ratsnest" is the legacy field name; UI displays it as "Connections".
-    ratsnest:          LayerVisibility = LayerVisibility.FULL
-    axis_labels:       LayerVisibility = LayerVisibility.FULL
+    ratsnest: LayerVisibility = LayerVisibility.FULL
+    axis_labels: LayerVisibility = LayerVisibility.FULL
     # Schematic-aware overlay above the board layer — colours every pad
     # that carries a net.  See ``domain/layout/pin_pad_classification.py``.
-    pin_pads:          LayerVisibility = LayerVisibility.FULL
+    pin_pads: LayerVisibility = LayerVisibility.FULL
     # Top-most modifier glyphs (square / diamond / star) repeated above
     # wires and components so pin 1 / exported markers stay visible even
     # when something sits on top of the pin pad.
-    pin_modifiers:     LayerVisibility = LayerVisibility.FULL
+    pin_modifiers: LayerVisibility = LayerVisibility.FULL
 
     def reset(self) -> None:
         """Reset all overrides to FULL."""
@@ -143,14 +145,14 @@ class LayerOverrides:
 
     def all_full(self) -> bool:
         return all(
-            getattr(self, f) == LayerVisibility.FULL
-            for f in self.__dataclass_fields__
+            getattr(self, f) == LayerVisibility.FULL for f in self.__dataclass_fields__
         )
 
 
 # ---------------------------------------------------------------------------
 # LayerState
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class LayerState:
@@ -160,9 +162,9 @@ class LayerState:
     view_transform: ViewTransform = "normal"
     ghost_components: bool = False
     overrides: LayerOverrides = field(default_factory=LayerOverrides)
-    #: When the pin_names layer is HIDDEN, the one component id whose pin
+    #: When the meta_pin_labels layer is HIDDEN, the one component id whose pin
     #: names are still drawn (hover+Alt reveal).  None = strict hidden.
-    pin_names_reveal_cid: uuid.UUID | None = None
+    meta_pin_labels_reveal_cid: uuid.UUID | None = None
     back_alpha: float = BACK_ALPHA
     wire_back_alpha: float = WIRE_BACK_ALPHA
     board_ghost_alpha: float = BOARD_GHOST_ALPHA
@@ -211,8 +213,11 @@ class LayerState:
         return tool_alpha
 
     def alpha_for_component(self, side: Side) -> float:
-        ov = (self.overrides.components_top
-              if side == "top" else self.overrides.components_bottom)
+        ov = (
+            self.overrides.components_top
+            if side == "top"
+            else self.overrides.components_bottom
+        )
         if side != self.camera_side:
             tool_alpha = self.back_alpha
         else:
@@ -277,20 +282,24 @@ class LayerState:
             return 0.0
         return self.back_filter_alpha
 
-    def alpha_for_pin_names(
-        self, side: Side, cid: uuid.UUID | None = None,
+    def alpha_for_meta_pin_labels(
+        self,
+        side: Side,
+        cid: uuid.UUID | None = None,
     ) -> float:
         # Pin names are independent of labels and components — toggling
         # either of those does not hide pin names.  A per-component reveal
         # (hover+Alt) forces this one component's names on while the layer
         # is globally HIDDEN.
         if (
-            self.overrides.pin_names == LayerVisibility.HIDDEN
+            self.overrides.meta_pin_labels == LayerVisibility.HIDDEN
             and cid is not None
-            and cid == self.pin_names_reveal_cid
+            and cid == self.meta_pin_labels_reveal_cid
         ):
             return self._side_tool_alpha(side)
-        return self._vis_alpha(self.overrides.pin_names, self._side_tool_alpha(side))
+        return self._vis_alpha(
+            self.overrides.meta_pin_labels, self._side_tool_alpha(side)
+        )
 
     def alpha_for_axis_labels(self) -> float:
         return self._vis_alpha(self.overrides.axis_labels, 1.0)
@@ -305,7 +314,9 @@ class LayerState:
         # Top-overlay glyphs.  Like pin_pads but a separate toggle so the
         # user can hide modifiers while keeping the coloured pads, or
         # vice versa.
-        return self._vis_alpha(self.overrides.pin_modifiers, self._side_tool_alpha(side))
+        return self._vis_alpha(
+            self.overrides.pin_modifiers, self._side_tool_alpha(side)
+        )
 
     # ------------------------------------------------------------------
     # Hit-testing
@@ -346,7 +357,7 @@ def layer_state_for_tool(
     theme: object = None,
 ) -> LayerState:
     """Derive LayerState from the active tool, camera side and view transform."""
-    from protoboard.gui.tools.gui_tools import RouteTool, PlaceTool
+    from protoboard.gui.tools.gui_tools import PlaceTool, RouteTool
 
     ghost = isinstance(tool, (RouteTool, PlaceTool))
     state = LayerState(
@@ -357,7 +368,9 @@ def layer_state_for_tool(
     )
     if theme is not None:
         import dataclasses
+
         from protoboard.controller.theme import Theme
+
         if isinstance(theme, Theme):
             state = dataclasses.replace(
                 state,

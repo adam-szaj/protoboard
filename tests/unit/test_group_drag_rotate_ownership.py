@@ -36,7 +36,6 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.component_cmds import MoveComponentCommand
 from protoboard.domain.commands.group_cmds import RotateGroupCommand
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import wire_is_owned_by_group
@@ -47,19 +46,25 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=40, cols=40, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=40,
+            cols=40,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @dataclass
@@ -69,33 +74,47 @@ class _Ctx:
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
     board: Board = field(default_factory=_board)
+    package_families: dict = field(default_factory=dict)
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _ctx() -> _Ctx:
-    c = _Ctx(layout=Layout(), components={"R": _resistor_defn()})
+    defn = _resistor_defn()
+    c = _Ctx(
+        layout=Layout(),
+        components={"R": defn},
+        package_families=sil_families(defn),
+    )
     c.layout.ensure_root_group()
     return c
 
 
 def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="10k",
-    ).bind(ctx.components["R"], {})
+        definition_ref="R",
+        refdes=refdes,
+        value="10k",
+    ).bind(ctx.components["R"], ctx.package_families)
     ctx.instances[inst.id] = inst
     ctx.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     return inst.id
 
 
 def _pin_pos(ctx: _Ctx, cid: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
+
     return pin_world_position(
-        ctx.components["R"].default_footprint(), ctx.layout.placements[cid], pin,
+        ctx.components["R"].default_footprint(ctx.package_families),
+        ctx.layout.placements[cid],
+        pin,
     )
 
 
@@ -103,7 +122,8 @@ def _attach_to_root(ctx: _Ctx, group: ComponentGroup) -> None:
     ctx.layout.groups[group.id] = group
     root = ctx.layout.groups[ROOT_GROUP_ID]
     ctx.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=root.id, name=root.name,
+        id=root.id,
+        name=root.name,
         component_ids=root.component_ids,
         child_group_ids=root.child_group_ids | {group.id},
         exported_pins=root.exported_pins,
@@ -111,8 +131,12 @@ def _attach_to_root(ctx: _Ctx, group: ComponentGroup) -> None:
 
 
 def _drag_components(
-    ctx: _Ctx, cids: list[uuid.UUID], dx: float, dy: float,
-    *, drag_wire_paths: bool = False,
+    ctx: _Ctx,
+    cids: list[uuid.UUID],
+    dx: float,
+    dy: float,
+    *,
+    drag_wire_paths: bool = False,
 ) -> None:
     """Apply MoveComponentCommand to each cid in turn — simulates a
     group drag without going through the full SelectTool pipeline.
@@ -126,7 +150,8 @@ def _drag_components(
         new_pl = ComponentPlacement(
             component_id=cid,
             position=Point(old_pl.position.x + dx, old_pl.position.y + dy),
-            rotation=old_pl.rotation, side=old_pl.side,
+            rotation=old_pl.rotation,
+            side=old_pl.side,
         )
         MoveComponentCommand(
             component_id=cid,
@@ -171,11 +196,13 @@ class TestRotateMovesOnlyInternalWires:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 2), _pin_pos(ctx, b, 1)],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a, b}),
         )
         _attach_to_root(ctx, g)
@@ -198,11 +225,13 @@ class TestRotateMovesOnlyInternalWires:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 2), _pin_pos(ctx, b, 1)],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a}),  # only a is in
         )
         _attach_to_root(ctx, g)
@@ -225,11 +254,13 @@ class TestRotateMovesOnlyInternalWires:
             id=uuid.uuid4(),
             path=[Point(5.5, 5.5), Point(7.5, 5.5)],
             side="top",
-            a=KnotRef(id=ja.id), b=KnotRef(id=jb.id),
+            a=KnotRef(id=ja.id),
+            b=KnotRef(id=jb.id),
         )
         ctx.layout.add_wire(w)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a}),
         )
         _attach_to_root(ctx, g)
@@ -253,6 +284,7 @@ class TestDragInternalAndExternalWires:
         resolved positions equal the new placement.
         """
         from protoboard.domain.layout.placement import pin_world_position
+
         ctx = _ctx()
         a = _place(ctx, 5.0, 5.0, "R1")
         b = _place(ctx, 5.0, 9.0, "R2")
@@ -262,11 +294,13 @@ class TestDragInternalAndExternalWires:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 2), _pin_pos(ctx, b, 1)],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a, b}),
         )
         _attach_to_root(ctx, g)
@@ -274,8 +308,12 @@ class TestDragInternalAndExternalWires:
         _drag_components(ctx, [a, b], 10.0, 7.0)
         defn = ctx.components["R"]
         # Resolved pin positions after drag.
-        new_a = pin_world_position(defn.default_footprint(), ctx.layout.placements[a], 2)
-        new_b = pin_world_position(defn.default_footprint(), ctx.layout.placements[b], 1)
+        new_a = pin_world_position(
+            defn.default_footprint(ctx.package_families), ctx.layout.placements[a], 2
+        )
+        new_b = pin_world_position(
+            defn.default_footprint(ctx.package_families), ctx.layout.placements[b], 1
+        )
         # Pin a/2 = placement + (0, 1) → (5, 6) → after drag → (15, 13).
         # Pin b/1 = placement + (0, 0) → (5, 9) → after drag → (15, 16).
         assert (new_a.x, new_a.y) == (15.0, 13.0)
@@ -287,6 +325,7 @@ class TestDragInternalAndExternalWires:
         Wire's stored path is unchanged by MoveComponent (TranslateAnchored
         is a separate pipeline pass not exercised here)."""
         from protoboard.domain.layout.placement import pin_world_position
+
         ctx = _ctx()
         a = _place(ctx, 5.0, 5.0, "R1")
         b = _place(ctx, 9.0, 5.0, "R2")  # outside group
@@ -296,11 +335,13 @@ class TestDragInternalAndExternalWires:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 2), _pin_pos(ctx, b, 1)],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a}),
         )
         _attach_to_root(ctx, g)
@@ -308,8 +349,12 @@ class TestDragInternalAndExternalWires:
         _drag_components(ctx, [a], 10.0, 0.0)
 
         defn = ctx.components["R"]
-        new_a = pin_world_position(defn.default_footprint(), ctx.layout.placements[a], 2)
-        new_b = pin_world_position(defn.default_footprint(), ctx.layout.placements[b], 1)
+        new_a = pin_world_position(
+            defn.default_footprint(ctx.package_families), ctx.layout.placements[a], 2
+        )
+        new_b = pin_world_position(
+            defn.default_footprint(ctx.package_families), ctx.layout.placements[b], 1
+        )
         assert new_a.x == 15.0
         # B did not move.
         assert (new_b.x, new_b.y) == (old_b_pos.x, old_b_pos.y)
@@ -337,13 +382,19 @@ class TestSharedJointSurvivesDrag:
         shared = Point(6.5, 7.5)
         jk = ctx.layout.create_joint_knot(shared)
         w1 = Wire(
-            id=uuid.uuid4(), path=[_pin_pos(ctx, a, 2), shared], side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=jk.id),
+            id=uuid.uuid4(),
+            path=[_pin_pos(ctx, a, 2), shared],
+            side="top",
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=jk.id),
         )
         ctx.layout.add_wire(w1)
         w2 = Wire(
-            id=uuid.uuid4(), path=[shared, _pin_pos(ctx, b, 1)], side="top",
-            a=KnotRef(id=jk.id), b=KnotRef(id=pkb.id),
+            id=uuid.uuid4(),
+            path=[shared, _pin_pos(ctx, b, 1)],
+            side="top",
+            a=KnotRef(id=jk.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w2)
         # Live joint instance carries both wire ids.
@@ -352,7 +403,8 @@ class TestSharedJointSurvivesDrag:
         assert len(live.wire_ids) == 2
 
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a}),
         )
         _attach_to_root(ctx, g)
@@ -381,34 +433,43 @@ class TestNetAssignmentSurvivesGeometry:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 2), _pin_pos(ctx, b, 1)],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         net = Net(
-            id=uuid.uuid4(), name="N1",
+            id=uuid.uuid4(),
+            name="N1",
             pins={PinRef(a, 2), PinRef(b, 1)},
         )
         ctx.schematic.nets[net.id] = net
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a, b}),
         )
         _attach_to_root(ctx, g)
         _drag_components(ctx, [a, b], 5.0, 5.0, drag_wire_paths=True)
         # Net membership unchanged.
         assert ctx.schematic.nets[net.id].pins == {
-            PinRef(a, 2), PinRef(b, 1),
+            PinRef(a, 2),
+            PinRef(b, 1),
         }
         # Wire still owned after drag (PinKnot endpoints intact).
-        assert wire_is_owned_by_group(
-            w, g, wire_net_map={w.id: net.id},
-            knots=ctx.layout.knots,  # type: ignore[arg-type]
-            group_comp_ids=frozenset({a, b}),
-            schematic=ctx.schematic,
-            placements=ctx.layout.placements,
-            instances=ctx.instances,
-            definitions=ctx.components,
-        ) is True
+        assert (
+            wire_is_owned_by_group(
+                w,
+                g,
+                wire_net_map={w.id: net.id},
+                knots=ctx.layout.knots,  # type: ignore[arg-type]
+                group_comp_ids=frozenset({a, b}),
+                schematic=ctx.schematic,
+                placements=ctx.layout.placements,
+                instances=ctx.instances,
+                definitions=ctx.components,
+            )
+            is True
+        )
 
     def test_rotate_preserves_net_membership(self) -> None:
         ctx = _ctx()
@@ -420,20 +481,24 @@ class TestNetAssignmentSurvivesGeometry:
             id=uuid.uuid4(),
             path=[_pin_pos(ctx, a, 2), _pin_pos(ctx, b, 1)],
             side="top",
-            a=KnotRef(id=pka.id), b=KnotRef(id=pkb.id),
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
         )
         ctx.layout.add_wire(w)
         net = Net(
-            id=uuid.uuid4(), name="N1",
+            id=uuid.uuid4(),
+            name="N1",
             pins={PinRef(a, 2), PinRef(b, 1)},
         )
         ctx.schematic.nets[net.id] = net
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({a, b}),
         )
         _attach_to_root(ctx, g)
         RotateGroupCommand(group_id=g.id, delta=90).apply(ctx)
         assert ctx.schematic.nets[net.id].pins == {
-            PinRef(a, 2), PinRef(b, 1),
+            PinRef(a, 2),
+            PinRef(b, 1),
         }

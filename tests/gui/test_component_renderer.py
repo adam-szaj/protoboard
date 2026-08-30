@@ -7,10 +7,10 @@ import dataclasses
 import uuid
 
 import pytest
+from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsScene
 from pytestqt.qtbot import QtBot
 
-from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsScene
-
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
@@ -21,28 +21,26 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
-from protoboard.types import Side
 from protoboard.gui.layer_state import (
     LayerOverrides,
     LayerState,
     LayerVisibility,
 )
 from protoboard.gui.renderers.component_renderer import (
-    comp_fingerprint,
-    update_component_groups,
+    _get_refdes_font,
     _group_alpha_map,
     _make_overlay_label,
-    _get_refdes_font,
+    comp_fingerprint,
+    update_component_groups,
 )
-from protoboard.controller.theme import DEFAULT_THEME
-
+from protoboard.types import Side
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_placement(
     x: float = 0.0,
@@ -76,9 +74,7 @@ def _make_resistor_defn() -> ComponentDefinition:
 _SIL2_FAMILY = sil_family(2)
 assert _SIL2_FAMILY is not None
 _SIL2_FAMILIES = {_SIL2_FAMILY.family_id: _SIL2_FAMILY}
-_SIL2_THEME = dataclasses.replace(
-    DEFAULT_THEME, package_families=_SIL2_FAMILIES
-)
+_SIL2_THEME = dataclasses.replace(DEFAULT_THEME, package_families=_SIL2_FAMILIES)
 
 
 def _make_instance(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
@@ -96,13 +92,14 @@ def _layers_key(layers: LayerState) -> tuple[object, ...]:
         ov.components_top.value,
         ov.components_bottom.value,
         ov.labels.value,
-        ov.pin_names.value,
+        ov.meta_pin_labels.value,
     )
 
 
 # ---------------------------------------------------------------------------
 # _make_overlay_label — alpha semantics
 # ---------------------------------------------------------------------------
+
 
 class TestMakeOverlayLabelAlpha:
     """Alpha applied by caller to bg_color dims only the background pill;
@@ -116,7 +113,13 @@ class TestMakeOverlayLabelAlpha:
         bg_color = QColor(255, 255, 255, 50)  # ~20% bg
         font = _get_refdes_font(DEFAULT_THEME.overlay_font_size)
         items = _make_overlay_label(
-            "REF1", font, text_color, bg_color, 0.0, 0.0, 5.0,
+            "REF1",
+            font,
+            text_color,
+            bg_color,
+            0.0,
+            0.0,
+            5.0,
         )
         # Item order: [bg_rect, text_item]
         assert len(items) == 2
@@ -132,6 +135,7 @@ class TestMakeOverlayLabelAlpha:
 # ---------------------------------------------------------------------------
 # comp_fingerprint
 # ---------------------------------------------------------------------------
+
 
 class TestCompFingerprint:
     def test_same_inputs_produce_same_fingerprint(self) -> None:
@@ -245,18 +249,21 @@ class TestComposeOverlayLabel:
         from protoboard.gui.renderers.component_renderer import (
             _compose_overlay_label,
         )
+
         assert _compose_overlay_label("R23", "4.7k") == "R23 4.7k"
 
     def test_value_question_mark_prompts_user(self) -> None:
         from protoboard.gui.renderers.component_renderer import (
             _compose_overlay_label,
         )
+
         assert _compose_overlay_label("R23", "?") == "R23 ?"
 
     def test_value_part_number_for_concrete_parts(self) -> None:
         from protoboard.gui.renderers.component_renderer import (
             _compose_overlay_label,
         )
+
         assert _compose_overlay_label("Q1", "2N2222") == "Q1 2N2222"
         assert _compose_overlay_label("D5", "1N4148") == "D5 1N4148"
         assert _compose_overlay_label("U2", "NE555") == "U2 NE555"
@@ -265,12 +272,14 @@ class TestComposeOverlayLabel:
         from protoboard.gui.renderers.component_renderer import (
             _compose_overlay_label,
         )
+
         assert _compose_overlay_label("R23", "") == "R23"
 
 
 # ---------------------------------------------------------------------------
 # update_component_groups — incremental update logic
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateComponentGroups:
     def _make_setup(self) -> tuple[
@@ -432,6 +441,7 @@ class TestUpdateComponentGroups:
 # _group_alpha_map
 # ---------------------------------------------------------------------------
 
+
 class TestGroupAlphaMap:
     def test_returns_empty_when_active_group_not_found(self) -> None:
         layout = Layout()
@@ -439,8 +449,7 @@ class TestGroupAlphaMap:
         assert result == {}
 
     def test_direct_members_get_full_alpha(self) -> None:
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.domain.commands.group_cmds import CreateGroupCommand
+
         layout = Layout()
         layout.ensure_root_group()
         comp_id = uuid.uuid4()
@@ -449,6 +458,7 @@ class TestGroupAlphaMap:
         # Create a group and add comp_id to it.
         grp_id = uuid.uuid4()
         from protoboard.domain.layout.group import ComponentGroup
+
         group = ComponentGroup(
             id=grp_id,
             name="G1",
@@ -462,8 +472,8 @@ class TestGroupAlphaMap:
         assert alpha_map.get(comp_id) == pytest.approx(1.0)
 
     def test_outside_members_get_inactive_alpha(self) -> None:
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.layout.group import ComponentGroup
+
         layout = Layout()
         layout.ensure_root_group()
         comp_in = uuid.uuid4()
@@ -494,11 +504,13 @@ class TestGhostHonoursPackageVariant:
 
     def _theme_and_defn(self):
         from pathlib import Path
+
         from protoboard.controller.theme import DEFAULT_THEME
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
+
         fam = load_full_package_catalogue()
         lib = load_library([Path("library")], fam)
         theme = dataclasses.replace(DEFAULT_THEME, package_families=fam)
@@ -509,8 +521,9 @@ class TestGhostHonoursPackageVariant:
 
         theme, defn = self._theme_and_defn()
         g_default = make_ghost_item(defn, theme=theme)
-        g_smd = make_ghost_item(defn, theme=theme,
-                                package_variant="SMD-0805/typ")
+        g_smd = make_ghost_item(
+            defn, theme=theme, package_variant="chip-smd/imperial/0805"
+        )
         qtbot.addWidget  # noqa: B018 - QGraphicsItemGroup isn't a widget
         # The two ghosts are built without error and differ — the SMD body's
         # pin spacing/shape is not the default candy disc's.
@@ -550,23 +563,37 @@ class TestGhostHonoursPackageVariant:
 
         theme, defn = self._theme_and_defn()
         inst = ComponentInstance.new(
-            definition_ref="C", refdes="?", value="",
-            package_variant="SMD-0805/typ")
+            definition_ref="C",
+            refdes="?",
+            value="",
+            package_variant="chip-smd/imperial/0805",
+        )
         pkg = resolve_component_package(defn, inst, theme.package_families)
         assert pkg is not None
         fp = pkg
 
         def _body_bbox(rotation: int):
             pl = ComponentPlacement(
-                component_id=_uuid.UUID(int=0), position=Point(0.0, 0.0),
-                rotation=rotation, side="top", pin_offsets={})
-            positions = [pin_world_position(fp, pl, n + 1)
-                         for n in range(fp.pin_count())]
-            shape = body_shape_for(defn, pl, inst,
-                                   package_families=theme.package_families)
+                component_id=_uuid.UUID(int=0),
+                position=Point(0.0, 0.0),
+                rotation=rotation,
+                side="top",
+                pin_offsets={},
+            )
+            positions = [
+                pin_world_position(fp, pl, n + 1) for n in range(fp.pin_count())
+            ]
+            shape = body_shape_for(
+                defn, pl, inst, package_families=theme.package_families
+            )
             g = QGraphicsItemGroup()
             body_items, label_items = shape.draw(
-                positions, QColor("red"), QColor("black"), 1.0, 0.0, theme,
+                positions,
+                QColor("red"),
+                QColor("black"),
+                1.0,
+                0.0,
+                theme,
             )
             for it in body_items + label_items:
                 g.addToGroup(it)
@@ -581,13 +608,14 @@ class TestGhostHonoursPackageVariant:
 # Pin-names layer independence from the labels layer (regression)
 # ---------------------------------------------------------------------------
 
+
 class TestPinNamesLayerIndependence:
-    """Pin-name labels are governed solely by the ``pin_names`` layer.
+    """Pin-name labels are governed solely by the ``meta_pin_labels`` layer.
 
     Regression: pin-name rendering used to live inside the ``alpha_label > 0``
     block, so hiding the "Labels" layer also hid pin names even though the two
     layers are meant to toggle independently (see
-    ``LayerState.alpha_for_pin_names``).
+    ``LayerState.alpha_for_meta_pin_labels``).
     """
 
     def _scene_texts(self, layers: LayerState) -> set[str]:
@@ -606,10 +634,16 @@ class TestPinNamesLayerIndependence:
             ),
         )
         inst = ComponentInstance(
-            id=uuid.uuid4(), definition_ref=defn.name, refdes="U1", value="",
+            id=uuid.uuid4(),
+            definition_ref=defn.name,
+            refdes="U1",
+            value="",
         ).bind(defn, _SIL2_FAMILIES)
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(1, 1), rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(1, 1),
+            rotation=0,
+            side="top",
         )
         layout = Layout()
         layout.ensure_root_group()
@@ -639,20 +673,16 @@ class TestPinNamesLayerIndependence:
     def _layers(self, **overrides: LayerVisibility) -> LayerState:
         return LayerState(overrides=LayerOverrides(**overrides))
 
-    def test_pin_names_visible_when_labels_hidden(self, qtbot: QtBot) -> None:
+    def test_meta_pin_labels_visible_when_labels_hidden(self, qtbot: QtBot) -> None:
         # Labels off, pin names on → pin names still render; refdes does not.
-        texts = self._scene_texts(
-            self._layers(labels=LayerVisibility.HIDDEN)
-        )
+        texts = self._scene_texts(self._layers(labels=LayerVisibility.HIDDEN))
         assert "VCC" in texts
         assert "GND" in texts
         assert "U1" not in texts
 
-    def test_pin_names_hidden_when_labels_visible(self, qtbot: QtBot) -> None:
+    def test_meta_pin_labels_hidden_when_labels_visible(self, qtbot: QtBot) -> None:
         # The converse: pin-names layer off still hides them even with labels on.
-        texts = self._scene_texts(
-            self._layers(pin_names=LayerVisibility.HIDDEN)
-        )
+        texts = self._scene_texts(self._layers(meta_pin_labels=LayerVisibility.HIDDEN))
         assert "VCC" not in texts
         assert "GND" not in texts
         assert "U1" in texts

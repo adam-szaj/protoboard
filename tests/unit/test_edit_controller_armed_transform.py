@@ -13,14 +13,14 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.armed_transform import ArmedTransform
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.armed_transform import ArmedTransform
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -51,11 +51,16 @@ def _session() -> HeadlessSession:
 def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -65,8 +70,10 @@ def _arm(
     session: HeadlessSession, cid: uuid.UUID, *, mode: str = "rotate"
 ) -> ArmedTransform:
     return session.edit_controller.begin_transform(
-        frozenset({cid}), None,
-        active_group_id=ROOT_GROUP_ID, mode=mode,
+        frozenset({cid}),
+        None,
+        active_group_id=ROOT_GROUP_ID,
+        mode=mode,
     )
 
 
@@ -221,13 +228,19 @@ def _place_smd(session: HeadlessSession, x: float, y: float) -> uuid.UUID:
     from protoboard.domain.components.definition import (
         ComponentClass,
         ComponentDefinition,
+        MetaPin,
+        PackageOption,
     )
+    from protoboard.domain.components.package import PackageFamily, PackageVariant
     from protoboard.domain.components.package.loader import build_package
 
     pkg = build_package(
         {
-            "shape": "prism", "dims": {"lx": 2.0, "ly": 1.25},
-            "arrangement": "axial", "mount": "surface", "bend": 0,
+            "shape": "prism",
+            "dims": {"lx": 2.0, "ly": 1.25},
+            "arrangement": "axial",
+            "mount": "surface",
+            "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, -1]],
                 "body_offset": {"unit": 2.5, "value": [[1, 0]]},
@@ -236,17 +249,35 @@ def _place_smd(session: HeadlessSession, x: float, y: float) -> uuid.UUID:
         },
         "SMD_TEST",
     )
+    family = PackageFamily(
+        family_id="R_SMD_T-package",
+        variants=(PackageVariant("std", "std", pkg),),
+    )
+    session.package_families[family.family_id] = family
     defn = ComponentDefinition(
-        name="R_SMD_T", component_class=ComponentClass.RESISTOR,
-        pin_names={}, package=pkg,
+        name="R_SMD_T",
+        component_class=ComponentClass.RESISTOR,
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(
+            PackageOption(
+                name="SMD_TEST",
+                ref="R_SMD_T-package/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
     )
     session.components["R_SMD_T"] = defn
     inst = ComponentInstance.new(
-        definition_ref="R_SMD_T", refdes="R9", value="",
+        definition_ref="R_SMD_T",
+        refdes="R9",
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -314,8 +345,10 @@ def test_rotate_armed_multi_selection_keeps_90() -> None:
     other = _place(session, 5.5, 5.5, "R1")
     ctrl = session.edit_controller
     session.edit_controller.begin_transform(
-        frozenset({smd, other}), None,
-        active_group_id=ROOT_GROUP_ID, mode="rotate",
+        frozenset({smd, other}),
+        None,
+        active_group_id=ROOT_GROUP_ID,
+        mode="rotate",
     )
     ctrl.rotate_armed(90)
     # The 45° step is defined only about a lone part's pin-1 anchor; a

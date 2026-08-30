@@ -10,6 +10,7 @@ Partial conformance is intentional: a tool with no rich op-table returns
 ``False`` from ``on_key`` for verbs it does not own; a tool with no conflict
 concept may return a constant ``True`` from ``can_commit``.
 """
+
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable

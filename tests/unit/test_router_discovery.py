@@ -59,6 +59,7 @@ class _BrokenInit:
 
 class _NotARouter:
     """Has no `route` method — fails the Protocol runtime check."""
+
     name = "not-a-router"
     display_name = "Not A Router"
 
@@ -67,6 +68,7 @@ class _NotARouter:
 # _load_one — single-entry-point branches
 # ---------------------------------------------------------------------------
 
+
 def _fake_ep(name: str, target: object) -> EntryPoint:
     """Build an EntryPoint whose .load() returns *target*.
 
@@ -74,6 +76,7 @@ def _fake_ep(name: str, target: object) -> EntryPoint:
     instance's `load` to short-circuit module resolution.
     """
     ep = EntryPoint(name=name, value="fake:Target", group="protoboard.routers")
+
     # Replace .load() on this instance only — we can't override on a
     # NamedTuple subclass, so use a closure trick via attribute assignment
     # on a wrapper object.
@@ -81,10 +84,13 @@ def _fake_ep(name: str, target: object) -> EntryPoint:
         def __init__(self, real: EntryPoint, payload: object) -> None:
             self._real = real
             self._payload = payload
+
         def __getattr__(self, attr: str) -> object:
             return getattr(self._real, attr)
+
         def load(self) -> object:
             return self._payload
+
     return _Wrap(ep, target)  # type: ignore[return-value]
 
 
@@ -116,7 +122,9 @@ class TestLoadOne:
     def test_load_failure_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         ep = _fake_ep("broken", _GoodRouter)
         # Replace .load on the wrapper so it raises.
-        monkeypatch.setattr(ep, "load", lambda: (_ for _ in ()).throw(ImportError("boom")))
+        monkeypatch.setattr(
+            ep, "load", lambda: (_ for _ in ()).throw(ImportError("boom"))
+        )
         r = _load_one(ep)
         assert r is None
 
@@ -125,8 +133,11 @@ class TestLoadOne:
 # discover_plugins — registry interaction
 # ---------------------------------------------------------------------------
 
+
 class TestDiscoverPlugins:
-    def test_registers_into_global_registry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_registers_into_global_registry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         eps = [_fake_ep("good", _GoodRouter)]
         monkeypatch.setattr(
             "protoboard.services.routing.discovery.entry_points",
@@ -135,14 +146,17 @@ class TestDiscoverPlugins:
         # Use a temporary registry so the test doesn't pollute global state.
         tmp = _Registry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry", tmp,
+            "protoboard.services.routing.discovery.registry",
+            tmp,
         )
 
         discovered = discover_plugins()
         assert discovered == ["good-plugin"]
         assert "good-plugin" in tmp.list_available()
 
-    def test_broken_plugin_does_not_abort_discovery(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_broken_plugin_does_not_abort_discovery(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         eps = [
             _fake_ep("good", _GoodRouter),
             _fake_ep("bad", _BrokenInit),
@@ -153,7 +167,8 @@ class TestDiscoverPlugins:
         )
         tmp = _Registry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry", tmp,
+            "protoboard.services.routing.discovery.registry",
+            tmp,
         )
 
         discovered = discover_plugins()
@@ -162,22 +177,29 @@ class TestDiscoverPlugins:
         assert "good-plugin" in tmp.list_available()
         assert "broken-init" not in tmp.list_available()
 
-    def test_no_entry_points_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_entry_points_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(
             "protoboard.services.routing.discovery.entry_points",
             lambda group: [],
         )
         tmp = _Registry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry", tmp,
+            "protoboard.services.routing.discovery.registry",
+            tmp,
         )
         assert discover_plugins() == []
 
-    def test_entry_points_failure_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_entry_points_failure_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         def _boom(group: str) -> list[EntryPoint]:
             raise RuntimeError("entry_points crashed")
+
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.entry_points", _boom,
+            "protoboard.services.routing.discovery.entry_points",
+            _boom,
         )
         # Must NOT propagate.
         assert discover_plugins() == []
@@ -191,6 +213,7 @@ class TestDiscoverPlugins:
         """
         # Ensure the side-effect registration ran in this test process.
         import protoboard.services.routing.builtin  # noqa: F401
+
         before = set(registry.list_available())
         discover_plugins()
         after = set(registry.list_available())

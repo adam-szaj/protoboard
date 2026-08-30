@@ -185,9 +185,7 @@ class Schematic:
     # to hand back to :meth:`restore`.
     # ------------------------------------------------------------------
 
-    def assign_pins(
-        self, refs: list[PinRef], target_net_id: uuid.UUID
-    ) -> PinGroupUndo:
+    def assign_pins(self, refs: list[PinRef], target_net_id: uuid.UUID) -> PinGroupUndo:
         """Move every ref in *refs* to *target_net_id*.
 
         Siblings share one net, so they all leave the same source net; the undo

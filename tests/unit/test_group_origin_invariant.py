@@ -35,27 +35,32 @@ from protoboard.domain.commands.group_cmds import (
     _group_rotate_pivot,
 )
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _board(rows: int = 100, cols: int = 100) -> Board:
     """Spare board big enough to cover any test placement."""
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -69,17 +74,19 @@ class _State:
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
     board: Board = field(default_factory=_board)
+    package_families: dict = field(default_factory=dict)
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"},
-    )
+    return make_sil("R", 2)
 
 
 def _placement(cid: uuid.UUID, x: float, y: float, rot: int = 0) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=cid, position=Point(x, y), rotation=rot, side="top",
+        component_id=cid,
+        position=Point(x, y),
+        rotation=rot,
+        side="top",
     )
 
 
@@ -92,13 +99,16 @@ def _build_state(
     Returns (state, [component_ids]).  All components share definition_ref="R".
     """
     defn = _resistor_defn()
+    families = sil_families(defn)
     cids: list[uuid.UUID] = []
     placements: dict[uuid.UUID, ComponentPlacement] = {}
     instances: dict[uuid.UUID, ComponentInstance] = {}
     for i, (x, y) in enumerate(components):
         inst = ComponentInstance.new(
-            definition_ref="R", refdes=f"R{i+1}", value="10k",
-        ).bind(defn, {})
+            definition_ref="R",
+            refdes=f"R{i+1}",
+            value="10k",
+        ).bind(defn, families)
         cid = inst.id
         cids.append(cid)
         placements[cid] = _placement(cid, x, y, rot)
@@ -106,7 +116,10 @@ def _build_state(
     layout = Layout(placements=PlacementCollection(placements), wires=WireCollection())
     layout.ensure_root_group()
     state = _State(
-        layout=layout, instances=instances, components={defn.name: defn},
+        layout=layout,
+        instances=instances,
+        components={defn.name: defn},
+        package_families=families,
     )
     return state, cids
 
@@ -160,7 +173,8 @@ class TestMoveComponentPivotFollow:
         # Two resistors forming a tight group at top-left (3, 5).
         state, cids = _build_state([(3.0, 5.0), (5.0, 5.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
@@ -173,7 +187,8 @@ class TestMoveComponentPivotFollow:
             new_pl = ComponentPlacement(
                 component_id=cid,
                 position=Point(old_pl.position.x + 10.0, old_pl.position.y + 7.0),
-                rotation=old_pl.rotation, side=old_pl.side,
+                rotation=old_pl.rotation,
+                side=old_pl.side,
             )
             MoveComponentCommand(
                 component_id=cid,
@@ -191,7 +206,8 @@ class TestMoveComponentPivotFollow:
     def test_revert_restores_pre_move_pivot(self) -> None:
         state, cids = _build_state([(3.0, 5.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
@@ -202,7 +218,8 @@ class TestMoveComponentPivotFollow:
         new_pl = ComponentPlacement(
             component_id=cid,
             position=Point(old_pl.position.x + 4.0, old_pl.position.y + 4.0),
-            rotation=old_pl.rotation, side=old_pl.side,
+            rotation=old_pl.rotation,
+            side=old_pl.side,
         )
         cmd = MoveComponentCommand(
             component_id=cid,
@@ -222,11 +239,13 @@ class TestMoveComponentPivotFollow:
         # pivot alone.
         state, cids = _build_state([(3.0, 5.0), (10.0, 10.0)])
         ga = ComponentGroup(
-            id=uuid.uuid4(), name="A",
+            id=uuid.uuid4(),
+            name="A",
             component_ids=frozenset({cids[0]}),
         )
         gb = ComponentGroup(
-            id=uuid.uuid4(), name="B",
+            id=uuid.uuid4(),
+            name="B",
             component_ids=frozenset({cids[1]}),
         )
         _attach_to_root(state, ga)
@@ -238,16 +257,21 @@ class TestMoveComponentPivotFollow:
         new_pl = ComponentPlacement(
             component_id=cids[0],
             position=Point(99.0, 99.0),
-            rotation=old_pl.rotation, side=old_pl.side,
+            rotation=old_pl.rotation,
+            side=old_pl.side,
         )
         MoveComponentCommand(
-            component_id=cids[0], new_placement=new_pl, old_placement=old_pl,
-            skip_conflict_check=True, placement_only=True,
+            component_id=cids[0],
+            new_placement=new_pl,
+            old_placement=old_pl,
+            skip_conflict_check=True,
+            placement_only=True,
         ).apply(state)
 
         b_after = _pivot(state, gb.id)
         assert (b_after.x, b_after.y) == (
-            pytest.approx(b_pivot_before.x), pytest.approx(b_pivot_before.y),
+            pytest.approx(b_pivot_before.x),
+            pytest.approx(b_pivot_before.y),
         )
 
 
@@ -260,7 +284,8 @@ class TestRotateGroupPivotInvariant:
     def test_pivot_unchanged_after_rotate(self) -> None:
         state, cids = _build_state([(3.0, 5.0), (5.0, 5.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
@@ -268,7 +293,8 @@ class TestRotateGroupPivotInvariant:
         RotateGroupCommand(group_id=group.id, delta=90).apply(state)
         after = _pivot(state, group.id)
         assert (after.x, after.y) == (
-            pytest.approx(before.x), pytest.approx(before.y),
+            pytest.approx(before.x),
+            pytest.approx(before.y),
         )
 
     def test_pivot_invariant_across_four_quarter_turns(self) -> None:
@@ -276,13 +302,12 @@ class TestRotateGroupPivotInvariant:
         # started.
         state, cids = _build_state([(3.0, 5.0), (5.0, 5.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
-        world_before = {
-            cid: state.layout.placements[cid].position for cid in cids
-        }
+        world_before = {cid: state.layout.placements[cid].position for cid in cids}
         for _ in range(4):
             RotateGroupCommand(group_id=group.id, delta=90).apply(state)
         ending = _pivot(state, group.id)
@@ -305,12 +330,14 @@ class TestMembershipChangeRederivesPivot:
         # — the new bbox top-left is (2, 3).
         state, cids = _build_state([(5.0, 5.0), (2.0, 3.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cids[0]}),
         )
         _attach_to_root(state, group)
         AddToGroupCommand(
-            group_id=group.id, component_ids=frozenset({cids[1]}),
+            group_id=group.id,
+            component_ids=frozenset({cids[1]}),
         ).apply(state)
         after = _pivot(state, group.id)
         assert after.x == pytest.approx(2.0)
@@ -321,12 +348,14 @@ class TestMembershipChangeRederivesPivot:
         # snaps to the remaining one's pin1.
         state, cids = _build_state([(2.0, 3.0), (5.0, 5.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
         RemoveFromGroupCommand(
-            group_id=group.id, component_ids=frozenset({cids[0]}),
+            group_id=group.id,
+            component_ids=frozenset({cids[0]}),
         ).apply(state)
         after = _pivot(state, group.id)
         assert after.x == pytest.approx(5.0)
@@ -335,12 +364,14 @@ class TestMembershipChangeRederivesPivot:
     def test_remove_revert_restores_pivot(self) -> None:
         state, cids = _build_state([(2.0, 3.0), (5.0, 5.0)])
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
         cmd = RemoveFromGroupCommand(
-            group_id=group.id, component_ids=frozenset({cids[0]}),
+            group_id=group.id,
+            component_ids=frozenset({cids[0]}),
         )
         cmd.apply(state)
         after = _pivot(state, group.id)

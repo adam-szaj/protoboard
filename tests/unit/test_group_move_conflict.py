@@ -7,7 +7,6 @@ import uuid
 from typing import cast
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.pad_conflict import (
@@ -19,6 +18,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 ROOT_GID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -26,16 +26,17 @@ ROOT_GID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _defn(name: str, n: int = 1) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name, footprint=SIL(n), pin_names={i: str(i) for i in range(1, n + 1)}
-    )
+    return make_sil(name, n)
 
 
 def _inst(defn: ComponentDefinition) -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes="X1", value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes="X1",
+        value="",
+    ).bind(defn, sil_families(defn))
 
 
 def _pl(comp_id: uuid.UUID, x: float, y: float) -> ComponentPlacement:
@@ -80,6 +81,7 @@ def _root_group(*comp_ids: uuid.UUID) -> dict[uuid.UUID, ComponentGroup]:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestCheckGroupMoveConflicts:
 
     def test_clear_when_no_wires_no_pad_conflict(self) -> None:
@@ -108,8 +110,8 @@ class TestCheckGroupMoveConflicts:
         inst_a = _inst(defn_a)
         inst_b = _inst(defn_b)
         # After drag, A lands on same pad as B
-        pl_a = _pl(inst_a.id, 3.0, 0.0)   # new position, pin at (3,0)
-        pl_b = _pl(inst_b.id, 3.0, 0.0)   # existing, pin also at (3,0)
+        pl_a = _pl(inst_a.id, 3.0, 0.0)  # new position, pin at (3,0)
+        pl_b = _pl(inst_b.id, 3.0, 0.0)  # existing, pin also at (3,0)
         groups = _root_group(inst_a.id)
 
         sch = _schematic(
@@ -171,7 +173,7 @@ class TestCheckGroupMoveConflicts:
         defn_b = _defn("B")
         # SIL(2) places pins vertically: pin1 at (x,y), pin2 at (x,y+1).
         # inst_c at (0,0): pins at (0,0) and (0,1). bbox = (0,0,0,1).
-        # Wire (0,0)→(0,1) is fully internal to subgroup bbox (tol=0.5 → x in [-0.5,0.5]).
+        # Wire (0,0)→(0,1) is fully internal to subgroup bbox (tol=0.5 → x in [-0.5,0.5]).  # noqa: E501
         # B's external pad at (0, 0.5) — midpoint of subgroup wire → crossing.
         defn_c = _defn("C", n=2)
         inst_a = _inst(defn_a)
@@ -179,8 +181,8 @@ class TestCheckGroupMoveConflicts:
         inst_c = _inst(defn_c)
 
         pl_a = _pl(inst_a.id, 3.0, 0.0)
-        pl_c = _pl(inst_c.id, 0.0, 0.0)   # subgroup: pins at (0,0) and (0,1)
-        pl_b = _pl(inst_b.id, 0.0, 0.5)   # external, pad at (0,0.5) — inside wire
+        pl_c = _pl(inst_c.id, 0.0, 0.0)  # subgroup: pins at (0,0) and (0,1)
+        pl_b = _pl(inst_b.id, 0.0, 0.5)  # external, pad at (0,0.5) — inside wire
 
         subgroup_wire = _wire((0.0, 0.0), (0.0, 1.0))
 
@@ -219,7 +221,7 @@ class TestCheckGroupMoveConflicts:
         assert result.severity == MoveConflictSeverity.BLOCKED
 
     def test_group_with_two_members_one_conflicts_returns_blocked(self) -> None:
-        """Group has 2 members; one conflicts pad-pad different-net → BLOCKED (atomic)."""
+        """Group has 2 members; one conflicts pad-pad different-net → BLOCKED (atomic)."""  # noqa: E501
         net_a, net_b, net_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         defn_a = _defn("A")
         defn_b = _defn("B")
@@ -267,8 +269,9 @@ class TestCheckGroupMoveConflictsPadIndex:
     """Parity check: pad_index= branch returns the same severity / blocking
     positions as the legacy from-layout branch."""
 
-    def _build_index(self, board, placements, instances, components, schematic,
-                     wires=None):
+    def _build_index(
+        self, board, placements, instances, components, schematic, wires=None
+    ):
         from protoboard.domain.board.pad_state import PadIndex
         from protoboard.domain.layout.layout import Layout
 
@@ -283,13 +286,19 @@ class TestCheckGroupMoveConflictsPadIndex:
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
         from protoboard.domain.board.pads import PadLayers
+
         grid = BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
         )
         return Board(root=grid)
 
@@ -356,7 +365,11 @@ class TestCheckGroupMoveConflictsPadIndex:
         sch = _schematic()
         board = self._perfboard(3, 3)
         idx = self._build_index(
-            board, {inst.id: pl}, {inst.id: inst}, {"A": defn}, sch,
+            board,
+            {inst.id: pl},
+            {inst.id: inst},
+            {"A": defn},
+            sch,
         )
         via_idx = check_group_move_conflicts(
             moved_ids={inst.id},
@@ -394,10 +407,10 @@ class TestMultiGroupMoveConflicts:
         """Two free top-level components moving together that happen
         to coincide after the move — both in DragSet → CLEAR (intra-
         drag-set SOFT, no block)."""
+        from protoboard.controller.editing.drag_set import DragSet
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.controller.editing.drag_set import DragSet
 
         net_a, net_b = uuid.uuid4(), uuid.uuid4()
         defn = _defn("A")
@@ -432,16 +445,16 @@ class TestMultiGroupMoveConflicts:
         self,
     ) -> None:
         """A DragSet member landing on a *static* (non-moved) pad → BLOCKED."""
+        from protoboard.controller.editing.drag_set import DragSet
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.controller.editing.drag_set import DragSet
 
         net_a, net_b = uuid.uuid4(), uuid.uuid4()
         defn = _defn("A")
         inst_drag = _inst(defn)
         inst_static = _inst(defn)
-        pl_drag = _pl(inst_drag.id, 3.0, 0.0)   # post-drag position
+        pl_drag = _pl(inst_drag.id, 3.0, 0.0)  # post-drag position
         pl_static = _pl(inst_static.id, 3.0, 0.0)  # not moving, same pad
         groups = _root_group(inst_drag.id, inst_static.id)
         sch = _schematic(
@@ -466,10 +479,10 @@ class TestMultiGroupMoveConflicts:
 
     def test_empty_drag_set_is_clear(self) -> None:
         """Empty DragSet → CLEAR (nothing to move, no conflicts possible)."""
+        from protoboard.controller.editing.drag_set import DragSet
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.controller.editing.drag_set import DragSet
 
         groups = _root_group()
         result = check_multi_group_move_conflicts(
@@ -487,10 +500,10 @@ class TestMultiGroupMoveConflicts:
     def test_single_group_through_multi_wrapper_matches_legacy(self) -> None:
         """Multi-group wrapper applied to a single-group DragSet must
         give identical result to the legacy single-group call."""
+        from protoboard.controller.editing.drag_set import DragSet
         from protoboard.domain.layout.pad_conflict import (
             check_multi_group_move_conflicts,
         )
-        from protoboard.controller.editing.drag_set import DragSet
 
         defn = _defn("A")
         inst = _inst(defn)

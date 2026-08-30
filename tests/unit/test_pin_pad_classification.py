@@ -24,7 +24,6 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import WirePinKnot
@@ -40,6 +39,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _perfboard(
@@ -49,14 +49,21 @@ def _perfboard(
     layers: PadLayers | None = None,
 ) -> Board:
     layers = layers or PadLayers(top=True, bottom=True, plated_through=True)
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=layers,
-        ),
-        rows=rows, cols=cols, row_gap=0, col_gap=0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=layers,
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
 
 
 def _empty_layout() -> Layout:
@@ -66,17 +73,15 @@ def _empty_layout() -> Layout:
 
 
 def _r_defn(pins: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="R", footprint=SIL(pins),
-        pin_names={i: chr(ord("A") + i - 1) for i in range(1, pins + 1)},
-    )
+    return make_sil("R", pins)
 
 
 def _bare_wire(*pts: tuple[float, float], side: str = "top") -> Wire:
     return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
-        insulated=False, side=side,  # type: ignore[arg-type]
+        insulated=False,
+        side=side,  # type: ignore[arg-type]
     )
 
 
@@ -92,7 +97,8 @@ def _by_position(records: list[PinPadInfo]) -> dict[tuple[Point, str], PinPadInf
 def _adopt_into_root(lay: Layout, gid: uuid.UUID) -> None:
     root = lay.groups[ROOT_GROUP_ID]
     lay.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=root.id, name=root.name,
+        id=root.id,
+        name=root.name,
         component_ids=root.component_ids,
         child_group_ids=root.child_group_ids | {gid},
         exported_pins=root.exported_pins,
@@ -114,10 +120,14 @@ class TestEmpty:
     def test_unconnected_pin_is_free_not_empty(self) -> None:
         board = _perfboard(2, 2)
         defn = _r_defn(1)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+            defn, sil_families(defn)
+        )
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
@@ -143,17 +153,23 @@ class TestPinPadModifier:
     ) -> tuple[PadIndex, Layout, uuid.UUID, uuid.UUID, uuid.UUID]:
         board = _perfboard(2, 3)
         defn = _r_defn(2)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+            defn, sil_families(defn)
+        )
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=90, side="top",  # SIL(2) rot=90: pin1@(0.5,0.5), pin2@(1.5,0.5)
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=90,
+            side="top",  # SIL(2) rot=90: pin1@(0.5,0.5), pin2@(1.5,0.5)
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
         if exported_pin_numbers:
             gid = uuid.uuid4()
             lay.groups[gid] = ComponentGroup(
-                id=gid, name="G", component_ids=frozenset({inst.id}),
+                id=gid,
+                name="G",
+                component_ids=frozenset({inst.id}),
                 exported_pins=frozenset(
                     PinRef(component_id=inst.id, pin_number=n)
                     for n in exported_pin_numbers
@@ -209,14 +225,20 @@ class TestPinPadModifier:
 
 class TestSideAwareness:
     def _single_pin_setup(
-        self, *, layers: PadLayers,
+        self,
+        *,
+        layers: PadLayers,
     ) -> tuple[PadIndex, Layout, uuid.UUID]:
         board = _perfboard(2, 2, layers=layers)
         defn = _r_defn(1)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+            defn, sil_families(defn)
+        )
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
@@ -334,6 +356,7 @@ class TestWirePin:
             pytest.skip("Pad not found at expected position")
         items = list(pad.iter_items("top"))
         from protoboard.domain.board.pad_state import WirePinItem
+
         if not any(isinstance(it, WirePinItem) for it in items):
             pytest.skip("WirePinItem not inserted by PadIndex baseline path")
         by_pos = _by_position(classify_pin_pads(idx, lay))
@@ -347,14 +370,20 @@ class TestFreePin:
     an empty hole (NONE) and from a netted pin (PIN_PAD)."""
 
     def _place_resistor(
-        self, *, net_pins: tuple[int, ...] = (),
+        self,
+        *,
+        net_pins: tuple[int, ...] = (),
     ) -> tuple[PadIndex, Layout, uuid.UUID]:
         board = _perfboard(2, 3)
         defn = _r_defn(2)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+            defn, sil_families(defn)
+        )
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=90, side="top",  # pin1@(0.5,0.5), pin2@(1.5,0.5)
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=90,
+            side="top",  # pin1@(0.5,0.5), pin2@(1.5,0.5)
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
@@ -397,51 +426,60 @@ class TestFreePin:
         assert (Point(2.5, 1.5), "top") not in by_pos
 
 
-class TestSameNamePinColouring:
-    """An unwired pin that shares a name (and thus a net via propagation) with
-    a wired sibling gets its pad coloured — driven purely by Net.pins/PadIndex,
-    no renderer change."""
+class TestMultiPadMetaPinColouring:
+    """Every physical pad mapped to one MetaPin receives its net colour."""
 
     def _ic_two_gnd(self) -> ComponentDefinition:
-        # SIL(4) vertical: pins at (0.5, 0.5/1.5/2.5/3.5). Pins 1 and 4 = GND.
-        return ComponentDefinition.from_footprint(
-            name="IC", footprint=SIL(4),
-            pin_names={1: "GND", 2: "B", 3: "C", 4: "GND"},
+        from protoboard.domain.components.definition import MetaPin, PackageOption
+
+        return ComponentDefinition(
+            name="IC",
+            meta_pins=(MetaPin(("GND",)), MetaPin(("B",)), MetaPin(("C",))),
+            package_options=(
+                PackageOption(
+                    name="SIL-4",
+                    ref="sil-4/std",
+                    pin_map={1: (1, 4), 2: (2,), 3: (3,)},
+                ),
+            ),
         )
 
-    def _setup(self, gnd_pins: tuple[int, ...]) -> tuple[PadIndex, Layout, uuid.UUID]:
+    def _setup(self, connected: bool) -> tuple[PadIndex, Layout, uuid.UUID]:
+        from protoboard.domain.components.package.generated_families import sil_family
+
         board = _perfboard(4, 1)
         defn = self._ic_two_gnd()
-        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(defn, {})
+        family = sil_family(4)
+        assert family is not None
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
+            defn, {family.family_id: family}
+        )
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
         nid, net = _net(
             "GND",
-            *(PinRef(component_id=inst.id, pin_number=p) for p in gnd_pins),
+            *((PinRef(component_id=inst.id, pin_number=1),) if connected else ()),
         )
         sch = Schematic(nets={nid: net})
         idx = PadIndex(board, lay, sch, {"IC": defn}, {inst.id: inst})
         return idx, lay, nid
 
-    def test_unwired_sibling_uncoloured_without_propagation(self) -> None:
-        # Only GND pin 1 in Net.pins (pre-propagation): pin 4 has no net.
-        idx, lay, nid = self._setup(gnd_pins=(1,))
+    def test_disconnected_metapin_leaves_both_package_pads_free(self) -> None:
+        idx, lay, _nid = self._setup(connected=False)
         by_pos = _by_position(classify_pin_pads(idx, lay))
-        assert by_pos[(Point(0.5, 0.5), "top")].net_id == nid  # pin1 coloured
-        # pin4 has no net → FREE (present, neutral), not net-coloured.
-        r4 = by_pos[(Point(0.5, 3.5), "top")]
-        assert r4.klass == PinPadClass.FREE
-        assert r4.net_id is None
+        for point in (Point(0.5, 0.5), Point(0.5, 3.5)):
+            assert by_pos[(point, "top")].klass == PinPadClass.FREE
+            assert by_pos[(point, "top")].net_id is None
 
-    def test_unwired_sibling_coloured_with_propagation(self) -> None:
-        # Both GND pins in Net.pins (post-propagation from AssignPinToNetCommand):
-        # the unwired pin 4 is now coloured with the GND net.
-        idx, lay, nid = self._setup(gnd_pins=(1, 4))
+    def test_connected_metapin_colours_both_package_pads(self) -> None:
+        idx, lay, nid = self._setup(connected=True)
         by_pos = _by_position(classify_pin_pads(idx, lay))
-        assert by_pos[(Point(0.5, 0.5), "top")].net_id == nid  # pin1
-        r4 = by_pos[(Point(0.5, 3.5), "top")]                  # pin4, unwired
-        assert r4.klass == PinPadClass.PIN_PAD
-        assert r4.net_id == nid
+        for point in (Point(0.5, 0.5), Point(0.5, 3.5)):
+            assert by_pos[(point, "top")].klass == PinPadClass.PIN_PAD
+            assert by_pos[(point, "top")].net_id == nid

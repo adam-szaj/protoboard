@@ -27,9 +27,10 @@ inside autoroute is now safe because they are not the live session state.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING
 
 from protoboard.types import Side
 
@@ -60,17 +61,17 @@ class LayoutSnapshot:
     ``wires`` instead.
     """
 
-    placements: Mapping[uuid.UUID, "ComponentPlacement"]
-    wires: tuple["Wire", ...]
+    placements: Mapping[uuid.UUID, ComponentPlacement]
+    wires: tuple[Wire, ...]
 
     @classmethod
-    def freeze(cls, layout: "Layout") -> "LayoutSnapshot":
+    def freeze(cls, layout: Layout) -> LayoutSnapshot:
         return cls(
             placements=MappingProxyType(dict(layout.placements)),
             wires=tuple(layout.wires),
         )
 
-    def to_layout(self) -> "Layout":
+    def to_layout(self) -> Layout:
         """Return a fresh mutable Layout suitable for in-place work.
 
         The returned Layout is a fresh object; mutating it does not touch
@@ -78,6 +79,7 @@ class LayoutSnapshot:
         """
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.wire import WireCollection
+
         return Layout(
             placements=dict(self.placements),  # type: ignore[arg-type]
             wires=WireCollection(list(self.wires)),
@@ -93,11 +95,12 @@ class SchematicSnapshot:
     to ``Net.pins``.  Net ids and names are unchanged.
     """
 
-    nets: Mapping[uuid.UUID, "Net"]
+    nets: Mapping[uuid.UUID, Net]
 
     @classmethod
-    def freeze(cls, schematic: "Schematic") -> "SchematicSnapshot":
+    def freeze(cls, schematic: Schematic) -> SchematicSnapshot:
         from protoboard.domain.schematic.net import Net
+
         frozen_nets: dict[uuid.UUID, Net] = {}
         for nid, net in schematic.nets.items():
             frozen_nets[nid] = Net(
@@ -109,8 +112,9 @@ class SchematicSnapshot:
             )
         return cls(nets=MappingProxyType(frozen_nets))
 
-    def to_schematic(self) -> "Schematic":
+    def to_schematic(self) -> Schematic:
         from protoboard.domain.schematic.schematic import Schematic
+
         return Schematic(nets=dict(self.nets))
 
 
@@ -129,12 +133,12 @@ class RouteRequest:
     MappingProxyType for symmetry.
     """
 
-    board: "Board"
+    board: Board
     layout: LayoutSnapshot
     schematic: SchematicSnapshot
-    components: Mapping[str, "ComponentDefinition"]
-    instances: Mapping[uuid.UUID, "ComponentInstance"]
-    routing_settings: "RoutingSettings"
+    components: Mapping[str, ComponentDefinition]
+    instances: Mapping[uuid.UUID, ComponentInstance]
+    routing_settings: RoutingSettings
     net_ids: frozenset[uuid.UUID] | None = None
     side: Side = "top"
     report_path: object | None = None  # pathlib.Path, deferred to avoid import cycle
@@ -143,16 +147,16 @@ class RouteRequest:
     def from_session(
         cls,
         *,
-        board: "Board",
-        layout: "Layout",
-        schematic: "Schematic",
-        components: dict[str, "ComponentDefinition"],
-        instances: dict[uuid.UUID, "ComponentInstance"],
-        routing_settings: "RoutingSettings",
+        board: Board,
+        layout: Layout,
+        schematic: Schematic,
+        components: dict[str, ComponentDefinition],
+        instances: dict[uuid.UUID, ComponentInstance],
+        routing_settings: RoutingSettings,
         net_ids: set[uuid.UUID] | None = None,
         side: Side = "top",
         report_path: object | None = None,
-    ) -> "RouteRequest":
+    ) -> RouteRequest:
         """Snapshot the live session state.  Call on the main thread."""
         return cls(
             board=board,

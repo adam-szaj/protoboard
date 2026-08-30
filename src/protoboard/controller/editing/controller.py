@@ -28,6 +28,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
+from protoboard.controller.editing.item_handle import ItemTag
 from protoboard.domain.commands.base import (
     Command,
     CommandRejectedError,
@@ -35,28 +36,12 @@ from protoboard.domain.commands.base import (
     ComponentState,
     SchematicState,
 )
-from protoboard.controller.editing.item_handle import ItemTag
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.components.package import PackageFamily
-    from protoboard.domain.connectivity.incremental import ConnectivityGraph
-    from protoboard.domain.layout.group import ComponentGroup
-    from protoboard.domain.layout.group_tree import GroupTree
-    from protoboard.domain.layout.pad_conflict import ConflictScanner
-    from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import Wire
-    from protoboard.controller.highlight_stack import HighlightStackBase
-    from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.geometry import Point, Rect, Vector
-    from protoboard.controller.selection.service import SelectionService
-    from protoboard.controller.editing.drag_preferences import DragPreferences
-    from protoboard.controller.selection.drop_resolution import ResolveFn
-    from protoboard.services.drc.engine import DRCIssue
     from protoboard.controller.editing.armed_transform import ArmedTransform
+    from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.editing.item_handle import (
         ComponentHandle,
         GroupHandle,
@@ -67,7 +52,22 @@ if TYPE_CHECKING:
     )
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing.wire_nets import NetMergePrompt
+    from protoboard.controller.highlight_stack import HighlightStackBase
+    from protoboard.controller.selection.drop_resolution import ResolveFn
+    from protoboard.controller.selection.service import SelectionService
     from protoboard.controller.tools.base import ControllerTool
+    from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package import PackageFamily
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
+    from protoboard.domain.layout.group import ComponentGroup
+    from protoboard.domain.layout.group_tree import GroupTree
+    from protoboard.domain.layout.pad_conflict import ConflictScanner
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.routing_settings import RoutingSettings
+    from protoboard.geometry import Point, Rect, Vector
+    from protoboard.services.drc.engine import DRCIssue
     from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.types import Side
 
@@ -135,18 +135,18 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
     *force*, only wire / component read the lock — a group is always kept if it
     exists.
     """
+    from protoboard.controller.editing.group_lock import (
+        component_locked_in_group,
+        wire_locked_in_group,
+    )
     from protoboard.domain.commands.component_cmds import (
         RemoveComponentCommand,
         RemoveWireCommand,
     )
     from protoboard.domain.commands.group_cmds import DisbandGroupCommand
-    from protoboard.controller.editing.group_lock import (
-        component_locked_in_group,
-        wire_locked_in_group,
-    )
 
     def keep_wire(
-        state: "EditState", wid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+        state: EditState, wid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
     ) -> bool:
         return state.wire_by_id(wid) is not None and (
             force
@@ -154,14 +154,14 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
         )
 
     def keep_component(
-        state: "EditState", cid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+        state: EditState, cid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
     ) -> bool:
         return cid in state.layout.placements and not component_locked_in_group(
             state, cid, active_group_id=active_group_id
         )
 
     def keep_group(
-        state: "EditState", gid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+        state: EditState, gid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
     ) -> bool:
         return gid in state.layout.groups
 
@@ -210,14 +210,10 @@ class EditState(SchematicState, Protocol):
     def run_drc(self) -> list[DRCIssue]: ...
     def pad_index(self) -> PadIndex: ...
     def connectivity_graph(self) -> ConnectivityGraph: ...
-    def get_pin_position(
-        self, comp_id: uuid.UUID, pin_number: int
-    ) -> Point | None: ...
+    def get_pin_position(self, comp_id: uuid.UUID, pin_number: int) -> Point | None: ...
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]: ...
     def wire_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]: ...
-    def iter_pin_positions(
-        self, comp_id: uuid.UUID
-    ) -> list[tuple[int, Point]]: ...
+    def iter_pin_positions(self, comp_id: uuid.UUID) -> list[tuple[int, Point]]: ...
     def meta_pin_for_package_pin(
         self, comp_id: uuid.UUID, package_pin_number: int
     ) -> int | None: ...
@@ -454,7 +450,8 @@ class EditController:
             return False
 
         cmd: Command[ComponentState] = (
-            cmds[0] if len(cmds) == 1
+            cmds[0]
+            if len(cmds) == 1
             else cast(
                 "Command[ComponentState]",
                 MacroCommand(cmds, description="Delete selection"),
@@ -477,7 +474,6 @@ class EditController:
         mutating op at all. *active_group_id* is that edit context (defaults to
         ROOT).
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.controller.editing.group_lock import component_locked_in_group
         from protoboard.controller.editing.item_handle import (
             ComponentHandle,
@@ -485,6 +481,7 @@ class EditController:
             ReadOnlyComponentHandle,
             WireHandle,
         )
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         if item_id.tag is ItemTag.group:
@@ -528,12 +525,12 @@ class EditController:
         outside *active_group_id* (defaults to ROOT), editable otherwise. Raises
         ``KeyError`` if *comp_id* has no placement.
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.controller.editing.group_lock import component_locked_in_group
         from protoboard.controller.editing.item_handle import (
             ComponentHandle,
             ReadOnlyComponentHandle,
         )
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         if comp_id not in self._state.layout.placements:
             raise KeyError(f"no component with id {comp_id}")
@@ -573,9 +570,7 @@ class EditController:
             ids = [item_ids]
         else:
             ids = list(item_ids)
-        return [
-            self.get_item(iid, active_group_id=active_group_id) for iid in ids
-        ]
+        return [self.get_item(iid, active_group_id=active_group_id) for iid in ids]
 
     def _select_if_given(self, item_ids: Iterable[ItemId] | None) -> None:
         """Apply the ``select these`` side-effect of the selection-relative verbs.
@@ -712,11 +707,14 @@ class EditController:
         if not cmds:
             return 0
         rotate_cmd: object = (
-            cmds[0] if len(cmds) == 1
+            cmds[0]
+            if len(cmds) == 1
             else MacroCommand(cmds, description="Rotate selection")
         )
         return self._apply_transform(
-            rotate_cmd, affected, remove_crossing_wires=remove_crossing_wires,
+            rotate_cmd,
+            affected,
+            remove_crossing_wires=remove_crossing_wires,
         )
 
     def flip(
@@ -806,15 +804,20 @@ class EditController:
         # loose-only 2-pin flip historically skipped it. The affected set for
         # cleanup is the groups' recursive membership.
         group_members = frozenset(
-            cid for gid in group_ids for cid in all_component_ids(state.layout.groups, gid)
+            cid
+            for gid in group_ids
+            for cid in all_component_ids(state.layout.groups, gid)
         )
         flip_cmd: object = (
-            cmds[0] if len(cmds) == 1
+            cmds[0]
+            if len(cmds) == 1
             else MacroCommand(cmds, description="Flip selection")
         )
         if group_members:
             return self._apply_transform(
-                flip_cmd, group_members, remove_crossing_wires=remove_crossing_wires,
+                flip_cmd,
+                group_members,
+                remove_crossing_wires=remove_crossing_wires,
             )
         self._execute(flip_cmd)
         return 0
@@ -840,13 +843,13 @@ class EditController:
         (< 2 points) or the merge was cancelled. Interaction state (routing-net
         highlight, preview overlays) stays with the caller.
         """
+        from protoboard.controller.editing.wire_nets import resolve_wire_nets
         from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
         from protoboard.domain.layout.wire import Wire
         from protoboard.domain.layout.wire_utils import (
             board_pads_for_side,
             insert_pad_nodes,
         )
-        from protoboard.controller.editing.wire_nets import resolve_wire_nets
 
         if len(path) < 2:
             return None
@@ -854,9 +857,8 @@ class EditController:
         state = self._state
         # Pads from BOTH sides: a single-side board returns an empty set for the
         # other side (no effect).
-        pads = (
-            board_pads_for_side(state.board, "top")
-            | board_pads_for_side(state.board, "bottom")
+        pads = board_pads_for_side(state.board, "top") | board_pads_for_side(
+            state.board, "bottom"
         )
         enriched_path = insert_pad_nodes(list(path), pads)
 
@@ -873,7 +875,7 @@ class EditController:
         return wire.id
 
     def set_wires_insulated(
-        self, wire_ids: "Iterable[uuid.UUID]", *, insulated: bool
+        self, wire_ids: Iterable[uuid.UUID], *, insulated: bool
     ) -> None:
         """Set every wire in *wire_ids* insulated/bare as one macro.
 
@@ -887,19 +889,24 @@ class EditController:
         if not ids:
             return
         cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]",
-                 SetWireInsulatedCommand(wire_id=w, insulated=insulated))
+            cast(
+                "Command[ComponentState]",
+                SetWireInsulatedCommand(wire_id=w, insulated=insulated),
+            )
             for w in ids
         ]
         verb = "insulated" if insulated else "bare"
-        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
-            cmds, description=f"Set {len(cmds)} wires {verb}",
+        cmd = (
+            cmds[0]
+            if len(cmds) == 1
+            else MacroCommand(
+                cmds,
+                description=f"Set {len(cmds)} wires {verb}",
+            )
         )
         self._execute(cmd)
 
-    def set_wires_side(
-        self, wire_ids: "Iterable[uuid.UUID]", *, side: "Side"
-    ) -> None:
+    def set_wires_side(self, wire_ids: Iterable[uuid.UUID], *, side: Side) -> None:
         """Flatten every wire in *wire_ids* onto *side* (explicit "Move to").
 
         The single unified builder for "Wire: Move to Top/Bottom Layer".
@@ -915,12 +922,17 @@ class EditController:
             cast("Command[ComponentState]", SetWireSideCommand(wire_id=w, side=side))
             for w in ids
         ]
-        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
-            cmds, description=f"Move {len(cmds)} wires to {side}",
+        cmd = (
+            cmds[0]
+            if len(cmds) == 1
+            else MacroCommand(
+                cmds,
+                description=f"Move {len(cmds)} wires to {side}",
+            )
         )
         self._execute(cmd)
 
-    def flip_wires(self, wire_ids: "Iterable[uuid.UUID]") -> None:
+    def flip_wires(self, wire_ids: Iterable[uuid.UUID]) -> None:
         """Flip every wire in *wire_ids* by toggling each fragment's side.
 
         A mixed wire stays mixed (inverted); no ``wire.side`` is read, so a
@@ -934,17 +946,19 @@ class EditController:
         if not ids:
             return
         cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]", FlipWireSideCommand(wire_id=w))
-            for w in ids
+            cast("Command[ComponentState]", FlipWireSideCommand(wire_id=w)) for w in ids
         ]
-        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
-            cmds, description=f"Flip {len(cmds)} wires",
+        cmd = (
+            cmds[0]
+            if len(cmds) == 1
+            else MacroCommand(
+                cmds,
+                description=f"Flip {len(cmds)} wires",
+            )
         )
         self._execute(cmd)
 
-    def set_locked(
-        self, component_ids: "Iterable[uuid.UUID]", *, locked: bool
-    ) -> None:
+    def set_locked(self, component_ids: Iterable[uuid.UUID], *, locked: bool) -> None:
         """Set the lock flag on every component in *component_ids* as one macro.
 
         The single unified builder for "Lock / Unlock". The toggle decision
@@ -956,16 +970,23 @@ class EditController:
 
         placements = self._state.layout.placements
         cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]",
-                 LockComponentCommand(component_id=c, locked=locked))
+            cast(
+                "Command[ComponentState]",
+                LockComponentCommand(component_id=c, locked=locked),
+            )
             for c in component_ids
             if c in placements and placements[c].locked != locked
         ]
         if not cmds:
             return
         verb = "Lock" if locked else "Unlock"
-        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
-            cmds, description=f"{verb} {len(cmds)} component(s)",
+        cmd = (
+            cmds[0]
+            if len(cmds) == 1
+            else MacroCommand(
+                cmds,
+                description=f"{verb} {len(cmds)} component(s)",
+            )
         )
         self._execute(cmd)
 
@@ -996,9 +1017,9 @@ class EditController:
         when to commit. When *existing_instance* is given (a netlist-imported
         part) its identity is reused; otherwise a fresh refdes/value is minted.
         """
+        from protoboard.controller.editing.placement_conflict import check_and_resolve
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.layout.placement import ComponentPlacement
-        from protoboard.controller.editing.placement_conflict import check_and_resolve
 
         state = self._state
         defn = state.components.get(ref)
@@ -1046,7 +1067,9 @@ class EditController:
             placement = resolved.placement
             wire_cmds = resolved.wire_cmds
         return ResolvedPlacement(
-            instance=inst, placement=placement, wire_cmds=wire_cmds,
+            instance=inst,
+            placement=placement,
+            wire_cmds=wire_cmds,
         )
 
     def place_component(self, resolved: ResolvedPlacement) -> uuid.UUID:
@@ -1126,7 +1149,8 @@ class EditController:
         if not kept:
             return 0
         macro: MacroCommand[ComponentState] = MacroCommand(
-            commands=kept, description=f"Autoroute ({len(kept)} wires)",
+            commands=kept,
+            description=f"Autoroute ({len(kept)} wires)",
         )
         # Silent: the GUI caller owns the refresh + single layout_changed emit
         # (in its legacy order, after mark_dirty); a headless caller's notify is
@@ -1208,12 +1232,15 @@ class EditController:
         }
         if kind == "pdf":
             from protoboard.services.export.pdf import export_pdf
+
             export_pdf(path, **common)  # type: ignore[arg-type]
         elif kind == "png":
             from protoboard.services.export.png import export_png
+
             export_png(path, **common)  # type: ignore[arg-type]
         elif kind == "svg":
             from protoboard.services.export.svg import export_svg
+
             path.write_text(export_svg(**common))  # type: ignore[arg-type]
         else:
             raise ValueError(f"unknown export kind: {kind!r}")
@@ -1242,10 +1269,16 @@ class EditController:
         if not ids:
             return None
         new_group, promoted_free, promoted_groups = self._prepare_new_group(
-            active_group_id, ids, name=name, auto_export=auto_export,
+            active_group_id,
+            ids,
+            name=name,
+            auto_export=auto_export,
         )
         self._execute_group_promotion(
-            active_group_id, new_group, promoted_free, promoted_groups,
+            active_group_id,
+            new_group,
+            promoted_free,
+            promoted_groups,
         )
         return new_group.id
 
@@ -1285,9 +1318,7 @@ class EditController:
             )
             if new_exported != state.layout.groups[group_id].exported_pins:
                 self._execute_silent(
-                    SetExportedPinsCommand(
-                        group_id=group_id, new_exported=new_exported
-                    )
+                    SetExportedPinsCommand(group_id=group_id, new_exported=new_exported)
                 )
         state.notify_changed()
 
@@ -1379,9 +1410,7 @@ class EditController:
         )
         if promoted_free:
             self._execute_silent(
-                RemoveFromGroupCommand(
-                    group_id=active_gid, component_ids=promoted_free
-                )
+                RemoveFromGroupCommand(group_id=active_gid, component_ids=promoted_free)
             )
         state.notify_changed()
 
@@ -1414,10 +1443,10 @@ class EditController:
         active_group_id: uuid.UUID | None,
     ) -> frozenset[uuid.UUID]:
         """Loose components that are placed and not sealed inside another group."""
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.controller.editing.group_lock import (
             component_locked_in_group,
         )
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         state = self._state
@@ -1631,6 +1660,7 @@ class EditController:
         # view uses, sourced from the shared Board.pad_positions() so the two
         # can never diverge.
         from collections import defaultdict
+
         pad_spatial: dict[tuple[int, int], list[Point]] = defaultdict(list)
         for _p in state.board.pad_positions():
             pad_spatial[(int(round(_p.x)), int(round(_p.y)))].append(_p)

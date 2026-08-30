@@ -57,7 +57,9 @@ class TestLibraryPanel:
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
         received: list[tuple[str, object]] = []
-        panel.component_selected.connect(lambda name, variant: received.append((name, variant)))
+        panel.component_selected.connect(
+            lambda name, variant: received.append((name, variant))
+        )
         # Find "R" leaf item (any depth) and simulate double-click.
         from PySide6.QtWidgets import QTreeWidgetItem
 
@@ -122,6 +124,33 @@ class TestLibraryPanel:
 
 
 class TestPropertiesPanel:
+    def test_package_pin_detail_shows_all_metapin_labels(self) -> None:
+        from protoboard.domain.components.definition import (
+            ComponentDefinition,
+            MetaPin,
+            PackageOption,
+        )
+        from protoboard.gui.panels.properties_panel import (
+            _package_pin_detail_label,
+        )
+
+        defn = ComponentDefinition(
+            name="MCU",
+            meta_pins=(MetaPin(("15", "PB3", "OC2", "PCINT3", "MOSI")),),
+            package_options=(
+                PackageOption(
+                    name="default",
+                    ref="mcu/std",
+                    pin_map={1: (7,)},
+                ),
+            ),
+        )
+        instance = ComponentInstance.new(definition_ref="MCU", refdes="U1", value="")
+
+        assert _package_pin_detail_label(defn, instance, 7) == (
+            "Pin 7 (15 / PB3 / OC2 / PCINT3 / MOSI)"
+        )
+
     def test_has_no_legacy_pin_variant_selector(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
 
@@ -157,7 +186,8 @@ class TestPropertiesPanel:
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R3", value="4k7", tolerance="1%")
+            definition_ref="R", refdes="R3", value="4k7", tolerance="1%"
+        )
         panel.show_component(inst)
         assert panel._tolerance_edit.text() == "1%"
 
@@ -168,7 +198,8 @@ class TestPropertiesPanel:
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R3", value="4k7", tolerance="1%")
+            definition_ref="R", refdes="R3", value="4k7", tolerance="1%"
+        )
         panel.show_component(inst)
         panel.clear_component()
         assert panel._refdes_edit.text() == ""
@@ -185,8 +216,7 @@ class TestPropertiesPanel:
         panel.show_component(inst)
         received: list[tuple[uuid.UUID, str, str, str, int]] = []
         panel.component_changed.connect(
-            lambda cid, rd, val, tol, rot:
-            received.append((cid, rd, val, tol, rot))
+            lambda cid, rd, val, tol, rot: received.append((cid, rd, val, tol, rot))
         )
         panel._refdes_edit.setText("R99")
         panel._value_edit.setText("22k")
@@ -229,9 +259,12 @@ class TestPropertiesPanelAppearance:
 
         panel = self._panel(qtbot)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R3", value="4k7",
+            definition_ref="R",
+            refdes="R3",
+            value="4k7",
             appearance=Appearance(
-                color="#1a2b3c", corner_radius_mm=(0.5, 0.0),
+                color="#1a2b3c",
+                corner_radius_mm=(0.5, 0.0),
             ),
         )
         panel.show_component(inst)
@@ -250,7 +283,9 @@ class TestPropertiesPanelAppearance:
 
         panel = self._panel(qtbot)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R3", value="4k7",
+            definition_ref="R",
+            refdes="R3",
+            value="4k7",
             appearance=Appearance(color="#1a2b3c"),
         )
         panel.show_component(inst)
@@ -265,9 +300,7 @@ class TestPropertiesPanelAppearance:
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
         panel.show_component(inst)
         received: list[tuple[object, object]] = []
-        panel.appearance_changed.connect(
-            lambda cid, app: received.append((cid, app))
-        )
+        panel.appearance_changed.connect(lambda cid, app: received.append((cid, app)))
         panel._style_color_edit.setText("#1a1a1a")
         panel._style_radius_edit.setText("0.5 0 0.5 0")
         panel._apply_btn.click()
@@ -275,7 +308,8 @@ class TestPropertiesPanelAppearance:
         cid, app = received[0]
         assert cid == inst.id
         assert app == Appearance(
-            color="#1a1a1a", corner_radius_mm=(0.5, 0.0, 0.5, 0.0),
+            color="#1a1a1a",
+            corner_radius_mm=(0.5, 0.0, 0.5, 0.0),
         )
 
     def test_apply_unchanged_fields_does_not_emit(self, qtbot: object) -> None:
@@ -283,7 +317,9 @@ class TestPropertiesPanelAppearance:
 
         panel = self._panel(qtbot)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="10k",
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
             appearance=Appearance(color="#1a1a1a"),
         )
         panel.show_component(inst)
@@ -297,14 +333,14 @@ class TestPropertiesPanelAppearance:
 
         panel = self._panel(qtbot)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="10k",
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
             appearance=Appearance(color="#1a1a1a"),
         )
         panel.show_component(inst)
         received: list[tuple[object, object]] = []
-        panel.appearance_changed.connect(
-            lambda cid, app: received.append((cid, app))
-        )
+        panel.appearance_changed.connect(lambda cid, app: received.append((cid, app)))
         panel._style_color_edit.clear()
         panel._apply_btn.click()
         assert received == [(inst.id, None)]
@@ -338,20 +374,25 @@ class TestLibraryPanelBodyPicker:
     def _isolate_recent(self, tmp_path: object, monkeypatch: object) -> None:
         # Placing through the picker records a recent footprint; isolate the
         # store so it never touches ~/.config and never bleeds between tests.
-        import pytest as _pytest
         from pathlib import Path
+
+        import pytest as _pytest
+
         from protoboard.gui import recent_footprints
+
         assert isinstance(tmp_path, Path)
         assert isinstance(monkeypatch, _pytest.MonkeyPatch)
         monkeypatch.setattr(recent_footprints, "_CONFIG_DIR", tmp_path)
         monkeypatch.setattr(
-            recent_footprints, "_RECENT_FILE",
+            recent_footprints,
+            "_RECENT_FILE",
             tmp_path / "recent_footprints.json",
         )
 
     def _packages(self) -> dict:
         from protoboard.domain.components.package import (
-            PackageFamily, PackageVariant,
+            PackageFamily,
+            PackageVariant,
         )
         from protoboard.domain.components.package.loader import build_package
 
@@ -363,28 +404,31 @@ class TestLibraryPanelBodyPicker:
                     "bend": 0,
                     "leads": {
                         "direction": [[0, 0, -1], [0, 0, 1]],
-                        "body_offset": 0, "board_offset": "solve",
-                        "lead_r": 0.25, "lead_length": 8.0,
+                        "body_offset": 0,
+                        "board_offset": "solve",
+                        "lead_r": 0.25,
+                        "lead_length": 8.0,
                     },
                 },
                 "C",
             )
 
         return {
-            "DIN-0207": PackageFamily(
-                family_id="DIN-0207", label="DIN 0207",
-                variants=(PackageVariant("typ", "typ", _cyl()),),  # type: ignore[arg-type]
-            ),
-            "DIN-0617": PackageFamily(
-                family_id="DIN-0617", label="DIN 0617",
-                variants=(PackageVariant("typ", "typ", _cyl()),),  # type: ignore[arg-type]
-            ),
+            "r-tht/DIN": PackageFamily(
+                family_id="r-tht/DIN",
+                label="DIN axial",
+                variants=(
+                    PackageVariant("0207", "0207", _cyl()),  # type: ignore[arg-type]
+                    PackageVariant("0617", "0617", _cyl()),  # type: ignore[arg-type]
+                ),
+                default_id="0207",
+            )
         }
 
     def _set_r_options(
         self,
         session: EditorSession,
-        refs: tuple[str, ...] = ("DIN-0207/typ", "DIN-0617/typ"),
+        refs: tuple[str, ...] = ("r-tht/DIN/0207", "r-tht/DIN/0617"),
     ) -> None:
         from protoboard.domain.components.definition import (
             ComponentClass,
@@ -392,6 +436,7 @@ class TestLibraryPanelBodyPicker:
             MetaPin,
             PackageOption,
         )
+
         session.library._by_name["R"] = ComponentDefinition(
             name="R",
             component_class=ComponentClass.RESISTOR,
@@ -430,12 +475,14 @@ class TestLibraryPanelBodyPicker:
                 return r
         return None
 
-    def _patch_dialog(self, monkeypatch: object, chosen: "str | None") -> list:
+    def _patch_dialog(self, monkeypatch: object, chosen: str | None) -> list:
         """Stub the footprint pop-up: capture its (recent, options) and return
         *chosen* (or reject when ``chosen is None``). Returns the capture list."""
         import pytest as _pytest
         from PySide6.QtWidgets import QDialog
+
         from protoboard.gui.dialogs import footprint_picker_dialog
+
         assert isinstance(monkeypatch, _pytest.MonkeyPatch)
         seen: list = []
 
@@ -446,21 +493,23 @@ class TestLibraryPanelBodyPicker:
 
             def exec(self):
                 return (
-                    QDialog.DialogCode.Accepted if chosen is not None
+                    QDialog.DialogCode.Accepted
+                    if chosen is not None
                     else QDialog.DialogCode.Rejected
                 )
 
-        monkeypatch.setattr(
-            footprint_picker_dialog, "FootprintPickerDialog", _Stub
-        )
+        monkeypatch.setattr(footprint_picker_dialog, "FootprintPickerDialog", _Stub)
         return seen
 
     def test_multi_option_offers_packages(
-        self, qtbot: object, session: EditorSession,
+        self,
+        qtbot: object,
+        session: EditorSession,
     ) -> None:
         # R offers two package footprints; the provider reports both (no
         # placeholder / forced choice) and neither is a kind.
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         self._set_r_options(session)
         panel = LibraryPanel(session.library)
@@ -468,34 +517,37 @@ class TestLibraryPanelBodyPicker:
         panel.set_package_families(self._packages())
         opts = panel._choice.options(session.library.get("R"))
         addrs = [o.address for o in opts]
-        assert "DIN-0207/typ" in addrs and "DIN-0617/typ" in addrs
+        assert "r-tht/DIN/0207" in addrs and "r-tht/DIN/0617" in addrs
         assert not any(o.is_kind for o in opts)
 
-    def test_explicit_options_without_catalogue_are_packages(
-        self, qtbot: object, session: EditorSession,
+    def test_explicit_options_without_catalogue_are_not_selectable(
+        self,
+        qtbot: object,
+        session: EditorSession,
     ) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         self._set_r_options(session)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        # Discovery comes from ComponentDefinition.package_options; without a
-        # catalogue the provider cannot classify either option as a kind.
+        # A declaration alone cannot prove that an address is placeable; the
+        # provider needs the catalogue to expose concrete leaves.
         opts = panel._choice.options(session.library.get("R"))
-        assert [option.address for option in opts] == [
-            "DIN-0207/typ",
-            "DIN-0617/typ",
-        ]
-        assert not any(option.is_kind for option in opts)
+        assert opts == []
 
     def test_multi_option_double_click_opens_dialog_and_places(
-        self, qtbot: object, session: EditorSession, monkeypatch: object,
+        self,
+        qtbot: object,
+        session: EditorSession,
+        monkeypatch: object,
     ) -> None:
         # >1 option → the pop-up opens; the chosen address is placed.
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         self._set_r_options(session)
-        self._patch_dialog(monkeypatch, "DIN-0617/typ")
+        self._patch_dialog(monkeypatch, "r-tht/DIN/0617")
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
         panel.set_package_families(self._packages())
@@ -506,13 +558,42 @@ class TestLibraryPanelBodyPicker:
             lambda name, package: received.append((name, package))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert received == [("R", "DIN-0617/typ")]
+        assert received == [("R", "r-tht/DIN/0617")]
+
+    def test_dialog_cannot_return_an_undeclared_package(
+        self,
+        qtbot: object,
+        session: EditorSession,
+        monkeypatch: object,
+    ) -> None:
+        from pytestqt.qtbot import QtBot
+
+        assert isinstance(qtbot, QtBot)
+        self._set_r_options(session)
+        self._patch_dialog(monkeypatch, "UNDECLARED/std")
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        panel.set_package_families(self._packages())
+        r_item = self._select_R(panel)
+        assert r_item is not None
+        received: list[tuple[str, object]] = []
+        panel.component_selected.connect(
+            lambda name, package: received.append((name, package))
+        )
+
+        panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
+
+        assert received == []
 
     def test_dismissed_dialog_places_nothing(
-        self, qtbot: object, session: EditorSession, monkeypatch: object,
+        self,
+        qtbot: object,
+        session: EditorSession,
+        monkeypatch: object,
     ) -> None:
         # Esc / Cancel on the pop-up → nothing is placed.
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         self._set_r_options(session)
         self._patch_dialog(monkeypatch, None)  # rejected
@@ -529,14 +610,20 @@ class TestLibraryPanelBodyPicker:
         assert placed == []
 
     def test_single_package_places_with_no_dialog(
-        self, qtbot: object, session: EditorSession, monkeypatch: object,
+        self,
+        qtbot: object,
+        session: EditorSession,
+        monkeypatch: object,
     ) -> None:
         # Exactly one option that is a package → placed directly, no pop-up.
         from pytestqt.qtbot import QtBot
+
         from protoboard.domain.components.package import (
-            PackageFamily, PackageVariant,
+            PackageFamily,
+            PackageVariant,
         )
         from protoboard.domain.components.package.loader import build_package
+
         assert isinstance(qtbot, QtBot)
         opened = self._patch_dialog(monkeypatch, "should-not-be-used")
 
@@ -544,25 +631,31 @@ class TestLibraryPanelBodyPicker:
             return build_package(
                 {
                     "shape": "cylinder",
-                    "dims": {"diameter": 2.0, "length": 5.0}, "bend": 0,
+                    "dims": {"diameter": 2.0, "length": 5.0},
+                    "bend": 0,
                     "leads": {
                         "direction": [[0, 0, -1], [0, 0, 1]],
-                        "body_offset": 0, "board_offset": "solve",
-                        "lead_r": 0.25, "lead_length": 8.0,
+                        "body_offset": 0,
+                        "board_offset": "solve",
+                        "lead_r": 0.25,
+                        "lead_length": 8.0,
                     },
                 },
                 "C",
             )
 
-        self._set_r_options(session, ("DIN-0207/typ",))
+        self._set_r_options(session, ("r-tht/DIN/0207",))
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        panel.set_package_families({
-            "DIN-0207": PackageFamily(
-                family_id="DIN-0207", label="DIN 0207",
-                variants=(PackageVariant("typ", "typ", _cyl()),),  # type: ignore[arg-type]
-            ),
-        })
+        panel.set_package_families(
+            {
+                "r-tht/DIN": PackageFamily(
+                    family_id="r-tht/DIN",
+                    label="DIN axial",
+                    variants=(PackageVariant("0207", "0207", _cyl()),),  # type: ignore[arg-type]
+                ),
+            }
+        )
         r_item = self._select_R(panel)
         assert r_item is not None
         placed: list[tuple] = []
@@ -570,48 +663,60 @@ class TestLibraryPanelBodyPicker:
             lambda name, package: placed.append((name, package))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert placed == [("R", "DIN-0207/typ")]
+        assert placed == [("R", "r-tht/DIN/0207")]
         assert opened == []  # dialog never constructed
 
     def test_footprints_list_labels_are_symbol_name(
-        self, qtbot: object, tmp_path: object,
+        self,
+        qtbot: object,
+        tmp_path: object,
     ) -> None:
-        # A component with a footprints: list labels each option "symbol_name".
+        # A component labels each package option as "symbol_name".
         from pathlib import Path
+
         from pytestqt.qtbot import QtBot
+
         from protoboard.services.library.loader import load_library
+
         assert isinstance(qtbot, QtBot) and isinstance(tmp_path, Path)
         (tmp_path / "ic.yaml").write_text(
             "components:\n"
             "  - name: U_DIP14\n"
             "    component_class: ic\n    symbol: U\n"
-            "    pins: {count: 14}\n"
-            "    footprints:\n"
+            "    meta_pins: [P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14]\n"  # noqa: E501
+            "    package_options:\n"
             "      - name: DIP-14\n        package: {kind: dip_ic}\n"
             "      - name: WDIP-14\n        package: {kind: wdip_ic}\n"
-            "    pin_names: {}\n"
+            ""
         )
         lib = load_library([tmp_path])
         panel = LibraryPanel(lib)
         qtbot.addWidget(panel)
+        panel.set_package_families(lib.package_families)
         labels = [o.label for o in panel._choice.options(lib.get("U_DIP14"))]
         assert labels == ["U_DIP-14", "U_WDIP-14"]
 
     def test_recently_used_footprint_offered_first(
-        self, qtbot: object, session: EditorSession, monkeypatch: object,
+        self,
+        qtbot: object,
+        session: EditorSession,
+        monkeypatch: object,
     ) -> None:
         # A recent pick for this component is what the panel passes to the pop-up
         # as the recent list (rendered on top, ★).
         import pytest as _pytest
         from pytestqt.qtbot import QtBot
+
         from protoboard.gui import recent_footprints
+
         assert isinstance(qtbot, QtBot)
         assert isinstance(monkeypatch, _pytest.MonkeyPatch)
         self._set_r_options(session)
-        seen = self._patch_dialog(monkeypatch, "DIN-0617/typ")
+        seen = self._patch_dialog(monkeypatch, "r-tht/DIN/0617")
         monkeypatch.setattr(
-            recent_footprints, "load",
-            lambda: [recent_footprints.RecentFootprint("R", "DIN-0617/typ", "R_x")],
+            recent_footprints,
+            "load",
+            lambda: [recent_footprints.RecentFootprint("R", "r-tht/DIN/0617", "R_x")],
         )
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
@@ -621,7 +726,7 @@ class TestLibraryPanelBodyPicker:
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
         assert len(seen) == 1
         recent, _options = seen[0]
-        assert [r.address for r in recent] == ["DIN-0617/typ"]
+        assert [r.address for r in recent] == ["r-tht/DIN/0617"]
 
 
 class TestBodyVariantDropdown:
@@ -635,19 +740,20 @@ class TestBodyVariantDropdown:
             MetaPin,
             PackageOption,
         )
+
         return ComponentDefinition(
             name="R",
             meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
             component_class=ComponentClass.RESISTOR,
             package_options=(
                 PackageOption(
-                    name="DIN-0207/typ",
-                    ref="DIN-0207/typ",
+                    name="DIN-0207",
+                    ref="r-tht/DIN/0207",
                     pin_map={1: (1,), 2: (2,)},
                 ),
                 PackageOption(
-                    name="DIN-0617/typ",
-                    ref="DIN-0617/typ",
+                    name="r-tht/DIN/0617",
+                    ref="r-tht/DIN/0617",
                     pin_map={1: (1,), 2: (2,)},
                 ),
             ),
@@ -655,7 +761,8 @@ class TestBodyVariantDropdown:
 
     def _families(self) -> dict:
         from protoboard.domain.components.package import (
-            PackageFamily, PackageVariant,
+            PackageFamily,
+            PackageVariant,
         )
         from protoboard.domain.components.package.loader import build_package
 
@@ -667,61 +774,72 @@ class TestBodyVariantDropdown:
                     "bend": 0,
                     "leads": {
                         "direction": [[0, 0, -1], [0, 0, 1]],
-                        "body_offset": 0, "board_offset": "solve",
-                        "lead_r": 0.25, "lead_length": 8.0,
+                        "body_offset": 0,
+                        "board_offset": "solve",
+                        "lead_r": 0.25,
+                        "lead_length": 8.0,
                     },
                 },
                 "C",
             )
 
         return {
-            "DIN-0207": PackageFamily(
-                family_id="DIN-0207", label="DIN 0207",
+            "r-tht/DIN": PackageFamily(
+                family_id="r-tht/DIN",
+                label="DIN axial",
                 variants=(
-                    PackageVariant("S", "S", _cyl(2.0, 5.0)),  # type: ignore[arg-type]
-                    PackageVariant("typ", "typ", _cyl(2.5, 6.5)),  # type: ignore[arg-type]
+                    PackageVariant("0207", "0207", _cyl(2.5, 6.5)),  # type: ignore[arg-type]
+                    PackageVariant("0617", "0617", _cyl(5.0, 14.0)),  # type: ignore[arg-type]
                 ),
+                default_id="0207",
             ),
-            "DIN-0617": PackageFamily(
-                family_id="DIN-0617", label="DIN 0617",
-                variants=(PackageVariant("typ", "typ", _cyl(5.0, 14.0)),),  # type: ignore[arg-type]
+            "UNDECLARED": PackageFamily(
+                family_id="UNDECLARED",
+                variants=(PackageVariant("std", "std", _cyl(2.0, 5.0)),),  # type: ignore[arg-type]
             ),
         }
 
     def test_dropdown_visible_when_twopin_with_packages(
-        self, qtbot: object,
+        self,
+        qtbot: object,
     ) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
         panel.show_component(
-            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            inst,
+            defn=self._make_defn_with_default(),  # type: ignore[arg-type]
             package_families=self._families(),
         )
         assert len(panel._body_variant_addresses) > 0
 
     def test_dropdown_lists_default_first(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
         panel.show_component(
-            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            inst,
+            defn=self._make_defn_with_default(),  # type: ignore[arg-type]
             package_families=self._families(),
         )
         # First entry is always "Default (library)" with None address.
         assert panel._body_variant_addresses[0] is None
-        # DIN-0207 variants come right after (definition's default family).
-        assert panel._body_variant_addresses[1] == "DIN-0207/S"
-        assert panel._body_variant_addresses[2] == "DIN-0207/typ"
+        # Declared family variants come right after the library default.
+        assert panel._body_variant_addresses[1] == "r-tht/DIN/0207"
+        assert panel._body_variant_addresses[2] == "r-tht/DIN/0617"
         # Then DIN-0617.
-        assert "DIN-0617/typ" in panel._body_variant_addresses
+        assert "r-tht/DIN/0617" in panel._body_variant_addresses
+        assert "UNDECLARED/std" not in panel._body_variant_addresses
 
     def test_dropdown_hidden_for_non_twopin(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         from protoboard.domain.components.definition import (
             ComponentClass,
             ComponentDefinition,
@@ -731,6 +849,7 @@ class TestBodyVariantDropdown:
         from protoboard.domain.components.package.generated_families import (
             sil_family,
         )
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
@@ -757,13 +876,15 @@ class TestBodyVariantDropdown:
         assert panel._body_variant_addresses == []
 
     def test_dropdown_hidden_when_no_catalogue(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+
         from protoboard.domain.components.definition import (
             ComponentClass,
             ComponentDefinition,
             MetaPin,
             PackageOption,
         )
-        from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
@@ -772,8 +893,8 @@ class TestBodyVariantDropdown:
             meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
             package_options=(
                 PackageOption(
-                    name="DIN-0207/typ",
-                    ref="DIN-0207/typ",
+                    name="r-tht/DIN/0207",
+                    ref="r-tht/DIN/0207",
                     pin_map={1: (1,), 2: (2,)},
                 ),
             ),
@@ -784,43 +905,52 @@ class TestBodyVariantDropdown:
 
     def test_changing_dropdown_emits_signal(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="", package_variant=None,
+            definition_ref="R",
+            refdes="R1",
+            value="",
+            package_variant=None,
         )
         panel.show_component(
-            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            inst,
+            defn=self._make_defn_with_default(),  # type: ignore[arg-type]
             package_families=self._families(),
         )
         received: list[tuple[uuid.UUID, object]] = []
         panel.package_variant_changed.connect(
             lambda cid, addr: received.append((cid, addr))
         )
-        # Move to DIN-0617/typ
-        target_idx = panel._body_variant_addresses.index("DIN-0617/typ")
+        # Move to r-tht/DIN/0617
+        target_idx = panel._body_variant_addresses.index("r-tht/DIN/0617")
         panel._body_variant_combo.setCurrentIndex(target_idx)
         assert len(received) == 1
         _, addr = received[0]
-        assert addr == "DIN-0617/typ"
+        assert addr == "r-tht/DIN/0617"
 
     def test_current_instance_variant_preselected(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="",
-            package_variant="DIN-0617/typ",
+            definition_ref="R",
+            refdes="R1",
+            value="",
+            package_variant="r-tht/DIN/0617",
         )
         panel.show_component(
-            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            inst,
+            defn=self._make_defn_with_default(),  # type: ignore[arg-type]
             package_families=self._families(),
         )
-        # Combo should pick the DIN-0617/typ entry, not Default.
+        # Combo should pick the r-tht/DIN/0617 entry, not Default.
         idx = panel._body_variant_combo.currentIndex()
-        assert panel._body_variant_addresses[idx] == "DIN-0617/typ"
+        assert panel._body_variant_addresses[idx] == "r-tht/DIN/0617"
 
 
 class TestPropertiesParameters:
@@ -883,6 +1013,7 @@ class TestPropertiesParameters:
 
     def test_section_shows_one_row_per_field(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
@@ -897,6 +1028,7 @@ class TestPropertiesParameters:
 
     def test_set_field_is_readonly_with_value(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
@@ -909,6 +1041,7 @@ class TestPropertiesParameters:
 
     def test_hidden_without_schema(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
@@ -918,6 +1051,7 @@ class TestPropertiesParameters:
 
     def test_clear_hides_section(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
+
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)

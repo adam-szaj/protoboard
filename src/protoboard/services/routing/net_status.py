@@ -24,12 +24,6 @@ def net_is_complete(net: Net, graph: ConnectivityGraph) -> bool:
     return all(n == first for n in placed[1:])
 
 
-def routed_net_ids(
-    schematic: Schematic, graph: ConnectivityGraph
-) -> set[uuid.UUID]:
+def routed_net_ids(schematic: Schematic, graph: ConnectivityGraph) -> set[uuid.UUID]:
     """Return the set of net IDs that are fully routed."""
-    return {
-        net.id
-        for net in schematic.nets.values()
-        if net_is_complete(net, graph)
-    }
+    return {net.id for net in schematic.nets.values() if net_is_complete(net, graph)}

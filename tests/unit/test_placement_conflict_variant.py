@@ -7,7 +7,7 @@ conflict because the conflict check measured the incoming part's pin-2 against
 the *default* axial footprint (pitch 3.2 holes). At placement time the instance
 is not yet in ``session.instances``, so the check fell back to ``defn.default_footprint()``
 unless the caller passes the (bound) incoming instance.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ def _resistor_and_catalogue():  # type: ignore[no-untyped-def]
     from protoboard.services.library.package_family_loader import (
         load_full_package_catalogue,
     )
+
     families = load_full_package_catalogue()
     lib = load_library([BUILTIN_LIBRARY_DIR], families)
     return lib.get("R"), families
@@ -47,31 +48,39 @@ class TestIncomingVariantNotBlocked:
         # incoming part's DEFAULT pin-2 would land (3.2 from incoming pin-1),
         # but NOT where the SMD variant's pin-2 lands (1 hole away).
         existing = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="",
+            definition_ref="R",
+            refdes="R1",
+            value="",
         ).bind(defn, families)
         # Incoming, bound to the tight SMD variant.
         incoming = ComponentInstance.new(
-            definition_ref="R", refdes="R2", value="",
-            package_variant="SMD-0805/typ",
+            definition_ref="R",
+            refdes="R2",
+            value="",
+            package_variant="chip-smd/imperial/0805",
         ).bind(defn, families)
 
         incoming_pl = ComponentPlacement(
-            component_id=incoming.id, position=Point(5.0, 5.0), rotation=0,
+            component_id=incoming.id,
+            position=Point(5.0, 5.0),
+            rotation=0,
             side="top",
         )
         # Place the neighbour's pin-1 on the incoming DEFAULT pin-2 position.
-        default_pin2 = pin_world_position(defn.default_footprint(), incoming_pl, 2)
-        variant = resolve_variant(families, "SMD-0805/typ")
+        default_pin2 = pin_world_position(
+            defn.default_footprint(families), incoming_pl, 2
+        )
+        variant = resolve_variant(families, "chip-smd/imperial/0805")
         assert variant is not None
-        variant_pin2 = pin_world_position(
-            variant.package, incoming_pl, 2)
+        variant_pin2 = pin_world_position(variant.package, incoming_pl, 2)
         # The variant and default pin-2 must differ, else the test is vacuous.
-        assert (default_pin2.x, default_pin2.y) != (
-            variant_pin2.x, variant_pin2.y)
+        assert (default_pin2.x, default_pin2.y) != (variant_pin2.x, variant_pin2.y)
 
         # Neighbour positioned so ITS pin-1 == incoming DEFAULT pin-2.
         existing_pl = ComponentPlacement(
-            component_id=existing.id, position=default_pin2, rotation=0,
+            component_id=existing.id,
+            position=default_pin2,
+            rotation=0,
             side="top",
         )
 
@@ -92,9 +101,9 @@ class TestIncomingVariantNotBlocked:
         # The incoming SMD pin-2 is one hole away, NOT on the neighbour pad —
         # so there must be no conflict. With the default footprint it would have
         # reported a spurious pad conflict at the 3.2-pitch position.
-        assert conflicts == [], (
-            f"variant-aware incoming should not collide; got {conflicts}"
-        )
+        assert (
+            conflicts == []
+        ), f"variant-aware incoming should not collide; got {conflicts}"
 
     def test_unbound_incoming_raises(self) -> None:
         """Control: WITHOUT a bound incoming instance the check no longer
@@ -110,17 +119,22 @@ class TestIncomingVariantNotBlocked:
             return
 
         existing = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="",
+            definition_ref="R",
+            refdes="R1",
+            value="",
         ).bind(defn, families)
         incoming_id = uuid.uuid4()
         incoming_pl = ComponentPlacement(
-            component_id=incoming_id, position=Point(5.0, 5.0), rotation=0,
+            component_id=incoming_id,
+            position=Point(5.0, 5.0),
+            rotation=0,
             side="top",
         )
-        default_pin2 = pin_world_position(
-            existing.resolved_footprint(), incoming_pl, 2)
+        default_pin2 = pin_world_position(existing.resolved_footprint(), incoming_pl, 2)
         existing_pl = ComponentPlacement(
-            component_id=existing.id, position=default_pin2, rotation=0,
+            component_id=existing.id,
+            position=default_pin2,
+            rotation=0,
             side="top",
         )
 
@@ -141,6 +155,6 @@ class TestIncomingVariantNotBlocked:
         import pytest
 
         defn, families = _resistor_and_catalogue()
-        if resolve_variant(families, "SMD-0805/typ") is None:
+        if resolve_variant(families, "chip-smd/imperial/0805") is None:
             pytest.skip("SMD-0805 variant not in catalogue")
         return defn, families

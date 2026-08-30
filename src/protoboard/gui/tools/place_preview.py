@@ -28,9 +28,9 @@ if TYPE_CHECKING:
         QGraphicsScene,
     )
 
+    from protoboard.controller.theme import Theme
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.geometry import Point, Vector
-    from protoboard.controller.theme import Theme
 
 _REACH_PAD_RADIUS = 0.18
 

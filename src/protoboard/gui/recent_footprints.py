@@ -59,8 +59,7 @@ def add(definition_ref: str, address: str, label: str) -> None:
     """
     entry = RecentFootprint(definition_ref, address, label)
     existing = [
-        e for e in load()
-        if (e.definition_ref, e.address) != (definition_ref, address)
+        e for e in load() if (e.definition_ref, e.address) != (definition_ref, address)
     ]
     updated = ([entry] + existing)[:_MAX]
     try:

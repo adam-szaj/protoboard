@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
 
 
-def package_to_footprint(package: Package) -> "Footprint":
+def package_to_footprint(package: Package) -> Footprint:
     """Return the package through its directly implemented footprint API."""
     return package
 
@@ -48,8 +48,8 @@ def _resolve_variant_package(
 
 
 def resolve_component_package(
-    defn: "ComponentDefinition",
-    instance: "ComponentInstance | None",
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
     families: dict[str, PackageFamily],
 ) -> Package:
     """The concrete package for a placed component, by precedence.
@@ -73,10 +73,10 @@ def resolve_component_package(
 
 
 def resolve_package_variant_footprint(
-    defn: "ComponentDefinition",
+    defn: ComponentDefinition,
     package_variant: str | None,
     families: dict[str, PackageFamily],
-) -> "Footprint":
+) -> Footprint:
     """Resolve the footprint for a pre-placement package choice.
 
     This is the ghost/picker path: there is no bound instance yet, but the UI
@@ -92,10 +92,10 @@ def resolve_package_variant_footprint(
 
 
 def resolved_footprint(
-    defn: "ComponentDefinition",
-    instance: "ComponentInstance | None",
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
     families: dict[str, PackageFamily] | None,
-) -> "Footprint":
+) -> Footprint:
     """The footprint a placed component actually uses — variant-aware.
 
     Thin wrapper over :meth:`ComponentInstance.resolved_footprint` for call

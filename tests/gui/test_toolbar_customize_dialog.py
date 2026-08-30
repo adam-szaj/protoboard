@@ -38,6 +38,7 @@ def _isolate_toolbar_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
         encoding="utf-8",
     )
     import protoboard.gui.toolbar_config as cfg
+
     monkeypatch.setattr(cfg, "TOOLBARS_FILE", fake_user)
     return fake_user
 

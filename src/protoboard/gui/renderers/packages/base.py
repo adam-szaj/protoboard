@@ -33,7 +33,7 @@ from dataclasses import replace
 from typing import ClassVar, TypeVar
 
 import structlog
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.definition import ComponentClass
 from protoboard.domain.components.instance import ComponentInstance
@@ -66,7 +67,7 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.value_text import body_print_text
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point, Rect, Transform2D
-from protoboard.gui.qt_geometry import to_qrectf
+from protoboard.gui.qt_geometry import to_qrectf, to_qtransform
 from protoboard.gui.renderers.packages.body_label import make_body_label
 from protoboard.gui.renderers.packages.canvas import (
     BodyCanvas,
@@ -75,9 +76,7 @@ from protoboard.gui.renderers.packages.canvas import (
     _body_pen,
     qcolor_from_css,
 )
-from protoboard.gui.qt_geometry import to_qtransform
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
-from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.gui.renderers.text_contrast import best_ink
 from protoboard.services.debug_trace import traced
 
@@ -133,6 +132,7 @@ def _package_corner_radius(pkg: Package) -> float:
 # Base class (interface shared with the legacy hand-coded bodies)
 # ---------------------------------------------------------------------------
 
+
 class BodyShape(ABC):
     @abstractmethod
     def draw(
@@ -168,6 +168,7 @@ class BodyShape(ABC):
 # ---------------------------------------------------------------------------
 # GenericBody — bare bbox rectangle (no package resolved)
 # ---------------------------------------------------------------------------
+
 
 class GenericBody(BodyShape):
     """Bare-bbox fallback body for a component with no resolved package.
@@ -210,10 +211,12 @@ class GenericBody(BodyShape):
             mm = theme.raster_pitch_mm
             tl, tr, br, bl = corners
             body_rect = Rect.of(x0, y0, w, h)
-            path_item = QGraphicsPathItem(rounded_rect_path(
-                to_qrectf(body_rect),
-                (tl / mm, tr / mm, br / mm, bl / mm),
-            ))
+            path_item = QGraphicsPathItem(
+                rounded_rect_path(
+                    to_qrectf(body_rect),
+                    (tl / mm, tr / mm, br / mm, bl / mm),
+                )
+            )
             path_item.setBrush(QBrush(fill))
             path_item.setPen(_body_pen(border, alpha))
             path_item.setZValue(z)
@@ -350,11 +353,13 @@ class PackageRenderer(BodyShape):
     # ComponentClasses that show a polarity marker — diodes get a cathode
     # stripe (axial) or a solid-vs-hollow disc (radial); polar electrolytics
     # share the treatment.
-    _POLAR_CLASSES = frozenset({
-        ComponentClass.DIODE,
-        ComponentClass.DIODE_ZENER,
-        ComponentClass.CAPACITOR_POLAR,
-    })
+    _POLAR_CLASSES = frozenset(
+        {
+            ComponentClass.DIODE,
+            ComponentClass.DIODE_ZENER,
+            ComponentClass.CAPACITOR_POLAR,
+        }
+    )
 
     def __new__(
         cls,
@@ -373,7 +378,8 @@ class PackageRenderer(BodyShape):
             return object.__new__(cls)
         cc = args[0] if args else kwargs.get("component_class")
         target = renderer_for(
-            package, component_class=cc if isinstance(cc, str) else None,
+            package,
+            component_class=cc if isinstance(cc, str) else None,
         )
         instance: PackageRenderer = object.__new__(target)
         return instance
@@ -409,7 +415,7 @@ class PackageRenderer(BodyShape):
         # The placed part being drawn, when there is one (None in bare
         # package previews / tests). The escape hatch for renderers that need
         # the part's identity beyond the distilled facts above: a *bound*
-        # instance reaches its definition (part name, pin_names) and its
+        # instance reaches its definition (part name, meta_pin_labels) and its
         # ``value`` (e.g. a resistance for colour-band rendering) — see
         # ``ComponentInstance.bind``. Renderers must tolerate ``None``.
         self._instance = instance
@@ -467,7 +473,9 @@ class PackageRenderer(BodyShape):
         return getattr(self._pkg, "arrangement", LeadArrangement.AXIAL)
 
     def _resolve_colors(
-        self, fill: QColor, border: QColor,
+        self,
+        fill: QColor,
+        border: QColor,
     ) -> tuple[QColor, QColor]:
         """Body fill/border for this package.
 
@@ -525,12 +533,16 @@ class PackageRenderer(BodyShape):
             return [], []
         fill, border = self._resolve_colors(fill, border)
         self._paint = PaintState(
-            fill=fill, border=border, alpha=alpha, z=z, theme=theme,
+            fill=fill,
+            border=border,
+            alpha=alpha,
+            z=z,
+            theme=theme,
         )
         body = self.render_body(positions)
         labels = self._maybe_value_label(positions)
         if labels:
-            body.append(labels[0])   # full-alpha copy — body band, under modifiers
+            body.append(labels[0])  # full-alpha copy — body band, under modifiers
             return body, labels[1:]  # 50% copy — label band, over modifiers
         return body, []
 
@@ -557,7 +569,8 @@ class PackageRenderer(BodyShape):
         return self._draw_bbox(positions)
 
     def _maybe_value_label(
-        self, positions: list[Point],
+        self,
+        positions: list[Point],
     ) -> list[QGraphicsItem]:
         """The component value printed on the body (empty when none).
 
@@ -586,6 +599,7 @@ class PackageRenderer(BodyShape):
         from protoboard.domain.components.package.shapes import (
             local_size_holes,
         )
+
         s = local_size_holes(self._pkg)
         along, across = s.lx, s.ly
         if along <= 0.0 or across <= 0.0:
@@ -676,6 +690,7 @@ class PackageRenderer(BodyShape):
         from protoboard.domain.components.package.shapes import (
             local_size_holes,
         )
+
         along = local_size_holes(self._pkg).lx
         return along / 2.0
 
@@ -696,9 +711,8 @@ class PackageRenderer(BodyShape):
         """
         if self._placement is not None:
             from protoboard.domain.layout.placement import placement_transform
-            return _qtransform(
-                placement_transform(self._pkg, self._placement)
-            )
+
+            return _qtransform(placement_transform(self._pkg, self._placement))
         p1 = positions[0]
         place = QTransform()
         place.translate(p1.x, p1.y)
@@ -722,10 +736,16 @@ class PackageRenderer(BodyShape):
         comes from ``self.paint``; ``units="mm"`` makes the canvas convert
         geometry inputs from millimetres."""
         paint = self.paint
-        return BodyCanvas(paint.theme, fill=paint.fill, border=paint.border,
-                          alpha=paint.alpha, z=paint.z,
-                          transform=self._body_placement(positions), bake=True,
-                          units=units)
+        return BodyCanvas(
+            paint.theme,
+            fill=paint.fill,
+            border=paint.border,
+            alpha=paint.alpha,
+            z=paint.z,
+            transform=self._body_placement(positions),
+            bake=True,
+            units=units,
+        )
 
     def axis_canvas(
         self,
@@ -746,9 +766,15 @@ class PackageRenderer(BodyShape):
         t = QTransform()
         t.translate(mid_x, mid_y)
         t.rotate((p2 - p1).angle_deg())
-        return BodyCanvas(paint.theme, fill=paint.fill, border=paint.border,
-                          alpha=paint.alpha, z=paint.z, transform=t,
-                          units=units)
+        return BodyCanvas(
+            paint.theme,
+            fill=paint.fill,
+            border=paint.border,
+            alpha=paint.alpha,
+            z=paint.z,
+            transform=t,
+            units=units,
+        )
 
     # ------------------------------------------------------------------
     # Radial — top-view silhouette centred between the pads (all shapes)
@@ -756,7 +782,9 @@ class PackageRenderer(BodyShape):
 
     def _draw_radial(
         self,
-        p1: Point, p2: Point, neg_pin: Point,
+        p1: Point,
+        p2: Point,
+        neg_pin: Point,
         *,
         pads: list[Point] | None = None,
     ) -> list[QGraphicsItem]:
@@ -782,7 +810,10 @@ class PackageRenderer(BodyShape):
 
     def _radial_silhouette(
         self,
-        mid: Point, p1: Point, p2: Point, neg_pin: Point,
+        mid: Point,
+        p1: Point,
+        p2: Point,
+        neg_pin: Point,
     ) -> list[QGraphicsItem]:
         """Top-view body silhouette centred on ``mid`` — the per-shape hook.
 
@@ -795,14 +826,21 @@ class PackageRenderer(BodyShape):
         from protoboard.domain.components.package.shapes import (
             local_size_holes,
         )
+
         paint = self.paint
         s = local_size_holes(self._pkg)
         length_r, width_r = s.lx, s.ly
         t = QTransform()
         t.translate(mid.x, mid.y)
         t.rotate((p2 - p1).angle_deg())
-        canvas = BodyCanvas(paint.theme, fill=paint.fill, border=paint.border,
-                            alpha=paint.alpha, z=paint.z, transform=t)
+        canvas = BodyCanvas(
+            paint.theme,
+            fill=paint.fill,
+            border=paint.border,
+            alpha=paint.alpha,
+            z=paint.z,
+            transform=t,
+        )
         tl, tr, br, bl = self._effective_corner_radii_mm()
         canvas.addRect(
             (-length_r / 2.0, -width_r / 2.0),
@@ -826,7 +864,11 @@ class PackageRenderer(BodyShape):
             paint = self.paint
             # GenericBody carries no value label — take the body channel only.
             generic, _labels = GenericBody(self._appearance).draw(
-                positions, paint.fill, paint.border, paint.alpha, paint.z,
+                positions,
+                paint.fill,
+                paint.border,
+                paint.alpha,
+                paint.z,
                 paint.theme,
             )
             return generic
@@ -858,9 +900,14 @@ class PackageRenderer(BodyShape):
         rings: list[QGraphicsItem] = []
         for p in positions:
             ring = QGraphicsEllipseItem(
-                to_qrectf(Rect.of(
-                    p.x - pad_r, p.y - pad_r, 2 * pad_r, 2 * pad_r,
-                ))
+                to_qrectf(
+                    Rect.of(
+                        p.x - pad_r,
+                        p.y - pad_r,
+                        2 * pad_r,
+                        2 * pad_r,
+                    )
+                )
             )
             ring.setPen(pen)
             ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -870,7 +917,8 @@ class PackageRenderer(BodyShape):
 
 
 def renderer_for(
-    pkg: Package, component_class: str | None = None,
+    pkg: Package,
+    component_class: str | None = None,
 ) -> type[PackageRenderer]:
     """The most specific registered renderer for *pkg*.
 

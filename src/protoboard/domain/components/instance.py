@@ -41,7 +41,7 @@ class ComponentInstance:
     definition_ref: str
     refdes: str
     value: str
-    type: str = ""          # optional per-instance category override
+    type: str = ""  # optional per-instance category override
     # Per-instance override of the package-family variant as
     # ``"{family}/{variant_id}"``; None → use the definition's
     # default ``PackageOption`` (or inline ``package``).
@@ -69,10 +69,10 @@ class ComponentInstance:
     # instance (freshly deserialized, or a bare test stub) falls back to its
     # definition's default footprint, which is correct only when no variant was
     # chosen — so callers in a placement context must work on bound instances.
-    definition: "ComponentDefinition | None" = field(
+    definition: ComponentDefinition | None = field(
         default=None, compare=False, hash=False
     )
-    families: "dict[str, PackageFamily] | None" = field(
+    families: dict[str, PackageFamily] | None = field(
         default=None, compare=False, hash=False
     )
 
@@ -84,9 +84,9 @@ class ComponentInstance:
 
     def bind(
         self,
-        definition: "ComponentDefinition",
-        families: "dict[str, PackageFamily] | None",
-    ) -> "ComponentInstance":
+        definition: ComponentDefinition,
+        families: dict[str, PackageFamily] | None,
+    ) -> ComponentInstance:
         """Return a copy of this instance carrying its definition + catalogue.
 
         The binding ritual that makes a placed instance self-sufficient for
@@ -97,11 +97,9 @@ class ComponentInstance:
         by reference (replace preserves compare=False fields). Call wherever an
         instance enters the project (see ``build_pin_identities_for``).
         """
-        return dataclasses.replace(
-            self, definition=definition, families=families
-        )
+        return dataclasses.replace(self, definition=definition, families=families)
 
-    def resolved_package(self) -> "Package":
+    def resolved_package(self) -> Package:
         """The resolved package of this placed instance.
 
         The single source of truth for "the body this placed component
@@ -125,11 +123,9 @@ class ComponentInstance:
             resolve_component_package,
         )
 
-        return resolve_component_package(
-            self.definition, self, self.families or {}
-        )
+        return resolve_component_package(self.definition, self, self.families or {})
 
-    def resolved_footprint(self) -> "Footprint":
+    def resolved_footprint(self) -> Footprint:
         """The footprint of this instance's *resolved* package variant.
 
         The single source of truth for "the footprint this placed component
@@ -153,7 +149,10 @@ class ComponentInstance:
 
     @staticmethod
     def new(
-        definition_ref: str, refdes: str, value: str, type: str = "",
+        definition_ref: str,
+        refdes: str,
+        value: str,
+        type: str = "",
         package_variant: str | None = None,
         appearance: Appearance | None = None,
         tolerance: str | None = None,
@@ -170,7 +169,7 @@ class ComponentInstance:
             tolerance=tolerance,
         )
 
-    def build_pin_identities(self, defn: "ComponentDefinition") -> None:
+    def build_pin_identities(self, defn: ComponentDefinition) -> None:
         """(Re)build one electrical identity for every MetaPin."""
         self.pin_identities.clear()
         for meta_pin_index in range(1, len(defn.meta_pins) + 1):

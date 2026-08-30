@@ -12,12 +12,13 @@ This was private to :class:`DragController`; it is extracted here unchanged so
 the armed transform (:class:`~protoboard.controller.editing.armed_transform.ArmedTransform`)
 resolves drops identically (same dialogs, same defaults) without duplicating the
 logic.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.drag_preferences import DragPreferences
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 
 
 def run_resolver(
-    resolver: "ResolveFn | None",
+    resolver: ResolveFn | None,
     preference: str | None,
     wire_ids: frozenset[uuid.UUID],
 ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
@@ -44,12 +45,12 @@ def run_resolver(
 
 
 def resolve_drops(
-    decision: "DragCommitDecision",
+    decision: DragCommitDecision,
     *,
-    preferences: "DragPreferences | None",
-    resolve_free: "ResolveFn | None",
-    resolve_sgroup: "ResolveFn | None",
-    resolve_disconnect: "ResolveFn | None",
+    preferences: DragPreferences | None,
+    resolve_free: ResolveFn | None,
+    resolve_sgroup: ResolveFn | None,
+    resolve_disconnect: ResolveFn | None,
 ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
     """Run the three preference resolvers; merge kept drops + reroutes.
 

@@ -22,9 +22,9 @@ from protoboard.domain.layout.wire_utils import board_pads_for_side
 if TYPE_CHECKING:
     import uuid
 
+    from protoboard.controller.editing import EditState
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.geometry import Point
-    from protoboard.controller.editing import EditState
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,21 +8,24 @@ Order-of-magnitude targets (synthetic_medium: 50 comps, ~40 nets):
   find_paths single call   < 50 ms
   _run_one_pass (1 pass)   < 30 s   (covers all nets, rip-up disabled)
 """
+
 from __future__ import annotations
 
 import copy
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # find_paths — single A* call
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def astar_context(synthetic_medium_project):
     """Pre-built graph + a source/target pair for find_paths benchmarks."""
-    board, layout, schematic, instances, routing, _lib, components = synthetic_medium_project
+    board, layout, schematic, instances, routing, _lib, components = (
+        synthetic_medium_project
+    )
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
 
     graph = ConnectivityGraph(
@@ -37,7 +40,8 @@ def astar_context(synthetic_medium_project):
     src_pt = tgt_pt = None
     for net in schematic.nets.values():
         placed = [
-            p for p in net.pins
+            p
+            for p in net.pins
             if p.component_id in layout.placements and p.component_id in instances
         ]
         if len(placed) < 2:
@@ -49,8 +53,12 @@ def astar_context(synthetic_medium_project):
         comp1 = components.get(inst1.definition_ref)
         if comp0 is None or comp1 is None:
             continue
-        src_pt = pin_world_position(comp0.default_footprint(), layout.placements[p0.component_id], p0.pin_number)
-        tgt_pt = pin_world_position(comp1.default_footprint(), layout.placements[p1.component_id], p1.pin_number)
+        src_pt = pin_world_position(
+            comp0.default_footprint(), layout.placements[p0.component_id], p0.pin_number
+        )
+        tgt_pt = pin_world_position(
+            comp1.default_footprint(), layout.placements[p1.component_id], p1.pin_number
+        )
         break
 
     assert src_pt is not None, "No suitable net found in synthetic_medium project"
@@ -74,17 +82,23 @@ def test_bench_find_paths_single(benchmark, astar_context):
 # Full autoroute pass on synthetic medium (no optimize iterations, no rip-up)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def synthetic_medium_empty_layout(synthetic_medium_project):
     """Synthetic medium layout — generator yields placements-only, no wires."""
-    board, layout, schematic, instances, routing, _lib, components = synthetic_medium_project
+    board, layout, schematic, instances, routing, _lib, components = (
+        synthetic_medium_project
+    )
     import copy as _copy
+
     return board, _copy.deepcopy(layout), schematic, instances, routing, components
 
 
 def test_bench_autoroute_one_pass(benchmark, synthetic_medium_empty_layout):
     """One greedy autoroute pass over every net (no rip-up, no optimize)."""
-    board, layout, schematic, instances, routing, components = synthetic_medium_empty_layout
+    board, layout, schematic, instances, routing, components = (
+        synthetic_medium_empty_layout
+    )
     from protoboard.services.routing.autorouter import autoroute
 
     def _run():

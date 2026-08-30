@@ -77,7 +77,10 @@ class TestLayoutSnapshot:
         cid = uuid.uuid4()
         snap = LayoutSnapshot.freeze(layout)
         layout.placements[cid] = ComponentPlacement(
-            component_id=cid, position=Point(1, 1), rotation=0, side="top",
+            component_id=cid,
+            position=Point(1, 1),
+            rotation=0,
+            side="top",
         )
         assert cid not in snap.placements
 
@@ -87,7 +90,10 @@ class TestLayoutSnapshot:
         cid = uuid.uuid4()
         with pytest.raises(TypeError):
             snap.placements[cid] = ComponentPlacement(  # type: ignore[index]
-                component_id=cid, position=Point(0, 0), rotation=0, side="top",
+                component_id=cid,
+                position=Point(0, 0),
+                rotation=0,
+                side="top",
             )
 
     def test_to_layout_returns_independent_copy(self) -> None:
@@ -138,9 +144,11 @@ class TestSchematicSnapshot:
             snap.nets[nid] = Net(id=nid, name="x", pins=set())  # type: ignore[index]
 
     def test_to_schematic_returns_independent_copy(self) -> None:
-        sch = Schematic(nets={
-            (nid := uuid.uuid4()): Net(id=nid, name="N1", pins=set()),
-        })
+        sch = Schematic(
+            nets={
+                (nid := uuid.uuid4()): Net(id=nid, name="N1", pins=set()),
+            }
+        )
         snap = SchematicSnapshot.freeze(sch)
         derived = snap.to_schematic()
         derived.nets.clear()

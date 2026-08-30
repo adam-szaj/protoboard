@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from protoboard.domain.schematic.net import Net
 from protoboard.controller.editing.wire_nets import (
     NetMergePrompt,
     _create_new_net,
@@ -28,6 +27,7 @@ from protoboard.controller.editing.wire_nets import (
 from protoboard.controller.editing.wire_nets import (
     resolve_wire_nets as _resolve_wire_nets,
 )
+from protoboard.domain.schematic.net import Net
 
 if TYPE_CHECKING:
     from collections.abc import Callable

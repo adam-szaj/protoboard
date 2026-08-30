@@ -23,7 +23,6 @@ from protoboard.domain.commands.base import (
     CommandStack,
     MacroCommand,
 )
-from protoboard.domain.commands.component_cmds import RemoveWireCommand
 from protoboard.domain.commands.net_cmds import (
     CreateNetCommand,
     DeleteNetCommand,

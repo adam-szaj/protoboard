@@ -19,23 +19,23 @@ from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 # (field_name, display_name, key_hint).  "ratsnest" keeps its internal
 # name for backwards compatibility but is displayed as "Connections".
 _LAYER_DEFS = [
-    ("board",             "Board",              "1"),
-    ("components_top",    "Components Top",     "2"),
-    ("components_bottom", "Components Bottom",  "3"),
-    ("wires_top",         "Wires Top",          "4"),
-    ("wires_bottom",      "Wires Bottom",       "5"),
-    ("labels",            "Labels",             "6"),
-    ("pin_names",         "Pin Names",          "7"),
-    ("ratsnest",          "Connections",        "8"),
-    ("pin_pads",          "Pin Pads",           "9"),
-    ("pin_modifiers",     "Pin Modifiers",      "0"),
+    ("board", "Board", "1"),
+    ("components_top", "Components Top", "2"),
+    ("components_bottom", "Components Bottom", "3"),
+    ("wires_top", "Wires Top", "4"),
+    ("wires_bottom", "Wires Bottom", "5"),
+    ("labels", "Labels", "6"),
+    ("meta_pin_labels", "Pin Names", "7"),
+    ("ratsnest", "Connections", "8"),
+    ("pin_pads", "Pin Pads", "9"),
+    ("pin_modifiers", "Pin Modifiers", "0"),
 ]
 
 # Background colours per visibility state.
 _STATE_BG: dict[LayerVisibility, str] = {
-    LayerVisibility.FULL:   "#2e7d32",   # green — always visible
-    LayerVisibility.GHOST:  "#e65100",   # amber — dimmed
-    LayerVisibility.HIDDEN: "#424242",   # dark grey — invisible
+    LayerVisibility.FULL: "#2e7d32",  # green — always visible
+    LayerVisibility.GHOST: "#e65100",  # amber — dimmed
+    LayerVisibility.HIDDEN: "#424242",  # dark grey — invisible
 }
 _STATE_FG = "#ffffff"
 
@@ -46,7 +46,9 @@ class LayersPanel(QWidget):
     # Emitted whenever the user changes a layer override.
     overrides_changed = Signal()
 
-    def __init__(self, overrides: LayerOverrides, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, overrides: LayerOverrides, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._overrides = overrides
         self._buttons: dict[str, QPushButton] = {}
@@ -84,7 +86,7 @@ class LayersPanel(QWidget):
         self._sync()
 
     def sync(self) -> None:
-        """Refresh button labels/colours from current overrides (call after external change)."""
+        """Refresh button labels/colours from current overrides (call after external change)."""  # noqa: E501
         self._sync()
 
     # ------------------------------------------------------------------
@@ -136,11 +138,15 @@ class _LayerRow(QWidget):
 
         key_label = QLabel(key_hint)
         key_label.setFixedWidth(12)
-        key_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        key_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         key_label.setStyleSheet("color: #888; font-size: 10px;")
 
         name_label = QLabel(display_name)
-        name_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        name_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
         name_label.setStyleSheet("font-size: 11px;")
 
         self.button = QPushButton("AUTO")

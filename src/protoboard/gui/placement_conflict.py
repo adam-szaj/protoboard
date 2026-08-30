@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from protoboard.geometry import round_coord as _round  # noqa: F401  legacy alias
 from protoboard.controller.editing.placement_conflict import (
     PadConflictRequest,
     PlacementPrompts,
@@ -31,6 +30,7 @@ from protoboard.controller.editing.placement_conflict import (
 from protoboard.controller.editing.placement_conflict import (
     check_and_resolve as _check_and_resolve,
 )
+from protoboard.geometry import round_coord as _round  # noqa: F401  legacy alias
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -113,5 +113,10 @@ def check_and_resolve(
     if prompts is None:
         prompts = qt_placement_prompts(lambda: None)
     return _check_and_resolve(
-        session, placement, defn, instance_id, prompts, instance,
+        session,
+        placement,
+        defn,
+        instance_id,
+        prompts,
+        instance,
     )

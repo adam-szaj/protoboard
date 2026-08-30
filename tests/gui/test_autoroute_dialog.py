@@ -10,6 +10,8 @@ from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.dialogs.autoroute_dialog import AutorouteDialog
 from protoboard.services.routing.optimizer import (
     OptimizerCapabilities,
+)
+from protoboard.services.routing.optimizer import (
     registry as optimizer_registry,
 )
 
@@ -46,8 +48,7 @@ class TestRouterDropdown:
         dlg = AutorouteDialog(RoutingSettings())
         qtbot.addWidget(dlg)
         names = [
-            dlg._combo_router.itemData(i)
-            for i in range(dlg._combo_router.count())
+            dlg._combo_router.itemData(i) for i in range(dlg._combo_router.count())
         ]
         assert "astar" in names
 
@@ -69,6 +70,7 @@ class TestRouterDropdown:
         # Make sure the enhanced router is registered before the dialog
         # tries to find it.
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
+
         rs = RoutingSettings(router_name="astar_enhanced")
         dlg = AutorouteDialog(rs)
         qtbot.addWidget(dlg)
@@ -87,6 +89,7 @@ class TestRouterDropdown:
         the new RoutingSettings, so the caller doesn't have to read it
         separately."""
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
+
         dlg = AutorouteDialog(RoutingSettings(router_name="astar_enhanced"))
         qtbot.addWidget(dlg)
         rs = dlg.routing_settings()
@@ -143,7 +146,8 @@ class TestOptimizerChainList:
     """The plugin chain is rendered as a drag-reorderable QListWidget."""
 
     def test_no_extra_plugins_returns_empty_chain_with_builtins_only(
-        self, qtbot,
+        self,
+        qtbot,
     ) -> None:
         """With only the in-tree non-simplify built-ins registered (today:
         ``insulated_to_bare``), the dialog renders the optimizer list but
@@ -187,6 +191,7 @@ class TestOptimizerChainList:
         """The legacy 'simplify' built-in is exposed via the dedicated
         checkbox above; do not duplicate it in the plugin section."""
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
+
         dlg = AutorouteDialog(RoutingSettings())
         qtbot.addWidget(dlg)
         assert _item_for(dlg, "simplify") is None
@@ -250,7 +255,7 @@ class TestReorderableChain:
     """User can drag rows to reorder the chain; the emitted chain follows."""
 
     def test_persisted_order_drives_row_layout(self, qtbot) -> None:
-        """Row order at open == saved chain order, with unchecked extras at the bottom."""
+        """Row order at open == saved chain order, with unchecked extras at the bottom."""  # noqa: E501
         optimizer_registry.register(_FakePluginOptimizer())
         optimizer_registry.register(_AnotherFakeOptimizer())
         try:
@@ -316,6 +321,7 @@ class TestReorderableChain:
     def test_internal_move_drag_flag_set(self, qtbot) -> None:
         """The list must be configured for internal drag-and-drop reorder."""
         from PySide6.QtWidgets import QAbstractItemView
+
         optimizer_registry.register(_FakePluginOptimizer())
         try:
             dlg = AutorouteDialog(RoutingSettings())
@@ -331,9 +337,11 @@ class TestReorderableChain:
     def test_incompatible_row_is_disabled_and_unchecked(self, qtbot) -> None:
         """When routing settings make a plugin a no-op, the row must be
         disabled, force-unchecked, and the conflict reason in the tooltip."""
+
         class _JumperPlugin:
             name = "jumper-inserter"
             display_name = "Jumper inserter"
+
             def optimize(self, *_a, **_k): ...
             def capabilities(self):
                 return OptimizerCapabilities(inserts_jumpers=True)
@@ -360,9 +368,11 @@ class TestReorderableChain:
 
     def test_compatible_row_remains_enabled(self, qtbot) -> None:
         """Same plugin, settings that permit jumpers — row must be clickable."""
+
         class _JumperPlugin:
             name = "jumper-inserter"
             display_name = "Jumper inserter"
+
             def optimize(self, *_a, **_k): ...
             def capabilities(self):
                 return OptimizerCapabilities(inserts_jumpers=True)
@@ -391,7 +401,8 @@ class TestReorderableChain:
             dlg = AutorouteDialog(rs)
             qtbot.addWidget(dlg)
             assert dlg.selected_optimizers() == [
-                "fake-side-balancer", "fake-jumper-min",
+                "fake-side-balancer",
+                "fake-jumper-min",
             ]
 
             # Simulate user dragging the second row above the first.
@@ -401,7 +412,8 @@ class TestReorderableChain:
             lst.insertItem(0, top_item)
 
             assert dlg.selected_optimizers() == [
-                "fake-jumper-min", "fake-side-balancer",
+                "fake-jumper-min",
+                "fake-side-balancer",
             ]
         finally:
             optimizer_registry.optimizers.pop("fake-side-balancer", None)

@@ -13,7 +13,8 @@ intentionally omitted, because replay always proceeds forward.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import StripAtom
@@ -70,9 +71,9 @@ from protoboard.domain.commands.net_cmds import (
 )
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.schematic.net import PinRef
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point, Transform2D, Vector
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
@@ -121,9 +122,7 @@ def _placement_to(pl: ComponentPlacement) -> dict[str, Any]:
     if pl.label_offset != Vector(0.05, 0.05):
         out["label_offset"] = _vec_to(pl.label_offset)
     if pl.pin_offsets:
-        out["pin_offsets"] = {
-            str(k): _vec_to(v) for k, v in pl.pin_offsets.items()
-        }
+        out["pin_offsets"] = {str(k): _vec_to(v) for k, v in pl.pin_offsets.items()}
     if pl.shared_pins:
         out["shared_pins"] = sorted(pl.shared_pins)
     if pl.vertical_flipped:
@@ -250,6 +249,7 @@ def _group_from(d: dict[str, Any]) -> ComponentGroup:
         rotation = int(d.get("rotation", 0))
         if rotation != 0 and raw_origin:
             from protoboard.domain.commands.group_cmds import _rotation_about
+
             transform = _rotation_about(_pt_from(raw_origin), rotation)
         else:
             transform = Transform2D.identity()
@@ -297,9 +297,7 @@ def serialize_command(cmd: Command[Any]) -> dict[str, Any]:
     cmd_type = type(cmd)
     serializer = _TYPE_TO_SERIALIZER.get(cmd_type)
     if serializer is None:
-        raise UnknownCommandError(
-            f"No serializer registered for {cmd_type.__name__}"
-        )
+        raise UnknownCommandError(f"No serializer registered for {cmd_type.__name__}")
     data = serializer(cmd)
     return {"type": _TYPE_TO_NAME[cmd_type], **data}
 
@@ -373,8 +371,10 @@ def _remove_component_from(d: dict[str, Any]) -> RemoveComponentCommand:
 
 
 _register(
-    RemoveComponentCommand, "remove_component",
-    _remove_component_to, _remove_component_from,
+    RemoveComponentCommand,
+    "remove_component",
+    _remove_component_to,
+    _remove_component_from,
 )
 
 
@@ -404,8 +404,10 @@ def _add_wire_with_nets_from(d: dict[str, Any]) -> AddWireCommand:
 
 
 _register(
-    AddWireWithNetsCommand, "add_wire_with_nets",
-    _add_wire_with_nets_to, _add_wire_with_nets_from,
+    AddWireWithNetsCommand,
+    "add_wire_with_nets",
+    _add_wire_with_nets_to,
+    _add_wire_with_nets_from,
 )
 
 
@@ -429,6 +431,7 @@ def _fragment_to(frag: object) -> dict[str, Any]:
 
 def _fragment_from(d: dict[str, Any]) -> object:
     from protoboard.domain.layout.wire import Fragment
+
     return Fragment(
         path=[_pt_from(p) for p in d["path"]],
         side=d["side"],
@@ -452,8 +455,10 @@ def _replace_wire_frags_from(d: dict[str, Any]) -> ReplaceWireFragmentsCommand:
 
 
 _register(
-    ReplaceWireFragmentsCommand, "replace_wire_fragments",
-    _replace_wire_frags_to, _replace_wire_frags_from,
+    ReplaceWireFragmentsCommand,
+    "replace_wire_fragments",
+    _replace_wire_frags_to,
+    _replace_wire_frags_from,
 )
 
 
@@ -469,8 +474,10 @@ def _set_wire_insulated_from(d: dict[str, Any]) -> SetWireInsulatedCommand:
 
 
 _register(
-    SetWireInsulatedCommand, "set_wire_insulated",
-    _set_wire_insulated_to, _set_wire_insulated_from,
+    SetWireInsulatedCommand,
+    "set_wire_insulated",
+    _set_wire_insulated_to,
+    _set_wire_insulated_from,
 )
 
 
@@ -486,8 +493,10 @@ def _set_wire_side_from(d: dict[str, Any]) -> SetWireSideCommand:
 
 
 _register(
-    SetWireSideCommand, "set_wire_side",
-    _set_wire_side_to, _set_wire_side_from,
+    SetWireSideCommand,
+    "set_wire_side",
+    _set_wire_side_to,
+    _set_wire_side_from,
 )
 
 
@@ -500,8 +509,10 @@ def _flip_wire_side_from(d: dict[str, Any]) -> FlipWireSideCommand:
 
 
 _register(
-    FlipWireSideCommand, "flip_wire_side",
-    _flip_wire_side_to, _flip_wire_side_from,
+    FlipWireSideCommand,
+    "flip_wire_side",
+    _flip_wire_side_to,
+    _flip_wire_side_from,
 )
 
 
@@ -524,8 +535,10 @@ def _set_package_variant_from(
 
 
 _register(
-    SetComponentPackageVariantCommand, "set_package_variant",
-    _set_package_variant_to, _set_package_variant_from,
+    SetComponentPackageVariantCommand,
+    "set_package_variant",
+    _set_package_variant_to,
+    _set_package_variant_from,
 )
 
 
@@ -542,6 +555,7 @@ def _set_appearance_to(cmd: SetComponentAppearanceCommand) -> dict[str, Any]:
 
 def _set_appearance_from(d: dict[str, Any]) -> SetComponentAppearanceCommand:
     from protoboard.domain.components.appearance import parse_style
+
     return SetComponentAppearanceCommand(
         component_id=_uuid_from(d["component_id"]),
         new_appearance=parse_style(d.get("style"), ctx="set_appearance"),
@@ -549,8 +563,10 @@ def _set_appearance_from(d: dict[str, Any]) -> SetComponentAppearanceCommand:
 
 
 _register(
-    SetComponentAppearanceCommand, "set_appearance",
-    _set_appearance_to, _set_appearance_from,
+    SetComponentAppearanceCommand,
+    "set_appearance",
+    _set_appearance_to,
+    _set_appearance_from,
 )
 
 
@@ -573,8 +589,10 @@ def _flip_wire_frag_from(d: dict[str, Any]) -> FlipWireFragmentCommand:
 
 
 _register(
-    FlipWireFragmentCommand, "flip_wire_fragment",
-    _flip_wire_frag_to, _flip_wire_frag_from,
+    FlipWireFragmentCommand,
+    "flip_wire_fragment",
+    _flip_wire_frag_to,
+    _flip_wire_frag_from,
 )
 
 
@@ -596,8 +614,10 @@ def _convert_to_wire_pin_from(d: dict[str, Any]) -> ConvertEndpointToWirePinComm
 
 
 _register(
-    ConvertEndpointToWirePinCommand, "convert_endpoint_to_wire_pin",
-    _convert_to_wire_pin_to, _convert_to_wire_pin_from,
+    ConvertEndpointToWirePinCommand,
+    "convert_endpoint_to_wire_pin",
+    _convert_to_wire_pin_to,
+    _convert_to_wire_pin_from,
 )
 
 
@@ -610,8 +630,10 @@ def _convert_from_wire_pin_from(d: dict[str, Any]) -> ConvertWirePinToEndpointCo
 
 
 _register(
-    ConvertWirePinToEndpointCommand, "convert_wire_pin_to_endpoint",
-    _convert_from_wire_pin_to, _convert_from_wire_pin_from,
+    ConvertWirePinToEndpointCommand,
+    "convert_wire_pin_to_endpoint",
+    _convert_from_wire_pin_to,
+    _convert_from_wire_pin_from,
 )
 
 
@@ -632,8 +654,7 @@ def _fuse_wires_to(cmd: FuseTouchingWiresCommand) -> dict[str, Any]:
     # wire_ids is None → whole-layout scope; else the caller-supplied scope.
     return {
         "wire_ids": (
-            None if cmd.wire_ids is None
-            else sorted(_uuid_to(w) for w in cmd.wire_ids)
+            None if cmd.wire_ids is None else sorted(_uuid_to(w) for w in cmd.wire_ids)
         ),
     }
 
@@ -646,8 +667,10 @@ def _fuse_wires_from(d: dict[str, Any]) -> FuseTouchingWiresCommand:
 
 
 _register(
-    FuseTouchingWiresCommand, "fuse_touching_wires",
-    _fuse_wires_to, _fuse_wires_from,
+    FuseTouchingWiresCommand,
+    "fuse_touching_wires",
+    _fuse_wires_to,
+    _fuse_wires_from,
 )
 
 
@@ -666,8 +689,10 @@ def _disconnect_pin_from(d: dict[str, Any]) -> DisconnectPinCommand:
 
 
 _register(
-    DisconnectPinCommand, "disconnect_pin",
-    _disconnect_pin_to, _disconnect_pin_from,
+    DisconnectPinCommand,
+    "disconnect_pin",
+    _disconnect_pin_to,
+    _disconnect_pin_from,
 )
 
 
@@ -686,8 +711,10 @@ def _lock_component_from(d: dict[str, Any]) -> LockComponentCommand:
 
 
 _register(
-    LockComponentCommand, "lock_component",
-    _lock_component_to, _lock_component_from,
+    LockComponentCommand,
+    "lock_component",
+    _lock_component_to,
+    _lock_component_from,
 )
 
 
@@ -714,7 +741,7 @@ def _split_strip_to(cmd: SplitStripCommand) -> dict[str, Any]:
     }
 
 
-def _split_strip_from(d: dict[str, Any]) -> "_DeferredSplitStrip":
+def _split_strip_from(d: dict[str, Any]) -> _DeferredSplitStrip:
     return _DeferredSplitStrip(
         target_spec=d["target"],
         cut_index=int(d["cut_index"]),
@@ -749,6 +776,7 @@ class _DeferredSplitStrip(Command[Any]):
 
     def _find_target(self, board: Board) -> StripAtom:
         from protoboard.domain.board.boxes import StripAtom as _SA
+
         wanted_len = int(self._target_spec.get("length", 1))
         wanted_orient = self._target_spec.get("orientation")
         wanted_layers = self._target_spec.get("layers")
@@ -793,8 +821,10 @@ def _resize_board_from(d: dict[str, Any]) -> ResizeBoardCommand:
 
 
 _register(
-    ResizeBoardCommand, "resize_board",
-    _resize_board_to, _resize_board_from,
+    ResizeBoardCommand,
+    "resize_board",
+    _resize_board_to,
+    _resize_board_from,
 )
 
 
@@ -829,8 +859,10 @@ def _set_net_global_from(d: dict[str, Any]) -> SetNetGlobalCommand:
 
 
 _register(
-    SetNetGlobalCommand, "set_net_global",
-    _set_net_global_to, _set_net_global_from,
+    SetNetGlobalCommand,
+    "set_net_global",
+    _set_net_global_to,
+    _set_net_global_from,
 )
 
 
@@ -846,8 +878,10 @@ def _set_net_color_from(d: dict[str, Any]) -> SetNetColorCommand:
 
 
 _register(
-    SetNetColorCommand, "set_net_color",
-    _set_net_color_to, _set_net_color_from,
+    SetNetColorCommand,
+    "set_net_color",
+    _set_net_color_to,
+    _set_net_color_from,
 )
 
 
@@ -893,8 +927,10 @@ def _assign_pin_from(d: dict[str, Any]) -> AssignPinToNetCommand:
 
 
 _register(
-    AssignPinToNetCommand, "assign_pin_to_net",
-    _assign_pin_to, _assign_pin_from,
+    AssignPinToNetCommand,
+    "assign_pin_to_net",
+    _assign_pin_to,
+    _assign_pin_from,
 )
 
 
@@ -913,8 +949,10 @@ def _unassign_pin_from(d: dict[str, Any]) -> UnassignPinCommand:
 
 
 _register(
-    UnassignPinCommand, "unassign_pin",
-    _unassign_pin_to, _unassign_pin_from,
+    UnassignPinCommand,
+    "unassign_pin",
+    _unassign_pin_to,
+    _unassign_pin_from,
 )
 
 
@@ -932,8 +970,10 @@ def _create_group_from(d: dict[str, Any]) -> CreateGroupCommand:
 
 
 _register(
-    CreateGroupCommand, "create_group",
-    _create_group_to, _create_group_from,
+    CreateGroupCommand,
+    "create_group",
+    _create_group_to,
+    _create_group_from,
 )
 
 
@@ -946,8 +986,10 @@ def _disband_group_from(d: dict[str, Any]) -> DisbandGroupCommand:
 
 
 _register(
-    DisbandGroupCommand, "disband_group",
-    _disband_group_to, _disband_group_from,
+    DisbandGroupCommand,
+    "disband_group",
+    _disband_group_to,
+    _disband_group_from,
 )
 
 
@@ -962,9 +1004,7 @@ def _add_to_group_to(cmd: AddToGroupCommand) -> dict[str, Any]:
 def _add_to_group_from(d: dict[str, Any]) -> AddToGroupCommand:
     return AddToGroupCommand(
         group_id=_uuid_from(d["group_id"]),
-        component_ids=frozenset(
-            _uuid_from(c) for c in (d.get("component_ids") or [])
-        ),
+        component_ids=frozenset(_uuid_from(c) for c in (d.get("component_ids") or [])),
         child_group_ids=frozenset(
             _uuid_from(c) for c in (d.get("child_group_ids") or [])
         ),
@@ -972,8 +1012,10 @@ def _add_to_group_from(d: dict[str, Any]) -> AddToGroupCommand:
 
 
 _register(
-    AddToGroupCommand, "add_to_group",
-    _add_to_group_to, _add_to_group_from,
+    AddToGroupCommand,
+    "add_to_group",
+    _add_to_group_to,
+    _add_to_group_from,
 )
 
 
@@ -988,9 +1030,7 @@ def _remove_from_group_to(cmd: RemoveFromGroupCommand) -> dict[str, Any]:
 def _remove_from_group_from(d: dict[str, Any]) -> RemoveFromGroupCommand:
     return RemoveFromGroupCommand(
         group_id=_uuid_from(d["group_id"]),
-        component_ids=frozenset(
-            _uuid_from(c) for c in (d.get("component_ids") or [])
-        ),
+        component_ids=frozenset(_uuid_from(c) for c in (d.get("component_ids") or [])),
         child_group_ids=frozenset(
             _uuid_from(c) for c in (d.get("child_group_ids") or [])
         ),
@@ -998,8 +1038,10 @@ def _remove_from_group_from(d: dict[str, Any]) -> RemoveFromGroupCommand:
 
 
 _register(
-    RemoveFromGroupCommand, "remove_from_group",
-    _remove_from_group_to, _remove_from_group_from,
+    RemoveFromGroupCommand,
+    "remove_from_group",
+    _remove_from_group_to,
+    _remove_from_group_from,
 )
 
 
@@ -1015,8 +1057,10 @@ def _rename_group_from(d: dict[str, Any]) -> RenameGroupCommand:
 
 
 _register(
-    RenameGroupCommand, "rename_group",
-    _rename_group_to, _rename_group_from,
+    RenameGroupCommand,
+    "rename_group",
+    _rename_group_to,
+    _rename_group_from,
 )
 
 
@@ -1035,8 +1079,10 @@ def _set_exported_pins_from(d: dict[str, Any]) -> SetExportedPinsCommand:
 
 
 _register(
-    SetExportedPinsCommand, "set_exported_pins",
-    _set_exported_pins_to, _set_exported_pins_from,
+    SetExportedPinsCommand,
+    "set_exported_pins",
+    _set_exported_pins_to,
+    _set_exported_pins_from,
 )
 
 
@@ -1052,8 +1098,10 @@ def _rotate_group_from(d: dict[str, Any]) -> RotateGroupCommand:
 
 
 _register(
-    RotateGroupCommand, "rotate_group",
-    _rotate_group_to, _rotate_group_from,
+    RotateGroupCommand,
+    "rotate_group",
+    _rotate_group_to,
+    _rotate_group_from,
 )
 
 
@@ -1072,8 +1120,10 @@ def _rotate_components_from(d: dict[str, Any]) -> RotateComponentsCommand:
 
 
 _register(
-    RotateComponentsCommand, "rotate_components",
-    _rotate_components_to, _rotate_components_from,
+    RotateComponentsCommand,
+    "rotate_components",
+    _rotate_components_to,
+    _rotate_components_from,
 )
 
 
@@ -1094,8 +1144,10 @@ def _rotate_around_point_from(d: dict[str, Any]) -> RotateAroundPointCommand:
 
 
 _register(
-    RotateAroundPointCommand, "rotate_around_point",
-    _rotate_around_point_to, _rotate_around_point_from,
+    RotateAroundPointCommand,
+    "rotate_around_point",
+    _rotate_around_point_to,
+    _rotate_around_point_from,
 )
 
 
@@ -1125,20 +1177,20 @@ _register(FlipGroupCommand, "flip_group", _flip_group_to, _flip_group_from)
 
 
 def _member_pair_to(
-    pair: tuple[ComponentPlacement, ComponentPlacement]
+    pair: tuple[ComponentPlacement, ComponentPlacement],
 ) -> dict[str, Any]:
     old_pl, new_pl = pair
     return {"old": _placement_to(old_pl), "new": _placement_to(new_pl)}
 
 
 def _member_pair_from(
-    d: dict[str, Any]
+    d: dict[str, Any],
 ) -> tuple[ComponentPlacement, ComponentPlacement]:
     return (_placement_from(d["old"]), _placement_from(d["new"]))
 
 
 def _members_to(
-    members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]]
+    members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]],
 ) -> list[dict[str, Any]]:
     # A list of {id, old, new} keeps the record order-stable and YAML-friendly
     # (dict keys would be UUID objects).  Sorted by id for deterministic output.
@@ -1149,7 +1201,7 @@ def _members_to(
 
 
 def _members_from(
-    raw: list[dict[str, Any]]
+    raw: list[dict[str, Any]],
 ) -> dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]]:
     return {_uuid_from(m["id"]): _member_pair_from(m) for m in raw}
 
@@ -1177,8 +1229,10 @@ def _move_drag_set_from(d: dict[str, Any]) -> MoveDragSetCommand:
 
 
 _register(
-    MoveDragSetCommand, "move_drag_set",
-    _move_drag_set_to, _move_drag_set_from,
+    MoveDragSetCommand,
+    "move_drag_set",
+    _move_drag_set_to,
+    _move_drag_set_from,
 )
 
 
@@ -1220,18 +1274,14 @@ def _pt_pair_from(d: dict[str, Any]) -> tuple[Point, Point]:
     return (_pt_from(d["old"]), _pt_from(d["new"]))
 
 
-def _keyed_to(
-    mapping: dict[uuid.UUID, Any], value_to: Any
-) -> list[dict[str, Any]]:
+def _keyed_to(mapping: dict[uuid.UUID, Any], value_to: Any) -> list[dict[str, Any]]:
     return [
         {"id": _uuid_to(k), "v": value_to(v)}
         for k, v in sorted(mapping.items(), key=lambda kv: str(kv[0]))
     ]
 
 
-def _keyed_from(
-    raw: list[dict[str, Any]], value_from: Any
-) -> dict[uuid.UUID, Any]:
+def _keyed_from(raw: list[dict[str, Any]], value_from: Any) -> dict[uuid.UUID, Any]:
     return {_uuid_from(e["id"]): value_from(e["v"]) for e in raw}
 
 
@@ -1248,18 +1298,16 @@ def _transform_drag_set_from(d: dict[str, Any]) -> TransformDragSetCommand:
     return TransformDragSetCommand(
         members=_members_from(d.get("members") or []),
         wire_paths=_keyed_from(d.get("wire_paths") or [], _path_pair_from),
-        wire_fragments=_keyed_from(
-            d.get("wire_fragments") or [], _frag_pair_from
-        ),
-        knot_positions=_keyed_from(
-            d.get("knot_positions") or [], _pt_pair_from
-        ),
+        wire_fragments=_keyed_from(d.get("wire_fragments") or [], _frag_pair_from),
+        knot_positions=_keyed_from(d.get("knot_positions") or [], _pt_pair_from),
     )
 
 
 _register(
-    TransformDragSetCommand, "transform_drag_set",
-    _transform_drag_set_to, _transform_drag_set_from,
+    TransformDragSetCommand,
+    "transform_drag_set",
+    _transform_drag_set_to,
+    _transform_drag_set_from,
 )
 
 

@@ -46,14 +46,14 @@ def builtin_kind_nodes():
     loaded a library).
     """
     from protoboard.services.library.loader import _load_builtin_package_defs
+
     _load_builtin_package_defs()
 
 
 class TestRegistration:
 
     def test_builtins_registered(self) -> None:
-        for kind in ("dip_ic", "wdip_ic", "dip_switch", "sil",
-                     "pin_header", "jst"):
+        for kind in ("dip_ic", "wdip_ic", "dip_switch", "sil", "pin_header", "jst"):
             assert is_kind(kind), kind
 
     def test_declaring_generates_registers(self, scratch_registry) -> None:
@@ -123,10 +123,8 @@ class TestBuiltinDispatch:
     """Parity: the registry builds the same bodies the old table did."""
 
     def test_dip_narrow_vs_wide(self, builtin_kind_nodes) -> None:
-        narrow = build_kind_package(
-            "dip_ic", GeneratorContext(pin_count=16)).package
-        wide = build_kind_package(
-            "wdip_ic", GeneratorContext(pin_count=16)).package
+        narrow = build_kind_package("dip_ic", GeneratorContext(pin_count=16)).package
+        wide = build_kind_package("wdip_ic", GeneratorContext(pin_count=16)).package
         assert isinstance(narrow, Prism) and isinstance(wide, Prism)
         assert narrow.kind == "dip_ic" and wide.kind == "wdip_ic"
         # Leaf checks, not tuple equality: the node path carries the full
@@ -147,11 +145,10 @@ class TestBuiltinDispatch:
         assert pkg.kind == "sil"
 
     def test_pin_header_rows_param_and_color(self) -> None:
-        single = build_kind_package(
-            "pin_header", GeneratorContext(pin_count=6)).package
+        single = build_kind_package("pin_header", GeneratorContext(pin_count=6)).package
         dual = build_kind_package(
-            "pin_header",
-            GeneratorContext(pin_count=6, values={"rows": 2})).package
+            "pin_header", GeneratorContext(pin_count=6, values={"rows": 2})
+        ).package
         assert isinstance(single, Prism) and isinstance(dual, Prism)
         assert single.color == "#222222"
         # 2×N rows sit side by side → shorter along the row than 1×N.
@@ -173,8 +170,7 @@ class TestResiduals:
     def test_missing_required_returns_residual(self, scratch_registry) -> None:
         class Needs(PackageGenerator):
             generates = "_t_needs"
-            code_params = parse_schema(
-                {"width": {"type": "float", "required": True}})
+            code_params = parse_schema({"width": {"type": "float", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("must not run with required missing")
@@ -195,13 +191,15 @@ class TestResiduals:
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 seen.update(ctx.values)
                 from protoboard.domain.components.footprints import SIL
+
                 pkg = prism_from_footprint(SIL(n=ctx.pin_count))
                 assert pkg is not None
                 return ctx.with_package(pkg)
 
         out = build_kind_package(
-            "_t_hole", GeneratorContext(pin_count=3, values={"rows": None}))
-        assert seen["rows"] == 1                       # default fed the build
+            "_t_hole", GeneratorContext(pin_count=3, values={"rows": None})
+        )
+        assert seen["rows"] == 1  # default fed the build
         assert out.package is not None
         assert out.package.raw_values == {"rows": None}  # hole preserved
 
@@ -214,7 +212,7 @@ class TestResiduals:
 
         out = build_kind_package("_t_redir", GeneratorContext(pin_count=4))
         assert isinstance(out.package, Prism)
-        assert out.package.kind == "sil"          # stamped as the final kind
+        assert out.package.kind == "sil"  # stamped as the final kind
         assert out.package.lineage == ("prism", "sil")
 
     def test_redirect_to_incomplete_kind_surfaces_residual(
@@ -222,8 +220,7 @@ class TestResiduals:
     ) -> None:
         class Target(PackageGenerator):
             generates = "_t_target"
-            code_params = parse_schema(
-                {"depth": {"type": "float", "required": True}})
+            code_params = parse_schema({"depth": {"type": "float", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("incomplete target must not run")
@@ -251,9 +248,7 @@ class TestResiduals:
 
 class TestPluginDiscovery:
 
-    def test_plugin_file_registers_kind(
-        self, tmp_path: Path, scratch_registry
-    ) -> None:
+    def test_plugin_file_registers_kind(self, tmp_path: Path, scratch_registry) -> None:
         plug_dir = tmp_path / "generators"
         plug_dir.mkdir()
         (plug_dir / "mykind.py").write_text(
@@ -271,7 +266,8 @@ class TestPluginDiscovery:
         assert loaded and loaded[0].name == "mykind.py"
         assert is_kind("_t_plugin_kind")
         pkg = build_kind_package(
-            "_t_plugin_kind", GeneratorContext(pin_count=3)).package
+            "_t_plugin_kind", GeneratorContext(pin_count=3)
+        ).package
         assert isinstance(pkg, Prism) and pkg.kind == "_t_plugin_kind"
 
     def test_broken_plugin_is_skipped(self, tmp_path: Path) -> None:
@@ -286,56 +282,70 @@ class TestLoaderIntegration:
 
     def _load_one(self, tmp_path: Path, body: str):
         from protoboard.services.library.loader import load_library
+
         (tmp_path / "lib.yaml").write_text(body)
         return load_library([tmp_path])
 
     def test_fixed_params_build_concrete_package(self, tmp_path: Path) -> None:
-        lib = self._load_one(tmp_path, (
-            "components:\n"
-            "  - name: HDR_2x3\n"
-            "    component_class: connector\n"
-            "    pins: {count: 6}\n"
-            "    package: {kind: pin_header, rows: 2}\n"
-        ))
+        lib = self._load_one(
+            tmp_path,
+            (
+                "components:\n"
+                "  - name: HDR_2x3\n"
+                "    component_class: connector\n"
+                "    meta_pins: [P1, P2, P3, P4, P5, P6]\n"
+                "    package: {kind: pin_header, rows: 2}\n"
+            ),
+        )
         defn = lib.get("HDR_2x3")
-        assert defn is not None and isinstance(defn.package, Prism)
-        assert defn.package.kind == "pin_header"
+        from protoboard.domain.components.package import resolve_component_package
+
+        package = resolve_component_package(defn, None, lib.package_families)
+        assert isinstance(package, Prism)
+        assert package.kind == "pin_header"
         from protoboard.domain.components.package.kind import (
             is_generic_package,
         )
-        assert not is_generic_package(defn.package)
+
+        assert not is_generic_package(package)
 
     def test_partial_params_yield_pending_placeholder(
         self, tmp_path: Path, scratch_registry
     ) -> None:
         class NeedsRows(PackageGenerator):
             generates = "_t_pending"
-            code_params = parse_schema(
-                {"rows": {"type": "int", "required": True}})
+            code_params = parse_schema({"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("required missing — must not run")
 
-        lib = self._load_one(tmp_path, (
-            "components:\n"
-            "  - name: PART_X\n"
-            "    component_class: connector\n"
-            "    pins: {count: 4}\n"
-            "    package: {kind: _t_pending}\n"
-        ))
+        lib = self._load_one(
+            tmp_path,
+            (
+                "components:\n"
+                "  - name: PART_X\n"
+                "    component_class: connector\n"
+                "    meta_pins: [P1, P2, P3, P4]\n"
+                "    package: {kind: _t_pending}\n"
+            ),
+        )
         defn = lib.get("PART_X")
-        assert defn is not None and isinstance(defn.package, Prism)
+        from protoboard.domain.components.package import resolve_component_package
+
+        package = resolve_component_package(defn, None, lib.package_families)
+        assert isinstance(package, Prism)
         # The placeholder keeps generic semantics (DRC / bend consumers)...
         from protoboard.domain.components.package.kind import (
             GENERIC_PACKAGE_KIND,
             is_generic_package,
         )
-        assert is_generic_package(defn.package)
-        assert GENERIC_PACKAGE_KIND in defn.package.lineage
+
+        assert is_generic_package(package)
+        assert GENERIC_PACKAGE_KIND in package.lineage
         # ...but carries the pending kind + its parameter state for the picker.
-        assert defn.package.kind == "_t_pending"
-        assert defn.package.schema is not None
-        assert "rows" in defn.package.schema.fields
+        assert package.kind == "_t_pending"
+        assert package.schema is not None
+        assert "rows" in package.schema.fields
 
 
 class TestChainDriver:
@@ -364,6 +374,7 @@ class TestChainDriver:
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 from protoboard.domain.components.footprints import SIL
+
                 dims = ctx.values.get("dims") or {}
                 record["seen_length"] = dims.get("length")
                 assert isinstance(dims.get("length"), float)
@@ -373,12 +384,12 @@ class TestChainDriver:
 
     def test_compute_step_feeds_final_step(self, scratch_registry) -> None:
         from protoboard.domain.components.package.schema import AUTO
+
         record: dict = {}
         self._register_chain(record)
         out = build_kind_package(
             ("_t_dims", "_t_body"),
-            GeneratorContext(pin_count=4,
-                             values={"dims": {"length": AUTO}}),
+            GeneratorContext(pin_count=4, values={"dims": {"length": AUTO}}),
         )
         assert isinstance(out.package, Prism)
         # The compute step resolved the auto hole; the final step saw it.
@@ -392,7 +403,8 @@ class TestChainDriver:
         self._register_chain(record)
         schema = parse_schema({"dims": {"length": {"type": "float"}}})
         build_kind_package(
-            ("_t_dims", "_t_body"), GeneratorContext(pin_count=4),
+            ("_t_dims", "_t_body"),
+            GeneratorContext(pin_count=4),
             schema=schema,
         )
         assert record["dims_schema"] is schema
@@ -402,21 +414,19 @@ class TestChainDriver:
         out = build_kind_package("sil", GeneratorContext(pin_count=3))
         assert isinstance(out.package, Prism) and out.package.kind == "sil"
 
-    def test_compute_step_must_not_build_a_package(
-        self, scratch_registry
-    ) -> None:
+    def test_compute_step_must_not_build_a_package(self, scratch_registry) -> None:
         class Builds(PackageGenerator):
             generates = "_t_builds"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 from protoboard.domain.components.footprints import SIL
+
                 pkg = prism_from_footprint(SIL(n=ctx.pin_count))
                 assert pkg is not None
                 return ctx.with_package(pkg)
 
         with pytest.raises(PackageDefError, match="must not build"):
-            build_kind_package(
-                ("_t_builds", "sil"), GeneratorContext(pin_count=3))
+            build_kind_package(("_t_builds", "sil"), GeneratorContext(pin_count=3))
 
     def test_compute_step_missing_required_is_an_error_not_a_residual(
         self, scratch_registry
@@ -429,8 +439,7 @@ class TestChainDriver:
                 raise AssertionError("required missing — must not run")
 
         with pytest.raises(PackageDefError, match="compute step"):
-            build_kind_package(
-                ("_t_needsx", "sil"), GeneratorContext(pin_count=3))
+            build_kind_package(("_t_needsx", "sil"), GeneratorContext(pin_count=3))
 
     def test_final_step_residual_carries_computed_values(
         self, scratch_registry
@@ -448,7 +457,8 @@ class TestChainDriver:
                 raise AssertionError("required missing — must not run")
 
         out = build_kind_package(
-            ("_t_dims", "_t_finalneeds"), GeneratorContext(pin_count=4))
+            ("_t_dims", "_t_finalneeds"), GeneratorContext(pin_count=4)
+        )
         assert out.package is None and out.residual is not None
         assert out.residual.kind == "_t_finalneeds"
         dims = out.residual.values.get("dims") or {}
@@ -464,21 +474,27 @@ class TestChainDriver:
         record: dict = {}
         self._register_chain(record)
         from protoboard.services.library.loader import load_library
+
         (tmp_path / "lib.yaml").write_text(
             "components:\n"
             "  - name: PART_CHAIN\n"
             "    component_class: connector\n"
-            "    pins: {count: 6}\n"
+            "    meta_pins: [P1, P2, P3, P4, P5, P6]\n"
             "    package: {kind: [_t_dims, _t_body]}\n"
         )
-        defn = load_library([tmp_path], package_families={}).get("PART_CHAIN")
-        assert isinstance(defn.package, Prism)
-        assert defn.package.kind == "_t_body"
+        families: dict = {}
+        lib = load_library([tmp_path], package_families=families)
+        defn = lib.get("PART_CHAIN")
+        from protoboard.domain.components.package import resolve_component_package
+
+        package = resolve_component_package(defn, None, lib.package_families)
+        assert isinstance(package, Prism)
+        assert package.kind == "_t_body"
         assert record["seen_length"] == pytest.approx(6 * 2.54)
 
 
 class TestPartialKindFootprintOption:
-    """A ``footprints:`` entry with a partially-parameterised inline kind
+    """A ``package_options:`` entry with a partially-parameterised inline kind
     becomes a per-option pending-kind placeholder (it used to raise at load);
     the picker's second pop-up collects the rest and builds the concrete body.
     """
@@ -486,23 +502,24 @@ class TestPartialKindFootprintOption:
     def _register_needs_rows(self) -> None:
         class NeedsRows(PackageGenerator):
             generates = "_t_optpending"
-            code_params = parse_schema(
-                {"rows": {"type": "int", "required": True}})
+            code_params = parse_schema({"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 from protoboard.domain.components.footprints import SIL
+
                 pkg = prism_from_footprint(SIL(n=ctx.pin_count))
                 assert pkg is not None
                 return ctx.with_package(pkg)
 
     def _load(self, tmp_path: Path):  # type: ignore[no-untyped-def]
         from protoboard.services.library.loader import load_library
+
         (tmp_path / "lib.yaml").write_text(
             "components:\n"
             "  - name: PART_OPT\n"
             "    component_class: connector\n"
-            "    pins: {count: 4}\n"
-            "    footprints:\n"
+            "    meta_pins: [P1, P2, P3, P4]\n"
+            "    package_options:\n"
             "      - {name: matrix, package: {kind: _t_optpending}}\n"
         )
         return load_library([tmp_path], package_families={})
@@ -514,18 +531,25 @@ class TestPartialKindFootprintOption:
             GENERIC_PACKAGE_KIND,
             is_generic_package,
         )
+
         self._register_needs_rows()
-        defn = self._load(tmp_path).get("PART_OPT")
+        lib = self._load(tmp_path)
+        defn = lib.get("PART_OPT")
         assert len(defn.package_options) == 1
         opt = defn.package_options[0]
-        assert isinstance(opt.package, Prism)
+        from protoboard.domain.components.package.family import resolve_variant
+
+        variant = resolve_variant(lib.package_families, opt.ref)
+        assert variant is not None
+        package = variant.package
+        assert isinstance(package, Prism)
         # Generic semantics preserved (geometry is the synthetic bbox)...
-        assert is_generic_package(opt.package)
-        assert GENERIC_PACKAGE_KIND in opt.package.lineage
+        assert is_generic_package(package)
+        assert GENERIC_PACKAGE_KIND in package.lineage
         # ...with the target kind + its holes riding along for the picker.
-        assert opt.package.kind == "_t_optpending"
-        assert opt.package.schema is not None
-        assert "rows" in opt.package.schema.fields
+        assert package.kind == "_t_optpending"
+        assert package.schema is not None
+        assert "rows" in package.schema.fields
 
     def test_picker_offers_kind_and_builds_concrete_variant(
         self, tmp_path: Path, scratch_registry
@@ -539,19 +563,15 @@ class TestPartialKindFootprintOption:
         from protoboard.gui.footprint_choice import (
             DefaultFootprintChoiceProvider,
         )
-        from protoboard.services.library.loader import (
-            inline_option_address,
-            inline_option_families,
-        )
 
         self._register_needs_rows()
         lib = self._load(tmp_path)
         defn = lib.get("PART_OPT")
-        families = dict(inline_option_families(lib))
+        families = lib.package_families
         provider = DefaultFootprintChoiceProvider(families)
 
         opts = provider.options(defn)
-        addr = inline_option_address("PART_OPT", "matrix")
+        addr = defn.package_options[0].ref
         assert [(o.address, o.is_kind) for o in opts] == [(addr, True)]
         # The second pop-up asks for the missing required parameter...
         assert [p.name for p in provider.kind_params(addr)] == ["rows"]
@@ -568,9 +588,14 @@ class TestDeclarativeNodes:
     flow (full lineage, schema, raw_values, declared color) with geometry
     identical to the legacy pure-code path."""
 
-    @pytest.mark.parametrize("kind,pins", [
-        ("dip_ic", 16), ("wdip_ic", 16), ("dip_switch", 8),
-    ])
+    @pytest.mark.parametrize(
+        "kind,pins",
+        [
+            ("dip_ic", 16),
+            ("wdip_ic", 16),
+            ("dip_switch", 8),
+        ],
+    )
     def test_node_body_equivalent_to_legacy(
         self, builtin_kind_nodes, kind: str, pins: int
     ) -> None:
@@ -581,22 +606,28 @@ class TestDeclarativeNodes:
             is_rigid_package,
         )
 
-        node_pkg = build_kind_package(
-            kind, GeneratorContext(pin_count=pins)).package
+        node_pkg = build_kind_package(kind, GeneratorContext(pin_count=pins)).package
         # The generator's own generate() is the node-less fallback — the
         # legacy body, built without consulting the node registry.
-        legacy_pkg = KIND_GENERATORS[kind](kind).generate(
-            GeneratorContext(pin_count=pins)).package
+        legacy_pkg = (
+            KIND_GENERATORS[kind](kind)
+            .generate(GeneratorContext(pin_count=pins))
+            .package
+        )
         assert isinstance(node_pkg, Prism) and isinstance(legacy_pkg, Prism)
         assert node_pkg.pin_positions() == legacy_pkg.pin_positions()
         assert node_pkg.size_mm == legacy_pkg.size_mm
         assert node_pkg.leads == legacy_pkg.leads
         assert is_rigid_package(node_pkg) == is_rigid_package(legacy_pkg)
 
-    @pytest.mark.parametrize("kind,color", [
-        ("dip_ic", "#2b2b30"), ("wdip_ic", "#2b2b30"),
-        ("dip_switch", "#c8433c"),
-    ])
+    @pytest.mark.parametrize(
+        "kind,color",
+        [
+            ("dip_ic", "#2b2b30"),
+            ("wdip_ic", "#2b2b30"),
+            ("dip_switch", "#c8433c"),
+        ],
+    )
     def test_node_stamps_kind_color_lineage(
         self, builtin_kind_nodes, kind: str, color: str
     ) -> None:
@@ -607,8 +638,7 @@ class TestDeclarativeNodes:
         assert pkg.lineage == ("package", "prism", "prism_dil", kind)
 
     def test_raw_values_keep_auto_for_the_ui(self, builtin_kind_nodes) -> None:
-        pkg = build_kind_package(
-            "dip_ic", GeneratorContext(pin_count=8)).package
+        pkg = build_kind_package("dip_ic", GeneratorContext(pin_count=8)).package
         assert isinstance(pkg, Prism)
         assert pkg.raw_values is not None
         assert pkg.raw_values["dims"]["ly"] == "auto"
@@ -618,20 +648,16 @@ class TestDeclarativeNodes:
         # ...and the geometry itself is concrete.
         assert pkg.size_mm is not None
 
-    def test_component_override_beats_auto_and_merges(
-        self, builtin_kind_nodes
-    ) -> None:
+    def test_component_override_beats_auto_and_merges(self, builtin_kind_nodes) -> None:
         pkg = build_kind_package(
             "dip_ic",
-            GeneratorContext(
-                pin_count=16,
-                values={"dims": {"ly": 7.0, "lz": 4.0}}),
+            GeneratorContext(pin_count=16, values={"dims": {"ly": 7.0, "lz": 4.0}}),
         ).package
         assert isinstance(pkg, Prism)
         assert pkg.size_mm is not None
-        assert pkg.size_mm.ly == 7.0        # explicit beats auto
-        assert pkg.size_mm.lz == 4.0        # sibling key deep-merges
-        assert pkg.size_mm.lx > 0           # auto filled
+        assert pkg.size_mm.ly == 7.0  # explicit beats auto
+        assert pkg.size_mm.lz == 4.0  # sibling key deep-merges
+        assert pkg.size_mm.lx > 0  # auto filled
 
     def test_odd_pin_count_raises_through_the_node_path(
         self, builtin_kind_nodes
@@ -651,19 +677,22 @@ class TestDeclarativeNodes:
             "components:\n"
             "  - name: IC_8\n"
             "    component_class: ic\n"
-            "    pins: {count: 8}\n"
+            "    meta_pins: [P1, P2, P3, P4, P5, P6, P7, P8]\n"
             "    package: {kind: dip_ic}\n"
         )
-        defn = load_library([tmp_path], package_families={}).get("IC_8")
-        assert isinstance(defn.package, Prism)
-        assert defn.package.kind == "dip_ic"
-        assert defn.package.color == "#2b2b30"
-        assert defn.package.lineage == (
-            "package", "prism", "prism_dil", "dip_ic")
+        lib = load_library([tmp_path], package_families={})
+        defn = lib.get("IC_8")
+        from protoboard.domain.components.package import resolve_component_package
+
+        package = resolve_component_package(defn, None, lib.package_families)
+        assert isinstance(package, Prism)
+        assert package.kind == "dip_ic"
+        assert package.color == "#2b2b30"
+        assert package.lineage == ("package", "prism", "prism_dil", "dip_ic")
         # The picker offers the kind, but with no parameter holes — a DIP's
         # value-tree schema/raw_values are Properties metadata, not picker
         # inputs, so placement stays one confirm (no second pop-up).
-        provider = DefaultFootprintChoiceProvider({})
+        provider = DefaultFootprintChoiceProvider(lib.package_families)
         opts = provider.options(defn)
         assert [o.is_kind for o in opts] == [True]
         assert provider.kind_params(opts[0].address) == []

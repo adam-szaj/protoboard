@@ -35,14 +35,21 @@ from protoboard.geometry import Point
 
 
 def _perfboard(rows: int, cols: int) -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0, col_gap=0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
 
 
 class _State:
@@ -66,7 +73,9 @@ class TestEnrichFragmentsHelper:
             side="top",
         )
         enriched = _enrich_insulated_fragments_with_pad_nodes(
-            (frag,), is_insulated=True, board=board,
+            (frag,),
+            is_insulated=True,
+            board=board,
         )
         assert len(enriched) == 1
         new_path = enriched[0].path
@@ -87,19 +96,22 @@ class TestEnrichFragmentsHelper:
         )
         # Bare wires get pad-vertices from their callers, not here.
         out = _enrich_insulated_fragments_with_pad_nodes(
-            (frag,), is_insulated=False, board=board,
+            (frag,),
+            is_insulated=False,
+            board=board,
         )
         assert out is (frag,) or out == (frag,)
 
     def test_already_enriched_returned_as_is(self) -> None:
         board = _perfboard(4, 4)
         frag = Fragment(
-            path=[Point(0.5, 0.5), Point(1.5, 1.5),
-                  Point(2.5, 2.5), Point(3.5, 3.5)],
+            path=[Point(0.5, 0.5), Point(1.5, 1.5), Point(2.5, 2.5), Point(3.5, 3.5)],
             side="top",
         )
         out = _enrich_insulated_fragments_with_pad_nodes(
-            (frag,), is_insulated=True, board=board,
+            (frag,),
+            is_insulated=True,
+            board=board,
         )
         # No new pads to insert → original tuple returned.
         assert out == (frag,)
@@ -114,7 +126,8 @@ class TestReplaceWireFragmentsApply:
         original_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         layout = Layout()
         layout.ensure_root_group()
@@ -152,7 +165,8 @@ class TestReplaceWireFragmentsApply:
         wire = Wire(
             id=uuid.uuid4(),
             fragments=[original_fragment],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         layout = Layout()
         layout.ensure_root_group()
@@ -206,12 +220,14 @@ class TestReplaceWireFragmentsEndpointMismatch:
         w1 = Wire(
             id=uuid.uuid4(),
             fragments=[Fragment(path=[Point(0.5, 0.5), Point(1.5, 0.5)], side="top")],
-            a=KnotRef(id=end_a.id), b=KnotRef(id=shared.id),
+            a=KnotRef(id=end_a.id),
+            b=KnotRef(id=shared.id),
         )
         w2 = Wire(
             id=uuid.uuid4(),
             fragments=[Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="top")],
-            a=KnotRef(id=shared.id), b=KnotRef(id=end_c.id),
+            a=KnotRef(id=shared.id),
+            b=KnotRef(id=end_c.id),
         )
         layout.add_wire(w1)
         layout.add_wire(w2)

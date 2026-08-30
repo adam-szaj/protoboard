@@ -41,10 +41,10 @@ from PySide6.QtWidgets import (
 from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
 
 if TYPE_CHECKING:
-    from protoboard.gui.session import EditorSession
+    pass
 
-_PLACED_COLOR = QColor("#1A8C1A")     # green
-_UNPLACED_COLOR = QColor("#AAAAAA")   # grey
+_PLACED_COLOR = QColor("#1A8C1A")  # green
+_UNPLACED_COLOR = QColor("#AAAAAA")  # grey
 _PLACED_MARK = "✓"
 _UNPLACED_MARK = "✗"
 
@@ -63,7 +63,7 @@ class ComponentsPanel(TreePanelMixin, QWidget):
     instance_selected = Signal(uuid.UUID)
     place_requested = Signal(uuid.UUID)
     auto_place_selected_requested = Signal(list)  # list[uuid.UUID]
-    auto_place_all_requested = Signal(list)        # list[uuid.UUID]
+    auto_place_all_requested = Signal(list)  # list[uuid.UUID]
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -74,7 +74,9 @@ class ComponentsPanel(TreePanelMixin, QWidget):
         # Header row: title + counters
         hdr = QHBoxLayout()
         self._title = QLabel("Components")
-        self._title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._title.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         hdr.addWidget(self._title)
         layout.addLayout(hdr)
 
@@ -93,9 +95,7 @@ class ComponentsPanel(TreePanelMixin, QWidget):
         self._tree.setAlternatingRowColors(True)
         self._tree.setSortingEnabled(True)
         self._tree.sortByColumn(_COL_REFDES, Qt.SortOrder.AscendingOrder)
-        self._tree.setSelectionMode(
-            QAbstractItemView.SelectionMode.ExtendedSelection
-        )
+        self._tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self._tree)
 
         # Manual single-place button
@@ -197,12 +197,12 @@ class ComponentsPanel(TreePanelMixin, QWidget):
 
         # Single-place: only valid for exactly one unplaced item.
         unplaced_items = [
-            it for it in items
+            it
+            for it in items
             if not (it.data(_COL_STATUS, Qt.ItemDataRole.UserRole) or False)
         ]
         self._place_btn.setEnabled(
-            len(unplaced_items) == 1
-            and self._item_uuid(unplaced_items[0]) is not None
+            len(unplaced_items) == 1 and self._item_uuid(unplaced_items[0]) is not None
         )
         self._auto_selected_btn.setEnabled(len(unplaced_items) > 0)
 

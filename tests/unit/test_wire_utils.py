@@ -52,8 +52,11 @@ class TestInsertPadNodes:
         pads = {Point(3.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)}
         result = insert_pad_nodes(path, pads)
         assert result == [
-            Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5),
-            Point(3.5, 0.5), Point(4.5, 0.5),
+            Point(0.5, 0.5),
+            Point(1.5, 0.5),
+            Point(2.5, 0.5),
+            Point(3.5, 0.5),
+            Point(4.5, 0.5),
         ]
 
     def test_vertical_segment(self) -> None:
@@ -61,7 +64,10 @@ class TestInsertPadNodes:
         pads = {Point(0.5, 1.5), Point(0.5, 2.5)}
         result = insert_pad_nodes(path, pads)
         assert result == [
-            Point(0.5, 0.5), Point(0.5, 1.5), Point(0.5, 2.5), Point(0.5, 3.5),
+            Point(0.5, 0.5),
+            Point(0.5, 1.5),
+            Point(0.5, 2.5),
+            Point(0.5, 3.5),
         ]
 
     def test_diagonal_segment(self) -> None:
@@ -69,7 +75,10 @@ class TestInsertPadNodes:
         pads = {Point(1.5, 1.5), Point(2.5, 2.5)}
         result = insert_pad_nodes(path, pads)
         assert result == [
-            Point(0.5, 0.5), Point(1.5, 1.5), Point(2.5, 2.5), Point(3.5, 3.5),
+            Point(0.5, 0.5),
+            Point(1.5, 1.5),
+            Point(2.5, 2.5),
+            Point(3.5, 3.5),
         ]
 
     def test_pad_at_endpoint_not_duplicated(self) -> None:
@@ -89,8 +98,12 @@ class TestInsertPadNodes:
         pads = {Point(2.5, 0.5), Point(4.5, 1.5), Point(4.5, 2.5)}
         result = insert_pad_nodes(path, pads)
         assert result == [
-            Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5),
-            Point(4.5, 1.5), Point(4.5, 2.5), Point(4.5, 3.5),
+            Point(0.5, 0.5),
+            Point(2.5, 0.5),
+            Point(4.5, 0.5),
+            Point(4.5, 1.5),
+            Point(4.5, 2.5),
+            Point(4.5, 3.5),
         ]
 
     def test_single_point_path_unchanged(self) -> None:
@@ -131,6 +144,7 @@ class TestBoardPadsForSide:
 
 def _wire(path: list[Point]) -> Wire:
     import uuid as _uuid
+
     return Wire(id=_uuid.uuid4(), path=path, insulated=True, side="top")
 
 
@@ -225,9 +239,7 @@ class TestCoalesceSameSideFragments:
         out = coalesce_same_side_fragments([a, b])
         assert len(out) == 1
         # Boundary vertex (2.5, 0.5) appears once, not twice.
-        assert out[0].path == [
-            Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)
-        ]
+        assert out[0].path == [Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)]
         assert out[0].side == "top"
 
     def test_three_same_side_fragments_fuse_into_one(self) -> None:
@@ -237,8 +249,10 @@ class TestCoalesceSameSideFragments:
         out = coalesce_same_side_fragments([a, b, c])
         assert len(out) == 1
         assert out[0].path == [
-            Point(0.5, 0.5), Point(1.5, 0.5),
-            Point(2.5, 0.5), Point(3.5, 0.5),
+            Point(0.5, 0.5),
+            Point(1.5, 0.5),
+            Point(2.5, 0.5),
+            Point(3.5, 0.5),
         ]
 
     def test_via_boundary_preserved(self) -> None:
@@ -289,9 +303,7 @@ class TestCoalesceSameSideFragments:
         b = Fragment(path=[Point(2.5, 0.5), Point(4.5, 0.5)], side="top")
         out = coalesce_same_side_fragments((a, b))
         assert len(out) == 1
-        assert out[0].path == [
-            Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)
-        ]
+        assert out[0].path == [Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)]
 
 
 class TestMergeEndpointWires:
@@ -301,7 +313,9 @@ class TestMergeEndpointWires:
 
     @staticmethod
     def _make_layout_with_two_meeting_wires(
-        *, insulated_a: bool = True, insulated_b: bool = True,
+        *,
+        insulated_a: bool = True,
+        insulated_b: bool = True,
     ):
         """Build a Layout with two single-fragment wires meeting at (2.5, 0.5).
 
@@ -313,9 +327,11 @@ class TestMergeEndpointWires:
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.placement import PlacementCollection
         from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
+
         layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         # Outer endpoints (left & right) each get a degree-1 joint.
         import uuid as _uuid
+
         ja = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
         jb_w1 = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
         jb_w2 = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
@@ -325,14 +341,18 @@ class TestMergeEndpointWires:
         w1 = Wire(
             id=_uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5)],
-            insulated=insulated_a, side="top",
-            a=KnotRef(id=ja.id), b=KnotRef(id=jb_w1.id),
+            insulated=insulated_a,
+            side="top",
+            a=KnotRef(id=ja.id),
+            b=KnotRef(id=jb_w1.id),
         )
         w2 = Wire(
             id=_uuid.uuid4(),
             path=[Point(2.5, 0.5), Point(4.5, 0.5)],
-            insulated=insulated_b, side="top",
-            a=KnotRef(id=jb_w2.id), b=KnotRef(id=jc.id),
+            insulated=insulated_b,
+            side="top",
+            a=KnotRef(id=jb_w2.id),
+            b=KnotRef(id=jc.id),
         )
         layout.add_wire(w1)
         layout.add_wire(w2)
@@ -340,6 +360,7 @@ class TestMergeEndpointWires:
 
     def test_matching_insulated_fuses(self) -> None:
         from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+
         layout, board = self._make_layout_with_two_meeting_wires()
         assert len(layout.wires) == 2
         fused = merge_endpoint_wires(layout, board)
@@ -348,8 +369,10 @@ class TestMergeEndpointWires:
 
     def test_mismatched_insulated_keeps_separate(self) -> None:
         from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+
         layout, board = self._make_layout_with_two_meeting_wires(
-            insulated_a=True, insulated_b=False,
+            insulated_a=True,
+            insulated_b=False,
         )
         fused = merge_endpoint_wires(layout, board)
         assert fused == 0
@@ -357,6 +380,7 @@ class TestMergeEndpointWires:
 
     def test_idempotent_after_first_pass(self) -> None:
         from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+
         layout, board = self._make_layout_with_two_meeting_wires()
         merge_endpoint_wires(layout, board)
         # Second invocation must do nothing — already canonical.
@@ -365,11 +389,14 @@ class TestMergeEndpointWires:
 
     def test_colocated_joints_coalesce(self) -> None:
         from protoboard.domain.layout.wire_utils import merge_colocated_joints
+
         layout, _board = self._make_layout_with_two_meeting_wires()
         # Before: two separate joints sitting at (2.5, 0.5).
         from protoboard.domain.layout.knot import JointKnot
+
         joints_at_pad = [
-            k for k in layout.knots.values()
+            k
+            for k in layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -378,7 +405,8 @@ class TestMergeEndpointWires:
         dropped = merge_colocated_joints(layout)
         assert dropped == 1
         joints_at_pad_after = [
-            k for k in layout.knots.values()
+            k
+            for k in layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -398,11 +426,13 @@ class TestSplitWiresAtEndpointCollisions:
     @staticmethod
     def _make_layout_with_t_junction():
         """W2 runs horizontally past (2.5, 0.5); W1 ends at that pad."""
+        import uuid as _uuid
+
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.placement import PlacementCollection
         from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
-        import uuid as _uuid
+
         layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         # Outer joints for both wires.
         j_w2_a = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
@@ -414,14 +444,18 @@ class TestSplitWiresAtEndpointCollisions:
         w2 = Wire(
             id=_uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=j_w2_a.id), b=KnotRef(id=j_w2_b.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=j_w2_a.id),
+            b=KnotRef(id=j_w2_b.id),
         )
         w1 = Wire(
             id=_uuid.uuid4(),
             path=[Point(2.5, 2.5), Point(2.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=j_w1_a.id), b=KnotRef(id=j_w1_b.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=j_w1_a.id),
+            b=KnotRef(id=j_w1_b.id),
         )
         layout.add_wire(w2)
         layout.add_wire(w1)
@@ -432,6 +466,7 @@ class TestSplitWiresAtEndpointCollisions:
         from protoboard.domain.layout.wire_utils import (
             split_wires_at_endpoint_collisions,
         )
+
         layout, w1, w2 = self._make_layout_with_t_junction()
         fixes = split_wires_at_endpoint_collisions(layout)
         assert fixes == 1
@@ -439,7 +474,8 @@ class TestSplitWiresAtEndpointCollisions:
         assert len(layout.wires) == 3
         # Find the hub at (2.5, 0.5).
         hub_candidates = [
-            k for k in layout.knots.values()
+            k
+            for k in layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -453,6 +489,7 @@ class TestSplitWiresAtEndpointCollisions:
         from protoboard.domain.layout.wire_utils import (
             split_wires_at_endpoint_collisions,
         )
+
         layout, _w1, _w2 = self._make_layout_with_t_junction()
         split_wires_at_endpoint_collisions(layout)
         # Second pass on a now-canonical layout — no further fixes.
@@ -467,6 +504,7 @@ class TestSplitWiresAtEndpointCollisions:
             merge_endpoint_wires,
             split_wires_at_endpoint_collisions,
         )
+
         board = _perfboard(5, 5)
         layout, _w1, _w2 = self._make_layout_with_t_junction()
         split_wires_at_endpoint_collisions(layout)
@@ -495,8 +533,8 @@ class TestTJunctionNetGate:
         a third resistor R3 on a third net far away — the geometry is
         irrelevant; only the net membership of the wire endpoints is
         what the gate inspects."""
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.footprints import SIL
+        import uuid as _uuid
+
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.placement import (
@@ -506,38 +544,48 @@ class TestTJunctionNetGate:
         from protoboard.domain.layout.wire import WireCollection
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.domain.schematic.schematic import Schematic
-        import uuid as _uuid
 
         board = _perfboard(3, 10)
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+        from tests.unit._autoroute_invariants import make_sil, sil_families
 
-        r1 = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="10k"
-        ).bind(defn, {})
-        r2 = ComponentInstance.new(
-            definition_ref="R", refdes="R2", value="10k"
-        ).bind(defn, {})
+        defn = make_sil("R", 2)
+        families = sil_families(defn)
+
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
+            defn, families
+        )
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k").bind(
+            defn, families
+        )
         # SIL(2) rot=90: pin1=(x, 0.5), pin2=(x+1, 0.5).
         placements = {
             r1.id: ComponentPlacement(
-                component_id=r1.id, position=Point(0.5, 0.5),
-                rotation=90, side="top",
+                component_id=r1.id,
+                position=Point(0.5, 0.5),
+                rotation=90,
+                side="top",
             ),
             r2.id: ComponentPlacement(
-                component_id=r2.id, position=Point(0.5, 2.5),
-                rotation=90, side="top",
+                component_id=r2.id,
+                position=Point(0.5, 2.5),
+                rotation=90,
+                side="top",
             ),
         }
         net_a = Net(
-            id=_uuid.uuid4(), name="NET_A",
+            id=_uuid.uuid4(),
+            name="NET_A",
             pins={PinRef(component_id=r1.id, pin_number=1)},
         )
         net_b = Net(
-            id=_uuid.uuid4(), name="NET_B",
+            id=_uuid.uuid4(),
+            name="NET_B",
             pins={PinRef(component_id=r2.id, pin_number=1)},
         )
         schematic = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
-        layout = Layout(placements=PlacementCollection(placements), wires=WireCollection())
+        layout = Layout(
+            placements=PlacementCollection(placements), wires=WireCollection()
+        )
         components = {defn.name: defn}
         instances = {r1.id: r1, r2.id: r2}
         return board, layout, schematic, components, instances, r1, r2, net_a, net_b
@@ -548,9 +596,10 @@ class TestTJunctionNetGate:
         (interior) point ``p_b``.  W_incoming: vertical NET_B wire whose
         endpoint b lands on ``p_b``.  Both insulated.
         """
+        import uuid as _uuid
+
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.wire import KnotRef, Wire
-        import uuid as _uuid
 
         # W_through: NET_A endpoints at R1/pin1 (0.5, 0.5) and far right
         # (5.5, 0.5), passing through interior vertex p_b on its path.
@@ -561,8 +610,10 @@ class TestTJunctionNetGate:
         w_through = Wire(
             id=_uuid.uuid4(),
             path=[Point(0.5, 0.5), p_b, Point(5.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=j_th_a.id), b=KnotRef(id=j_th_b.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=j_th_a.id),
+            b=KnotRef(id=j_th_b.id),
         )
         # W_incoming: NET_B endpoints — pin2 of R2 at (0.5, 2.5) and the
         # collision point p_b.
@@ -573,8 +624,10 @@ class TestTJunctionNetGate:
         w_incoming = Wire(
             id=_uuid.uuid4(),
             path=[p_a, p_b],
-            insulated=True, side="top",
-            a=KnotRef(id=j_in_a.id), b=KnotRef(id=j_in_b.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=j_in_a.id),
+            b=KnotRef(id=j_in_b.id),
         )
         layout.add_wire(w_through)
         layout.add_wire(w_incoming)
@@ -586,6 +639,7 @@ class TestTJunctionNetGate:
         from protoboard.domain.layout.wire_utils import (
             split_wires_at_endpoint_collisions,
         )
+
         board, layout, schematic, components, instances, r1, r2, net_a, net_b = (
             self._two_resistor_setup()
         )
@@ -593,7 +647,9 @@ class TestTJunctionNetGate:
         # W_incoming anchors at R2/pin1 (a) and at (2.5, 0.5) (b) — the
         # collision point sits on W_through's interior vertex.
         self._add_two_crossing_wires(
-            layout, p_a=Point(0.5, 2.5), p_b=Point(2.5, 0.5),
+            layout,
+            p_a=Point(0.5, 2.5),
+            p_b=Point(2.5, 0.5),
         )
         fixes = split_wires_at_endpoint_collisions(
             layout,
@@ -613,6 +669,7 @@ class TestTJunctionNetGate:
             split_wires_at_endpoint_collisions,
         )
         from protoboard.domain.schematic.net import PinRef
+
         board, layout, schematic, components, instances, r1, r2, net_a, net_b = (
             self._two_resistor_setup()
         )
@@ -620,7 +677,9 @@ class TestTJunctionNetGate:
         net_a.pins.add(PinRef(component_id=r2.id, pin_number=1))
         net_b.pins.clear()
         self._add_two_crossing_wires(
-            layout, p_a=Point(0.5, 2.5), p_b=Point(2.5, 0.5),
+            layout,
+            p_a=Point(0.5, 2.5),
+            p_b=Point(2.5, 0.5),
         )
         fixes = split_wires_at_endpoint_collisions(
             layout,
@@ -637,11 +696,14 @@ class TestTJunctionNetGate:
         from protoboard.domain.layout.wire_utils import (
             split_wires_at_endpoint_collisions,
         )
+
         board, layout, _sch, _comps, _insts, _r1, _r2, _na, _nb = (
             self._two_resistor_setup()
         )
         self._add_two_crossing_wires(
-            layout, p_a=Point(0.5, 2.5), p_b=Point(2.5, 0.5),
+            layout,
+            p_a=Point(0.5, 2.5),
+            p_b=Point(2.5, 0.5),
         )
         # No schematic context → old geometry-only behaviour.
         fixes = split_wires_at_endpoint_collisions(layout)
@@ -652,13 +714,15 @@ class TestTJunctionNetGate:
         """A wire on ``top`` and a wire on ``bottom`` cannot share one
         solder joint — verdict is INCOMPATIBLE_GEOMETRY regardless of
         net membership."""
-        from protoboard.domain.layout.wire import KnotRef, Wire
+        import uuid as _uuid
+
         from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire import KnotRef, Wire
         from protoboard.domain.layout.wire_utils import (
             TJunctionVerdict,
             can_form_t_junction,
         )
-        import uuid as _uuid
+
         j1 = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
         j2 = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
         j3 = JointKnot(id=_uuid.uuid4(), position=Point(1.5, 0.5))
@@ -666,17 +730,23 @@ class TestTJunctionNetGate:
         w_top = Wire(
             id=_uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=j1.id), b=KnotRef(id=j2.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=j1.id),
+            b=KnotRef(id=j2.id),
         )
         w_bottom = Wire(
             id=_uuid.uuid4(),
             path=[Point(1.5, 2.5), Point(1.5, 0.5)],
-            insulated=True, side="bottom",
-            a=KnotRef(id=j4.id), b=KnotRef(id=j3.id),
+            insulated=True,
+            side="bottom",
+            a=KnotRef(id=j4.id),
+            b=KnotRef(id=j3.id),
         )
         verdict, orphan, net_id = can_form_t_junction(
-            w_top, w_bottom, "b",
+            w_top,
+            w_bottom,
+            "b",
         )
         assert verdict is TJunctionVerdict.INCOMPATIBLE_GEOMETRY
         assert orphan is None and net_id is None

@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 
     from PySide6.QtWidgets import QGraphicsScene
 
-    from protoboard.geometry import Point
     from protoboard.controller.ports import (
         ActionOption,
         ExecutorPort,
@@ -38,14 +37,14 @@ if TYPE_CHECKING:
         ViewportPort,
         WheelInput,
     )
+    from protoboard.controller.theme import Theme
+    from protoboard.geometry import Point
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
-    from protoboard.gui.layer_state import LayerState
-    from protoboard.gui.layer_state import LayerOverrides
+    from protoboard.gui.layer_state import LayerOverrides, LayerState
     from protoboard.gui.paint_pipeline import PaintPipeline
     from protoboard.gui.scene_composer import SceneComposer
     from protoboard.gui.session import EditorSession
-    from protoboard.controller.theme import Theme
     from protoboard.gui.tool_host import ToolHost
     from protoboard.gui.view_camera import ViewCamera
 
@@ -409,6 +408,7 @@ class ViewToolMixin:
 
     def _theme(self) -> Theme:
         from protoboard.controller.theme import DEFAULT_THEME, Theme
+
         t = getattr(self._view, "_theme_override", None)
         return t if isinstance(t, Theme) else DEFAULT_THEME
 
@@ -422,13 +422,17 @@ class ViewToolMixin:
         and skipped rather than crashing the tool switch.
         """
         from protoboard.gui.keymap import FinalShortcutError, KeyMap
+
         km = KeyMap.layer_over(parent)
-        for action_id, shortcut in {**self.key_actions(),
-                                    **self.mouse_actions()}.items():
+        for action_id, shortcut in {
+            **self.key_actions(),
+            **self.mouse_actions(),
+        }.items():
             try:
                 km.register_tool_actions({action_id: shortcut})
             except FinalShortcutError as exc:
                 import structlog
+
                 structlog.get_logger(__name__).warning(
                     "keymap.tool_action_rejected", error=str(exc)
                 )
@@ -484,6 +488,7 @@ class _Tool(Protocol):
     def perform_context_action(
         self, action_id: str, data: Mapping[str, object]
     ) -> None: ...
+
     # Semantic verbs + Esc gate ToolHost drives on the active tool (all live
     # on ControllerTool; declared here so the View's _Tool-typed active_tool
     # can call them).
@@ -492,7 +497,9 @@ class _Tool(Protocol):
     def can_exit(self) -> bool: ...
 
 
-class _DefaultTool(ControllerTool, ViewToolMixin, BoardViewTool):  # pyright: ignore[reportIncompatibleMethodOverride]
+class _DefaultTool(
+    ControllerTool, ViewToolMixin, BoardViewTool
+):  # pyright: ignore[reportIncompatibleMethodOverride]
     """Do-nothing default implementation test doubles subclass.
 
     Concrete GUI tools do *not* descend from this — they compose

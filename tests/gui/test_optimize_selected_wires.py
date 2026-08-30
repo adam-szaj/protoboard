@@ -22,6 +22,8 @@ from protoboard.gui.tools.gui_tools import SelectTool
 from protoboard.services.routing.autorouter import AutorouteResult
 from protoboard.services.routing.optimizer import (
     OptimizerCapabilities,
+)
+from protoboard.services.routing.optimizer import (
     registry as optimizer_registry,
 )
 
@@ -65,12 +67,14 @@ class _ShiftSidesOptimizer:
         flipped: list[Wire] = []
         for w in result.wires:
             other = "bottom" if w.side == "top" else "top"
-            flipped.append(Wire(
-                id=w.id,                # preserve id so handler emits Replace, not Add
-                path=list(w.path),
-                insulated=w.insulated,
-                side=other,             # type: ignore[arg-type]
-            ))
+            flipped.append(
+                Wire(
+                    id=w.id,  # preserve id so handler emits Replace, not Add
+                    path=list(w.path),
+                    insulated=w.insulated,
+                    side=other,  # type: ignore[arg-type]
+                )
+            )
         return AutorouteResult(wires=flipped)
 
     def capabilities(self) -> OptimizerCapabilities:
@@ -105,7 +109,9 @@ class _AddOneOptimizer:
 
 
 class TestOptimizeSelectedWires:
-    def test_identity_optimizer_is_no_op(self, session: EditorSession, select_tool: SelectTool) -> None:
+    def test_identity_optimizer_is_no_op(
+        self, session: EditorSession, select_tool: SelectTool
+    ) -> None:
         optimizer_registry.register(_IdentityOptimizer())
         try:
             w = _wire(Point(0.5, 0.5), Point(1.5, 0.5))
@@ -118,7 +124,9 @@ class TestOptimizeSelectedWires:
             optimizer_registry.optimizers.pop("test-identity", None)
 
     def test_side_flip_replaces_wires_via_remove_add(
-        self, session: EditorSession, select_tool: SelectTool,
+        self,
+        session: EditorSession,
+        select_tool: SelectTool,
     ) -> None:
         optimizer_registry.register(_ShiftSidesOptimizer())
         try:
@@ -134,7 +142,9 @@ class TestOptimizeSelectedWires:
             optimizer_registry.optimizers.pop("test-shift-sides", None)
 
     def test_drop_one_removes_wire(
-        self, session: EditorSession, select_tool: SelectTool,
+        self,
+        session: EditorSession,
+        select_tool: SelectTool,
     ) -> None:
         optimizer_registry.register(_DropOneOptimizer())
         try:
@@ -153,7 +163,9 @@ class TestOptimizeSelectedWires:
             optimizer_registry.optimizers.pop("test-drop-one", None)
 
     def test_add_one_creates_new_wire(
-        self, session: EditorSession, select_tool: SelectTool,
+        self,
+        session: EditorSession,
+        select_tool: SelectTool,
     ) -> None:
         optimizer_registry.register(_AddOneOptimizer())
         try:
@@ -167,7 +179,9 @@ class TestOptimizeSelectedWires:
             optimizer_registry.optimizers.pop("test-add-one", None)
 
     def test_unknown_optimizer_does_not_mutate_layout(
-        self, session: EditorSession, select_tool: SelectTool,
+        self,
+        session: EditorSession,
+        select_tool: SelectTool,
     ) -> None:
         w = _wire(Point(0.5, 0.5), Point(1.5, 0.5))
         session.layout.wires.append(w)
@@ -176,7 +190,9 @@ class TestOptimizeSelectedWires:
         assert session.layout.wires == before_wires
 
     def test_empty_selection_does_not_crash(
-        self, session: EditorSession, select_tool: SelectTool,
+        self,
+        session: EditorSession,
+        select_tool: SelectTool,
     ) -> None:
         optimizer_registry.register(_IdentityOptimizer())
         try:
@@ -186,7 +202,9 @@ class TestOptimizeSelectedWires:
             optimizer_registry.optimizers.pop("test-identity", None)
 
     def test_undo_redo_round_trip(
-        self, session: EditorSession, select_tool: SelectTool,
+        self,
+        session: EditorSession,
+        select_tool: SelectTool,
     ) -> None:
         """The MacroCommand must allow a single undo to revert the full change."""
         optimizer_registry.register(_ShiftSidesOptimizer())

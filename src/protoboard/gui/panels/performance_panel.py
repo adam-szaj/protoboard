@@ -12,8 +12,8 @@ from PySide6.QtCore import Qt
 
 _click_log = structlog.get_logger("protoboard.gui.panels.performance_panel.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
-from PySide6.QtGui import QPainter, QPen, QColor
-from PySide6.QtWidgets import (
+from PySide6.QtGui import QColor, QPainter, QPen  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
     QButtonGroup,
     QFormLayout,
     QGroupBox,
@@ -28,8 +28,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protoboard.gui.session import EditorSession, PerfMetrics
-from protoboard.services.routing.cost_analyzer import CostBreakdown, analyze_wires
+from protoboard.gui.session import EditorSession, PerfMetrics  # noqa: E402
+from protoboard.services.routing.cost_analyzer import (  # noqa: E402
+    CostBreakdown,
+    analyze_wires,
+)
 
 
 class _Sparkline(QWidget):
@@ -56,8 +59,10 @@ class _Sparkline(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         for i, v in enumerate(self._samples):
             bar_h = int((v / max_val) * h)
-            color = QColor(0x4C, 0xAF, 0x50) if v < 16 else (
-                QColor(0xFF, 0xC1, 0x07) if v < 50 else QColor(0xF4, 0x43, 0x36)
+            color = (
+                QColor(0x4C, 0xAF, 0x50)
+                if v < 16
+                else (QColor(0xFF, 0xC1, 0x07) if v < 50 else QColor(0xF4, 0x43, 0x36))
             )
             painter.fillRect(i * bar_w, h - bar_h, bar_w - 1, bar_h, color)
         # Baseline
@@ -91,8 +96,11 @@ class PerformancePanel(QWidget):
         # schedule restarts the timer, so a burst fires once, 500 ms after
         # the last event.
         from protoboard.gui.throttle import TimerWrap
+
         self._cost_refresh_timer = TimerWrap(
-            500, self._refresh_cost, restart_on_arm=True,
+            500,
+            self._refresh_cost,
+            restart_on_arm=True,
         )
         # Set to True when the panel is hidden during a refresh request;
         # `showEvent` consumes it to bring the table up to date.
@@ -109,9 +117,9 @@ class PerformancePanel(QWidget):
         layout.setSpacing(4)
 
         def _lbl() -> QLabel:
-            l = QLabel("—")
-            l.setAlignment(Qt.AlignmentFlag.AlignRight)
-            return l
+            label = QLabel("—")
+            label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            return label
 
         self._refresh_lbl = _lbl()
         self._drc_lbl = _lbl()
@@ -171,7 +179,9 @@ class PerformancePanel(QWidget):
         cost_box.addWidget(self._cost_summary)
 
         self._cost_table = QTableWidget(0, 4)
-        self._cost_table.setHorizontalHeaderLabels(["Category", "Count", "Unit", "Total"])
+        self._cost_table.setHorizontalHeaderLabels(
+            ["Category", "Count", "Unit", "Total"]
+        )
         self._cost_table.verticalHeader().setVisible(False)
         self._cost_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._cost_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -274,8 +284,7 @@ class PerformancePanel(QWidget):
         if self._scope_net.isChecked() and self._selected_net_id is not None:
             wire_net = self._session.cached_wire_net_map()
             net_wires = [
-                w for w in all_wires
-                if wire_net.get(w.id) == self._selected_net_id
+                w for w in all_wires if wire_net.get(w.id) == self._selected_net_id
             ]
             net_name = ""
             net = self._session.schematic.nets.get(self._selected_net_id)
@@ -314,11 +323,13 @@ class PerformancePanel(QWidget):
         cm = self._session.routing_settings.cost_model()
         under_pads = (
             self._session.cached_under_component_pads()
-            if cm.get("under_component_top", 0.0) > 0.0 else set()
+            if cm.get("under_component_top", 0.0) > 0.0
+            else set()
         )
         plated = (
             self._session.cached_plated_through_pads()
-            if cm.get("layer_change", 0.0) > 0.0 else set()
+            if cm.get("layer_change", 0.0) > 0.0
+            else set()
         )
         # Pass every wire on the board so crossings with wires *outside*
         # the analysed selection (e.g. when scope is "Selection" and the

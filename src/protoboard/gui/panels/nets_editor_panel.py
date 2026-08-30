@@ -50,7 +50,7 @@ _ROLE = Qt.ItemDataRole.UserRole
 class NetsEditorPanel(QWidget):
     """Panel for managing logical nets: add, delete, rename, and assign pins."""
 
-    nets_changed = Signal()   # emitted after any command that mutates the schematic
+    nets_changed = Signal()  # emitted after any command that mutates the schematic
     net_selected = Signal(object)  # uuid.UUID — emitted when user clicks a net row
 
     def __init__(self, parent: object = None) -> None:
@@ -184,10 +184,11 @@ class NetsEditorPanel(QWidget):
         finally:
             self._syncing = False
 
-    def _on_net_item_clicked(self, item: "QTreeWidgetItem", _col: int) -> None:
+    def _on_net_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         if self._syncing:
             return
         import uuid as _uuid
+
         raw = item.data(_NET_COL_NAME, _ROLE)
         if isinstance(raw, str):
             try:
@@ -195,7 +196,7 @@ class NetsEditorPanel(QWidget):
             except ValueError:
                 pass
 
-    def _on_pin_item_clicked(self, item: "QTreeWidgetItem", _col: int) -> None:
+    def _on_pin_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         """Panel -> board: a Component-Pin row click selects the pin on the board.
 
         Reads the clicked item directly (not ``currentItem``, which Qt updates
@@ -273,8 +274,9 @@ class NetsEditorPanel(QWidget):
         # Resolve every net to its effective colour (manual override, palette,
         # or golden-ratio extension) so the panel shows exactly what the
         # board renderer paints — not just the manual override.
-        from protoboard.gui.renderers.net_color import build_net_color_map
         from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.gui.renderers.net_color import build_net_color_map
+
         theme = getattr(self._session, "theme", DEFAULT_THEME) or DEFAULT_THEME
         effective = build_net_color_map(self._session.schematic.nets, theme=theme)
         for net in sorted(self._session.schematic.nets.values(), key=lambda n: n.name):
@@ -296,7 +298,9 @@ class NetsEditorPanel(QWidget):
         else:
             color_label = "auto"
         global_label = "✓" if net.global_net else ""
-        item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label, global_label])
+        item = QTreeWidgetItem(
+            [net.name, str(len(net.pins)), color_label, global_label]
+        )
         item.setData(_NET_COL_NAME, _ROLE, str(net.id))
         bg_hex = net.color or eff_hex
         if bg_hex:
@@ -332,15 +336,11 @@ class NetsEditorPanel(QWidget):
             self._pin_tree.addTopLevelItem(parent_item)
             for pin_num in range(1, pin_count + 1):
                 pin_name = (
-                    " / ".join(defn.meta_pin(pin_num).labels)
-                    if defn
-                    else f"P{pin_num}"
+                    " / ".join(defn.meta_pin(pin_num).labels) if defn else f"P{pin_num}"
                 )
                 net_name = pin_to_net.get((inst_id, pin_num), "—")
                 pin_item = QTreeWidgetItem(["", pin_name, net_name])
-                pin_item.setData(
-                    0, _ROLE, f"{inst_id}:{pin_num}"
-                )
+                pin_item.setData(0, _ROLE, f"{inst_id}:{pin_num}")
                 parent_item.addChild(pin_item)
             parent_item.setExpanded(True)
 
@@ -384,7 +384,7 @@ class NetsEditorPanel(QWidget):
     # Command dispatch
     # ------------------------------------------------------------------
 
-    def _execute_net_command(self, cmd: "Command[NetState]") -> None:
+    def _execute_net_command(self, cmd: Command[NetState]) -> None:
         """Run a net-management command against the active session's stack.
 
         ``session.stack`` is declared as ``CommandStack[ComponentState]`` while
@@ -544,8 +544,14 @@ class NetsEditorPanel(QWidget):
             return
         self._net_tree.setCurrentItem(item)
         net_id = self._current_net_id()
-        net = self._session.schematic.nets.get(net_id) if (net_id and self._session) else None
-        global_label = "Unmark as global" if (net and net.global_net) else "Mark as global"
+        net = (
+            self._session.schematic.nets.get(net_id)
+            if (net_id and self._session)
+            else None
+        )
+        global_label = (
+            "Unmark as global" if (net and net.global_net) else "Mark as global"
+        )
 
         menu = QMenu(self)  # type: ignore[arg-type]
         menu.addAction("Rename", self._on_rename_net)
@@ -572,8 +578,8 @@ class NetsEditorPanel(QWidget):
         if pin_ref is None or self._session is None:
             return
         comp_id, pin_num = pin_ref
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.commands.net_cmds import UnassignPinCommand
+        from protoboard.domain.schematic.net import PinRef
 
         ref = PinRef(component_id=comp_id, pin_number=pin_num)
         net = self._session.schematic.net_for_pin(ref)
@@ -609,8 +615,11 @@ class NetsEditorPanel(QWidget):
             PinRef(component_id=comp_id, pin_number=pin_num)
         )
         nets = sorted(
-            (n for n in self._session.schematic.nets.values()
-             if current_net is None or n.id != current_net.id),
+            (
+                n
+                for n in self._session.schematic.nets.values()
+                if current_net is None or n.id != current_net.id
+            ),
             key=lambda n: n.name,
         )
         if not nets:
@@ -692,9 +701,7 @@ class NetsEditorPanel(QWidget):
     def _name_exists(self, name: str) -> bool:
         if self._session is None:
             return False
-        return any(
-            n.name == name for n in self._session.schematic.nets.values()
-        )
+        return any(n.name == name for n in self._session.schematic.nets.values())
 
 
 # ---------------------------------------------------------------------------

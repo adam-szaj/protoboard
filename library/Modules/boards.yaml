@@ -2,291 +2,671 @@ components:
   # Modules / development boards
   # -----------------------------------------------------------------------
 
-  - name: Arduino_Nano
-    description: "Arduino Nano v3 (30-pin: 15 per side, 18mm wide)"
-    component_class: devboard
+- name: Arduino_Nano
+  description: "Arduino Nano v3 (30-pin: 15 per side, 18mm wide)"
+  component_class: devboard
     # PCB module: real outline (18 × 38.1 mm) + pins as aggregated offsets.
     # 2×15 header: 14 steps down the left column, jump 7 across, 14 up the right.
-    package:
-      shape: prism
-      dims: {ly: 18.0, lx: 38.1, lz: 1.6}
-      leads:
-        direction: [0, 0, -1]
-        body_offset: {unit: 2.5, value: [[14, [0, 1]], [7, 0], [14, [0, -1]]]}
-        board_offset: default
-      bend: 0
-    pin_names:
-      1: PD1/TX/PCINT17/31
-      2: PD0/RX/PCINT16/30
-      3: PC6/RST/PCINT14/29
-      4: GND
-      5: PD2/INT0/PCINT18/32
-      6: PD3/INT1/PCINT19/OC2B/1
-      7: PD4/T0/PCINT20/XCK/2
-      8: PD5/T1/PCINT21/OC0B/9
-      9: PD6/AIN0/PCINT22/OC0A/10
-      10: D7
-      11: D8
-      12: D9/PWM
-      13: D10/PWM/SS
-      14: D11/PWM/MOSI
-      15: D12/MISO
-      16: D13/SCK
-      17: 3V3
-      18: AREF
-      19: A0
-      20: A1
-      21: A2
-      22: A3
-      23: A4/SDA
-      24: A5/SCL
-      25: A6
-      26: A7
-      27: 5V
-      28: RST
-      29: GND
-      30: VIN
-    aliases:
-      - Arduino_Nano_WithMountingHoles
+  package:
+    shape: prism
+    dims: {ly: 18.0, lx: 38.1, lz: 1.6}
+    leads:
+      direction: [0, 0, -1]
+      body_offset: {unit: 2.5, value: [[14, [0, 1]], [7, 0], [14, [0, -1]]]}
+      board_offset: default
+    bend: 0
+  aliases:
+  - Arduino_Nano_WithMountingHoles
 
   # STM32 BluePill (STM32F103C8T6)
   # PCB: 53mm × 22.86mm, 2×20 pins, pitch 2.54mm, rows_spacing 8 (20.32mm)
   # Pinout: left col top→bottom = pins 1-20, right col bottom→top = pins 21-40.
   # Pin 1 = VBAT (top-left), matches standard WeAct/RobotDyn silkscreen.
-  - name: STM32_BluePill
-    description: "STM32F103C8T6 Blue Pill module (2×20, 20.32mm wide)"
-    component_class: devboard
+  meta_pins:
+  - PD1/TX/PCINT17/31
+  - PD0/RX/PCINT16/30
+  - PC6/RST/PCINT14/29
+  - GND
+  - PD2/INT0/PCINT18/32
+  - PD3/INT1/PCINT19/OC2B/1
+  - PD4/T0/PCINT20/XCK/2
+  - PD5/T1/PCINT21/OC0B/9
+  - PD6/AIN0/PCINT22/OC0A/10
+  - D7
+  - D8
+  - D9/PWM
+  - D10/PWM/SS
+  - D11/PWM/MOSI
+  - D12/MISO
+  - D13/SCK
+  - 3V3
+  - AREF
+  - A0
+  - A1
+  - A2
+  - A3
+  - A4/SDA
+  - A5/SCL
+  - A6
+  - A7
+  - 5V
+  - RST
+  - GND
+  - VIN
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+    17:
+    - 17
+    18:
+    - 18
+    19:
+    - 19
+    20:
+    - 20
+    21:
+    - 21
+    22:
+    - 22
+    23:
+    - 23
+    24:
+    - 24
+    25:
+    - 25
+    26:
+    - 26
+    27:
+    - 27
+    28:
+    - 28
+    29:
+    - 29
+    30:
+    - 30
+- name: STM32_BluePill
+  description: "STM32F103C8T6 Blue Pill module (2×20, 20.32mm wide)"
+  component_class: devboard
     # PCB module: real outline (22.86 × 53 mm) + pins as aggregated offsets.
     # 2×20 header: 19 steps down the left column, jump 6 across, 19 up the right.
-    package:
-      shape: prism
-      dims: {ly: 22.86, lx: 53.0, lz: 1.6}
-      leads:
-        direction: [0, 0, -1]
-        body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
-        board_offset: default
-      bend: 0
-    pin_names:
-      1: VBAT
-      2: PC13
-      3: PC14
-      4: PC15
-      5: PA0
-      6: PA1
-      7: PA2
-      8: PA3
-      9: PA4
-      10: PA5
-      11: PA6
-      12: PA7
-      13: PB0
-      14: PB1
-      15: PB10
-      16: PB11
-      17: NRST
-      18: 3V3
-      19: GND
-      20: GND
-      21: 3V3
-      22: GND
-      23: 5V
-      24: PB9
-      25: PB8
-      26: PB7
-      27: PB6
-      28: PB5
-      29: PB4
-      30: PB3
-      31: PA15
-      32: PA12
-      33: PA11
-      34: PA10
-      35: PA9
-      36: PA8
-      37: PB15
-      38: PB14
-      39: PB13
-      40: PB12
-    aliases:
-      - STM32F103C8T6_BluePill
-      - BluePill
+  package:
+    shape: prism
+    dims: {ly: 22.86, lx: 53.0, lz: 1.6}
+    leads:
+      direction: [0, 0, -1]
+      body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
+      board_offset: default
+    bend: 0
+  aliases:
+  - STM32F103C8T6_BluePill
+  - BluePill
 
   # STM32 BlackPill (STM32F401CEU6 / STM32F411CEU6)
   # PCB: 52.8mm × 20.8mm, 2×20 pins, pitch 2.54mm, rows_spacing 7 (17.78mm)
   # WeAct Studio v3.0+ pinout. STM32F401 and STM32F411 share identical pinout.
   # Pin 1 = 3V3 (top-left), pin 20 = B9, pin 21 = GND, pin 40 = B12.
-  - name: STM32_BlackPill
-    description: "STM32F401/F411 Black Pill module (2×20, 17.78mm wide)"
-    component_class: devboard
+  meta_pins:
+  - VBAT
+  - PC13
+  - PC14
+  - PC15
+  - PA0
+  - PA1
+  - PA2
+  - PA3
+  - PA4
+  - PA5
+  - PA6
+  - PA7
+  - PB0
+  - PB1
+  - PB10
+  - PB11
+  - NRST
+  - 3V3
+  - GND
+  - GND
+  - 3V3
+  - GND
+  - 5V
+  - PB9
+  - PB8
+  - PB7
+  - PB6
+  - PB5
+  - PB4
+  - PB3
+  - PA15
+  - PA12
+  - PA11
+  - PA10
+  - PA9
+  - PA8
+  - PB15
+  - PB14
+  - PB13
+  - PB12
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+    17:
+    - 17
+    18:
+    - 18
+    19:
+    - 19
+    20:
+    - 20
+    21:
+    - 21
+    22:
+    - 22
+    23:
+    - 23
+    24:
+    - 24
+    25:
+    - 25
+    26:
+    - 26
+    27:
+    - 27
+    28:
+    - 28
+    29:
+    - 29
+    30:
+    - 30
+    31:
+    - 31
+    32:
+    - 32
+    33:
+    - 33
+    34:
+    - 34
+    35:
+    - 35
+    36:
+    - 36
+    37:
+    - 37
+    38:
+    - 38
+    39:
+    - 39
+    40:
+    - 40
+- name: STM32_BlackPill
+  description: "STM32F401/F411 Black Pill module (2×20, 17.78mm wide)"
+  component_class: devboard
     # PCB module: real outline (20.8 × 52.8 mm) + pins as aggregated offsets.
     # 2×20 header: 19 steps down the left column, jump 6 across, 19 up the right.
-    package:
-      shape: prism
-      dims: {ly: 20.8, lx: 52.8, lz: 1.6}
-      leads:
-        direction: [0, 0, -1]
-        body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
-        board_offset: default
-      bend: 0
-    pin_names:
-      1: 3V3
-      2: PC13
-      3: PC14
-      4: PC15
-      5: PA0
-      6: PA1
-      7: PA2
-      8: PA3
-      9: PA4
-      10: PA5
-      11: PA6
-      12: PA7
-      13: PB0
-      14: PB1
-      15: PB2/BOOT1
-      16: PB10
-      17: PB11
-      18: NRST
-      19: GND
-      20: 5V
-      21: 3V3
-      22: GND
-      23: PB9
-      24: PB8
-      25: PB7
-      26: PB6
-      27: PB5
-      28: PB4
-      29: PB3
-      30: PA15
-      31: PA12
-      32: PA11
-      33: PA10
-      34: PA9
-      35: PA8
-      36: PB15
-      37: PB14
-      38: PB13
-      39: PB12
-      40: VBAT
-    aliases:
-      - STM32F401_BlackPill
-      - STM32F411_BlackPill
-      - BlackPill
+  package:
+    shape: prism
+    dims: {ly: 20.8, lx: 52.8, lz: 1.6}
+    leads:
+      direction: [0, 0, -1]
+      body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
+      board_offset: default
+    bend: 0
+  aliases:
+  - STM32F401_BlackPill
+  - STM32F411_BlackPill
+  - BlackPill
 
   # WeAct STM32G431/G474 CoreBoard
   # PCB: ~53mm × 28mm, 4×20 pins, col_spacings [1, 8, 1] (2.54, 20.32, 2.54 mm)
   # Pinout: L_outer(1-20)↓, L_inner(21-40)↓, R_inner(41-60)↑, R_outer(61-80)↑
   # WeAct Studio v1.0 schematic. G431CB/RB and G474CE/RE use the same board layout.
-  - name: STM32G4_WeAct
-    description: "WeAct STM32G431/G474 CoreBoard (4×20, col_spacings [1,8,1])"
-    component_class: devboard
+  meta_pins:
+  - 3V3
+  - PC13
+  - PC14
+  - PC15
+  - PA0
+  - PA1
+  - PA2
+  - PA3
+  - PA4
+  - PA5
+  - PA6
+  - PA7
+  - PB0
+  - PB1
+  - PB2/BOOT1
+  - PB10
+  - PB11
+  - NRST
+  - GND
+  - 5V
+  - 3V3
+  - GND
+  - PB9
+  - PB8
+  - PB7
+  - PB6
+  - PB5
+  - PB4
+  - PB3
+  - PA15
+  - PA12
+  - PA11
+  - PA10
+  - PA9
+  - PA8
+  - PB15
+  - PB14
+  - PB13
+  - PB12
+  - VBAT
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+    17:
+    - 17
+    18:
+    - 18
+    19:
+    - 19
+    20:
+    - 20
+    21:
+    - 21
+    22:
+    - 22
+    23:
+    - 23
+    24:
+    - 24
+    25:
+    - 25
+    26:
+    - 26
+    27:
+    - 27
+    28:
+    - 28
+    29:
+    - 29
+    30:
+    - 30
+    31:
+    - 31
+    32:
+    - 32
+    33:
+    - 33
+    34:
+    - 34
+    35:
+    - 35
+    36:
+    - 36
+    37:
+    - 37
+    38:
+    - 38
+    39:
+    - 39
+    40:
+    - 40
+- name: STM32G4_WeAct
+  description: "WeAct STM32G431/G474 CoreBoard (4×20, col_spacings [1,8,1])"
+  component_class: devboard
     # PCB module: real outline (28 × 53 mm) + pins as aggregated offsets.
     # 4 columns at x = 0,1,9,10: L_outer↓ (1-20), jump to L_inner↓ (21-40),
     # jump to R_inner↑ (41-60), jump to R_outer↑ (61-80).  The within-column
     # runs are 19 steps; the three [Δx, Δy] vectors are the column jumps.
-    package:
-      shape: prism
-      dims: {ly: 28.0, lx: 53.0, lz: 1.6}
-      leads:
-        direction: [0, 0, -1]
-        body_offset:
-          unit: 2.5
-          value:
-            - [19, [0, 1]]    # L_outer (x=0): pin 1→20 down
-            - [1, -19]        # jump to L_inner top (x=1, y=0)
-            - [19, [0, 1]]    # L_inner (x=1): pin 21→40 down
-            - [8, 0]          # jump to R_inner bottom (x=9, y=19)
-            - [19, [0, -1]]   # R_inner (x=9): pin 41→60 up
-            - [1, 19]         # jump to R_outer bottom (x=10, y=0… then up)
-            - [19, [0, -1]]   # R_outer (x=10): pin 61→80 up
-        board_offset: default
-      bend: 0
-    pin_names:
-      # L_outer (col 0), pins 1-20, top→bottom
-      1: VBAT
-      2: PC13
-      3: PC14
-      4: PC15
-      5: PF0
-      6: PF1
-      7: NRST
-      8: PC0
-      9: PC1
-      10: PC2
-      11: PC3
-      12: PA0
-      13: PA1
-      14: PA2
-      15: PA3
-      16: PF2
-      17: PA4
-      18: PA5
-      19: PA6
-      20: PA7
-      # L_inner (col 1), pins 21-40, top→bottom
-      21: 3V3
-      22: 3V3
-      23: BOOT0
-      24: SWDIO
-      25: SWDCLK
-      26: PB3/SWO
-      27: GND
-      28: GND
-      29: PB4
-      30: PB5
-      31: PB6
-      32: PB7
-      33: PB8
-      34: PB9
-      35: GND
-      36: GND
-      37: 5V
-      38: 5V
-      39: VBUS
-      40: GND
-      # R_inner (col 2, x=9), pins 41-60, bottom→top
-      41: PB14
-      42: PB15
-      43: PA8
-      44: PA9
-      45: PA10
-      46: PA11
-      47: PA12
-      48: PA13
-      49: PA14
-      50: PA15
-      51: PB3
-      52: PB4
-      53: PB5
-      54: PB6
-      55: PB7
-      56: PB8
-      57: PB9
-      58: PB10
-      59: PB11
-      60: PB12
-      # R_outer (col 3, x=10), pins 61-80, bottom→top
-      61: PC6
-      62: PC7
-      63: PC8
-      64: PC9
-      65: PC10
-      66: PC11
-      67: PC12
-      68: PD2
-      69: PE0
-      70: PE1
-      71: PE2
-      72: PE3
-      73: PE4
-      74: PE5
-      75: PE6
-      76: PE7
-      77: PE8
-      78: PE9
-      79: PE10
-      80: PE11
-    aliases:
-      - STM32G431_WeAct
-      - STM32G474_WeAct
+  package:
+    shape: prism
+    dims: {ly: 28.0, lx: 53.0, lz: 1.6}
+    leads:
+      direction: [0, 0, -1]
+      body_offset:
+        unit: 2.5
+        value:
+        - [19, [0, 1]]        # L_outer (x=0): pin 1→20 down
+        - [1, -19]            # jump to L_inner top (x=1, y=0)
+        - [19, [0, 1]]        # L_inner (x=1): pin 21→40 down
+        - [8, 0]              # jump to R_inner bottom (x=9, y=19)
+        - [19, [0, -1]]       # R_inner (x=9): pin 41→60 up
+        - [1, 19]             # jump to R_outer bottom (x=10, y=0… then up)
+        - [19, [0, -1]]       # R_outer (x=10): pin 61→80 up
+      board_offset: default
+    bend: 0
+  aliases:
+  - STM32G431_WeAct
+  - STM32G474_WeAct
+  meta_pins:
+  - VBAT
+  - PC13
+  - PC14
+  - PC15
+  - PF0
+  - PF1
+  - NRST
+  - PC0
+  - PC1
+  - PC2
+  - PC3
+  - PA0
+  - PA1
+  - PA2
+  - PA3
+  - PF2
+  - PA4
+  - PA5
+  - PA6
+  - PA7
+  - 3V3
+  - 3V3
+  - BOOT0
+  - SWDIO
+  - SWDCLK
+  - PB3/SWO
+  - GND
+  - GND
+  - PB4
+  - PB5
+  - PB6
+  - PB7
+  - PB8
+  - PB9
+  - GND
+  - GND
+  - 5V
+  - 5V
+  - VBUS
+  - GND
+  - PB14
+  - PB15
+  - PA8
+  - PA9
+  - PA10
+  - PA11
+  - PA12
+  - PA13
+  - PA14
+  - PA15
+  - PB3
+  - PB4
+  - PB5
+  - PB6
+  - PB7
+  - PB8
+  - PB9
+  - PB10
+  - PB11
+  - PB12
+  - PC6
+  - PC7
+  - PC8
+  - PC9
+  - PC10
+  - PC11
+  - PC12
+  - PD2
+  - PE0
+  - PE1
+  - PE2
+  - PE3
+  - PE4
+  - PE5
+  - PE6
+  - PE7
+  - PE8
+  - PE9
+  - PE10
+  - PE11
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+    17:
+    - 17
+    18:
+    - 18
+    19:
+    - 19
+    20:
+    - 20
+    21:
+    - 21
+    22:
+    - 22
+    23:
+    - 23
+    24:
+    - 24
+    25:
+    - 25
+    26:
+    - 26
+    27:
+    - 27
+    28:
+    - 28
+    29:
+    - 29
+    30:
+    - 30
+    31:
+    - 31
+    32:
+    - 32
+    33:
+    - 33
+    34:
+    - 34
+    35:
+    - 35
+    36:
+    - 36
+    37:
+    - 37
+    38:
+    - 38
+    39:
+    - 39
+    40:
+    - 40
+    41:
+    - 41
+    42:
+    - 42
+    43:
+    - 43
+    44:
+    - 44
+    45:
+    - 45
+    46:
+    - 46
+    47:
+    - 47
+    48:
+    - 48
+    49:
+    - 49
+    50:
+    - 50
+    51:
+    - 51
+    52:
+    - 52
+    53:
+    - 53
+    54:
+    - 54
+    55:
+    - 55
+    56:
+    - 56
+    57:
+    - 57
+    58:
+    - 58
+    59:
+    - 59
+    60:
+    - 60
+    61:
+    - 61
+    62:
+    - 62
+    63:
+    - 63
+    64:
+    - 64
+    65:
+    - 65
+    66:
+    - 66
+    67:
+    - 67
+    68:
+    - 68
+    69:
+    - 69
+    70:
+    - 70
+    71:
+    - 71
+    72:
+    - 72
+    73:
+    - 73
+    74:
+    - 74
+    75:
+    - 75
+    76:
+    - 76
+    77:
+    - 77
+    78:
+    - 78
+    79:
+    - 79
+    80:
+    - 80

@@ -20,8 +20,8 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import Pad
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
@@ -29,6 +29,7 @@ from protoboard.domain.layout.wire_utils import find_pin_at
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 from protoboard.services.pad_strategy import Decision, Verdict
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _find_pin_at(
@@ -56,16 +57,21 @@ def _find_pin_at(
 
 
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=10, cols=10, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=10,
+            cols=10,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @dataclass
@@ -73,6 +79,7 @@ class _State:
     layout: Layout
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
+    package_families: dict[str, PackageFamily] = field(default_factory=dict)
     board: Board = field(default_factory=_board)
 
 
@@ -92,26 +99,38 @@ class _AlwaysRejectStrategy:
 
 def _build_one_resistor() -> tuple[_State, uuid.UUID]:
     """One SIL(2) resistor at (3, 5) so pin 1 sits at (3.5, 5.5)."""
-    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    inst = ComponentInstance.new(
-        definition_ref="R", refdes="R1", value="10k"
-    ).bind(defn, {})
-    placement = ComponentPlacement(
-        component_id=inst.id, position=Point(3.0, 5.0), rotation=0, side="top",
+    defn = make_sil("R")
+    families = sil_families(defn)
+    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
+        defn, families
     )
-    layout = Layout(placements=PlacementCollection({inst.id: placement}), wires=WireCollection())
+    placement = ComponentPlacement(
+        component_id=inst.id,
+        position=Point(3.0, 5.0),
+        rotation=0,
+        side="top",
+    )
+    layout = Layout(
+        placements=PlacementCollection({inst.id: placement}), wires=WireCollection()
+    )
     state = _State(
         layout=layout,
         instances={inst.id: inst},
         components={"R": defn},
+        package_families=families,
     )
     return state, inst.id
 
 
 def _pin_pos(state: _State, comp_id: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
+
     defn = state.components[state.instances[comp_id].definition_ref]
-    return pin_world_position(defn.default_footprint(), state.layout.placements[comp_id], pin)
+    return pin_world_position(
+        defn.default_footprint(state.package_families),
+        state.layout.placements[comp_id],
+        pin,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +157,10 @@ class TestPinKnotFastPathBypassesStrategy:
                 return Pad(position=pos, layers=PadLayers(top=True, bottom=True))
 
         result = _find_pin_at(
-            state, pos,
-            strategy=_AlwaysRejectStrategy(), pad_index=_PadIdxStub(),
+            state,
+            pos,
+            strategy=_AlwaysRejectStrategy(),
+            pad_index=_PadIdxStub(),
         )
         assert result is None
 
@@ -158,8 +179,10 @@ class TestPinKnotFastPathBypassesStrategy:
         # Fast-path: even though strategy would REJECT, the PinKnot is
         # already accepting wires → return the PinRef.
         result = _find_pin_at(
-            state, pos,
-            strategy=_AlwaysRejectStrategy(), pad_index=_PadIdxStub(),
+            state,
+            pos,
+            strategy=_AlwaysRejectStrategy(),
+            pad_index=_PadIdxStub(),
         )
         assert result == target
 
@@ -202,12 +225,18 @@ class TestPinKnotFastPathBypassesStrategy:
         pad_idx = _PadIdxStub()
         # Pin 1 → fast-path returns PinRef.
         r1 = _find_pin_at(
-            state, pos1, strategy=_AlwaysRejectStrategy(), pad_index=pad_idx,
+            state,
+            pos1,
+            strategy=_AlwaysRejectStrategy(),
+            pad_index=pad_idx,
         )
         assert r1 == PinRef(component_id=cid, pin_number=1)
         # Pin 2 → no PinKnot, strategy rejects.
         r2 = _find_pin_at(
-            state, pos2, strategy=_AlwaysRejectStrategy(), pad_index=pad_idx,
+            state,
+            pos2,
+            strategy=_AlwaysRejectStrategy(),
+            pad_index=pad_idx,
         )
         assert r2 is None
 
@@ -223,9 +252,14 @@ class TestPinKnotFastPathBypassesStrategy:
         pk = state.layout.get_or_create_pin_knot(target)
         # Simulate 5 prior wire owners by registering them on the PinKnot.
         for _ in range(5):
-            state.layout._touch_pin_knot_owner(  # type: ignore[attr-defined]
-                pk.id, uuid.uuid4(),
-            ) if hasattr(state.layout, "_touch_pin_knot_owner") else None
+            (
+                state.layout._touch_pin_knot_owner(  # type: ignore[attr-defined]
+                    pk.id,
+                    uuid.uuid4(),
+                )
+                if hasattr(state.layout, "_touch_pin_knot_owner")
+                else None
+            )
         # The owner count itself is irrelevant to the fast-path; the
         # presence of the PinRef in pin_knots is the gate.
         result = _find_pin_at(state, pos, strategy=_AlwaysRejectStrategy())

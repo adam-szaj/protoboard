@@ -15,8 +15,8 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.domain.schematic.schematic import Schematic
 from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
@@ -85,9 +85,12 @@ class TestInstancesRoundtrip:
 
     def test_appearance_roundtrip(self, tmp_path: Path) -> None:
         from protoboard.domain.components.appearance import Appearance
+
         board = _perfboard()
         styled = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="10k",
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
             appearance=Appearance(color="#1a1a1a", corner_radius_mm=(0.4,)),
         )
         plain = ComponentInstance.new(definition_ref="C", refdes="C1", value="100n")
@@ -172,9 +175,7 @@ class TestBoardRoundtrip:
         save_project(tmp_path, board, Layout(), Schematic(nets={}))
         loaded_board, _, _, _, _, _, _ = load_project(tmp_path)
         atoms = list(loaded_board.atoms())
-        strip_lengths = [
-            a.length for a, _ in atoms if isinstance(a, StripAtom)
-        ]
+        strip_lengths = [a.length for a, _ in atoms if isinstance(a, StripAtom)]
         assert sorted(strip_lengths) == [3, 4]
 
     def test_isolated_strip_roundtrip(self, tmp_path: Path) -> None:
@@ -220,7 +221,9 @@ class TestWiresRoundtrip:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=cast(WireCollection, [wire])
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert len(loaded_lay.wires) == 1
@@ -237,13 +240,16 @@ class TestWiresRoundtrip:
             side="top",
             color="#FF0000",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=cast(WireCollection, [wire])
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].color == "#FF0000"
 
     def test_legacy_insulated_wire_gets_pad_nodes_on_load(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         # Legacy project: insulated wire saved with only endpoints, no pad
         # nodes in between.  After load, every pad the path crosses must
@@ -257,7 +263,9 @@ class TestWiresRoundtrip:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=cast(WireCollection, [wire])
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         loaded = loaded_lay.wires[0]
@@ -272,26 +280,32 @@ class TestWiresRoundtrip:
         assert (3.5, 0.5) in coords
 
     def test_load_is_idempotent_for_already_enriched_insulated(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         # An already-enriched insulated wire round-trips without growing.
         board = _perfboard()
         wire = Wire(
             id=uuid.uuid4(),
             path=[
-                Point(0.5, 0.5), Point(1.5, 0.5),
-                Point(2.5, 0.5), Point(3.5, 0.5),
+                Point(0.5, 0.5),
+                Point(1.5, 0.5),
+                Point(2.5, 0.5),
+                Point(3.5, 0.5),
             ],
             insulated=True,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=cast(WireCollection, [wire])
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].path == wire.path
 
     def test_load_does_not_enrich_bare_wires(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         # The migration applies only to insulated wires.  Bare wires are
         # produced with pad-nodes by their creators (RouteTool, A*) and the
@@ -304,7 +318,9 @@ class TestWiresRoundtrip:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=cast(WireCollection, [wire])
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         # Bare wire path comes back unchanged.
@@ -321,7 +337,10 @@ class TestPlacementsRoundtrip:
             rotation=90,
             side="top",
         )
-        lay = Layout(placements=PlacementCollection({comp_id: pl}), wires=cast(WireCollection, []))
+        lay = Layout(
+            placements=PlacementCollection({comp_id: pl}),
+            wires=cast(WireCollection, []),
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         loaded_pl = loaded_lay.placements[comp_id]
@@ -339,28 +358,52 @@ class TestPackageVariantRoundtrip:
             package_variant="DO-41/L",
         )
         instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])), Schematic(nets={}), instances)
+        save_project(
+            tmp_path,
+            board,
+            Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])),
+            Schematic(nets={}),
+            instances,
+        )
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         assert loaded_instances[inst.id].package_variant == "DO-41/L"
 
     def test_package_variant_none_preserved(self, tmp_path: Path) -> None:
         board = _perfboard()
         inst = ComponentInstance.new(
-            definition_ref="D1", refdes="D1", value="", package_variant=None,
+            definition_ref="D1",
+            refdes="D1",
+            value="",
+            package_variant=None,
         )
         instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])), Schematic(nets={}), instances)
+        save_project(
+            tmp_path,
+            board,
+            Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])),
+            Schematic(nets={}),
+            instances,
+        )
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         assert loaded_instances[inst.id].package_variant is None
 
     def test_tolerance_preserved(self, tmp_path: Path) -> None:
         board = _perfboard()
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="10k", tolerance="1%",
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
+            tolerance="1%",
         )
         bare = ComponentInstance.new(definition_ref="R", refdes="R2", value="")
         instances = {inst.id: inst, bare.id: bare}
-        save_project(tmp_path, board, Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])), Schematic(nets={}), instances)
+        save_project(
+            tmp_path,
+            board,
+            Layout(placements=PlacementCollection({}), wires=cast(WireCollection, [])),
+            Schematic(nets={}),
+            instances,
+        )
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         assert loaded_instances[inst.id].tolerance == "1%"
         assert loaded_instances[bare.id].tolerance is None
@@ -375,17 +418,25 @@ class TestEncapsulatedExportMigration:
     def _save_layout_with_groups(
         self, tmp_path: Path, board: Board, groups: dict, comp_ids: set
     ) -> None:
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
         from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+
         # The migration runs irrespective of placements/wires; pass an
         # empty layout with just the groups we care about.
         root = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
+            id=ROOT_GROUP_ID,
+            name="root",
             component_ids=frozenset(),
-            child_group_ids=frozenset(g.id for g in groups.values() if g.id != ROOT_GROUP_ID),
+            child_group_ids=frozenset(
+                g.id for g in groups.values() if g.id != ROOT_GROUP_ID
+            ),
         )
         all_groups = {ROOT_GROUP_ID: root, **groups}
-        lay = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, []), groups=all_groups)
+        lay = Layout(
+            placements=PlacementCollection({}),
+            wires=cast(WireCollection, []),
+            groups=all_groups,
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}))
 
     def test_grandchild_flat_export_stripped(self, tmp_path: Path) -> None:
@@ -396,16 +447,19 @@ class TestEncapsulatedExportMigration:
         c_comp = uuid.uuid4()
         ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
-            id=uuid.uuid4(), name="C",
+            id=uuid.uuid4(),
+            name="C",
             component_ids=frozenset({c_comp}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B",
+            id=uuid.uuid4(),
+            name="B",
             child_group_ids=frozenset({c.id}),
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A",
+            id=uuid.uuid4(),
+            name="A",
             child_group_ids=frozenset({b.id}),
             exported_pins=frozenset({ep}),
         )
@@ -425,17 +479,20 @@ class TestEncapsulatedExportMigration:
         c_comp = uuid.uuid4()
         ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
-            id=uuid.uuid4(), name="C",
+            id=uuid.uuid4(),
+            name="C",
             component_ids=frozenset({c_comp}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B",
+            id=uuid.uuid4(),
+            name="B",
             child_group_ids=frozenset({c.id}),
             exported_pins=frozenset({ep}),  # B re-exports → chain ok
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A",
+            id=uuid.uuid4(),
+            name="A",
             child_group_ids=frozenset({b.id}),
             exported_pins=frozenset({ep}),
         )
@@ -459,17 +516,20 @@ class TestEncapsulatedExportMigration:
         ep_invalid = PinRef(component_id=c_grand, pin_number=1)
 
         c = ComponentGroup(
-            id=uuid.uuid4(), name="C",
+            id=uuid.uuid4(),
+            name="C",
             component_ids=frozenset({c_grand}),
             exported_pins=frozenset({ep_invalid}),
         )
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B",
+            id=uuid.uuid4(),
+            name="B",
             child_group_ids=frozenset({c.id}),
             # No re-export, so ep_invalid breaks the chain at B and beyond.
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A",
+            id=uuid.uuid4(),
+            name="A",
             component_ids=frozenset({a_direct}),
             child_group_ids=frozenset({b.id}),
             exported_pins=frozenset({ep_legal, ep_invalid}),
@@ -490,7 +550,8 @@ class TestEncapsulatedExportMigration:
         comp = uuid.uuid4()
         ep = PinRef(component_id=comp, pin_number=1)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({comp}),
             exported_pins=frozenset({ep}),
         )
@@ -510,17 +571,18 @@ class TestGroupTransformRoundtrip:
     non-identity transform round-trips via its ``coeffs``.
     """
 
-    def _round_trip(
-        self, tmp_path: Path, group: "ComponentGroup"
-    ) -> "ComponentGroup":
+    def _round_trip(self, tmp_path: Path, group: ComponentGroup) -> ComponentGroup:
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+
         root = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
+            id=ROOT_GROUP_ID,
+            name="root",
             child_group_ids=frozenset({group.id}),
         )
         lay = Layout(
-            placements=PlacementCollection({}), wires=cast(WireCollection, []),
+            placements=PlacementCollection({}),
+            wires=cast(WireCollection, []),
             groups={ROOT_GROUP_ID: root, group.id: group},
         )
         save_project(tmp_path, _perfboard(), lay, Schematic(nets={}))
@@ -530,6 +592,7 @@ class TestGroupTransformRoundtrip:
     def test_identity_transform_round_trips(self, tmp_path: Path) -> None:
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.geometry import Transform2D
+
         g = ComponentGroup(id=uuid.uuid4(), name="G")
         loaded = self._round_trip(tmp_path, g)
         assert loaded.transform == Transform2D.identity()
@@ -537,6 +600,7 @@ class TestGroupTransformRoundtrip:
     def test_non_identity_transform_round_trips(self, tmp_path: Path) -> None:
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.geometry import Transform2D, Vector
+
         # translate(10,20) ∘ rotate(90) ∘ reflect — a det=−1 transform with
         # translation, exercising all six coefficients.
         t = (
@@ -553,13 +617,16 @@ class TestGroupTransformRoundtrip:
         # A default-transform group must not add a `transform` key to disk.
         from protoboard.domain.layout.group import ComponentGroup
         from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+
         g = ComponentGroup(id=uuid.uuid4(), name="G")
         root = ComponentGroup(
-            id=ROOT_GROUP_ID, name="root",
+            id=ROOT_GROUP_ID,
+            name="root",
             child_group_ids=frozenset({g.id}),
         )
         lay = Layout(
-            placements=PlacementCollection({}), wires=cast(WireCollection, []),
+            placements=PlacementCollection({}),
+            wires=cast(WireCollection, []),
             groups={ROOT_GROUP_ID: root, g.id: g},
         )
         save_project(tmp_path, _perfboard(), lay, Schematic(nets={}))
@@ -571,8 +638,11 @@ class _StubLibrary:
     """Migration-library stub: the ``get``/``names`` surface ``load_project``
     needs to resolve a definition during the v2→v3 group migration."""
 
-    def __init__(self, by_name: "dict[str, object]") -> None:
+    def __init__(
+        self, by_name: dict[str, object], package_families: dict | None = None
+    ) -> None:
         self._by_name = by_name
+        self.package_families = package_families or {}
 
     def names(self):  # type: ignore[no-untyped-def]
         return self._by_name.keys()
@@ -593,37 +663,44 @@ class TestGroupV2ToV3Migration:
     """
 
     def _resistor_defn(self):  # type: ignore[no-untyped-def]
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.footprints import SIL
-        return ComponentDefinition.from_footprint(
-            name="R", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"}
-        )
+        from tests.unit._autoroute_invariants import make_sil
+
+        return make_sil("R", 3)
 
     def _big_board(self) -> Board:
-        return Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                layers=PadLayers(top=True, bottom=True, plated_through=True),
-            ),
-            rows=40, cols=40, row_gap=0.0, col_gap=0.0,
-        ))
+        return Board(
+            root=BoardGrid(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(top=True, bottom=True, plated_through=True),
+                ),
+                rows=40,
+                cols=40,
+                row_gap=0.0,
+                col_gap=0.0,
+            )
+        )
 
     def _world_pins(self, defn, layout, cids):  # type: ignore[no-untyped-def]
         from protoboard.domain.layout.placement import pin_world_position
-        fp = defn.default_footprint()
+        from tests.unit._autoroute_invariants import sil_families
+
+        fp = defn.default_footprint(sil_families(defn))
         return {
             cid: [
-                (round(pin_world_position(fp, layout.placements[cid], n).x, 4),
-                 round(pin_world_position(fp, layout.placements[cid], n).y, 4))
+                (
+                    round(pin_world_position(fp, layout.placements[cid], n).x, 4),
+                    round(pin_world_position(fp, layout.placements[cid], n).y, 4),
+                )
                 for n in range(1, fp.pin_count() + 1)
             ]
             for cid in cids
         }
 
-    def test_rotated_group_round_trips_world_positions(
-        self, tmp_path: Path
-    ) -> None:
+    def test_rotated_group_round_trips_world_positions(self, tmp_path: Path) -> None:
         from dataclasses import dataclass, field
 
         from protoboard.domain.commands.group_cmds import RotateGroupCommand
@@ -634,7 +711,10 @@ class TestGroupV2ToV3Migration:
         )
 
         defn = self._resistor_defn()
-        lib = _StubLibrary({"R": defn})
+        from tests.unit._autoroute_invariants import sil_families
+
+        families = sil_families(defn)
+        lib = _StubLibrary({"R": defn}, families)
 
         @dataclass
         class _State:
@@ -644,21 +724,27 @@ class TestGroupV2ToV3Migration:
             schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
             board: Board = field(default_factory=self._big_board)
 
-        layout = Layout(placements=PlacementCollection({}), wires=cast(WireCollection, []))
+        layout = Layout(
+            placements=PlacementCollection({}), wires=cast(WireCollection, [])
+        )
         layout.ensure_root_group()
         state = _State(layout=layout, components={"R": defn})
         cids = []
         for i, (x, y) in enumerate([(10, 10), (13, 10), (10, 14)]):
             inst = ComponentInstance.new(
                 definition_ref="R", refdes=f"R{i}", value="1k"
-            ).bind(defn, {})
+            ).bind(defn, families)
             state.instances[inst.id] = inst
             layout.placements[inst.id] = ComponentPlacement(
-                component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+                component_id=inst.id,
+                position=Point(x, y),
+                rotation=0,
+                side="top",
             )
             cids.append(inst.id)
         g = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset(cids),
         )
         layout.groups[g.id] = g
@@ -673,7 +759,7 @@ class TestGroupV2ToV3Migration:
         assert layout.groups[g.id].transform != g.transform
 
         set_migration_library(lib)
-        set_migration_families(None)
+        set_migration_families(families)
         try:
             save_project(
                 tmp_path, state.board, layout, state.schematic, state.instances
@@ -707,8 +793,11 @@ class TestGroupV2ToV3Migration:
         )
 
         defn = self._resistor_defn()
-        fp = defn.default_footprint()
-        lib = _StubLibrary({"R": defn})
+        from tests.unit._autoroute_invariants import sil_families
+
+        families = sil_families(defn)
+        fp = defn.default_footprint(families)
+        lib = _StubLibrary({"R": defn}, families)
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         gid = uuid.uuid4()
         origin = Point(10.0, 10.0)
@@ -724,8 +813,10 @@ class TestGroupV2ToV3Migration:
 
         def _world(pl):  # type: ignore[no-untyped-def]
             return [
-                (round(pin_world_position(fp, pl, n).x, 4),
-                 round(pin_world_position(fp, pl, n).y, 4))
+                (
+                    round(pin_world_position(fp, pl, n).x, 4),
+                    round(pin_world_position(fp, pl, n).y, 4),
+                )
                 for n in range(1, fp.pin_count() + 1)
             ]
 
@@ -737,17 +828,24 @@ class TestGroupV2ToV3Migration:
             return {
                 "component_id": str(pl.component_id),
                 "position": {"x": pl.position.x, "y": pl.position.y},
-                "rotation": pl.rotation, "side": pl.side,
+                "rotation": pl.rotation,
+                "side": pl.side,
             }
+
         data = {
             "format_version": 2,
             "placements": [_pl(baked1), _pl(baked2)],
-            "knots": [], "wires": [],
+            "knots": [],
+            "wires": [],
             "groups": [
                 {"id": "00000000-0000-0000-0000-000000000001", "name": ""},
-                {"id": str(gid), "name": "G",
-                 "component_ids": sorted([str(c1), str(c2)]),
-                 "rotation": 90, "origin": {"x": 10.0, "y": 10.0}},
+                {
+                    "id": str(gid),
+                    "name": "G",
+                    "component_ids": sorted([str(c1), str(c2)]),
+                    "rotation": 90,
+                    "origin": {"x": 10.0, "y": 10.0},
+                },
             ],
         }
         yaml = YAML(typ="safe")
@@ -758,14 +856,29 @@ class TestGroupV2ToV3Migration:
         (tmp_path / "board.yaml").write_text(board_to_yaml(self._big_board()))
         (tmp_path / "schematic.yaml").write_text("nets: []\n")
         ibuf = io.StringIO()
-        yaml.dump({"instances": [
-            {"id": str(c1), "definition_ref": "R", "refdes": "R0", "value": "1k"},
-            {"id": str(c2), "definition_ref": "R", "refdes": "R1", "value": "1k"},
-        ]}, ibuf)
+        yaml.dump(
+            {
+                "instances": [
+                    {
+                        "id": str(c1),
+                        "definition_ref": "R",
+                        "refdes": "R0",
+                        "value": "1k",
+                    },
+                    {
+                        "id": str(c2),
+                        "definition_ref": "R",
+                        "refdes": "R1",
+                        "value": "1k",
+                    },
+                ]
+            },
+            ibuf,
+        )
         (tmp_path / "instances.yaml").write_text(ibuf.getvalue())
 
         set_migration_library(lib)
-        set_migration_families(None)
+        set_migration_families(families)
         try:
             _b, loaded, _s, _i, *_ = load_project(tmp_path)
         finally:
@@ -775,6 +888,7 @@ class TestGroupV2ToV3Migration:
         # World positions reconstructed identically, and the group gained a
         # non-identity transform (the v2→v3 conversion).
         from protoboard.geometry import Transform2D
+
         assert loaded.groups[gid].transform != Transform2D.identity()
         got = {c1: _world(loaded.placements[c1]), c2: _world(loaded.placements[c2])}
         assert got == expected
@@ -786,7 +900,9 @@ class TestWirePinPersistence:
     """
 
     def _save_wire_with_wire_pins(
-        self, tmp_path: Path, board: Board,
+        self,
+        tmp_path: Path,
+        board: Board,
     ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID | None]:
         """Construct a wire with both endpoints promoted to wire-pins, save it,
         return (wire_id, knot_a_id, knot_b_id, net_id_a).
@@ -805,8 +921,10 @@ class TestWirePinPersistence:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-            insulated=True, side="top",
-            a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+            insulated=True,
+            side="top",
+            a=KnotRef(id=ka.id),
+            b=KnotRef(id=kb.id),
         )
         lay.add_wire(wire)
 
@@ -820,11 +938,19 @@ class TestWirePinPersistence:
         state = _S(lay)
         net_a = uuid.uuid4()
         ConvertEndpointToWirePinCommand(
-            wire_id=wire.id, endpoint="a", net_id=net_a,
-        ).apply(state)  # type: ignore[arg-type]
+            wire_id=wire.id,
+            endpoint="a",
+            net_id=net_a,
+        ).apply(
+            state
+        )  # type: ignore[arg-type]
         ConvertEndpointToWirePinCommand(
-            wire_id=wire.id, endpoint="b", net_id=None,
-        ).apply(state)  # type: ignore[arg-type]
+            wire_id=wire.id,
+            endpoint="b",
+            net_id=None,
+        ).apply(
+            state
+        )  # type: ignore[arg-type]
 
         save_project(tmp_path, board, lay, Schematic(nets={}))
         return wire.id, ka.id, kb.id, net_a
@@ -845,6 +971,7 @@ class TestWirePinPersistence:
         _, ka_id, kb_id, _ = self._save_wire_with_wire_pins(tmp_path, board)
         _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
         from protoboard.domain.layout.knot import WirePinKnot
+
         a_knot = lay_loaded.knots[ka_id]
         b_knot = lay_loaded.knots[kb_id]
         assert isinstance(a_knot, WirePinKnot)
@@ -858,6 +985,7 @@ class TestWirePinPersistence:
         _, ka_id, kb_id, net_a = self._save_wire_with_wire_pins(tmp_path, board)
         _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
         from protoboard.domain.layout.knot import WirePinKnot
+
         a_knot = lay_loaded.knots[ka_id]
         b_knot = lay_loaded.knots[kb_id]
         assert isinstance(a_knot, WirePinKnot)
@@ -872,28 +1000,34 @@ class TestWirePinPersistence:
         # ("a_knot_id" present) so _layout_from_yaml routes to the
         # knot-aware decoder.
         import yaml as _yaml
+
         from protoboard.services.persistence.project_yaml import (
-            SerializationError, _layout_from_yaml,
+            SerializationError,
+            _layout_from_yaml,
         )
+
         kid = str(uuid.uuid4())
-        bad_yaml = _yaml.safe_dump({
-            "format_version": 2,
-            "placements": [],
-            "knots": [
-                {"id": kid, "kind": "future_pin_kind"},
-            ],
-            "wires": [
-                {
-                    "id": str(uuid.uuid4()),
-                    "a_knot_id": kid,
-                    "b_knot_id": kid,
-                    "path": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}],
-                    "side": "top",
-                    "insulated": False,
-                },
-            ],
-        })
+        bad_yaml = _yaml.safe_dump(
+            {
+                "format_version": 2,
+                "placements": [],
+                "knots": [
+                    {"id": kid, "kind": "future_pin_kind"},
+                ],
+                "wires": [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "a_knot_id": kid,
+                        "b_knot_id": kid,
+                        "path": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}],
+                        "side": "top",
+                        "insulated": False,
+                    },
+                ],
+            }
+        )
         import pytest
+
         with pytest.raises(SerializationError, match="unknown knot kind"):
             _layout_from_yaml(bad_yaml)
 
@@ -919,12 +1053,21 @@ class TestDropDanglingInstances:
         bad = ComponentInstance.new(definition_ref="GHOST", refdes="X1", value="?")
         instances = {good.id: good, bad.id: bad}
         pl_good = ComponentPlacement(
-            component_id=good.id, position=Point(0.0, 0.0), rotation=0, side="top",
+            component_id=good.id,
+            position=Point(0.0, 0.0),
+            rotation=0,
+            side="top",
         )
         pl_bad = ComponentPlacement(
-            component_id=bad.id, position=Point(1.0, 0.0), rotation=0, side="top",
+            component_id=bad.id,
+            position=Point(1.0, 0.0),
+            rotation=0,
+            side="top",
         )
-        lay = Layout(placements=PlacementCollection({good.id: pl_good, bad.id: pl_bad}), wires=cast(WireCollection, []))
+        lay = Layout(
+            placements=PlacementCollection({good.id: pl_good, bad.id: pl_bad}),
+            wires=cast(WireCollection, []),
+        )
         save_project(tmp_path, board, lay, Schematic(nets={}), instances=instances)
 
         set_migration_library(self._FakeLibrary({"R"}))  # GHOST unknown

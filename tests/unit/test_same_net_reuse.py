@@ -68,7 +68,9 @@ class TestExtendedTargetSet:
             side="top",
             insulated=True,
         )
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([existing_wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([existing_wire])
+        )
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(existing_wire)
 
@@ -113,7 +115,7 @@ class TestExtendedTargetSet:
             side="top",
             cost_model=RoutingCostModel(),
             k=1,
-            active_net_id=None,   # disables same-net discount entirely
+            active_net_id=None,  # disables same-net discount entirely
             same_net_pad_vertices=existing_verts,
         )
         assert len(results) == 1
@@ -143,7 +145,9 @@ class TestTeleportEdges:
             Point(6.5, 0.5 + i) for i in range(1, 7)
         ]
         bridge_wire = Wire(id=uuid.uuid4(), path=path, side="top", insulated=True)
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([bridge_wire]))
+        lay = Layout(
+            placements=PlacementCollection({}), wires=WireCollection([bridge_wire])
+        )
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(bridge_wire)
 
@@ -198,7 +202,7 @@ class TestSourceNotInExtendedTargets:
 
         active_net = uuid.uuid4()
         existing_verts = {
-            (Point(1.5, 2.5), "top"),   # also the source
+            (Point(1.5, 2.5), "top"),  # also the source
             (Point(2.5, 2.5), "top"),
         }
 
@@ -254,7 +258,10 @@ class TestTwoIslandSafety:
             side="top",
             insulated=True,
         )
-        lay = Layout(placements=PlacementCollection({}), wires=WireCollection([island_a, island_b]))
+        lay = Layout(
+            placements=PlacementCollection({}),
+            wires=WireCollection([island_a, island_b]),
+        )
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(island_a)
         graph.add_wire(island_b)
@@ -262,8 +269,10 @@ class TestTwoIslandSafety:
         # Both wires' vertices belong to the active net.
         active_net = uuid.uuid4()
         vertices = {
-            (Point(7.5, 1.5), "top"), (Point(8.5, 1.5), "top"),
-            (Point(0.5, 1.5), "top"), (Point(1.5, 1.5), "top"),
+            (Point(7.5, 1.5), "top"),
+            (Point(8.5, 1.5), "top"),
+            (Point(0.5, 1.5), "top"),
+            (Point(1.5, 1.5), "top"),
         }
 
         results = find_paths(

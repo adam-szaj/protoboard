@@ -13,9 +13,9 @@ from protoboard.domain.commands.net_cmds import (
     RenameNetCommand,
     UnassignPinCommand,
 )
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-
 
 # ---------------------------------------------------------------------------
 # Minimal state stub
@@ -174,24 +174,42 @@ class TestAssignPinToNetCommand:
         assert old.id not in state.schematic.nets
 
 
-class TestAssignPinToNetPropagation:
-    """Assigning one same-name pin (GND) assigns all its siblings, because they
-    share one PinIdentity / electrical node."""
+class TestAssignPinToNetMetaPinIdentity:
+    """A multi-pad terminal is assigned as one logical MetaPin."""
+
+    @staticmethod
+    def _ic_definition() -> ComponentDefinition:
+        from protoboard.domain.components.definition import (
+            MetaPin,
+            PackageOption,
+        )
+
+        return ComponentDefinition(
+            name="IC",
+            meta_pins=tuple(
+                MetaPin((label,)) for label in ("A", "B", "C", "GND", "E", "F", "G")
+            ),
+            package_options=(
+                PackageOption(
+                    name="DIP-8",
+                    ref="dip-8/std",
+                    pin_map={
+                        1: (1,),
+                        2: (2,),
+                        3: (3,),
+                        4: (4, 8),
+                        5: (5,),
+                        6: (6,),
+                        7: (7,),
+                    },
+                ),
+            ),
+        )
 
     def _state_with_ic(self) -> tuple[_State, uuid.UUID, Net]:
-        from protoboard.domain.components.definition import (
-            ComponentClass,
-            ComponentDefinition,
-        )
-        from protoboard.domain.components.footprints import DIL
         from protoboard.domain.components.instance import ComponentInstance
 
-        defn = ComponentDefinition.from_footprint(
-            name="IC", footprint=DIL(n=8),
-            pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
-                       5: "E", 6: "F", 7: "G", 8: "GND"},
-            component_class=ComponentClass.IC,
-        )
+        defn = self._ic_definition()
         inst = ComponentInstance.new("IC", "U1", "")
         inst.build_pin_identities(defn)
         net = _net("GND")
@@ -205,19 +223,9 @@ class TestAssignPinToNetPropagation:
     def test_propagation_builds_identities_on_demand(self) -> None:
         # Regression: an instance placed before identities were wired (empty
         # pin_identities) must still propagate — the command builds them.
-        from protoboard.domain.components.definition import (
-            ComponentClass,
-            ComponentDefinition,
-        )
-        from protoboard.domain.components.footprints import DIL
         from protoboard.domain.components.instance import ComponentInstance
 
-        defn = ComponentDefinition.from_footprint(
-            name="IC", footprint=DIL(n=8),
-            pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
-                       5: "E", 6: "F", 7: "G", 8: "GND"},
-            component_class=ComponentClass.IC,
-        )
+        defn = self._ic_definition()
         inst = ComponentInstance.new("IC", "U1", "")  # NO build_pin_identities
         assert inst.pin_identities == {}
         net = _net("GND")
@@ -230,15 +238,15 @@ class TestAssignPinToNetPropagation:
             component_id=inst.id, pin_number=4, target_net_id=net.id
         ).apply(state)
         pin_numbers = {r.pin_number for r in state.schematic.nets[net.id].pins}
-        assert pin_numbers == {4, 8}
+        assert pin_numbers == {4}
 
-    def test_assigning_one_gnd_adds_all_gnd_siblings(self) -> None:
+    def test_assigning_gnd_adds_one_metapin(self) -> None:
         state, comp_id, net = self._state_with_ic()
         AssignPinToNetCommand(
             component_id=comp_id, pin_number=4, target_net_id=net.id
         ).apply(state)
         pin_numbers = {r.pin_number for r in state.schematic.nets[net.id].pins}
-        assert pin_numbers == {4, 8}, "both GND pins must join the net"
+        assert pin_numbers == {4}
 
     def test_net_pins_and_identity_consistent(self) -> None:
         state, comp_id, net = self._state_with_ic()
@@ -247,22 +255,20 @@ class TestAssignPinToNetPropagation:
         ).apply(state)
         inst = state.instances[comp_id]
         assert inst.pin_ref(4).identity.net_id == net.id  # type: ignore[union-attr]
-        assert inst.pin_ref(8).identity.net_id == net.id  # type: ignore[union-attr]
 
-    def test_undo_removes_all_siblings(self) -> None:
+    def test_undo_removes_metapin(self) -> None:
         state, comp_id, net = self._state_with_ic()
         cmd = AssignPinToNetCommand(
             component_id=comp_id, pin_number=4, target_net_id=net.id
         )
         cmd.apply(state)
-        assert {r.pin_number for r in state.schematic.nets[net.id].pins} == {4, 8}
+        assert {r.pin_number for r in state.schematic.nets[net.id].pins} == {4}
         cmd.revert(state)
-        # Net pre-existed empty; after undo both GND siblings are gone again.
+        # Net pre-existed empty; after undo the GND MetaPin is gone again.
         assert state.schematic.nets[net.id].pins == set()
-        # Identity net cleared for both siblings too.
+        # Its logical identity is cleared too.
         inst = state.instances[comp_id]
         assert inst.pin_ref(4).identity.net_id is None  # type: ignore[union-attr]
-        assert inst.pin_ref(8).identity.net_id is None  # type: ignore[union-attr]
 
     def test_non_grouped_pin_assigns_only_itself(self) -> None:
         state, comp_id, net = self._state_with_ic()

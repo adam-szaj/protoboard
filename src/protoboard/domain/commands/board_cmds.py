@@ -41,9 +41,7 @@ def _make_segment(atom: StripAtom, length: int) -> StripAtom:
     )
 
 
-def split_strip_between(
-    atom: StripAtom, after_pad: int
-) -> tuple[StripAtom, StripAtom]:
+def split_strip_between(atom: StripAtom, after_pad: int) -> tuple[StripAtom, StripAtom]:
     """Cut between pad *after_pad* and pad *after_pad+1* (1-based).
 
     Valid range: 1 … length-1.
@@ -69,9 +67,7 @@ def split_strip_on_pad(
     return left, _make_isolated(atom), right
 
 
-def _replace_in_hbox(
-    hbox: HBox, old_atom: StripAtom, new_children: list[Box]
-) -> HBox:
+def _replace_in_hbox(hbox: HBox, old_atom: StripAtom, new_children: list[Box]) -> HBox:
     result: list[Box] = []
     for child in hbox.children:
         if child is old_atom:

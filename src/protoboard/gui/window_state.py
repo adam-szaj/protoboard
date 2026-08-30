@@ -39,8 +39,8 @@ def load_window_state(window: QMainWindow) -> None:
     if not _CONFIG_PATH.exists():
         return
     try:
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
         from PySide6.QtCore import QByteArray
+        from ruamel.yaml import YAML  # type: ignore[import-untyped]
 
         data = YAML().load(_CONFIG_PATH)
         if not isinstance(data, dict):

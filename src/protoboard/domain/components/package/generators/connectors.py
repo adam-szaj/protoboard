@@ -31,20 +31,20 @@ def _connector_body(pins: int, rows: int) -> Package:
     if rows == 1:
         if pins < 2:
             raise PackageDefError(
-                f"a connector kind cannot build a body for {pins} pins "
-                f"(needs >= 2)")
+                f"a connector kind cannot build a body for {pins} pins " f"(needs >= 2)"
+            )
         pkg = prism_from_footprint(SIL(n=pins))
     elif rows == 2:
         if pins < 2 or pins % 2 != 0:
             raise PackageDefError(
                 f"a 2xN connector cannot build a body for {pins} pins "
-                f"(needs an even count >= 2)")
+                f"(needs an even count >= 2)"
+            )
         pkg = prism_from_footprint(DIL(n=pins, rows_spacing=CONNECTOR_ROWS))
     else:
         raise PackageDefError(f"connector 'rows' must be 1 or 2, got {rows}")
     if pkg is None:
-        raise PackageDefError(
-            f"a connector kind cannot build a body for {pins} pins")
+        raise PackageDefError(f"a connector kind cannot build a body for {pins} pins")
     return pkg
 
 
@@ -65,7 +65,9 @@ class PinHeaderGenerator(PackageGenerator):
         return [f"sil-{pin_count}"] if pin_count >= 2 else []
 
     def variant_suffix(
-        self, pin_count: int, values: Mapping[str, Any],
+        self,
+        pin_count: int,
+        values: Mapping[str, Any],
     ) -> str:
         # The historical catalogue names: PinHeader_1x05, PinHeader_2x08 —
         # ``{rows}x{pins-per-row:02d}``.
@@ -74,7 +76,8 @@ class PinHeaderGenerator(PackageGenerator):
         return f"{rows}x{per_row:02d}"
 
     def parse_variant_suffix(
-        self, suffix: str,
+        self,
+        suffix: str,
     ) -> tuple[int, dict[str, Any]] | None:
         m = re.fullmatch(r"([12])x(\d+)", suffix)
         if m is None:

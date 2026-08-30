@@ -15,7 +15,6 @@ from protoboard.domain.components.definition import (
     MetaPin,
     PackageOption,
 )
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.connectivity.graph import ConnectivityGraph
@@ -477,7 +476,7 @@ class TestInsulatedWireIsolation:
         node_b_left = graph.node_for_pad(Point(0.5, 1.5), "top")
         assert (
             node_a_left != node_b_left
-        ), "Bare wires sharing an off-pad crossing point must remain in separate ElectricSets"
+        ), "Bare wires sharing an off-pad crossing point must remain in separate ElectricSets"  # noqa: E501
 
     def test_bare_wire_shortcut_connects_crossed_pads(self) -> None:
         # 1×4 perfboard.  A bare wire is laid as a direct shortcut from the

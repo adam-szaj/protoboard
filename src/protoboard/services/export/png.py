@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QRectF, QSize
 from PySide6.QtGui import QImage, QPainter
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot
 
@@ -28,13 +28,13 @@ _DEFAULT_PIXELS_PER_RASTER = 40
 
 def export_png(
     path: Path,
-    board: "Board",
-    layout: "Layout",
-    components: dict[str, "ComponentDefinition"],
-    instances: dict[uuid.UUID, "ComponentInstance"],
-    schematic: "Schematic | None" = None,
-    svg_scale: float = 10.0,         # kept for signature compatibility
-    pixel_scale: int = 4,             # legacy: SVG units × pixel_scale
+    board: Board,
+    layout: Layout,
+    components: dict[str, ComponentDefinition],
+    instances: dict[uuid.UUID, ComponentInstance],
+    schematic: Schematic | None = None,
+    svg_scale: float = 10.0,  # kept for signature compatibility
+    pixel_scale: int = 4,  # legacy: SVG units × pixel_scale
     theme: Theme = DEFAULT_THEME,
     package_families: dict | None = None,
 ) -> None:
@@ -48,19 +48,31 @@ def export_png(
     pixels_per_raster = max(1, int(round(svg_scale * pixel_scale)))
     sch = schematic if schematic is not None else Schematic(nets={})
     pad_index = PadIndex(
-        board=board, layout=layout, schematic=sch,
-        components=components, instances=instances,
+        board=board,
+        layout=layout,
+        schematic=sch,
+        components=components,
+        instances=instances,
     )
-    families = (package_families if package_families is not None else
-                getattr(theme, "package_families", None)) or {}
+    families = (
+        package_families
+        if package_families is not None
+        else getattr(theme, "package_families", None)
+    ) or {}
     snapshot = BoardSnapshot(
-        board=board, layout=layout,
-        components=components, instances=instances,
-        schematic=sch, pad_index=pad_index,
-        package_families=families, theme=theme,
+        board=board,
+        layout=layout,
+        components=components,
+        instances=instances,
+        schematic=sch,
+        pad_index=pad_index,
+        package_families=families,
+        theme=theme,
     )
     export_png_from_snapshot(
-        path, snapshot, pixels_per_raster=pixels_per_raster,
+        path,
+        snapshot,
+        pixels_per_raster=pixels_per_raster,
     )
 
 

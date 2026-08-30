@@ -18,6 +18,7 @@ Aggregate (reported as benchmark value so pytest-benchmark tracks them):
   mean_hull       — mean Hull ratio across all fully-routed nets
   unrouted_count  — number of nets that could not be routed (lower = better)
 """
+
 from __future__ import annotations
 
 import copy
@@ -28,10 +29,10 @@ import pytest
 
 from protoboard.geometry import Point
 
-
 # ---------------------------------------------------------------------------
 # Metric helpers (duplicated from net_inspector_panel to avoid Qt dependency)
 # ---------------------------------------------------------------------------
+
 
 def _manhattan_length(wires: list) -> float:
     total = 0.0
@@ -64,8 +65,9 @@ def _mst_manhattan(points: list[Point]) -> float:
         for j in range(n):
             if j in in_tree:
                 continue
-            d = (abs(points[next_j].x - points[j].x)
-                 + abs(points[next_j].y - points[j].y))
+            d = abs(points[next_j].x - points[j].x) + abs(
+                points[next_j].y - points[j].y
+            )
             if d < min_dist[j]:
                 min_dist[j] = d
     return total
@@ -114,11 +116,12 @@ def _pin_hull_area(points: list[Point]) -> float:
 # Quality measurement
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class NetQuality:
     name: str
-    wire_mst_ratio: float   # 1.0 = optimal; higher = worse
-    hull_ratio: float       # lower = more compact routing
+    wire_mst_ratio: float  # 1.0 = optimal; higher = worse
+    hull_ratio: float  # lower = more compact routing
 
 
 @dataclass
@@ -128,8 +131,8 @@ class RoutingQualitySummary:
     unrouted_count: int
     mean_wire_mst: float
     mean_hull: float
-    worst_wire_mst_nets: list[tuple[str, float]]   # top-5 worst by wire/mst
-    worst_hull_nets: list[tuple[str, float]]        # top-5 worst by hull
+    worst_wire_mst_nets: list[tuple[str, float]]  # top-5 worst by wire/mst
+    worst_hull_nets: list[tuple[str, float]]  # top-5 worst by hull
 
 
 def measure_routing_quality(
@@ -188,7 +191,9 @@ def measure_routing_quality(
             comp = components.get(inst.definition_ref)
             if comp is None:
                 continue
-            pin_pts.append(pin_world_position(comp.default_footprint(), pl, pin_ref.pin_number))
+            pin_pts.append(
+                pin_world_position(comp.default_footprint(), pl, pin_ref.pin_number)
+            )
 
         if len(pin_pts) < 2:
             continue
@@ -233,16 +238,28 @@ def measure_routing_quality(
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def synthetic_medium_empty_layout(synthetic_medium_project):
-    board, layout, schematic, instances, routing, _lib, components = synthetic_medium_project
+    board, layout, schematic, instances, routing, _lib, components = (
+        synthetic_medium_project
+    )
     # synthetic generator already produces a wire-free layout.
     return board, copy.deepcopy(layout), schematic, instances, routing, components
 
 
-def _run_autoroute(board, layout, schematic, instances, routing, components,
-                   max_optimize_iterations: int = 0, max_rip_up_passes: int = 3):
+def _run_autoroute(
+    board,
+    layout,
+    schematic,
+    instances,
+    routing,
+    components,
+    max_optimize_iterations: int = 0,
+    max_rip_up_passes: int = 3,
+):
     from protoboard.services.routing.autorouter import autoroute
+
     return autoroute(
         board=board,
         layout=copy.deepcopy(layout),
@@ -262,44 +279,67 @@ def _run_autoroute(board, layout, schematic, instances, routing, components,
 # Benchmarks
 # ---------------------------------------------------------------------------
 
+
 def test_bench_routing_quality_greedy(benchmark, synthetic_medium_empty_layout):
     """Greedy pass only (no optimize, rip-up=3). Baseline quality measurement."""
-    board, layout, schematic, instances, routing, components = synthetic_medium_empty_layout
+    board, layout, schematic, instances, routing, components = (
+        synthetic_medium_empty_layout
+    )
 
     def _run():
-        result = _run_autoroute(board, layout, schematic, instances, routing,
-                                components, max_optimize_iterations=0)
+        result = _run_autoroute(
+            board,
+            layout,
+            schematic,
+            instances,
+            routing,
+            components,
+            max_optimize_iterations=0,
+        )
         result_layout = copy.deepcopy(layout)
         result_layout.wires = result.wires
         return measure_routing_quality(result_layout, schematic, instances, components)
 
     summary = benchmark.pedantic(_run, iterations=1, rounds=3)
 
-    print(f"\n  nets={summary.net_count}  routed={summary.routed_count}"
-          f"  unrouted={summary.unrouted_count}"
-          f"  mean_wire_mst={summary.mean_wire_mst:.3f}"
-          f"  mean_hull={summary.mean_hull:.3f}")
+    print(
+        f"\n  nets={summary.net_count}  routed={summary.routed_count}"
+        f"  unrouted={summary.unrouted_count}"
+        f"  mean_wire_mst={summary.mean_wire_mst:.3f}"
+        f"  mean_hull={summary.mean_hull:.3f}"
+    )
     print(f"  worst wire/mst: {summary.worst_wire_mst_nets}")
     print(f"  worst hull:     {summary.worst_hull_nets}")
 
 
 def test_bench_routing_quality_optimized(benchmark, synthetic_medium_empty_layout):
     """Greedy + 10 optimize iterations. Measures quality improvement vs greedy."""
-    board, layout, schematic, instances, routing, components = synthetic_medium_empty_layout
+    board, layout, schematic, instances, routing, components = (
+        synthetic_medium_empty_layout
+    )
 
     def _run():
-        result = _run_autoroute(board, layout, schematic, instances, routing,
-                                components, max_optimize_iterations=10)
+        result = _run_autoroute(
+            board,
+            layout,
+            schematic,
+            instances,
+            routing,
+            components,
+            max_optimize_iterations=10,
+        )
         result_layout = copy.deepcopy(layout)
         result_layout.wires = result.wires
         return measure_routing_quality(result_layout, schematic, instances, components)
 
     summary = benchmark.pedantic(_run, iterations=1, rounds=2)
 
-    print(f"\n  nets={summary.net_count}  routed={summary.routed_count}"
-          f"  unrouted={summary.unrouted_count}"
-          f"  mean_wire_mst={summary.mean_wire_mst:.3f}"
-          f"  mean_hull={summary.mean_hull:.3f}")
+    print(
+        f"\n  nets={summary.net_count}  routed={summary.routed_count}"
+        f"  unrouted={summary.unrouted_count}"
+        f"  mean_wire_mst={summary.mean_wire_mst:.3f}"
+        f"  mean_hull={summary.mean_hull:.3f}"
+    )
     print(f"  worst wire/mst: {summary.worst_wire_mst_nets}")
     print(f"  worst hull:     {summary.worst_hull_nets}")
 
@@ -308,9 +348,12 @@ def test_bench_routing_quality_optimized(benchmark, synthetic_medium_empty_layou
 # Large synthetic project benchmarks (150 components, ~130 nets)
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def synthetic_large_empty_layout(synthetic_large_project):
-    board, layout, schematic, instances, routing, _lib, components = synthetic_large_project
+    board, layout, schematic, instances, routing, _lib, components = (
+        synthetic_large_project
+    )
     return board, layout, schematic, instances, routing, components
 
 
@@ -322,26 +365,41 @@ def test_bench_large_greedy(benchmark, synthetic_large_empty_layout):
     autoroute). Marked ``slow`` so it is skipped by default; run it with
     ``-m slow`` when validating routing performance.
     """
-    board, layout, schematic, instances, routing, components = synthetic_large_empty_layout
+    board, layout, schematic, instances, routing, components = (
+        synthetic_large_empty_layout
+    )
 
     def _run():
-        result = _run_autoroute(board, layout, schematic, instances, routing,
-                                components, max_optimize_iterations=0)
+        result = _run_autoroute(
+            board,
+            layout,
+            schematic,
+            instances,
+            routing,
+            components,
+            max_optimize_iterations=0,
+        )
         result_layout = copy.deepcopy(layout)
         result_layout.wires = result.wires
-        quality = measure_routing_quality(result_layout, schematic, instances, components)
+        quality = measure_routing_quality(
+            result_layout, schematic, instances, components
+        )
         return result, quality
 
     result, quality = benchmark.pedantic(_run, iterations=1, rounds=3)
 
-    print(f"\n  nets={quality.net_count}  routed={quality.routed_count}"
-          f"  unrouted={quality.unrouted_count}"
-          f"  mean_wire_mst={quality.mean_wire_mst:.3f}"
-          f"  mean_hull={quality.mean_hull:.3f}")
+    print(
+        f"\n  nets={quality.net_count}  routed={quality.routed_count}"
+        f"  unrouted={quality.unrouted_count}"
+        f"  mean_wire_mst={quality.mean_wire_mst:.3f}"
+        f"  mean_hull={quality.mean_hull:.3f}"
+    )
     if result.pass_stats:
         ps = result.pass_stats[0]
-        print(f"  nodes_expanded={ps.total_nodes_expanded}"
-              f"  over_budget={ps.total_over_budget_hits}"
-              f"  rip_ups={ps.total_rip_up_attempts}")
+        print(
+            f"  nodes_expanded={ps.total_nodes_expanded}"
+            f"  over_budget={ps.total_over_budget_hits}"
+            f"  rip_ups={ps.total_rip_up_attempts}"
+        )
     print(f"  worst wire/mst: {quality.worst_wire_mst_nets}")
     print(f"  worst hull:     {quality.worst_hull_nets}")

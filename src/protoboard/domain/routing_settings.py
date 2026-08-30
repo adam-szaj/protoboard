@@ -9,20 +9,22 @@ how many rip-up passes, which optimizers run after routing, etc.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, Mapping, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from protoboard.services.routing.cost_model import RoutingCostModel
-from protoboard.types import Side
 from protoboard.services.routing.cost_presets import resolve_weights
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.services.routing.postprocess import SimplifyMode
 
 
-def _default_simplify_mode() -> "SimplifyMode":
+def _default_simplify_mode() -> SimplifyMode:
     """Late-import default for SimplifyMode to avoid a cycle with postprocess."""
     from protoboard.services.routing.postprocess import SimplifyMode
+
     return SimplifyMode.BARE_PARITY
 
 
@@ -106,7 +108,7 @@ class RoutingSettings:
     # both not worsen, and at least one must strictly improve.
     visual_unweave_side_flip: bool = False
     # Simplify pass strategy.  BARE_PARITY preserves anti-short invariant.
-    simplify_mode: "SimplifyMode" = field(  # type: ignore[name-defined]
+    simplify_mode: SimplifyMode = field(  # type: ignore[name-defined]
         default_factory=lambda: _default_simplify_mode()
     )
     # Per-project WireOptimizer plugin chain.  Empty tuple = legacy

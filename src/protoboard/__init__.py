@@ -9,6 +9,7 @@
 # so that *any* script that touches `protoboard.*` — including headless
 # autoroute helpers that never import the GUI — inherits the workaround.
 import os as _os
+
 _os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 # Silent SIGSEGV in worker threads (seen in CPython 3.14.2's GC
@@ -16,6 +17,7 @@ _os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 # stdout — only a dmesg line.  `faulthandler` prints a native traceback
 # when a fatal signal fires, so we know which Python frame was active.
 import faulthandler as _faulthandler
+
 _faulthandler.enable()
 del _os, _faulthandler
 

@@ -72,9 +72,7 @@ class TestApply:
 
     def test_apply_point_full_affine(self) -> None:
         # rotate 90° CW then translate: local (1, 0) -> (0, -1) -> (5, 9)
-        t = Transform2D.translation(Vector(5.0, 10.0)).compose(
-            Transform2D.rotation(1)
-        )
+        t = Transform2D.translation(Vector(5.0, 10.0)).compose(Transform2D.rotation(1))
         assert t.apply(Point(1.0, 0.0)) == Point(5.0, 9.0)
 
 
@@ -90,9 +88,9 @@ class TestCompose:
         rot = Transform2D.rotation(1)
         trans = Transform2D.translation(Vector(10.0, 0.0))
         # translate-then-rotate ≠ rotate-then-translate
-        assert rot.compose(trans).apply(Point(0.0, 0.0)) != trans.compose(
-            rot
-        ).apply(Point(0.0, 0.0))
+        assert rot.compose(trans).apply(Point(0.0, 0.0)) != trans.compose(rot).apply(
+            Point(0.0, 0.0)
+        )
 
     def test_compose_with_identity(self) -> None:
         t = Transform2D.translation(Vector(3.0, 4.0)).compose(Transform2D.rotation(2))
@@ -233,7 +231,12 @@ class TestCoeffs:
     def test_translation_coeffs(self) -> None:
         # a, b, c, d, tx, ty
         assert Transform2D.translation(Vector(20.0, 30.0)).coeffs() == (
-            1.0, 0.0, 0.0, 1.0, 20.0, 30.0,
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            20.0,
+            30.0,
         )
 
     def test_rotation_90_coeffs(self) -> None:

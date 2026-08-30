@@ -27,6 +27,10 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.controller.tools.drag_commit_decision import (
+    DragCommitDecision,
+    DragSeverity,
+)
 from protoboard.domain.layout.drag_classification import (
     DragWireClassification,
     classify_wires_for_drag,
@@ -46,10 +50,6 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.wire_utils import find_skewed_wires
 from protoboard.geometry import Point
-from protoboard.controller.tools.drag_commit_decision import (
-    DragCommitDecision,
-    DragSeverity,
-)
 from protoboard.services.pad_strategy import PadStrategy, Verdict
 
 if TYPE_CHECKING:
@@ -71,6 +71,7 @@ _log = structlog.get_logger(__name__)
 def _dbg_enabled() -> bool:
     """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
     import logging
+
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
@@ -101,12 +102,12 @@ class DragSnapshot:
     ``auto_remove_wire_ids`` result.
     """
 
-    pad_index: "PadIndex | None"
-    placements: "PlacementMap"
-    instances: dict[uuid.UUID, "ComponentInstance"]
-    components: dict[str, "ComponentDefinition"]
-    schematic: "Schematic"
-    wires: list["Wire"] = field(default_factory=list)
+    pad_index: PadIndex | None
+    placements: PlacementMap
+    instances: dict[uuid.UUID, ComponentInstance]
+    components: dict[str, ComponentDefinition]
+    schematic: Schematic
+    wires: list[Wire] = field(default_factory=list)
     drag_set_members: frozenset[uuid.UUID] = field(default_factory=frozenset)
     """Component IDs the drag moves atomically.  Empty disables the
     new classification path; ``classify`` falls back to the legacy
@@ -118,16 +119,16 @@ class DragSnapshot:
     classification — without it, all half-orphans land in the
     ``half_orphan_external`` bucket (drop on commit)."""
 
-    knots: "dict[uuid.UUID, Knot]" = field(default_factory=dict)
+    knots: dict[uuid.UUID, Knot] = field(default_factory=dict)
     """``layout.knots`` — required for endpoint flavour resolution
     in the wire classifier."""
 
-    member_groups: "list[ComponentGroup]" = field(default_factory=list)
+    member_groups: list[ComponentGroup] = field(default_factory=list)
     """Groups whose ``component_ids`` overlap ``drag_set_members``.
     Empty when dragging a free component or a pure-free multi-selection;
     used only for half-orphan internal-net resolution."""
 
-    stationary_locked_groups: "list[ComponentGroup]" = field(
+    stationary_locked_groups: list[ComponentGroup] = field(
         default_factory=list,
     )
     """Stationary groups (not in drag set) with
@@ -193,9 +194,7 @@ class DragDetector:
                 moved_comp_ids=moved_comp_ids,
             )
             if body_overlap_refdes is not None:
-                hard_pads.append(
-                    pin_world_position(footprint_of(defn, inst), pl, 1)
-                )
+                hard_pads.append(pin_world_position(footprint_of(defn, inst), pl, 1))
                 descriptions.append(
                     f"{inst.refdes} body overlap with {body_overlap_refdes}"
                 )
@@ -230,8 +229,7 @@ class DragDetector:
 
             # --- Pin-on-wire (rule 6 strict via strategy) ---
             already_conflicted = {
-                (_round(c.position.x), _round(c.position.y))
-                for c in pad_conflicts
+                (_round(c.position.x), _round(c.position.y)) for c in pad_conflicts
             }
             wire_conflicts = self._wire_conflicts_via_strategy(
                 snapshot=snapshot,
@@ -255,9 +253,7 @@ class DragDetector:
                 soft_pads.append(wc.position)
                 if wc.wire_id is not None:
                     remove_wires.add(wc.wire_id)
-                descriptions.append(
-                    f"{inst.refdes} pin {wc.incoming_pin}: {reason}"
-                )
+                descriptions.append(f"{inst.refdes} pin {wc.incoming_pin}: {reason}")
 
         # --- Wires crossing alien pads after the move ---
         crossing = find_wires_crossing_pads(
@@ -278,13 +274,12 @@ class DragDetector:
 
         # --- Skewed wires ---
         skewed = find_skewed_wires(
-            snapshot.wires, moved_wire_ids=set(dragged_wire_ids),
+            snapshot.wires,
+            moved_wire_ids=set(dragged_wire_ids),
         )
         if skewed:
             remove_wires.update(skewed)
-            descriptions.append(
-                f"{len(skewed)} wire(s) became skewed (will remove)"
-            )
+            descriptions.append(f"{len(skewed)} wire(s) became skewed (will remove)")
 
         # --- Unified drag model classification (2026-06-02) ---
         # When the caller supplied drag_set_members, partition every wire
@@ -320,7 +315,8 @@ class DragDetector:
                 wires=snapshot.wires,
                 drag_set_members=snapshot.drag_set_members,
                 stationary_groups=[
-                    g for g in self._all_groups_for_snapshot(snapshot)
+                    g
+                    for g in self._all_groups_for_snapshot(snapshot)
                     if g not in snapshot.member_groups
                 ],
                 knots=snapshot.knots,
@@ -402,8 +398,8 @@ class DragDetector:
 
     @staticmethod
     def _all_groups_for_snapshot(
-        snapshot: "DragSnapshot",
-    ) -> "list[ComponentGroup]":
+        snapshot: DragSnapshot,
+    ) -> list[ComponentGroup]:
         """Best-effort group list — for stationary-group classification
         we need every group, not just the member subset.  The snapshot
         carries member_groups + stationary_locked_groups; this helper
@@ -416,12 +412,12 @@ class DragDetector:
 
     @staticmethod
     def _stationary_group_owned_wires(
-        wires: "list[Wire]",
+        wires: list[Wire],
         drag_set_members: frozenset[uuid.UUID],
-        stationary_groups: "list[ComponentGroup]",
-        knots: "dict[uuid.UUID, Knot]",
+        stationary_groups: list[ComponentGroup],
+        knots: dict[uuid.UUID, Knot],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        schematic: "Schematic | None",
+        schematic: Schematic | None,
     ) -> set[uuid.UUID]:
         """Wires owned by any stationary group (member-disjoint).
 
@@ -429,10 +425,13 @@ class DragDetector:
         when they belong to a group the drag set is not part of.
         """
         from protoboard.domain.layout.group_ownership import OwnershipResolver
+
         # No placements/instances/definitions here → the resolver skips the
         # geometric sanity check, matching the original call's argument set.
         resolver = OwnershipResolver(
-            knots=knots, wire_net_map=wire_net_map, schematic=schematic,
+            knots=knots,
+            wire_net_map=wire_net_map,
+            schematic=schematic,
         )
         result: set[uuid.UUID] = set()
         for group in stationary_groups:
@@ -447,11 +446,11 @@ class DragDetector:
 
     @staticmethod
     def _lock_internal_pad_positions(
-        stationary_locked_groups: "list[ComponentGroup]",
-        wires: "list[Wire]",
+        stationary_locked_groups: list[ComponentGroup],
+        wires: list[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        knots: "dict[uuid.UUID, Knot]",
-        schematic: "Schematic | None",
+        knots: dict[uuid.UUID, Knot],
+        schematic: Schematic | None,
         conflict_wire_ids: set[uuid.UUID],
     ) -> list[Point]:
         """Pad positions where a moved pin landed on a wire owned by a
@@ -462,10 +461,13 @@ class DragDetector:
         so the overlay can mark them red.
         """
         from protoboard.domain.layout.group_ownership import OwnershipResolver
+
         if not stationary_locked_groups or not conflict_wire_ids:
             return []
         resolver = OwnershipResolver(
-            knots=knots, wire_net_map=wire_net_map, schematic=schematic,
+            knots=knots,
+            wire_net_map=wire_net_map,
+            schematic=schematic,
         )
         pads: list[Point] = []
         wire_by_id = {w.id: w for w in wires}
@@ -487,9 +489,9 @@ class DragDetector:
         *,
         snapshot: DragSnapshot,
         cid: uuid.UUID,
-        pl: "ComponentPlacement",
-        defn: "ComponentDefinition",
-        inst: "ComponentInstance",
+        pl: ComponentPlacement,
+        defn: ComponentDefinition,
+        inst: ComponentInstance,
         moved_comp_ids: set[uuid.UUID],
     ) -> str | None:
         """Return the refdes of the first non-moved component whose bbox
@@ -497,7 +499,9 @@ class DragDetector:
         """
         incoming_fp = footprint_of(defn, inst)
         incoming_bbox = component_bbox(
-            incoming_fp, pl, defn.component_class,
+            incoming_fp,
+            pl,
+            defn.component_class,
         )
         _eps = 1e-4
         for other_id, other_pl in snapshot.placements.items():
@@ -511,7 +515,9 @@ class DragDetector:
                 continue
             other_fp = footprint_of(other_defn, other_inst)
             other_bbox = component_bbox(
-                other_fp, other_pl, other_defn.component_class,
+                other_fp,
+                other_pl,
+                other_defn.component_class,
             )
             if not incoming_bbox.intersects(other_bbox):
                 continue
@@ -520,7 +526,9 @@ class DragDetector:
                 in_pos = pin_world_position(incoming_fp, pl, in_pin)
                 for ot_pin in range(1, other_fp.pin_count() + 1):
                     ot_pos = pin_world_position(
-                        other_fp, other_pl, ot_pin,
+                        other_fp,
+                        other_pl,
+                        ot_pin,
                     )
                     if (
                         abs(in_pos.x - ot_pos.x) < _eps
@@ -539,8 +547,8 @@ class DragDetector:
         *,
         snapshot: DragSnapshot,
         cid: uuid.UUID,
-        pl: "ComponentPlacement",
-        defn: "ComponentDefinition",
+        pl: ComponentPlacement,
+        defn: ComponentDefinition,
         already_conflicted: set[tuple[float, float]],
     ) -> list[tuple[PadConflict, str]]:
         """Detect pin-on-wire conflicts through the strategy.
@@ -567,9 +575,7 @@ class DragDetector:
 
         # Wire-net lookup for description-only use; the strategy
         # doesn't need it.
-        net_name_by_id = {
-            net.id: net.name for net in snapshot.schematic.nets.values()
-        }
+        net_name_by_id = {net.id: net.name for net in snapshot.schematic.nets.values()}
 
         # Build a legacy point_to_net so the fallback path inside
         # find_wire_conflicts has a chance to populate wire_net_info
@@ -578,12 +584,15 @@ class DragDetector:
         for net in snapshot.schematic.nets.values():
             for ref in net.pins:
                 pos = _get_pin_position(
-                    snapshot, ref.component_id, ref.pin_number,
+                    snapshot,
+                    ref.component_id,
+                    ref.pin_number,
                 )
                 if pos is None:
                     continue
                 point_to_net[(_round(pos.x), _round(pos.y))] = (
-                    net.id, net.name,
+                    net.id,
+                    net.name,
                 )
 
         # First produce the legacy find_wire_conflicts output. We then
@@ -612,9 +621,7 @@ class DragDetector:
         annotated: list[tuple[PadConflict, str]] = []
         for wc in wire_conflicts:
             our_net = (
-                pin_net[wc.incoming_pin][0]
-                if wc.incoming_pin in pin_net
-                else None
+                pin_net[wc.incoming_pin][0] if wc.incoming_pin in pin_net else None
             )
             pad = (
                 snapshot.pad_index.pad_at(wc.position)
@@ -640,10 +647,7 @@ def _legacy_wire_reason(wc: PadConflict) -> str:
     """Mirror the pre-refactor phrasing in placement_conflict.py so
     existing description-based assertions keep working."""
     if wc.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
-        return (
-            "on same-net wire (will remove — re-route through a "
-            "separate hub)"
-        )
+        return "on same-net wire (will remove — re-route through a " "separate hub)"
     # PIN_ON_WIRE_DIFFERENT_NET / PIN_ON_WIRE_WITH_NET /
     # PIN_ON_WIRE_UNCONNECTED all collapsed to "foreign wire" in the
     # legacy code path. Keep that phrasing for back-compat with the
@@ -662,8 +666,10 @@ def _get_pin_position(
     safety chain lives in domain.layout.placement.
     """
     from protoboard.domain.layout.placement import resolve_pin_world_position
+
     return resolve_pin_world_position(
-        comp_id, pin_number,
+        comp_id,
+        pin_number,
         placements=snapshot.placements,
         instances=snapshot.instances,
         components=snapshot.components,

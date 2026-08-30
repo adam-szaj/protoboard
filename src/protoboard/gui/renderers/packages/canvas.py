@@ -24,9 +24,9 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
+from protoboard.controller.theme import Theme
 from protoboard.geometry import Point
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
-from protoboard.controller.theme import Theme
 from protoboard.services.debug_trace import traced
 
 #: Rounding for addRect: a single radius, per-corner radii
@@ -246,8 +246,17 @@ class BodyCanvas:
         z: float | None = None,
     ) -> QGraphicsPathItem:
         """A circle of radius *r* centred on *center*."""
-        return self.addEllipse(center, r, r, fill=fill, border=border, pen=pen,
-                               pen_width=pen_width, z_offset=z_offset, z=z)
+        return self.addEllipse(
+            center,
+            r,
+            r,
+            fill=fill,
+            border=border,
+            pen=pen,
+            pen_width=pen_width,
+            z_offset=z_offset,
+            z=z,
+        )
 
     @traced()
     def addEllipse(

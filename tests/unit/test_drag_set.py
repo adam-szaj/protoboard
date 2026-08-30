@@ -12,12 +12,13 @@ Pure-Python — no Qt, no QApplication.
 from __future__ import annotations
 
 import uuid
-from typing import Callable, TypedDict
+from collections.abc import Callable
+from typing import TypedDict
 
 import pytest
 
-from protoboard.domain.layout.group import ComponentGroup
 from protoboard.controller.editing.drag_set import DragSet
+from protoboard.domain.layout.group import ComponentGroup
 
 
 class World(TypedDict):
@@ -60,7 +61,8 @@ def world() -> World:
     g1 = ComponentGroup(id=g1_id, name="G1", component_ids=frozenset({c1, c2}))
     g3 = ComponentGroup(id=g3_id, name="G3", component_ids=frozenset({c4, c5}))
     g2 = ComponentGroup(
-        id=g2_id, name="G2",
+        id=g2_id,
+        name="G2",
         component_ids=frozenset({c3}),
         child_group_ids=frozenset({g3_id}),
     )
@@ -68,12 +70,20 @@ def world() -> World:
 
     def in_group_of(gid: uuid.UUID) -> set[uuid.UUID]:
         from protoboard.domain.layout.group import all_component_ids
+
         return set(all_component_ids(groups_map, gid))
 
     return {
-        "g1_id": g1_id, "g2_id": g2_id, "g3_id": g3_id,
-        "c1": c1, "c2": c2, "c3": c3, "c4": c4, "c5": c5,
-        "c6": c6, "c7": c7,
+        "g1_id": g1_id,
+        "g2_id": g2_id,
+        "g3_id": g3_id,
+        "c1": c1,
+        "c2": c2,
+        "c3": c3,
+        "c4": c4,
+        "c5": c5,
+        "c6": c6,
+        "c7": c7,
         "groups_map": groups_map,
         "in_group_of": in_group_of,
     }
@@ -180,9 +190,7 @@ class TestWithAdded:
 
 
 class TestFromSelection:
-    def test_empty_selection_yields_empty_drag_set(
-        self, world: World
-    ) -> None:
+    def test_empty_selection_yields_empty_drag_set(self, world: World) -> None:
         ds = DragSet.from_selection(
             selected_ids=set(),
             selected_wire_ids=set(),
@@ -192,9 +200,7 @@ class TestFromSelection:
         )
         assert ds.is_empty
 
-    def test_top_level_components_become_free(
-        self, world: World
-    ) -> None:
+    def test_top_level_components_become_free(self, world: World) -> None:
         ds = DragSet.from_selection(
             selected_ids={world["c6"], world["c7"]},  # type: ignore[arg-type]
             selected_wire_ids=set(),
@@ -205,9 +211,7 @@ class TestFromSelection:
         assert ds.free_components == frozenset({world["c6"], world["c7"]})
         assert ds.groups == frozenset()
 
-    def test_group_member_with_group_selected_goes_to_group(
-        self, world: World
-    ) -> None:
+    def test_group_member_with_group_selected_goes_to_group(self, world: World) -> None:
         """When the user selects both a group AND one of its members,
         the member should not appear in ``free_components`` — it moves
         via the group monolith.

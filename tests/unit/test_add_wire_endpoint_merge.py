@@ -17,10 +17,15 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
-    RemoveWireCommand,
 )
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily, PackageVariant
+from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.knot import JointKnot, PinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import PlacementCollection
@@ -29,16 +34,21 @@ from protoboard.geometry import Point
 
 
 def _perfboard(rows: int = 5, cols: int = 5) -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 class _State:
@@ -49,10 +59,51 @@ class _State:
         self.layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
+        self.package_families: dict[str, PackageFamily] = {}
 
 
-def _add(state: _State, path: list[tuple[float, float]],
-         *, insulated: bool = True, side: str = "top") -> AddWireCommand:
+def _one_pin_definition(name: str) -> tuple[ComponentDefinition, PackageFamily]:
+    family_id = f"{name}-package"
+    package = build_package(
+        {
+            "shape": "prism",
+            "dims": {"lx": 2.0, "ly": 2.0},
+            "arrangement": "axial",
+            "mount": "through_hole",
+            "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": []},
+                "board_offset": "default",
+            },
+        },
+        family_id,
+    )
+    family = PackageFamily(
+        family_id=family_id,
+        variants=(PackageVariant("std", "std", package),),
+    )
+    definition = ComponentDefinition(
+        name=name,
+        meta_pins=(MetaPin(("P1",)),),
+        package_options=(
+            PackageOption(
+                name=name,
+                ref=f"{family_id}/std",
+                pin_map={1: (1,)},
+            ),
+        ),
+    )
+    return definition, family
+
+
+def _add(
+    state: _State,
+    path: list[tuple[float, float]],
+    *,
+    insulated: bool = True,
+    side: str = "top",
+) -> AddWireCommand:
     wire = Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in path],
@@ -93,8 +144,7 @@ class TestEndpointMergeSameAttrs:
         # The joint at (2.5, 0.5) should no longer exist — the two wires
         # collapsed into one and the central joint was consumed.
         joint_positions = [
-            k.position for k in state.layout.knots.values()
-            if isinstance(k, JointKnot)
+            k.position for k in state.layout.knots.values() if isinstance(k, JointKnot)
         ]
         assert all(
             not (abs(p.x - 2.5) < 1e-9 and abs(p.y - 0.5) < 1e-9)
@@ -155,7 +205,8 @@ class TestEndpointMergeMismatchedAttrs:
         _add(state, [(0.5, 0.5), (2.5, 0.5)], insulated=True)
         _add(state, [(2.5, 0.5), (4.5, 0.5)], insulated=False)
         joint_at_pad = [
-            k for k in state.layout.knots.values()
+            k
+            for k in state.layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -193,7 +244,9 @@ class TestEndpointMergeUndo:
         state = _State()
         _add(state, [(0.5, 0.5), (2.5, 0.5)], insulated=True)
         cmd2 = _add(
-            state, [(2.5, 0.5), (4.5, 0.5)], insulated=False,
+            state,
+            [(2.5, 0.5), (4.5, 0.5)],
+            insulated=False,
         )
         # No fusion happened → _collapses is empty → revert simply
         # removes the second wire.
@@ -210,17 +263,19 @@ class TestEndpointMergeUndo:
 def _state_with_pin_at(pos: Point) -> _State:
     """Helper that places a 1-pin SIL component at ``pos`` so the pad
     becomes a real PinKnot site."""
-    from protoboard.domain.components.footprints import SIL
     from protoboard.domain.layout.placement import ComponentPlacement
+
     state = _State()
-    defn = ComponentDefinition.from_footprint(
-        name="STUB", footprint=SIL(1), pin_names={1: "P1"},
-    )
+    defn, family = _one_pin_definition("STUB")
+    state.package_families[family.family_id] = family
     state.components["STUB"] = defn
     comp_id = uuid.uuid4()
     state.instances[comp_id] = ComponentInstance(
-        id=comp_id, definition_ref="STUB", refdes="X1", value="",
-    ).bind(defn, {})
+        id=comp_id,
+        definition_ref="STUB",
+        refdes="X1",
+        value="",
+    ).bind(defn, state.package_families)
     state.layout.placements[comp_id] = ComponentPlacement(
         component_id=comp_id,
         position=pos,
@@ -238,10 +293,7 @@ class TestEndpointMergeOnPin:
         # Both wires end at the same pin — pin is a physical hub, no fuse.
         assert len(state.layout.wires) == 2
         # PinKnot exists at the pin's position.
-        pin_knots = [
-            k for k in state.layout.knots.values()
-            if isinstance(k, PinKnot)
-        ]
+        pin_knots = [k for k in state.layout.knots.values() if isinstance(k, PinKnot)]
         assert len(pin_knots) == 1
 
 
@@ -260,8 +312,10 @@ class TestInteriorSplitOnAdd:
         assert len(state.layout.wires) == wires_before + 2
         # And a shared hub (JointKnot) at (2.5, 0.5) with degree-3.
         from protoboard.domain.layout.knot import JointKnot
+
         hub_candidates = [
-            k for k in state.layout.knots.values()
+            k
+            for k in state.layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -281,8 +335,10 @@ class TestInteriorSplitOnAdd:
         # And no JointKnot at the split position (was a non-pin pad —
         # the hub created by make_t_junction was orphan after revert).
         from protoboard.domain.layout.knot import JointKnot
+
         hub_candidates = [
-            k for k in state.layout.knots.values()
+            k
+            for k in state.layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -310,36 +366,49 @@ class _SchematicState(_State):
     def __init__(self) -> None:
         super().__init__()
         from protoboard.domain.schematic.schematic import Schematic
+
         self.schematic = Schematic(nets={})
 
 
 def _place_pin_at(
-    state: _SchematicState, refdes: str, pos: Point, side: str = "top",
+    state: _SchematicState,
+    refdes: str,
+    pos: Point,
+    side: str = "top",
 ) -> ComponentInstance:
     """Drop a 1-pin SIL component at *pos* on *side*.  Returns the new instance."""
-    from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.components.footprints import SIL
     from protoboard.domain.layout.placement import ComponentPlacement
+
     defn_name = f"_R_{refdes}"
-    defn = ComponentDefinition.from_footprint(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
+    defn, family = _one_pin_definition(defn_name)
+    state.package_families[family.family_id] = family
     state.components[defn_name] = defn
     inst = ComponentInstance.new(
-        definition_ref=defn_name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn_name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, state.package_families)
     state.instances[inst.id] = inst
     state.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=pos, rotation=0, side=side,  # type: ignore[arg-type]
+        component_id=inst.id,
+        position=pos,
+        rotation=0,
+        side=side,  # type: ignore[arg-type]
     )
     return inst
 
 
 def _net_with(
-    state: _SchematicState, name: str, *pins: tuple[ComponentInstance, int],
+    state: _SchematicState,
+    name: str,
+    *pins: tuple[ComponentInstance, int],
 ) -> uuid.UUID:
     from protoboard.domain.schematic.net import Net, PinRef
+
     nid = uuid.uuid4()
     state.schematic.nets[nid] = Net(
-        id=nid, name=name,
+        id=nid,
+        name=name,
         pins={PinRef(component_id=i.id, pin_number=p) for i, p in pins},
     )
     return nid
@@ -365,7 +434,8 @@ class TestEndpointMergeCrossNet:
         _add(state, [(4.5, 0.5), (2.5, 0.5)])
         # Two joints at (2.5, 0.5), one per net — not one shared hub.
         joints_here = [
-            k for k in state.layout.knots.values()
+            k
+            for k in state.layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -384,7 +454,8 @@ class TestEndpointMergeCrossNet:
         _add(state, [(0.5, 0.5), (2.5, 0.5)])
         _add(state, [(4.5, 0.5), (2.5, 0.5)])
         joints_here = [
-            k for k in state.layout.knots.values()
+            k
+            for k in state.layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 2.5) < 1e-9
             and abs(k.position.y - 0.5) < 1e-9
@@ -414,7 +485,8 @@ class TestEndpointMergeCrossNet:
         _add(state, [(0.5, 0.5), (3.5, 2.5)], side="bottom")
         _add(state, [(6.5, 0.5), (3.5, 2.5)], side="bottom")
         joints_here = [
-            k for k in state.layout.knots.values()
+            k
+            for k in state.layout.knots.values()
             if isinstance(k, JointKnot)
             and abs(k.position.x - 3.5) < 1e-9
             and abs(k.position.y - 2.5) < 1e-9
@@ -443,9 +515,13 @@ class _StrategyState(_SchematicState):
     def pad_index(self):
         if self._pad_index_cache is None:
             from protoboard.domain.board.pad_state import PadIndex
+
             self._pad_index_cache = PadIndex(
-                board=self.board, layout=self.layout, schematic=self.schematic,
-                components=self.components, instances=self.instances,
+                board=self.board,
+                layout=self.layout,
+                schematic=self.schematic,
+                components=self.components,
+                instances=self.instances,
             )
         return self._pad_index_cache
 
@@ -454,8 +530,11 @@ class _StrategyState(_SchematicState):
 
     def strategy_for(self, subsystem: str):
         from protoboard.services.pad_strategy import (
-            StrategyConfig, SubsystemName, make_strategy,
+            StrategyConfig,
+            SubsystemName,
+            make_strategy,
         )
+
         name = cast(SubsystemName, subsystem)
         return make_strategy(name, StrategyConfig.from_session(self, name))
 

@@ -6,8 +6,8 @@ from __future__ import annotations
 import pytest
 from PySide6.QtGui import QColor, QPen, QTransform
 
-from protoboard.gui.renderers.packages import BodyCanvas
 from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.gui.renderers.packages import BodyCanvas
 
 
 def _canvas(**kw) -> BodyCanvas:
@@ -19,6 +19,7 @@ def _canvas(**kw) -> BodyCanvas:
 class TestCanvasState:
     def test_defaults_apply_to_items(self, qtbot) -> None:
         import pytest
+
         c = _canvas(alpha=0.5, z=3.0)
         item = c.addRect((0, 0), (2, 1))
         assert item.zValue() == 3.0
@@ -118,8 +119,8 @@ class TestCanvasShapes:
         # A rounded corner pulls the path off the sharp corner point.
         assert sharp.path().contains(_pt(0.02, 0.02))
         assert not uniform.path().contains(_pt(0.02, 0.02))
-        assert not mixed.path().contains(_pt(0.02, 0.02))    # tl rounded
-        assert mixed.path().contains(_pt(1.98, 1.98))        # br sharp
+        assert not mixed.path().contains(_pt(0.02, 0.02))  # tl rounded
+        assert mixed.path().contains(_pt(1.98, 1.98))  # br sharp
 
 
 class TestCanvasUnits:
@@ -169,4 +170,5 @@ class TestCanvasUnits:
 
 def _pt(x: float, y: float):
     from PySide6.QtCore import QPointF
+
     return QPointF(x, y)

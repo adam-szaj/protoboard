@@ -6,8 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import cast
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtCore import Qt
 
 from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.layout.wire import Wire
@@ -27,14 +26,18 @@ def _draft_items(tool: SimplifyTool) -> list[object]:
 
 
 def _press(
-    view: BoardView, x: float, y: float,
+    view: BoardView,
+    x: float,
+    y: float,
     *,
     shift: bool = False,
     button: Qt.MouseButton = Qt.MouseButton.LeftButton,
 ) -> None:
     tool = view._active_tool
     assert tool is not None
-    mods = Qt.KeyboardModifier.ShiftModifier if shift else Qt.KeyboardModifier.NoModifier
+    mods = (
+        Qt.KeyboardModifier.ShiftModifier if shift else Qt.KeyboardModifier.NoModifier
+    )
     tool.on_press(pointer(x, y, button=int(button.value), mods=mods))
 
 
@@ -66,7 +69,9 @@ class TestSimplifyToolDraft:
     """Shift+LPM on a wire creates a draft (no commit yet)."""
 
     def test_shift_lpm_creates_draft_overlay(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         wid = _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
@@ -78,11 +83,15 @@ class TestSimplifyToolDraft:
         assert len(_draft_items(tool)) > 0
         # Wire NOT yet modified.
         assert session.layout.wires[0].path == [
-            Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5),
+            Point(0.5, 0.5),
+            Point(2.5, 0.5),
+            Point(2.5, 2.5),
         ]
 
     def test_plain_lpm_does_not_create_draft(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         # Plain LPM (no Shift) → SelectTool behaviour (select), no draft.
         _add_l_shape_wire(session)
@@ -94,7 +103,9 @@ class TestSimplifyToolDraft:
         assert _draft_items(tool) == []
 
     def test_escape_clears_draft(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
@@ -107,7 +118,9 @@ class TestSimplifyToolDraft:
         assert _draft_items(tool) == []
 
     def test_plain_lpm_after_draft_clears_it(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
@@ -120,7 +133,9 @@ class TestSimplifyToolDraft:
         assert tool._draft_path is None
 
     def test_deactivate_clears_draft(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
@@ -129,6 +144,7 @@ class TestSimplifyToolDraft:
         _press(board_view, 2.5, 0.5, shift=True)
         assert _draft_items(tool)
         from protoboard.gui.tools.gui_tools import SelectTool
+
         board_view.set_tool(SelectTool())
         assert tool._draft_path is None
         assert _draft_items(tool) == []
@@ -138,7 +154,9 @@ class TestSimplifyToolApply:
     """Second Shift+LPM on the same wire commits the draft."""
 
     def test_second_shift_lpm_applies_draft(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
@@ -154,7 +172,9 @@ class TestSimplifyToolApply:
         assert (2.5, 0.5) not in coords  # old L-corner gone
 
     def test_apply_clears_draft_state(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
@@ -167,7 +187,9 @@ class TestSimplifyToolApply:
         assert _draft_items(tool) == []
 
     def test_apply_undoable(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         _add_l_shape_wire(session)
         original_path = list(session.layout.wires[0].path)
@@ -179,7 +201,9 @@ class TestSimplifyToolApply:
         assert list(session.layout.wires[0].path) == original_path
 
     def test_shift_lpm_on_different_wire_replaces_draft(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         # Two wires; draft for first, then Shift+LPM on second → new draft
         # for second (does NOT apply the first wire's draft).
@@ -188,7 +212,8 @@ class TestSimplifyToolApply:
         wb = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 3.5), Point(2.5, 3.5), Point(2.5, 4.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         session.layout.wires.append(wb)
         session.invalidate_graph()
@@ -203,16 +228,22 @@ class TestSimplifyToolApply:
         assert tool._draft_wire_id == wb.id
         # Neither wire was committed yet.
         assert session.layout.wires[0].path == [
-            Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5),
+            Point(0.5, 0.5),
+            Point(2.5, 0.5),
+            Point(2.5, 2.5),
         ]
         assert session.layout.wires[1].path == [
-            Point(0.5, 3.5), Point(2.5, 3.5), Point(2.5, 4.5),
+            Point(0.5, 3.5),
+            Point(2.5, 3.5),
+            Point(2.5, 4.5),
         ]
 
 
 class TestSimplifyToolNoopWire:
     def test_no_simplification_possible_keeps_draft_empty(
-        self, board_view: BoardView, session: EditorSession,
+        self,
+        board_view: BoardView,
+        session: EditorSession,
     ) -> None:
         w = Wire(
             id=uuid.uuid4(),

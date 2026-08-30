@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.board.board import Board
-from protoboard.gui.dialogs.new_project_dialog import NewProjectDialog
 from protoboard.gui import recent_projects
+from protoboard.gui.dialogs.new_project_dialog import NewProjectDialog
 
 
 class WelcomeDialog(QDialog):

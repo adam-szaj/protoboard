@@ -17,6 +17,7 @@ The generator is the source-of-truth for the YAML fixtures under
 ``tests/fixtures/synthetic_bench/<name>/``.  ``scripts/regenerate.py``
 re-emits them on disk via ``save_project``.
 """
+
 from __future__ import annotations
 
 import random
@@ -38,14 +39,13 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-    pin_world_position,
     PlacementCollection,
+    pin_world_position,
 )
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
-
 
 # ---------------------------------------------------------------------------
 # Spec
@@ -60,13 +60,13 @@ class ProjectSpec:
     """Knobs that fully determine the generated project."""
 
     name: str
-    rows: int                  # board rows
-    cols: int                  # board cols
-    n_components: int          # total component count
+    rows: int  # board rows
+    cols: int  # board cols
+    n_components: int  # total component count
     kind: BoardKind = "perfboard"
     # Mix knobs — must sum to <= 1.0; remainder goes to local 2-pin nets.
-    global_rail_pin_frac: float = 0.10   # per rail (GND, VCC)
-    multipin_local_frac: float = 0.20    # fraction of remaining pins in 3-5-pin nets
+    global_rail_pin_frac: float = 0.10  # per rail (GND, VCC)
+    multipin_local_frac: float = 0.20  # fraction of remaining pins in 3-5-pin nets
     seed: int = 0x5EED
 
 
@@ -75,12 +75,16 @@ MEDIUM = ProjectSpec(name="medium", rows=30, cols=40, n_components=50)
 LARGE = ProjectSpec(name="large", rows=60, cols=80, n_components=150)
 PLATED_THROUGH = ProjectSpec(
     name="plated_through",
-    rows=30, cols=40, n_components=50,
+    rows=30,
+    cols=40,
+    n_components=50,
     kind="plated_through",
 )
 STRIPBOARD_MIXED = ProjectSpec(
     name="stripboard_mixed",
-    rows=30, cols=40, n_components=40,
+    rows=30,
+    cols=40,
+    n_components=40,
     kind="stripboard_mixed",
 )
 
@@ -126,9 +130,13 @@ def _strip_cell(length: int) -> StripAtom:
 
 def _grid(cell, rows: int, cols: int) -> BoardGrid:
     return BoardGrid(
-        width_policy=_HUG, height_policy=_HUG,
-        cell=cell, rows=rows, cols=cols,
-        row_gap=0.0, col_gap=0.0,
+        width_policy=_HUG,
+        height_policy=_HUG,
+        cell=cell,
+        rows=rows,
+        cols=cols,
+        row_gap=0.0,
+        col_gap=0.0,
     )
 
 
@@ -144,8 +152,10 @@ def _build_board(spec: ProjectSpec) -> Board:
         strip_grid = _grid(_strip_cell(strip_cols), spec.rows, 1)
         perf_grid = _grid(_perf_cell(), spec.rows, perf_cols)
         root = HBox(
-            width_policy=_HUG, height_policy=_HUG,
-            children=[strip_grid, perf_grid], gap=0.0,
+            width_policy=_HUG,
+            height_policy=_HUG,
+            children=[strip_grid, perf_grid],
+            gap=0.0,
         )
         return Board(root=root)
 
@@ -162,6 +172,7 @@ def _resolve_components() -> dict[str, ComponentDefinition]:
     """Load the built-in library so the generator can look up footprints."""
     from protoboard.paths import BUILTIN_LIBRARY_DIR
     from protoboard.services.library.loader import load_library
+
     lib = load_library([BUILTIN_LIBRARY_DIR])
     return {name: lib.get(name) for name in lib.names()}
 
@@ -184,16 +195,16 @@ _HEADER_DEF = "PinHeader_1x04"
 class _Slot:
     """One placement cell in the slot grid."""
 
-    archetype: str          # "R" or "H4"
-    origin_col: int         # left edge of slot, in board cells
-    origin_row: int         # top edge of slot, in board cells
+    archetype: str  # "R" or "H4"
+    origin_col: int  # left edge of slot, in board cells
+    origin_row: int  # top edge of slot, in board cells
 
 
 def _slot_geometry() -> dict[str, tuple[int, int]]:
     """Width × height (board cells) reserved by each archetype's slot."""
     return {
-        "R":  (1, 2),    # 2-pin SIL, vertical
-        "H4": (1, 4),    # 4-pin SIL, vertical
+        "R": (1, 2),  # 2-pin SIL, vertical
+        "H4": (1, 4),  # 4-pin SIL, vertical
     }
 
 
@@ -250,7 +261,8 @@ def _build_slots(spec: ProjectSpec, archetypes: list[str]) -> list[_Slot]:
 
 
 def _placement_for_slot(
-    slot: _Slot, component_id: uuid.UUID,
+    slot: _Slot,
+    component_id: uuid.UUID,
 ) -> tuple[ComponentPlacement, dict[int, Vector]]:
     """Build placement + override pin offsets so the body fits the slot.
 
@@ -305,7 +317,9 @@ def _build_nets(
         defn = components[inst.definition_ref]
         for pin_no in range(1, defn.default_footprint().pin_count() + 1):
             ref = PinRef(component_id=cid, pin_number=pin_no)
-            pin_pool.append((ref, pin_world_position(defn.default_footprint(), placement, pin_no)))
+            pin_pool.append(
+                (ref, pin_world_position(defn.default_footprint(), placement, pin_no))
+            )
 
     rng.shuffle(pin_pool)
     total = len(pin_pool)
@@ -321,10 +335,10 @@ def _build_nets(
 
     # Remaining pins → local nets.  Sort by (y, x) for stable nearest-neighbour
     # pairing — gives nets that connect physically close pins (low wire/MST ratio).
-    remaining = [
-        (ref, pos) for ref, pos in pin_pool[2 * n_rail_each:]
-    ]
-    remaining.sort(key=lambda rp: (rp[1].y, rp[1].x, str(rp[0].component_id), rp[0].pin_number))
+    remaining = [(ref, pos) for ref, pos in pin_pool[2 * n_rail_each :]]
+    remaining.sort(
+        key=lambda rp: (rp[1].y, rp[1].x, str(rp[0].component_id), rp[0].pin_number)
+    )
 
     assigned: set[PinRef] = set()
     local_nets: list[set[PinRef]] = []
@@ -352,10 +366,16 @@ def _build_nets(
             target_size = rng.randint(3, 5)
             # Greedy: add nearest unassigned pins until reaching target_size.
             while len(members) < target_size:
-                centroid_x = sum(remaining[k][1].x for k in range(len(remaining))
-                                 if remaining[k][0] in members) / len(members)
-                centroid_y = sum(remaining[k][1].y for k in range(len(remaining))
-                                 if remaining[k][0] in members) / len(members)
+                centroid_x = sum(
+                    remaining[k][1].x
+                    for k in range(len(remaining))
+                    if remaining[k][0] in members
+                ) / len(members)
+                centroid_y = sum(
+                    remaining[k][1].y
+                    for k in range(len(remaining))
+                    if remaining[k][0] in members
+                ) / len(members)
                 next_idx: tuple[float, int] | None = None
                 for k, (cand_ref, cand_pos) in enumerate(remaining):
                     if cand_ref in members or cand_ref in assigned:
@@ -418,12 +438,16 @@ def generate_project(spec: ProjectSpec) -> ProjectBundle:
         if slot.archetype == "R":
             r_count += 1
             inst = ComponentInstance.new(
-                definition_ref=_RESISTOR_DEF, refdes=f"R{r_count}", value="10k",
+                definition_ref=_RESISTOR_DEF,
+                refdes=f"R{r_count}",
+                value="10k",
             )
         else:
             h_count += 1
             inst = ComponentInstance.new(
-                definition_ref=_HEADER_DEF, refdes=f"J{h_count}", value="HDR4",
+                definition_ref=_HEADER_DEF,
+                refdes=f"J{h_count}",
+                value="HDR4",
             )
         instances[inst.id] = inst
         placement, _ = _placement_for_slot(slot, inst.id)

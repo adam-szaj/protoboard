@@ -13,6 +13,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -20,8 +22,6 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.item_handle import ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -53,11 +53,16 @@ def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UU
     """Add an "R" instance + placement at (x, y); returns its component id."""
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -67,14 +72,16 @@ def _make_group(session: HeadlessSession, member_ids: list[uuid.UUID]) -> uuid.U
     """Wrap *member_ids* in a new non-root group, child of ROOT."""
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G1",
+        id=grp_id,
+        name="G1",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,
@@ -87,7 +94,8 @@ def test_delete_loose_component() -> None:
     session = _session()
     cid = _place(session, 0.5, 0.5, "R1")
     ran = session.edit_controller.delete(
-        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID,
+        [ItemId.component(cid)],
+        active_group_id=ROOT_GROUP_ID,
     )
     assert ran is True
     assert cid not in session.layout.placements
@@ -98,7 +106,8 @@ def test_delete_vetoed_for_grouped_from_outside() -> None:
     cid = _place(session, 0.5, 0.5, "R1")
     _make_group(session, [cid])
     ran = session.edit_controller.delete(
-        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID,
+        [ItemId.component(cid)],
+        active_group_id=ROOT_GROUP_ID,
     )
     assert ran is False  # nothing survived the group-lock filter
     assert cid in session.layout.placements  # mutation blocked
@@ -114,8 +123,8 @@ def test_multi_delete_filters_grouped() -> None:
         active_group_id=ROOT_GROUP_ID,
     )
     assert ran is True
-    assert free not in session.layout.placements   # free deleted
-    assert grouped in session.layout.placements    # grouped survives
+    assert free not in session.layout.placements  # free deleted
+    assert grouped in session.layout.placements  # grouped survives
 
 
 def test_delete_works_after_entering_group() -> None:
@@ -124,7 +133,8 @@ def test_delete_works_after_entering_group() -> None:
     gid = _make_group(session, [cid])
     # Active context is the group itself → its direct members are mutable.
     ran = session.edit_controller.delete(
-        [ItemId.component(cid)], active_group_id=gid,
+        [ItemId.component(cid)],
+        active_group_id=gid,
     )
     assert ran is True
     assert cid not in session.layout.placements
@@ -148,7 +158,9 @@ def test_force_does_not_override_component_group_lock() -> None:
     cid = _place(session, 0.5, 0.5, "R1")
     _make_group(session, [cid])
     ran = session.edit_controller.delete(
-        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID, force=True,
+        [ItemId.component(cid)],
+        active_group_id=ROOT_GROUP_ID,
+        force=True,
     )
     assert ran is False
     assert cid in session.layout.placements

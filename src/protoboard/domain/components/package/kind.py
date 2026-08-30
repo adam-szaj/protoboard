@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from functools import lru_cache
+from functools import cache
 from typing import Any
 
 from protoboard.domain.components.footprints import Footprint
@@ -89,7 +89,7 @@ def is_generic_package(package: object) -> bool:
     return any(tag in _GENERIC_KINDS for tag in lineage)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _synth_generic_by_pins(
     pins: tuple[tuple[float, float], ...], bend_holes: float
 ) -> Package | None:
@@ -127,7 +127,7 @@ def synth_generic_package(fp: Footprint, *, bend_holes: float = 0.0) -> Package 
     """A NON-rigid generic bbox package whose pins follow *fp*.
 
     The fallback body for a library part that declares no real package, so
-    ``ComponentDefinition.package`` can be an invariant (always set). Geometry is
+    component package choices can remain non-empty. Geometry is
     the pin-cloud bbox + 0.5-hole margin (matching the legacy ``component_bbox``
     body footprint). It is rigid by default: bendability must be declared by
     the package rather than inferred from a missing component package. Tagged

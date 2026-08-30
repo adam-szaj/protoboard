@@ -28,9 +28,9 @@ if TYPE_CHECKING:
 class GroupsPanel(QWidget):
     """Lists all component groups in a tree; supports rename and disband."""
 
-    group_selected = Signal(uuid.UUID)   # emitted when user clicks a group row
+    group_selected = Signal(uuid.UUID)  # emitted when user clicks a group row
     group_disbanded = Signal(uuid.UUID)  # emitted after DisbandGroupCommand executes
-    group_renamed = Signal(uuid.UUID)    # emitted after RenameGroupCommand executes
+    group_renamed = Signal(uuid.UUID)  # emitted after RenameGroupCommand executes
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]

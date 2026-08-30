@@ -205,8 +205,6 @@ class SessionNetSource:
         return frozenset(wid for wid, mapped in wnm.items() if mapped == net_id)
 
 
-def iter_component_nets(
-    component_id: uuid.UUID, conn: ConnQuery
-) -> Iterable[NetId]:
+def iter_component_nets(component_id: uuid.UUID, conn: ConnQuery) -> Iterable[NetId]:
     """Convenience: nets a component touches (used by adapters' ``net_ids``)."""
     return conn.nets_for_component(component_id)

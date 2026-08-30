@@ -14,6 +14,12 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import (
+    ComponentHandle,
+    ItemId,
+    ReadOnlyComponentHandle,
+)
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -21,12 +27,6 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.item_handle import (
-    ComponentHandle,
-    ItemId,
-    ReadOnlyComponentHandle,
-)
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -58,11 +58,16 @@ def _place(
 ) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value=value,
+        definition_ref="R",
+        refdes=refdes,
+        value=value,
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -71,14 +76,16 @@ def _place(
 def _make_group(session: HeadlessSession, member_ids: list[uuid.UUID]) -> uuid.UUID:
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G1",
+        id=grp_id,
+        name="G1",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,
@@ -133,14 +140,12 @@ def test_read_only_handle_exposes_properties() -> None:
     cid = _place(session, 0.5, 0.5, "R7", value="4k7")
     _make_group(session, [cid])
 
-    handle = session.edit_controller.get_component(
-        cid, active_group_id=ROOT_GROUP_ID
-    )
+    handle = session.edit_controller.get_component(cid, active_group_id=ROOT_GROUP_ID)
     assert isinstance(handle, ReadOnlyComponentHandle)  # sealed → read-only
     assert handle.value == "4k7"
     assert handle.refdes == "R7"
     assert handle.part_number == "R"
-    assert isinstance(handle.pin_names, dict)
+    assert isinstance(handle.meta_pin_labels, dict)
 
 
 def test_editable_handle_exposes_same_reads() -> None:
@@ -152,7 +157,7 @@ def test_editable_handle_exposes_same_reads() -> None:
     assert handle.value == "1k"
     assert handle.refdes == "R1"
     assert handle.part_number == "R"
-    assert isinstance(handle.pin_names, dict)
+    assert isinstance(handle.meta_pin_labels, dict)
 
 
 # -- group / wire handle read properties -------------------------------------
@@ -174,8 +179,10 @@ def test_wire_handle_exposes_side_and_insulated() -> None:
 
     session = _session()
     w = Wire(
-        id=uuid.uuid4(), path=[Point(0.0, 0.0), Point(2.0, 0.0)],
-        insulated=True, side="bottom",
+        id=uuid.uuid4(),
+        path=[Point(0.0, 0.0), Point(2.0, 0.0)],
+        insulated=True,
+        side="bottom",
     )
     session.layout.wires.append(w)
     session.invalidate_graph()
@@ -199,8 +206,10 @@ def _wire(session: HeadlessSession) -> uuid.UUID:
     from protoboard.domain.layout.wire import Wire
 
     w = Wire(
-        id=uuid.uuid4(), path=[Point(0.0, 0.0), Point(2.0, 0.0)],
-        insulated=False, side="top",
+        id=uuid.uuid4(),
+        path=[Point(0.0, 0.0), Point(2.0, 0.0)],
+        insulated=False,
+        side="top",
     )
     session.layout.wires.append(w)
     session.invalidate_graph()
@@ -214,7 +223,9 @@ def test_mutable_component_handle_predicates() -> None:
     assert (h.is_component(), h.is_group(), h.is_wire()) == (True, False, False)
     assert (h.is_readonly(), h.is_mutable()) == (False, True)
     assert (h.supports_rotate(), h.supports_flip(), h.supports_delete()) == (
-        True, True, True,
+        True,
+        True,
+        True,
     )
 
 
@@ -237,7 +248,9 @@ def test_group_handle_predicates() -> None:
     assert (h.is_component(), h.is_group(), h.is_wire()) == (False, True, False)
     assert (h.is_readonly(), h.is_mutable()) == (False, True)
     assert (h.supports_rotate(), h.supports_flip(), h.supports_delete()) == (
-        True, True, True,
+        True,
+        True,
+        True,
     )
 
 
@@ -248,7 +261,9 @@ def test_wire_handle_predicates() -> None:
     assert (h.is_component(), h.is_group(), h.is_wire()) == (False, False, True)
     assert (h.is_readonly(), h.is_mutable()) == (False, True)
     assert (h.supports_rotate(), h.supports_flip(), h.supports_delete()) == (
-        False, False, True,
+        False,
+        False,
+        True,
     )
 
 

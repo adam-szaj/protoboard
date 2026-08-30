@@ -25,7 +25,6 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 
-
 # ---------------------------------------------------------------------------
 # Builders (mirrors test_group_ownership.py for consistency)
 # ---------------------------------------------------------------------------
@@ -191,7 +190,7 @@ class TestCrossGroupDisconnect:
 class TestHalfOrphan:
     def test_half_orphan_internal_net_travels_with_drag(self) -> None:
         # Group with one component c1, internal net (no exports, not global).
-        # Wire from c1.pin1 (PinKnot) to a JointKnot — net internal → half_orphan_internal.
+        # Wire from c1.pin1 (PinKnot) to a JointKnot — net internal → half_orphan_internal.  # noqa: E501
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         group = _group(frozenset({c1, c2}))
         net = _net("INTERNAL", {PinRef(c1, 1), PinRef(c2, 1)})
@@ -400,16 +399,25 @@ class TestAggregate:
         w_external = _wire(ke1, ke2, [Point(9, 9), Point(10, 10)])
 
         knots = {
-            ka1.id: ka1, ka2.id: ka2,
-            kc1.id: kc1, kc2.id: kc2,
-            kh_pin.id: kh_pin, kh_joint.id: kh_joint,
-            kx_pin.id: kx_pin, kx_joint.id: kx_joint,
-            ke1.id: ke1, ke2.id: ke2,
+            ka1.id: ka1,
+            ka2.id: ka2,
+            kc1.id: kc1,
+            kc2.id: kc2,
+            kh_pin.id: kh_pin,
+            kh_joint.id: kh_joint,
+            kx_pin.id: kx_pin,
+            kx_joint.id: kx_joint,
+            ke1.id: ke1,
+            ke2.id: ke2,
         }
 
         cls = classify_wires_for_drag(
             wires=[
-                w_internal, w_disconnect, w_half_int, w_half_ext, w_external,
+                w_internal,
+                w_disconnect,
+                w_half_int,
+                w_half_ext,
+                w_external,
             ],
             drag_set_members=frozenset({c_in_a, c_in_b}),
             knots=knots,  # type: ignore[arg-type]
@@ -432,9 +440,16 @@ class TestAggregate:
             | cls.external
         )
         assert all_buckets == frozenset(
-            {w.id for w in [
-                w_internal, w_disconnect, w_half_int, w_half_ext, w_external,
-            ]}
+            {
+                w.id
+                for w in [
+                    w_internal,
+                    w_disconnect,
+                    w_half_int,
+                    w_half_ext,
+                    w_external,
+                ]
+            }
         )
 
     def test_travels_with_drag_combines_internal_and_half_orphan_internal(

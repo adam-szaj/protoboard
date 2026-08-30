@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.controller.selection_fsm import Hit
 from protoboard.controller.editing.item_handle import ItemId, ItemTag
+from protoboard.controller.selection_fsm import Hit
 
 
 def test_component_hit_maps_to_component_item_id() -> None:

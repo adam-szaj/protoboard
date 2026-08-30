@@ -8,10 +8,15 @@ import uuid
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QGraphicsEllipseItem, QGraphicsItem, QGraphicsItemGroup, QGraphicsLineItem,
-    QGraphicsPathItem, QGraphicsScene,
+    QGraphicsEllipseItem,
+    QGraphicsItem,
+    QGraphicsItemGroup,
+    QGraphicsLineItem,
+    QGraphicsPathItem,
+    QGraphicsScene,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
@@ -23,12 +28,11 @@ from protoboard.domain.layout.placement import (
     PlacementMap,
     pin_world_position,
 )
-from protoboard.domain.layout.wire import Fragment, Wire, Wire
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerState, Z_BACK_WIRES, Z_FRONT_WIRES
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.gui.layer_state import Z_BACK_WIRES, Z_FRONT_WIRES, LayerState
 
 _Z_OUTLINE_OFFSET = -0.05
 _DEFAULT_LAYERS = LayerState()
@@ -156,10 +160,7 @@ def wire_fingerprint_v2(
     board layer).
     """
     return (
-        tuple(
-            (f.side, tuple((p.x, p.y) for p in f.path))
-            for f in wire.fragments
-        ),
+        tuple((f.side, tuple((p.x, p.y) for p in f.path)) for f in wire.fragments),
         wire.insulated,
         net_id,
         color_override,
@@ -222,16 +223,19 @@ def update_wire_groups_v2(
         )
         # A wire disappears only when EVERY side it touches is hidden —
         # hiding the first fragment's side must not erase the rest.
-        visible = any(
-            layers.alpha_for_wire(f.side) > 0.0 for f in wire.fragments
-        )
+        visible = any(layers.alpha_for_wire(f.side) > 0.0 for f in wire.fragments)
         is_bold = (
             highlighted_net_id is not None
             and net_id is not None
             and net_id == highlighted_net_id
         )
         fp = wire_fingerprint_v2(
-            wire, net_id, color_override, z_base, base_alpha, is_bold,
+            wire,
+            net_id,
+            color_override,
+            z_base,
+            base_alpha,
+            is_bold,
             side_alphas,
         )
 
@@ -242,8 +246,13 @@ def update_wire_groups_v2(
                 if not visible:
                     continue
                 grp = _build_wire_group_v2(
-                    wire, net_id, color_override, theme,
-                    layers, glow=False, bold=is_bold,
+                    wire,
+                    net_id,
+                    color_override,
+                    theme,
+                    layers,
+                    glow=False,
+                    bold=is_bold,
                 )
                 grp.add_to_scene(scene)
                 existing_groups[wire.id] = grp
@@ -252,14 +261,21 @@ def update_wire_groups_v2(
             if not visible:
                 continue
             grp = _build_wire_group_v2(
-                wire, net_id, color_override, theme,
-                layers, glow=False, bold=is_bold,
+                wire,
+                net_id,
+                color_override,
+                theme,
+                layers,
+                glow=False,
+                bold=is_bold,
             )
             grp.add_to_scene(scene)
             existing_groups[wire.id] = grp
             existing_fingerprints[wire.id] = fp
 
-        net_alpha = 1.0 if highlighted_net_id is None or is_bold else theme.highlight_dim_wires
+        net_alpha = (
+            1.0 if highlighted_net_id is None or is_bold else theme.highlight_dim_wires
+        )
         existing_groups[wire.id].setOpacity(net_alpha)
 
 
@@ -328,7 +344,11 @@ def _build_wire_group_v2(
             continue
         boundary = wire.fragments[i].path[-1]
         marker = _build_via_marker(
-            boundary, via_radius, via_color, via_ring, Z_FRONT_WIRES - 0.2,
+            boundary,
+            via_radius,
+            via_color,
+            via_ring,
+            Z_FRONT_WIRES - 0.2,
         )
         grp.addToGroup(marker)
 
@@ -338,7 +358,11 @@ def _build_wire_group_v2(
 
 
 def _build_via_marker(
-    pos: Point, radius: float, color: QColor, ring_color: QColor, z: float,
+    pos: Point,
+    radius: float,
+    color: QColor,
+    ring_color: QColor,
+    z: float,
 ) -> QGraphicsPathItem:
     """Filled circle marking a plated-through via point.
 
@@ -370,9 +394,21 @@ def render_wires_with_nets(
         if net_id is not None and net_color_map:
             color_override = net_color_map.get(net_id)
         is_highlighted = highlighted_net_id is not None and net_id == highlighted_net_id
-        net_alpha = 1.0 if highlighted_net_id is None or is_highlighted else theme.highlight_dim_wires
-        _draw_wire(scene, wire, net_id, color_override, theme, layers,
-                   net_alpha=net_alpha, glow=is_highlighted)
+        net_alpha = (
+            1.0
+            if highlighted_net_id is None or is_highlighted
+            else theme.highlight_dim_wires
+        )
+        _draw_wire(
+            scene,
+            wire,
+            net_id,
+            color_override,
+            theme,
+            layers,
+            net_alpha=net_alpha,
+            glow=is_highlighted,
+        )
 
 
 def _draw_wire(
@@ -392,7 +428,12 @@ def _draw_wire(
     if not visible or net_alpha == 0.0:
         return
     grp = _build_wire_group_v2(
-        wire, net_id, color_override, theme, layers, glow=glow,
+        wire,
+        net_id,
+        color_override,
+        theme,
+        layers,
+        glow=glow,
     )
     grp.setOpacity(net_alpha)
     grp.add_to_scene(scene)
@@ -462,7 +503,7 @@ def _fill_bare(
 
 # Keep old names as aliases so existing call-sites in tests/RouteTool still work.
 _draw_insulated = _fill_insulated  # type: ignore[assignment]
-_draw_bare = _fill_bare            # type: ignore[assignment]
+_draw_bare = _fill_bare  # type: ignore[assignment]
 
 
 # ── Wire-pin glyph ───────────────────────────────────────────────────────────
@@ -511,9 +552,11 @@ def render_wire_pins(
             if override:
                 color_str = override
         # Routing-target neon overrides the resolved net colour.
-        if (routing_target_net_id is not None
-                and net_id is not None
-                and net_id == routing_target_net_id):
+        if (
+            routing_target_net_id is not None
+            and net_id is not None
+            and net_id == routing_target_net_id
+        ):
             color_str = theme.routing_target_color
         net_color = QColor(color_str)
         net_color.setAlphaF(alpha)
@@ -522,7 +565,10 @@ def render_wire_pins(
 
         # Outer ring in net colour.
         ring = QGraphicsEllipseItem(
-            pos.x - outer_r, pos.y - outer_r, outer_r * 2.0, outer_r * 2.0,
+            pos.x - outer_r,
+            pos.y - outer_r,
+            outer_r * 2.0,
+            outer_r * 2.0,
         )
         ring.setBrush(QBrush(net_color))
         ring.setPen(QPen(QColor(0, 0, 0, 0), 0))
@@ -533,7 +579,10 @@ def render_wire_pins(
         # Inner dot in pad colour to give the concentric "donut" look —
         # the wire-pin is distinct from a solid component-pin dot.
         dot = QGraphicsEllipseItem(
-            pos.x - inner_r, pos.y - inner_r, inner_r * 2.0, inner_r * 2.0,
+            pos.x - inner_r,
+            pos.y - inner_r,
+            inner_r * 2.0,
+            inner_r * 2.0,
         )
         dot.setBrush(QBrush(inner_color))
         dot.setPen(QPen(QColor(0, 0, 0, 0), 0))
@@ -617,7 +666,11 @@ def render_ratsnest(
         # graph is supplied the whole net is one "island" — keeps the
         # function usable from tests / save-as-svg paths.
         islands = _pin_islands_for_net(
-            net.pins, placements, instances, components, graph,
+            net.pins,
+            placements,
+            instances,
+            components,
+            graph,
         )
         # Strip empty islands (pins not yet placed) — happens whenever
         # a schematic references a component still floating in the
@@ -698,7 +751,8 @@ def _pin_islands_for_net(
 
 
 def _lines_within_island(
-    points: list[Point], use_closest: bool,
+    points: list[Point],
+    use_closest: bool,
 ) -> list[tuple[Point, Point]]:
     """Lines drawn *inside* a single island — only used when the net is
     not yet routed (1 island, missing links).
@@ -711,11 +765,7 @@ def _lines_within_island(
     if n < 2:
         return []
     if not use_closest:
-        return [
-            (points[i], points[j])
-            for i in range(n)
-            for j in range(i + 1, n)
-        ]
+        return [(points[i], points[j]) for i in range(n) for j in range(i + 1, n)]
     drawn: set[tuple[int, int]] = set()
     lines: list[tuple[Point, Point]] = []
     for i in range(n):
@@ -739,7 +789,8 @@ def _lines_within_island(
 
 
 def _lines_between_islands(
-    islands: list[list[Point]], use_closest: bool,
+    islands: list[list[Point]],
+    use_closest: bool,
 ) -> list[tuple[Point, Point]]:
     """Lines connecting multiple electrical islands of the same net.
 
@@ -790,7 +841,8 @@ def _lines_between_islands(
 
 
 def _closest_cross_pair(
-    a: list[Point], b: list[Point],
+    a: list[Point],
+    b: list[Point],
 ) -> tuple[Point, Point] | None:
     """Return the closest (pa, pb) where pa ∈ a, pb ∈ b."""
     if not a or not b:

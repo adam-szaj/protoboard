@@ -9,6 +9,7 @@ class of bug; this test loads each fixture, re-runs autoroute from a
 clean slate with ``enable_simplify_pass=True``, and asserts that DRC
 reports no SHORT issue.
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -21,7 +22,6 @@ from protoboard.services.drc.engine import DRCEngine
 from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import load_project
 from protoboard.services.routing.autorouter import autoroute
-
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
@@ -36,7 +36,10 @@ def _run_autoroute_and_drc(fixture_dir: Path):
     )
 
     lib = load_library([BUILTIN_LIBRARY_DIR])
-    families = load_full_package_catalogue()
+    families = {
+        **load_full_package_catalogue(),
+        **lib.package_families,
+    }
     # Bind loaded instances to the catalogue exactly as production does
     # (mirrors session.py): without it the returned instances are unbound
     # and resolving their geometry raises UnboundInstanceError.
@@ -55,7 +58,11 @@ def _run_autoroute_and_drc(fixture_dir: Path):
     # (which is the code path under test).
     clean = replace(layout, wires=[])
     result = autoroute(
-        board, clean, schematic, components, instances,
+        board,
+        clean,
+        schematic,
+        components,
+        instances,
         cost_model=routing.cost_model(),
         wire_mode="bare_diagonal",
         max_rip_up_passes=routing.max_rip_up_passes,
@@ -86,7 +93,8 @@ def test_tangled_autoroute_simplify_no_shorts(fixture_name: str) -> None:
         pytest.skip(f"fixture {fixture_name!r} not present")
     _result, issues = _run_autoroute_and_drc(fixture_dir)
     shorts = [i for i in issues if i.code == "SHORT"]
-    assert not shorts, (
-        f"Simplify produced {len(shorts)} short(s) on {fixture_name}: "
-        + "; ".join(i.message for i in shorts[:5])
+    assert (
+        not shorts
+    ), f"Simplify produced {len(shorts)} short(s) on {fixture_name}: " + "; ".join(
+        i.message for i in shorts[:5]
     )

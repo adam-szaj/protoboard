@@ -11,9 +11,9 @@ Uses the headless harness from ``test_wire_edit_tool.py`` (``_headless`` +
 ``_arm``) since it exercises ``WireEditTool.activate()``/``_exit()`` directly
 without needing qtbot key/click plumbing.
 """
+
 from __future__ import annotations
 
-from protoboard.controller.selection.wire_edit import WireRange
 from protoboard.gui.session import EditorSession
 from tests.gui.test_wire_edit_tool import _arm, _detour_wire, _headless
 
@@ -46,7 +46,7 @@ def test_dim_not_stacked_on_rearm(session: EditorSession) -> None:
     wire = _detour_wire(session)
     tool = _arm(view, wire)
 
-    tool._flip_wire_fragment()  # commit + re-arm on the full span; activate() not re-run
+    tool._flip_wire_fragment()  # commit + re-arm on the full span; activate() not re-run  # noqa: E501
 
     assert tool._wire_edit is not None  # stays armed (not exited)
     # Pop once -> empty. Proves the dim was pushed exactly once (no

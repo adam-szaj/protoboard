@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene
+from PySide6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsRectItem,
+    QGraphicsScene,
+)
 
 if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import MoveConflictResult
@@ -17,8 +22,8 @@ _Z = 50.0
 _OUTLINE_WIDTH = 0.12
 _MARKER_RADIUS = 0.22
 
-_COLOR_REMOVABLE = QColor(220, 180, 0, 200)   # yellow-amber
-_COLOR_BLOCKED   = QColor(220, 50,  30, 220)  # red
+_COLOR_REMOVABLE = QColor(220, 180, 0, 200)  # yellow-amber
+_COLOR_BLOCKED = QColor(220, 50, 30, 220)  # red
 
 
 class DragConflictOverlay:
@@ -69,7 +74,7 @@ class DragConflictOverlay:
 
     def rerender(self, scene: QGraphicsScene | None) -> None:
         """Re-add overlay items after a scene rebuild. No-op if no result stored."""
-        self._items.clear()   # old C++ objects are gone after scene.clear()
+        self._items.clear()  # old C++ objects are gone after scene.clear()
         if scene is not None and self._last_result is not None:
             self._render(scene, self._last_result, self._last_bbox)
 
@@ -110,10 +115,14 @@ class DragConflictOverlay:
         if drag_bbox is not None:
             x0, y0, x1, y1 = drag_bbox
             pad = 0.2
-            rect = QGraphicsRectItem(QRectF(
-                x0 - pad, y0 - pad,
-                (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad,
-            ))
+            rect = QGraphicsRectItem(
+                QRectF(
+                    x0 - pad,
+                    y0 - pad,
+                    (x1 - x0) + 2 * pad,
+                    (y1 - y0) + 2 * pad,
+                )
+            )
             pen = QPen(color, _OUTLINE_WIDTH)
             pen.setStyle(Qt.PenStyle.DashLine)
             rect.setPen(pen)

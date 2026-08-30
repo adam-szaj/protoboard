@@ -35,9 +35,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
-from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.geometry import Point
-from protoboard.controller.tools.base import ControllerTool, _ViewProto
+from protoboard.controller.editing.item_handle import ItemId, ItemTag
 from protoboard.controller.highlight_controller import HighlightController
 from protoboard.controller.ports import (
     LEFT_BUTTON,
@@ -48,22 +46,37 @@ from protoboard.controller.ports import (
     StatusEvent,
     WheelInput,
 )
-from protoboard.controller.selection.drag_controller import DragController, FloatingPhase
+from protoboard.controller.selection.drag_controller import (
+    DragController,
+    FloatingPhase,
+)
 from protoboard.controller.selection.hit_test import HitTester, SelectionFilters
 from protoboard.controller.selection.mouse_input import Intent, Mods
 from protoboard.controller.selection.rubber_band_controller import RubberBandController
 from protoboard.controller.selection.service import SelectionService
 from protoboard.controller.selection_fsm import BasisScope, SetOp
+from protoboard.controller.tools.base import ControllerTool, _ViewProto
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
+from protoboard.geometry import Point
 from protoboard.services.debug_trace import traced
-from protoboard.controller.editing.item_handle import ItemId, ItemTag
 
 _log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
-    from collections.abc import Mapping
-
+    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing.drag_set import DragSet
+    from protoboard.controller.selection.adapters import WireVertexSelectable
+    from protoboard.controller.selection.mouse_input import MouseInputController
+    from protoboard.controller.selection.selectable import Selectable
+    from protoboard.controller.selection.wire_edit import WireEditState
+    from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.controller.tools.select_preview import SelectPreview
+    from protoboard.controller.tools.select_prompts import GroupTargetPrompt
+    from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
+    from protoboard.controller.tools.wire_edit_tool import WireEditTool
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import RedragResult
@@ -71,19 +84,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
-    from protoboard.controller.editing.drag_set import DragSet
-    from protoboard.controller.selection.adapters import WireVertexSelectable
-    from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
-    from protoboard.controller.tools.wire_edit_tool import WireEditTool
-    from protoboard.controller.selection.mouse_input import MouseInputController
-    from protoboard.controller.selection.selectable import Selectable
-    from protoboard.controller.selection.wire_edit import WireEditState
-    from protoboard.controller.editing import EditState
-    from protoboard.controller.ports.executor import ExecutorPort
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
-    from protoboard.controller.tools.select_prompts import GroupTargetPrompt
-    from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
-    from protoboard.controller.tools.select_preview import SelectPreview
 
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
@@ -110,6 +110,7 @@ _ACT_CONTEXT_MENU = "select-tool.action.context_menu"
 # keybindings.py with their own defaults; the tool dispatches them in on_key.
 _ACT_RELATION_CYCLE = "highlight_cycle"
 _ACT_RELATION_CYCLE_BACK = "relation_cycle_back"
+
 
 class SelectToolView(_ViewProto, Protocol):
     """The view surface SelectTool depends on (qt-ports §4 pattern).
@@ -193,9 +194,7 @@ class SelectTool(ControllerTool):
         # ``gui.tools.gui_tools.WireEditTool`` (preview + on_key).  ``[E]`` on a
         # selected wire resolves the fragment range then hands off to this tool
         # (mirrors ``_armed_transform_factory``).
-        self._wire_edit_factory: Callable[..., WireEditTool] | None = (
-            wire_edit_factory
-        )
+        self._wire_edit_factory: Callable[..., WireEditTool] | None = wire_edit_factory
         self._wire_edit_factory_injected = wire_edit_factory is not None
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
@@ -320,9 +319,7 @@ class SelectTool(ControllerTool):
 
         from protoboard.types import Side
 
-        return HitTester(
-            self._session, camera_side=cast(Side, self._view.camera_side)
-        )
+        return HitTester(self._session, camera_side=cast(Side, self._view.camera_side))
 
     def _filters(self) -> SelectionFilters:
         """Translate the held :class:`SelectionFilter` into the hit-test's
@@ -338,9 +335,7 @@ class SelectTool(ControllerTool):
         )
 
     @traced()
-    def _pick_at(
-        self, what: object, scene_pt: Point
-    ) -> Selectable | None:
+    def _pick_at(self, what: object, scene_pt: Point) -> Selectable | None:
         """Resolve a click into the Selectable the active pick wants.
 
         A ``pad`` / ``point`` pick resolves to the snapped board coordinate (a
@@ -392,9 +387,9 @@ class SelectTool(ControllerTool):
     @staticmethod
     def _decode_modifiers(mods: Mods) -> tuple[BasisScope, SetOp]:
         op = (
-            SetOp.REMOVE if (mods.ctrl and mods.shift)
-            else SetOp.ADD if mods.ctrl
-            else SetOp.SET
+            SetOp.REMOVE
+            if (mods.ctrl and mods.shift)
+            else SetOp.ADD if mods.ctrl else SetOp.SET
         )
         basis = BasisScope.RELATION if mods.alt else BasisScope.SINGLE
         return basis, op
@@ -790,9 +785,7 @@ class SelectTool(ControllerTool):
         # the separate Ungroup action (Delete does not disband today).
         item_ids = [
             ItemId.component(cid) for cid in self._selected_by_kind("component")
-        ] + [
-            ItemId.wire(wid) for wid in self._selected_by_kind("wire")
-        ]
+        ] + [ItemId.wire(wid) for wid in self._selected_by_kind("wire")]
         self._wire_edit_clear()
         ran = self._session.edit_controller.delete(
             item_ids,
@@ -941,9 +934,7 @@ class SelectTool(ControllerTool):
             return RelationSource.component(hit.id)
         return None
 
-    def _relation_correlated_selectables(
-        self, sel: Selectable
-    ) -> list[Selectable]:
+    def _relation_correlated_selectables(self, sel: Selectable) -> list[Selectable]:
         """The relation-correlated components + wires of *sel* as Selectables.
 
         Resolves ``(comp_ids, wire_ids)`` via :func:`relation_correlated` over
@@ -1052,9 +1043,8 @@ class SelectTool(ControllerTool):
         as a *click* (``was_click``) that caught nothing, so it never ran the
         band's select.  That click is the deselect gesture — clear here.
         """
-        if (
-            isinstance(mouse, RubberBandController)
-            and getattr(mouse, "was_click", False)
+        if isinstance(mouse, RubberBandController) and getattr(
+            mouse, "was_click", False
         ):
             self._clear_selection_to_empty()
             self._refresh_highlight()
@@ -1146,10 +1136,11 @@ class SelectTool(ControllerTool):
             if gid in (ROOT_GROUP_ID, active):
                 continue
             bbs = [
-                b for b in (
-                    self._session.component_bbox(m)
-                    for m in tree.all_component_ids(gid)
-                ) if b is not None
+                b
+                for b in (
+                    self._session.component_bbox(m) for m in tree.all_component_ids(gid)
+                )
+                if b is not None
             ]
             if not bbs:
                 continue
@@ -1222,8 +1213,8 @@ class SelectTool(ControllerTool):
         LTR: only fully-enclosed (all group members inside).  RTL: anything
         touching (any group member intersecting the rect).
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.controller.selection.adapters import GroupSelectable
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         out: list[object] = []
         tree = self._session.group_tree()
@@ -1231,23 +1222,25 @@ class SelectTool(ControllerTool):
             if gid == ROOT_GROUP_ID:
                 continue
             bbs = [
-                b for b in (
-                    self._session.component_bbox(m)
-                    for m in tree.all_component_ids(gid)
-                ) if b is not None
+                b
+                for b in (
+                    self._session.component_bbox(m) for m in tree.all_component_ids(gid)
+                )
+                if b is not None
             ]
             if not bbs:
                 continue
             if ltr:
                 hit = all(
-                    b.x >= rx0 and b.y >= ry0
-                    and b.x + b.lx <= rx1 and b.y + b.ly <= ry1
+                    b.x >= rx0
+                    and b.y >= ry0
+                    and b.x + b.lx <= rx1
+                    and b.y + b.ly <= ry1
                     for b in bbs
                 )
             else:
                 hit = any(
-                    b.x < rx1 and b.x + b.lx > rx0
-                    and b.y < ry1 and b.y + b.ly > ry0
+                    b.x < rx1 and b.x + b.lx > rx0 and b.y < ry1 and b.y + b.ly > ry0
                     for b in bbs
                 )
             if hit:
@@ -1270,9 +1263,7 @@ class SelectTool(ControllerTool):
         return wires + groups
 
     @traced()
-    def _arm_drag(
-        self, sel: Selectable, scene_pt: Point
-    ) -> DragController | None:
+    def _arm_drag(self, sel: Selectable, scene_pt: Point) -> DragController | None:
         """Build a drag for the current selection grabbed at *sel*.
 
         When the grabbed entity is a group, or a component locked inside a group
@@ -1363,9 +1354,7 @@ class SelectTool(ControllerTool):
             states[wid] = "normal"
         if states:
             setter(states)
-        self._ghosted_wire_ids = {
-            wid for wid, st in states.items() if st != "normal"
-        }
+        self._ghosted_wire_ids = {wid for wid, st in states.items() if st != "normal"}
 
     def _show_conflict_corner(self, decision: DragCommitDecision | None) -> None:
         """Show/clear the corner conflict label for a live preview decision.
@@ -1570,9 +1559,7 @@ class SelectTool(ControllerTool):
         shift = bool(isinstance(mods, Mods) and mods.shift)
         if ctrl and shift:  # REMOVE — current minus the caught set
             drop = {p.to_hit() for p in picked}
-            final = [
-                s for s in self._selection.selected() if s.to_hit() not in drop
-            ]
+            final = [s for s in self._selection.selected() if s.to_hit() not in drop]
         elif ctrl:  # ADD — union of current + caught (dedup by hit)
             final = list(self._selection.selected())
             seen = {s.to_hit() for s in final}
@@ -1618,9 +1605,11 @@ class SelectTool(ControllerTool):
             and mouse.is_floating
             and mouse.last_decision is not None
         ):
-            dropped = len(mouse.last_decision.free_drop_wire_ids) + len(
-                mouse.last_decision.cross_group_disconnect_wire_ids
-            ) + len(mouse.last_decision.stationary_group_drop_wire_ids)
+            dropped = (
+                len(mouse.last_decision.free_drop_wire_ids)
+                + len(mouse.last_decision.cross_group_disconnect_wire_ids)
+                + len(mouse.last_decision.stationary_group_drop_wire_ids)
+            )
         if not mouse.on_event(intent):
             return False
         if mouse.finished:
@@ -1628,9 +1617,7 @@ class SelectTool(ControllerTool):
             self._clear_drag_corner()
             self._refresh_highlight()
             if dropped:
-                self._status(
-                    f"Removed {dropped} wire(s) (Ctrl+Z to undo)", 4000
-                )
+                self._status(f"Removed {dropped} wire(s) (Ctrl+Z to undo)", 4000)
             if self._view is not None:
                 self._view.refresh()
         return True
@@ -1660,8 +1647,10 @@ class SelectTool(ControllerTool):
         pick-a-pin sub-step).  Re-clicking another pin during the pad pick
         switches the grab.
         """
-        cid = comp_id if comp_id is not None else next(
-            iter(self._selected_comp_ids()), None
+        cid = (
+            comp_id
+            if comp_id is not None
+            else next(iter(self._selected_comp_ids()), None)
         )
         if cid is None:
             self._status("Re-drag: select a component with a bendable lead first")
@@ -1802,16 +1791,11 @@ class SelectTool(ControllerTool):
         if self._selection is None:
             return None
         for sel in self._selection.selected():
-            if (
-                isinstance(sel, ComponentSelectable)
-                and sel.component_id == comp_id
-            ):
+            if isinstance(sel, ComponentSelectable) and sel.component_id == comp_id:
                 return sel.pin_number
         return None
 
-    def _selectable_pin(
-        self, comp_id: uuid.UUID, sel: Selectable | None
-    ) -> int | None:
+    def _selectable_pin(self, comp_id: uuid.UUID, sel: Selectable | None) -> int | None:
         """The pin number if *sel* is a pin of *comp_id* (any pin), else ``None``.
 
         Any pin is a valid re-drag grab: a bendable pin bends its lead, a rigid
@@ -1827,9 +1811,7 @@ class SelectTool(ControllerTool):
             return sel.pin_number
         return None
 
-    def _picked_pin(
-        self, comp_id: uuid.UUID, picked: list[Selectable]
-    ) -> int | None:
+    def _picked_pin(self, comp_id: uuid.UUID, picked: list[Selectable]) -> int | None:
         """Extract a pin of *comp_id* from a completed component pick."""
         if not picked:
             return None
@@ -1860,7 +1842,6 @@ class SelectTool(ControllerTool):
         ``on_preview`` (``(scene_pt, mods) -> None``) drives a live cursor
         preview on pointer motion (the reroute rubber-band line).
         """
-        from collections.abc import Callable
         from typing import cast
 
         from protoboard.controller.selection.point_pick_controller import (
@@ -1877,9 +1858,7 @@ class SelectTool(ControllerTool):
             cast("Stop", stop),
             on_done=cast("Callable[[list[Selectable]], None]", on_done),
             on_cancel=cast("Callable[[], None] | None", on_cancel),
-            on_progress=cast(
-                "Callable[[list[Selectable]], None] | None", on_progress
-            ),
+            on_progress=cast("Callable[[list[Selectable]], None] | None", on_progress),
         )
 
         custom_resolve = cast(
@@ -1894,9 +1873,7 @@ class SelectTool(ControllerTool):
         self._mouse = PointPickController(
             session,
             _resolve,
-            on_preview=cast(
-                "Callable[[Point, Mods], None] | None", on_preview
-            ),
+            on_preview=cast("Callable[[Point, Mods], None] | None", on_preview),
         )
 
     def _redrag_progress(self, picked: list[Selectable]) -> None:
@@ -1953,7 +1930,7 @@ class SelectTool(ControllerTool):
 
     def _redrag_feasibility(
         self, comp_id: uuid.UUID, pin: int, target: Point
-    ) -> "RedragResult | None":
+    ) -> RedragResult | None:
         """Evaluate a candidate re-drag of *pin* to *target* (snapped).
 
         Resolves the component's footprint + bend specs and calls the pure-domain
@@ -1976,6 +1953,7 @@ class SelectTool(ControllerTool):
         specs = effective_bend_specs(defn, inst, families)
         snapped = self._snap(target, frozenset())
         from protoboard.domain.components.package import resolved_footprint
+
         return redrag_feasibility(
             footprint=resolved_footprint(defn, inst, families),
             placement=pl,
@@ -2019,12 +1997,8 @@ class SelectTool(ControllerTool):
         if spec is None or not spec.is_free() or spec.max_reach <= 0.0:
             return
         temp = pl.copy()
-        temp.pin_offsets = {
-            k: v for k, v in pl.pin_offsets.items() if k != pin
-        }
-        centre = pin_world_position(
-            resolved_footprint(defn, inst, families), temp, pin
-        )
+        temp.pin_offsets = {k: v for k, v in pl.pin_offsets.items() if k != pin}
+        centre = pin_world_position(resolved_footprint(defn, inst, families), temp, pin)
         self.preview.show_reach_disc(centre, spec.max_reach)
 
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
@@ -2139,9 +2113,7 @@ class SelectTool(ControllerTool):
         self._wire_edit_wire_id = wire_id
         self._wire_edit_cycle = WireEditCycle()
         self._draw_wire_edit_overlay()
-        self._status(
-            "Pick the fragment: click two wire vertices  ·  [Esc] Cancel", 0
-        )
+        self._status("Pick the fragment: click two wire vertices  ·  [Esc] Cancel", 0)
         self._arm_pick(
             "wire-vertex",
             Stop.count(2),
@@ -2161,24 +2133,26 @@ class SelectTool(ControllerTool):
         considered (a plated-through pad on the far side still anchors a vertex).
         Restored from the legacy tool; dropped in the v2 hit-test rewrite.
         """
+        from protoboard.controller.selection.wire_edit import replace_wire_path_cmd
         from protoboard.domain.layout.wire_utils import (
             board_pads_for_side,
             insert_pad_nodes,
         )
-        from protoboard.controller.selection.wire_edit import replace_wire_path_cmd
 
         wire = self._wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
-        pads = (
-            board_pads_for_side(self._session.board, "top")
-            | board_pads_for_side(self._session.board, "bottom")
+        pads = board_pads_for_side(self._session.board, "top") | board_pads_for_side(
+            self._session.board, "bottom"
         )
         enriched = insert_pad_nodes(list(wire.path), pads)
         if enriched == list(wire.path):
             return  # already has every pad vertex
         cmd = replace_wire_path_cmd(
-            self._session.layout, wire, enriched, list(wire.path),
+            self._session.layout,
+            wire,
+            enriched,
+            list(wire.path),
         )
         self._execute(cmd)
 
@@ -2195,9 +2169,9 @@ class SelectTool(ControllerTool):
         from protoboard.controller.selection.adapters import WireVertexSelectable
 
         if picked and isinstance(picked[-1], WireVertexSelectable):
-            self._wire_edit_start = picked[0] if isinstance(
-                picked[0], WireVertexSelectable
-            ) else None
+            self._wire_edit_start = (
+                picked[0] if isinstance(picked[0], WireVertexSelectable) else None
+            )
         self._draw_wire_edit_overlay()
 
     def _range_picked(self, picked: list[Selectable]) -> None:
@@ -2276,9 +2250,7 @@ class SelectTool(ControllerTool):
         self._refresh_highlight()
 
     def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
-        return next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        return next((w for w in self._session.layout.wires if w.id == wire_id), None)
 
     def _refresh_after_wire_op(self) -> None:
         self._refresh_highlight()
@@ -2328,9 +2300,7 @@ class SelectTool(ControllerTool):
             wire = self._wire_by_id(wid)
             if wire is None:
                 continue
-            self.preview.show_wire_edit_wire(
-                list(wire.path), marked.get(wid, set())
-            )
+            self.preview.show_wire_edit_wire(list(wire.path), marked.get(wid, set()))
 
     def _clear_wire_edit_overlay(self) -> None:
         self.preview.clear_wire_edit()
@@ -2359,12 +2329,12 @@ class SelectTool(ControllerTool):
         layer now, not here — SelectTool only owns the ``[E]`` entry.
         """
         return {
-            _ACT_EDIT: None,        # global.action.edit  (default "E")
-            _ACT_DELETE: None,      # global.action.delete (default "Del")
-            _ACT_CANCEL: None,      # global.action.cancel (default "Esc")
-            _ACT_ROTATE: "R",       # arm float-rotate (hands off to ArmedTransformTool)
-            _ACT_MOVE: "G",         # arm keyboard float-move ("grab")
-            _ACT_FLIP: None,        # global.action.flip (default "Alt+R") — immediate flip
+            _ACT_EDIT: None,  # global.action.edit  (default "E")
+            _ACT_DELETE: None,  # global.action.delete (default "Del")
+            _ACT_CANCEL: None,  # global.action.cancel (default "Esc")
+            _ACT_ROTATE: "R",  # arm float-rotate (hands off to ArmedTransformTool)
+            _ACT_MOVE: "G",  # arm keyboard float-move ("grab")
+            _ACT_FLIP: None,  # global.action.flip (default "Alt+R") — immediate flip
         }
 
     def command_table(self) -> dict[str, Callable[[], object]]:
@@ -2394,9 +2364,7 @@ class SelectTool(ControllerTool):
         shortcuts, so they reach the tool anyway and need no claim here.  The
         wire-edit op-key claims live on the WireEditTool's own layer.
         """
-        return (
-            (_ACT_DELETE, self._has_selection),
-        )
+        return ((_ACT_DELETE, self._has_selection),)
 
     def _has_selection(self) -> bool:
         return not self._selection.is_empty()
@@ -2416,9 +2384,7 @@ class SelectTool(ControllerTool):
         tuple[str, Callable[[PointerInput | WheelInput], bool]],
         ...,
     ]:
-        return (
-            (_ACT_CONTEXT_MENU, self._mouse_context_menu),
-        )
+        return ((_ACT_CONTEXT_MENU, self._mouse_context_menu),)
 
     def _mouse_context_menu(self, inp: PointerInput | WheelInput) -> bool:
         if not isinstance(inp, PointerInput):
@@ -2449,8 +2415,8 @@ class SelectTool(ControllerTool):
     @traced()
     def _invoke_armed_atomic(
         self,
-        arm: "Callable[[], None]",
-        action: "Callable[[ArmedTransformTool], None]",
+        arm: Callable[[], None],
+        action: Callable[[ArmedTransformTool], None],
     ) -> bool:
         """Run one armed action atomically: arm → action → accept.
 
@@ -2500,7 +2466,11 @@ class SelectTool(ControllerTool):
         )
 
     def _arm_transform(
-        self, mode: str, *, empty_msg: str, none_msg: str,
+        self,
+        mode: str,
+        *,
+        empty_msg: str,
+        none_msg: str,
         pivot: Point | None = None,
     ) -> None:
         """Resolve the selection and switch to the ArmedTransformTool.
@@ -2511,7 +2481,9 @@ class SelectTool(ControllerTool):
         active group are handed to the new tool, which arms the controller and
         returns control here on accept / cancel.
         """
-        assert self._armed_transform_factory is not None  # set by activate() / injection
+        assert (
+            self._armed_transform_factory is not None
+        )  # set by activate() / injection
 
         if self._selection.is_empty():
             self._status(empty_msg)
@@ -2524,7 +2496,8 @@ class SelectTool(ControllerTool):
         self._pivot_capture_pending = False
         self._view.tools.set_tool(
             self._armed_transform_factory(
-                comp_ids, group_id,
+                comp_ids,
+                group_id,
                 active_group_id=self._current_group_id,
                 mode=mode,
                 pivot=pivot,
@@ -2807,20 +2780,30 @@ class SelectTool(ControllerTool):
 
         free_pos: Point | None = None
         hit = sel.to_hit() if sel is not None else None
-        if hit is not None and hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+        if (
+            hit is not None
+            and hit.kind == "component"
+            and isinstance(hit.id, uuid.UUID)
+        ):
             pin = hit.pin_number  # the on-pad pin (None for a body click)
-            if pin is not None and self._session.schematic.net_for_pin(
-                PinRef(component_id=hit.id, pin_number=pin)
-            ) is None:
+            if (
+                pin is not None
+                and self._session.schematic.net_for_pin(
+                    PinRef(component_id=hit.id, pin_number=pin)
+                )
+                is None
+            ):
                 free_pos = self._session.get_pin_position(hit.id, pin)
                 inst = self._session.instances.get(hit.id)
                 defn = (
                     self._session.components.get(inst.definition_ref)
-                    if inst is not None else None
+                    if inst is not None
+                    else None
                 )
                 name = (
                     " / ".join(defn.meta_pin(pin).labels)
-                    if defn is not None else str(pin)
+                    if defn is not None
+                    else str(pin)
                 )
                 self._status(
                     f"Pin {pin} ({name}) — no net (right-click → Assign to net)",
@@ -2831,9 +2814,7 @@ class SelectTool(ControllerTool):
         if setter is not None:
             setter(free_pos)
 
-    def _menu_clicked_pin(
-        self, scene_pt: Point, comp_id: uuid.UUID
-    ) -> int | None:
+    def _menu_clicked_pin(self, scene_pt: Point, comp_id: uuid.UUID) -> int | None:
         """Pin number of *comp_id* nearest the click (within a pad pitch), else
         None.  Lets the menu offer pin-aware entries (assign/disconnect) for the
         exact pin under the cursor."""
@@ -2864,7 +2845,8 @@ class SelectTool(ControllerTool):
         inst = self._session.instances.get(comp_id)
         defn = (
             self._session.components.get(inst.definition_ref)
-            if inst is not None else None
+            if inst is not None
+            else None
         )
         if inst is None or defn is None:
             return []
@@ -2880,20 +2862,24 @@ class SelectTool(ControllerTool):
             cp_net = self._session.schematic.net_for_pin(
                 _PinRef(component_id=comp_id, pin_number=clicked_pin)
             )
-            out.append(ActionOption(
-                action_id="select-tool.ctx.assign_pin",
-                label=f"Assign pin {clicked_pin} ({pin_name}) to net…",
-                data={"component_id": comp_id, "pin": clicked_pin},
-            ))
-            if cp_net is not None:
-                out.append(ActionOption(
-                    action_id="select-tool.ctx.disconnect_pin",
-                    label=(
-                        f"Disconnect pin {clicked_pin} ({pin_name})"
-                        f"  ←  {cp_net.name}"
-                    ),
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.assign_pin",
+                    label=f"Assign pin {clicked_pin} ({pin_name}) to net…",
                     data={"component_id": comp_id, "pin": clicked_pin},
-                ))
+                )
+            )
+            if cp_net is not None:
+                out.append(
+                    ActionOption(
+                        action_id="select-tool.ctx.disconnect_pin",
+                        label=(
+                            f"Disconnect pin {clicked_pin} ({pin_name})"
+                            f"  ←  {cp_net.name}"
+                        ),
+                        data={"component_id": comp_id, "pin": clicked_pin},
+                    )
+                )
 
         # ── Lock / Unlock (whole current selection, falling back to clicked) ──
         lock_targets: set[uuid.UUID] = {comp_id} | set(self._selected_ids)
@@ -2904,35 +2890,45 @@ class SelectTool(ControllerTool):
             all_locked = all(placements[t].locked for t in present)
             if len(present) == 1:
                 locked = placements[present[0]].locked
-                out.append(ActionOption(
-                    action_id="select-tool.ctx.lock",
-                    label="\U0001f513 Unlock" if locked else "\U0001f512 Lock",
-                    data={"component_ids": frozenset(present),
-                          "locked": not locked},
-                ))
+                out.append(
+                    ActionOption(
+                        action_id="select-tool.ctx.lock",
+                        label="\U0001f513 Unlock" if locked else "\U0001f512 Lock",
+                        data={
+                            "component_ids": frozenset(present),
+                            "locked": not locked,
+                        },
+                    )
+                )
             else:
-                out.append(ActionOption(
-                    action_id="select-tool.ctx.lock",
-                    label=f"\U0001f512 Lock all ({len(present)})",
-                    enabled=not all_locked,
-                    data={"component_ids": frozenset(present), "locked": True},
-                ))
-                out.append(ActionOption(
-                    action_id="select-tool.ctx.lock",
-                    label=f"\U0001f513 Unlock all ({len(present)})",
-                    enabled=any_locked,
-                    data={"component_ids": frozenset(present), "locked": False},
-                ))
+                out.append(
+                    ActionOption(
+                        action_id="select-tool.ctx.lock",
+                        label=f"\U0001f512 Lock all ({len(present)})",
+                        enabled=not all_locked,
+                        data={"component_ids": frozenset(present), "locked": True},
+                    )
+                )
+                out.append(
+                    ActionOption(
+                        action_id="select-tool.ctx.lock",
+                        label=f"\U0001f513 Unlock all ({len(present)})",
+                        enabled=any_locked,
+                        data={"component_ids": frozenset(present), "locked": False},
+                    )
+                )
 
         # ── Move to the other board side (top ↔ bottom) ──────────────────────
         cur_pl = placements.get(comp_id)
         if cur_pl is not None and not cur_pl.locked:
             other = "bottom" if cur_pl.side == "top" else "top"
-            out.append(ActionOption(
-                action_id="select-tool.ctx.component_side",
-                label=f"Move to {other} side",
-                data={"component_id": comp_id},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.component_side",
+                    label=f"Move to {other} side",
+                    data={"component_id": comp_id},
+                )
+            )
 
         # ── Export pins + autoroute, inside a non-root active group ───────────
         out += self._ctx_export_options(comp_id, defn, clicked_pin)
@@ -2965,31 +2961,42 @@ class SelectTool(ControllerTool):
             inst = self._session.instances.get(comp_id)
             refdes = inst.refdes if inst is not None else "?"
             submenu = f"{refdes} — export/unexport pins…"
-            out.append(ActionOption(
-                action_id="select-tool.ctx.export_all_pins",
-                label="Export all pins", submenu=submenu,
-                data={"group_id": active_gid},
-            ))
-            out.append(ActionOption(
-                action_id="select-tool.ctx.export_auto_pins",
-                label="Export auto (pins on external nets)", submenu=submenu,
-                data={"group_id": active_gid},
-            ))
-            out.append(ActionOption(
-                action_id="select-tool.ctx.clear_all_pins",
-                label="Unexport all pins", submenu=submenu,
-                data={"group_id": active_gid},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.export_all_pins",
+                    label="Export all pins",
+                    submenu=submenu,
+                    data={"group_id": active_gid},
+                )
+            )
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.export_auto_pins",
+                    label="Export auto (pins on external nets)",
+                    submenu=submenu,
+                    data={"group_id": active_gid},
+                )
+            )
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.clear_all_pins",
+                    label="Unexport all pins",
+                    submenu=submenu,
+                    data={"group_id": active_gid},
+                )
+            )
             if is_direct:
                 out += self._ctx_pin_export_options(
                     submenu, comp_id, defn, active_gid, active_grp, clicked_pin
                 )
 
-        out.append(ActionOption(
-            action_id="select-tool.ctx.autoroute_group",
-            label="Autoroute group (internal connections)",
-            data={"group_id": active_gid},
-        ))
+        out.append(
+            ActionOption(
+                action_id="select-tool.ctx.autoroute_group",
+                label="Autoroute group (internal connections)",
+                data={"group_id": active_gid},
+            )
+        )
         return out
 
     def _ctx_pin_export_options(
@@ -3018,12 +3025,14 @@ class SelectTool(ControllerTool):
                 if already
                 else f"  Export pin {pin_num} ({pin_name}){marker}"
             )
-            out.append(ActionOption(
-                action_id="select-tool.ctx.export_pin",
-                label=label, submenu=submenu,
-                data={"group_id": active_gid, "pin_ref": ep,
-                      "exported": already},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.export_pin",
+                    label=label,
+                    submenu=submenu,
+                    data={"group_id": active_gid, "pin_ref": ep, "exported": already},
+                )
+            )
         return out
 
     def _ctx_select_options(
@@ -3060,44 +3069,66 @@ class SelectTool(ControllerTool):
         out: list[ActionOption] = []
         if len(net_ids) == 1:
             nid = net_ids[0]
-            out.append(ActionOption(
-                action_id="select-tool.ctx.select_net_components",
-                label=f"Components in net '{_net_name(nid)}'", group=group,
-                data={"net_ids": (nid,)},
-            ))
-            out.append(ActionOption(
-                action_id="select-tool.ctx.select_net_wires",
-                label=f"Wires of net '{_net_name(nid)}'", group=group,
-                data={"net_ids": (nid,)},
-            ))
-            out.append(ActionOption(
-                action_id="select-tool.ctx.select_net_all",
-                label=f"Wires + components of net '{_net_name(nid)}'",
-                group=group, data={"net_ids": (nid,)},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.select_net_components",
+                    label=f"Components in net '{_net_name(nid)}'",
+                    group=group,
+                    data={"net_ids": (nid,)},
+                )
+            )
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.select_net_wires",
+                    label=f"Wires of net '{_net_name(nid)}'",
+                    group=group,
+                    data={"net_ids": (nid,)},
+                )
+            )
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.select_net_all",
+                    label=f"Wires + components of net '{_net_name(nid)}'",
+                    group=group,
+                    data={"net_ids": (nid,)},
+                )
+            )
         else:
             ids_t = tuple(net_ids)
-            out.append(ActionOption(
-                action_id="select-tool.ctx.select_net_components",
-                label="Components in same nets", group=group,
-                data={"net_ids": ids_t},
-            ))
-            out.append(ActionOption(
-                action_id="select-tool.ctx.select_net_wires",
-                label="Wires of same nets", group=group,
-                data={"net_ids": ids_t},
-            ))
-            out.append(ActionOption(
-                action_id="select-tool.ctx.select_net_all",
-                label="Wires + components of all nets", group=group,
-                data={"net_ids": ids_t},
-            ))
-            for nid in net_ids:
-                out.append(ActionOption(
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.select_net_components",
+                    label="Components in same nets",
+                    group=group,
+                    data={"net_ids": ids_t},
+                )
+            )
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.select_net_wires",
+                    label="Wires of same nets",
+                    group=group,
+                    data={"net_ids": ids_t},
+                )
+            )
+            out.append(
+                ActionOption(
                     action_id="select-tool.ctx.select_net_all",
-                    label=_net_name(nid), group=group, submenu="Net…",
-                    data={"net_ids": (nid,)},
-                ))
+                    label="Wires + components of all nets",
+                    group=group,
+                    data={"net_ids": ids_t},
+                )
+            )
+            for nid in net_ids:
+                out.append(
+                    ActionOption(
+                        action_id="select-tool.ctx.select_net_all",
+                        label=_net_name(nid),
+                        group=group,
+                        submenu="Net…",
+                        data={"net_ids": (nid,)},
+                    )
+                )
         return out
 
     def _ctx_highlight_options(self) -> list[ActionOption]:
@@ -3107,20 +3138,20 @@ class SelectTool(ControllerTool):
         return [
             ActionOption(
                 action_id="select-tool.ctx.highlight_selection",
-                label="Highlight selection (Dimmed #2)", group=group,
+                label="Highlight selection (Dimmed #2)",
+                group=group,
                 data={"kind": "push"},
             ),
             ActionOption(
                 action_id="select-tool.ctx.clear_highlight",
-                label="Clear highlight", group=group,
+                label="Clear highlight",
+                group=group,
                 enabled=self._session.highlight_stack.has_persistent(),
                 data={"kind": "clear"},
             ),
         ]
 
-    def _ctx_wire_options(
-        self, wire_id: uuid.UUID | None
-    ) -> list[ActionOption]:
+    def _ctx_wire_options(self, wire_id: uuid.UUID | None) -> list[ActionOption]:
         """Wire mutation options — bare/insulated, side, flip, simplify,
         optimize, unweave, merge.  Mirrors the legacy wire section; the
         underlying helpers already exist on v2."""
@@ -3145,42 +3176,60 @@ class SelectTool(ControllerTool):
         out: list[ActionOption] = []
 
         if wire.insulated:
-            out.append(ActionOption(
-                action_id="select-tool.ctx.wire_insulated",
-                label="Set bare (no insulation)", group=group,
-                data={"wire_ids": wires, "insulated": False},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.wire_insulated",
+                    label="Set bare (no insulation)",
+                    group=group,
+                    data={"wire_ids": wires, "insulated": False},
+                )
+            )
         else:
-            out.append(ActionOption(
-                action_id="select-tool.ctx.wire_insulated",
-                label="Set insulated (add insulation jacket)", group=group,
-                data={"wire_ids": wires, "insulated": True},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.wire_insulated",
+                    label="Set insulated (add insulation jacket)",
+                    group=group,
+                    data={"wire_ids": wires, "insulated": True},
+                )
+            )
 
         other_side = "bottom" if wire.side == "top" else "top"
-        out.append(ActionOption(
-            action_id="select-tool.ctx.wire_side",
-            label=f"Move to {other_side} layer", group=group,
-            data={"wire_ids": wires, "side": other_side},
-        ))
+        out.append(
+            ActionOption(
+                action_id="select-tool.ctx.wire_side",
+                label=f"Move to {other_side} layer",
+                group=group,
+                data={"wire_ids": wires, "side": other_side},
+            )
+        )
 
-        out.append(ActionOption(
-            action_id="select-tool.ctx.simplify_wire",
-            label=f"Simplify wire{' paths' if n > 1 else ' path'}", group=group,
-            data={"wire_ids": wires, "mode": None},
-        ))
-        out.append(ActionOption(
-            action_id="select-tool.ctx.simplify_wire",
-            label="Chebyshev (shortcut via diag)", group=group,
-            submenu="Simplify with mode",
-            data={"wire_ids": wires, "mode": "chebyshev"},
-        ))
-        out.append(ActionOption(
-            action_id="select-tool.ctx.simplify_wire",
-            label="Bare-parity (respect anti-short rule)", group=group,
-            submenu="Simplify with mode",
-            data={"wire_ids": wires, "mode": "bare_parity"},
-        ))
+        out.append(
+            ActionOption(
+                action_id="select-tool.ctx.simplify_wire",
+                label=f"Simplify wire{' paths' if n > 1 else ' path'}",
+                group=group,
+                data={"wire_ids": wires, "mode": None},
+            )
+        )
+        out.append(
+            ActionOption(
+                action_id="select-tool.ctx.simplify_wire",
+                label="Chebyshev (shortcut via diag)",
+                group=group,
+                submenu="Simplify with mode",
+                data={"wire_ids": wires, "mode": "chebyshev"},
+            )
+        )
+        out.append(
+            ActionOption(
+                action_id="select-tool.ctx.simplify_wire",
+                label="Bare-parity (respect anti-short rule)",
+                group=group,
+                submenu="Simplify with mode",
+                data={"wire_ids": wires, "mode": "bare_parity"},
+            )
+        )
 
         # Optimize-with: one entry per registered plugin (minus built-in simplify).
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
@@ -3190,49 +3239,66 @@ class SelectTool(ControllerTool):
         for opt_name in opt_names:
             opt = _opt_registry.get(opt_name)
             caps = opt.capabilities()
-            out.append(ActionOption(
-                action_id="select-tool.ctx.optimize_with",
-                label=getattr(opt, "display_name", opt_name), group=group,
-                submenu="Optimize with…", tooltip=caps.notes or "",
-                data={"wire_ids": wires, "optimizer": opt_name},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.optimize_with",
+                    label=getattr(opt, "display_name", opt_name),
+                    group=group,
+                    submenu="Optimize with…",
+                    tooltip=caps.notes or "",
+                    data={"wire_ids": wires, "optimizer": opt_name},
+                )
+            )
 
         if n >= 2:
-            out.append(ActionOption(
-                action_id="select-tool.ctx.unweave_wires",
-                label=f"Unweave {n} wires (topological)", group=group,
-                data={"wire_ids": wires},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.unweave_wires",
+                    label=f"Unweave {n} wires (topological)",
+                    group=group,
+                    data={"wire_ids": wires},
+                )
+            )
 
         mergeable = [
-            w for w in self._session.layout.wires
+            w
+            for w in self._session.layout.wires
             if w.id in target_ids and len(w.fragments) >= 2
         ]
         if mergeable:
             label = (
                 f"Merge same-side fragments"
-                f"{' (' + str(len(mergeable)) + ' wires)' if len(mergeable) > 1 else ''}"
+                f"{' (' + str(len(mergeable)) + ' wires)' if len(mergeable) > 1 else ''}"  # noqa: E501
             )
-            out.append(ActionOption(
-                action_id="select-tool.ctx.merge_wire_fragments",
-                label=label, group=group,
-                data={"wire_ids": wires},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.merge_wire_fragments",
+                    label=label,
+                    group=group,
+                    data={"wire_ids": wires},
+                )
+            )
 
         # Wire-pin conversion — the endpoint op now lives on the tool (not
         # MainWindow). Offer the relevant direction when it applies.
         if len(target_ids) == 1 and self._wire_has_wire_pin_endpoint(wire):
-            out.append(ActionOption(
-                action_id="select-tool.ctx.wire_pin_to_endpoint",
-                label="Convert wire-pin to endpoint", group=group,
-                data={},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.wire_pin_to_endpoint",
+                    label="Convert wire-pin to endpoint",
+                    group=group,
+                    data={},
+                )
+            )
         elif len(target_ids) == 1 and self._wire_endpoint_wire_pin_eligible(wire):
-            out.append(ActionOption(
-                action_id="select-tool.ctx.endpoint_to_wire_pin",
-                label="Convert endpoint to wire-pin", group=group,
-                data={},
-            ))
+            out.append(
+                ActionOption(
+                    action_id="select-tool.ctx.endpoint_to_wire_pin",
+                    label="Convert endpoint to wire-pin",
+                    group=group,
+                    data={},
+                )
+            )
         return out
 
     def perform_context_action(
@@ -3261,14 +3327,15 @@ class SelectTool(ControllerTool):
                 cast("uuid.UUID", data["component_id"]), cast(int, data["pin"])
             )
         elif action in (
-            "export_pin", "export_all_pins", "export_auto_pins", "clear_all_pins"
+            "export_pin",
+            "export_all_pins",
+            "export_auto_pins",
+            "clear_all_pins",
         ):
             self._menu_export(action, data)
         elif action == "autoroute_group":
             self._menu_autoroute_group()
-        elif action in (
-            "select_net_components", "select_net_wires", "select_net_all"
-        ):
+        elif action in ("select_net_components", "select_net_wires", "select_net_all"):
             self._menu_select_net(
                 action, cast("tuple[uuid.UUID, ...]", data["net_ids"])
             )
@@ -3287,9 +3354,7 @@ class SelectTool(ControllerTool):
                 cast(str, data["side"]),
             )
         elif action == "component_side":
-            self._menu_flip_component_side(
-                cast("uuid.UUID", data["component_id"])
-            )
+            self._menu_flip_component_side(cast("uuid.UUID", data["component_id"]))
         elif action == "simplify_wire":
             self._simplify_wires(
                 set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
@@ -3301,9 +3366,7 @@ class SelectTool(ControllerTool):
                 cast(str, data["optimizer"]),
             )
         elif action == "unweave_wires":
-            self._unweave_wires(
-                set(cast("frozenset[uuid.UUID]", data["wire_ids"]))
-            )
+            self._unweave_wires(set(cast("frozenset[uuid.UUID]", data["wire_ids"])))
         elif action == "merge_wire_fragments":
             self._merge_wires_and_fragments(
                 frozenset(cast("frozenset[uuid.UUID]", data["wire_ids"]))
@@ -3318,9 +3381,7 @@ class SelectTool(ControllerTool):
     ) -> None:
         if not wire_ids:
             return
-        self._session.edit_controller.set_wires_insulated(
-            wire_ids, insulated=insulated
-        )
+        self._session.edit_controller.set_wires_insulated(wire_ids, insulated=insulated)
         self._session.notify_changed()
 
     def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:
@@ -3403,24 +3464,24 @@ class SelectTool(ControllerTool):
             ep = cast(PinRef, data["pin_ref"])
             already = cast(bool, data["exported"])
             new_exported = (
-                grp.exported_pins - {ep} if already
-                else grp.exported_pins | {ep}
+                grp.exported_pins - {ep} if already else grp.exported_pins | {ep}
             )
         elif action == "export_all_pins":
             new_exported = self._session.group_tree().exposable_surface(
-                group_id, self._session.instances, self._session.components,
+                group_id,
+                self._session.instances,
+                self._session.components,
             )
         elif action == "export_auto_pins":
             new_exported = self._session.group_tree().external_pins_for_group(
-                group_id, self._session.schematic,
+                group_id,
+                self._session.schematic,
             )
         else:  # clear_all_pins
             new_exported = frozenset()
         if new_exported != grp.exported_pins:
             self._execute_command(
-                SetExportedPinsCommand(
-                    group_id=group_id, new_exported=new_exported
-                )
+                SetExportedPinsCommand(group_id=group_id, new_exported=new_exported)
             )
             self._session.notify_changed()
 
@@ -3431,9 +3492,7 @@ class SelectTool(ControllerTool):
         if callable(slot):
             slot()
 
-    def _menu_select_net(
-        self, action: object, net_ids: tuple[uuid.UUID, ...]
-    ) -> None:
+    def _menu_select_net(self, action: object, net_ids: tuple[uuid.UUID, ...]) -> None:
         """Replace the selection with the components and/or wires of *net_ids*."""
         from protoboard.controller.selection.queries import SessionNetSource
 
@@ -3523,14 +3582,16 @@ class SelectTool(ControllerTool):
         cmd = cast(
             "Command[ComponentState]",
             ConvertEndpointToWirePinCommand(
-                wire_id=wire.id, endpoint=eligible, net_id=wire_net_id,
+                wire_id=wire.id,
+                endpoint=eligible,
+                net_id=wire_net_id,
             ),
         )
         self._execute_command(cmd)
         self._refresh_after_wire_op()
 
     def convert_wire_pin_to_endpoint(self) -> None:
-        """Demote every ``WirePinKnot`` owned by the selected wires to a free endpoint."""
+        """Demote every ``WirePinKnot`` owned by the selected wires to a free endpoint."""  # noqa: E501
         from typing import cast
 
         from protoboard.domain.commands.base import (
@@ -3575,7 +3636,8 @@ class SelectTool(ControllerTool):
             for wp_id in targets
         ]
         cmd = (
-            cmds[0] if len(cmds) == 1
+            cmds[0]
+            if len(cmds) == 1
             else cast(
                 "Command[ComponentState]",
                 MacroCommand(cmds, description="Convert wire-pins to endpoints"),
@@ -3637,9 +3699,7 @@ class SelectTool(ControllerTool):
             wire_ids, side=cast(Side, target_side)
         )
         self._session.notify_changed()
-        self._status_msg(
-            f"Moved {len(wire_ids)} wire(s) to {target_side} layer."
-        )
+        self._status_msg(f"Moved {len(wire_ids)} wire(s) to {target_side} layer.")
 
     def _flip_selected_wires(self) -> None:
         """Flip all selected whole wires by toggling each fragment's side.
@@ -3815,17 +3875,15 @@ class SelectTool(ControllerTool):
             return
         self._commit_wire_macro(cmds, f"Simplify {len(cmds)} wire(s)")
 
-    def _unweave_wires(
-        self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]
-    ) -> None:
+    def _unweave_wires(self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
         from typing import cast
 
+        from protoboard.controller.ports import BlockingJob
         from protoboard.domain.commands.component_cmds import (
             AddWireCommand,
             RemoveWireCommand,
         )
-        from protoboard.controller.ports import BlockingJob
         from protoboard.services.routing.unweave import (
             count_mutual_crossings,
             unweave_wires,
@@ -3885,9 +3943,7 @@ class SelectTool(ControllerTool):
             cmds, f"Unweave {len(targets)} → {len(out)} wire(s)", invalidate=True
         )
         seg = (
-            f" ({len(targets)}→{len(out)} segments)"
-            if len(targets) != len(out)
-            else ""
+            f" ({len(targets)}→{len(out)} segments)" if len(targets) != len(out) else ""
         )
         self._status_msg(f"Unweave: {before} → {after} crossings{seg}")
 
@@ -3934,9 +3990,7 @@ class SelectTool(ControllerTool):
             )
         return frag_cmds, n_fragment_wires, n_fragments_removed
 
-    def _merge_wires_and_fragments(
-        self, wire_ids: frozenset[uuid.UUID] | None
-    ) -> None:
+    def _merge_wires_and_fragments(self, wire_ids: frozenset[uuid.UUID] | None) -> None:
         """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
         from typing import cast
 

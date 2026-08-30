@@ -2,6 +2,7 @@
 """Tests for LayoutError conditions in the layout engine."""
 
 import pytest
+
 from protoboard.domain.board.boxes import (
     HBox,
     PadAtom,

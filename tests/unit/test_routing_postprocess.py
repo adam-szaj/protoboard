@@ -42,9 +42,7 @@ class TestStraighten:
         # electrical contact between the bare wire and the pad.
         w = _bare((0.5, 0.5), (1.5, 0.5), (2.5, 0.5))
         out = straighten_wire(w, _pads())
-        assert [(p.x, p.y) for p in out.path] == [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5)
-        ]
+        assert [(p.x, p.y) for p in out.path] == [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)]
 
     def test_insulated_collinear_drops_mid_point(self) -> None:
         # An insulated wire floats above the board → safe to drop pad nodes.
@@ -72,9 +70,7 @@ class TestStraighten:
         # so the connectivity graph still merges them with this wire.
         w = _bare((0.5, 0.5), (1.5, 1.5), (2.5, 2.5))
         out = straighten_wire(w, _pads())
-        assert [(p.x, p.y) for p in out.path] == [
-            (0.5, 0.5), (1.5, 1.5), (2.5, 2.5)
-        ]
+        assert [(p.x, p.y) for p in out.path] == [(0.5, 0.5), (1.5, 1.5), (2.5, 2.5)]
 
 
 class TestCornerCut:
@@ -145,6 +141,7 @@ class TestSimplifyWires:
 # generic_simplify_wire — the new unified shortcut algorithm.
 # ---------------------------------------------------------------------------
 
+
 class TestGenericSimplifyUserCase:
     """Cover the case the user complained about: diag-diag zigzag that has
     a shorter ortho replacement.
@@ -209,9 +206,7 @@ class TestGenericSimplifyParity:
         assert len(out_blocked.path) == 3  # unchanged
 
         # Same input with CHEBYSHEV — parity ignored → collapses.
-        out_cheb = generic_simplify_wire(
-            w_blocked, [], mode=SimplifyMode.CHEBYSHEV
-        )
+        out_cheb = generic_simplify_wire(w_blocked, [], mode=SimplifyMode.CHEBYSHEV)
         assert len(out_cheb.path) == 2
 
         # Unused; suppress warning.
@@ -255,9 +250,7 @@ class TestGenericSimplifyCollision:
         # blocker once.  M = N = 1 — accept.
         w = _bare((0.5, 0.5), (1.5, 0.5), (1.5, 1.5))
         blocker = _bare((0.5, 1.5), (1.5, 0.5))
-        out = generic_simplify_wire(
-            w, [blocker], mode=SimplifyMode.CHEBYSHEV
-        )
+        out = generic_simplify_wire(w, [blocker], mode=SimplifyMode.CHEBYSHEV)
         assert len(out.path) == 2
 
     def test_extra_crossing_blocks_shortcut(self) -> None:
@@ -271,9 +264,7 @@ class TestGenericSimplifyCollision:
         # candidate also passes through (1.5, 1.5) → +1 vs N=0.  Reject.
         w = _bare((0.5, 0.5), (0.5, 2.5), (1.5, 2.5))
         blocker = _bare((1.5, 0.5), (1.5, 1.5))
-        out = generic_simplify_wire(
-            w, [blocker], mode=SimplifyMode.CHEBYSHEV
-        )
+        out = generic_simplify_wire(w, [blocker], mode=SimplifyMode.CHEBYSHEV)
         # The original L is preserved when the candidate would add a crossing.
         assert len(out.path) >= 3
 
@@ -327,11 +318,12 @@ class TestGenericSimplifyPadPreservation:
         # to [start, end].  With board_pads supplied, all pads must remain.
         w = _bare((0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5))
         pads = _pads(4)
-        out = generic_simplify_wire(
-            w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
-        )
+        out = generic_simplify_wire(w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads)
         assert [(p.x, p.y) for p in out.path] == [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5)
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (3.5, 0.5),
         ]
 
     def test_insulated_shortcut_keeps_intermediate_pad_vertices(self) -> None:
@@ -363,13 +355,15 @@ class TestGenericSimplifyPadPreservation:
         # rewrites the run to diagonal+ortho.  Pads on the NEW canonical
         # path must be preserved (not the abandoned legs of the old L).
         w = _bare(
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5),
-            (3.5, 1.5), (3.5, 2.5),
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (3.5, 0.5),
+            (3.5, 1.5),
+            (3.5, 2.5),
         )
         pads = _pads(5)
-        out = generic_simplify_wire(
-            w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
-        )
+        out = generic_simplify_wire(w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads)
         coords = [(p.x, p.y) for p in out.path]
         # Endpoints preserved.
         assert coords[0] == (0.5, 0.5)
@@ -386,9 +380,7 @@ class TestGenericSimplifyPadPreservation:
         # Path collapses but no extra vertices are needed.
         w = _bare((0.5, 0.5), (1.5, 1.5), (2.5, 2.5), (3.5, 3.5))
         pads = _pads(5)
-        out = generic_simplify_wire(
-            w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
-        )
+        out = generic_simplify_wire(w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads)
         coords = [(p.x, p.y) for p in out.path]
         # Every original pad-vertex must remain because each one is a board pad.
         assert coords == [(0.5, 0.5), (1.5, 1.5), (2.5, 2.5), (3.5, 3.5)]
@@ -397,6 +389,7 @@ class TestGenericSimplifyPadPreservation:
 # ---------------------------------------------------------------------------
 # Safe-check hardening — protect against shorts during simplify
 # ---------------------------------------------------------------------------
+
 
 class TestGenericSimplifyTJunction:
     """A candidate path whose interior runs along another bare wire's
@@ -410,12 +403,17 @@ class TestGenericSimplifyTJunction:
         # pads).  Blocker bare goes (1.5,1.5)→(1.5,3.5) — endpoint at
         # (1.5, 1.5) is on candidate's interior diagonal.
         w = _bare(
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5),
-            (2.5, 1.5), (2.5, 2.5),
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (2.5, 1.5),
+            (2.5, 2.5),
         )
         blocker = _bare((1.5, 1.5), (1.5, 3.5))
         out = generic_simplify_wire(
-            w, [blocker], mode=SimplifyMode.CHEBYSHEV,
+            w,
+            [blocker],
+            mode=SimplifyMode.CHEBYSHEV,
         )
         # The fully-collapsed (0.5,0.5)→(2.5,2.5) diagonal passes through
         # (1.5, 1.5) which is the blocker's endpoint — must not collapse
@@ -446,7 +444,9 @@ class TestGenericSimplifyTJunction:
         w = _bare((0.5, 0.5), (0.5, 1.5), (0.5, 2.5))
         blocker = _bare((0.0, 1.5), (2.5, 1.5))
         out = generic_simplify_wire(
-            w, [blocker], mode=SimplifyMode.CHEBYSHEV,
+            w,
+            [blocker],
+            mode=SimplifyMode.CHEBYSHEV,
         )
         # The middle vertex collapses out — straightened to 2 vertices.
         assert len(out.path) == 2
@@ -464,7 +464,8 @@ class TestGenericSimplifySharedPad:
         # interior vertex at (1.5, 1.5).
         w = _bare((0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (2.5, 1.5))
         out = generic_simplify_wire(
-            w, [other],
+            w,
+            [other],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=uuid.uuid4(),  # different net
             other_wire_nets={other.id: other_net},
@@ -497,7 +498,8 @@ class TestGenericSimplifySharedPad:
         # Vertex (1.5, 1.5) endpoint of w, endpoint of other → shared.
         # If both on same net, no block.
         out = generic_simplify_wire(
-            w, [other],
+            w,
+            [other],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=same_net,
             other_wire_nets={other.id: same_net},
@@ -527,7 +529,8 @@ class TestGenericSimplifyInsulatedEndpoint:
         # the insulated other wire on the candidate path, must be blocked
         # since (1.5, 1.5) holds a foreign net.
         out = generic_simplify_wire(
-            w, [insulated_other],
+            w,
+            [insulated_other],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=uuid.uuid4(),  # different net
             other_wire_nets={insulated_other.id: other_net},
@@ -562,14 +565,22 @@ class TestGenericSimplifyRealWorldRegression:
         their_net = uuid.uuid4()
         ours = _bare(
             (9.5, 10.5),
-            (10.5, 11.5), (10.5, 12.5), (11.5, 13.5), (12.5, 12.5),
-            (13.5, 11.5), (14.5, 11.5), (15.5, 11.5),
+            (10.5, 11.5),
+            (10.5, 12.5),
+            (11.5, 13.5),
+            (12.5, 12.5),
+            (13.5, 11.5),
+            (14.5, 11.5),
+            (15.5, 11.5),
         )
         theirs = _bare(
-            (12.5, 11.5), (11.5, 10.5), (10.5, 9.5),
+            (12.5, 11.5),
+            (11.5, 10.5),
+            (10.5, 9.5),
         )
         out = generic_simplify_wire(
-            ours, [theirs],
+            ours,
+            [theirs],
             mode=SimplifyMode.BARE_PARITY,
             wire_net_id=our_net,
             other_wire_nets={theirs.id: their_net},
@@ -593,11 +604,15 @@ class TestGenericSimplifyRealWorldRegression:
         # layout has this as a pre-existing condition).  Simplify the L-shape
         # in between.
         ours = _bare(
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5),
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (3.5, 0.5),
         )
         theirs = _bare((3.5, 0.5), (3.5, 2.5))
         out = generic_simplify_wire(
-            ours, [theirs],
+            ours,
+            [theirs],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             other_wire_nets={theirs.id: their_net},
@@ -619,14 +634,18 @@ class TestGenericSimplifyAlienPin:
         # (0.5,0.5)→(2.5,0.5)→(2.5,2.5), canonical diag+ortho through (1.5,
         # 1.5) → place alien pin at (1.5, 1.5) — should block.
         w = _bare(
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5),
-            (2.5, 1.5), (2.5, 2.5),
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (2.5, 1.5),
+            (2.5, 2.5),
         )
         our_net = uuid.uuid4()
         alien_net = uuid.uuid4()
         pin_net_map = {Point(1.5, 1.5): alien_net}
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pin_net_map=pin_net_map,
@@ -640,13 +659,17 @@ class TestGenericSimplifyAlienPin:
     def test_own_net_pin_does_not_block(self) -> None:
         # Same setup as above but the pin at (1.5, 1.5) belongs to OUR net.
         w = _bare(
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5),
-            (2.5, 1.5), (2.5, 2.5),
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (2.5, 0.5),
+            (2.5, 1.5),
+            (2.5, 2.5),
         )
         our_net = uuid.uuid4()
         pin_net_map = {Point(1.5, 1.5): our_net}
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pin_net_map=pin_net_map,
@@ -674,8 +697,9 @@ class TestSimplifyNoNewPinContact:
     def _make_index_with_pin(
         self,
         pin_pos: tuple[float, float],
-        rows: int = 5, cols: int = 5,
-        pin_net_id: "uuid.UUID | None" = None,
+        rows: int = 5,
+        cols: int = 5,
+        pin_net_id: uuid.UUID | None = None,
     ):
         """Return (PadIndex, comp_id, net_id) with a 1-pin component on
         *pin_pos*.  *pin_net_id* — assign the pin to this net; None means
@@ -683,44 +707,59 @@ class TestSimplifyNoNewPinContact:
         """
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom
-        from protoboard.domain.board.pads import PadLayers
         from protoboard.domain.board.layout_engine import SizePolicy
         from protoboard.domain.board.pad_state import PadIndex
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.board.pads import PadLayers
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.domain.schematic.schematic import Schematic
 
-        board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                layers=PadLayers(top=True, bottom=True, plated_through=True),
-            ),
-            rows=rows, cols=cols, row_gap=0, col_gap=0,
-        ))
+        board = Board(
+            root=BoardGrid(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(top=True, bottom=True, plated_through=True),
+                ),
+                rows=rows,
+                cols=cols,
+                row_gap=0,
+                col_gap=0,
+            )
+        )
         from tests.instance_utils import bind
-        defn = ComponentDefinition.from_footprint(name="X", footprint=SIL(1), pin_names={})
+        from tests.unit._autoroute_invariants import make_sil, sil_families
+
+        defn = make_sil("X", 1)
+        families = sil_families(defn)
         inst = bind(
             ComponentInstance.new(definition_ref="X", refdes="X1", value=""),
-            defn, {},
+            defn,
+            families,
         )
         pl = ComponentPlacement(
             component_id=inst.id,
             position=Point(pin_pos[0], pin_pos[1]),
-            rotation=0, side="top",
+            rotation=0,
+            side="top",
         )
         lay = Layout()
         lay.ensure_root_group()
         lay.placements[inst.id] = pl
         if pin_net_id is not None:
-            sch = Schematic(nets={pin_net_id: Net(
-                id=pin_net_id, name="N",
-                pins={PinRef(component_id=inst.id, pin_number=1)},
-            )})
+            sch = Schematic(
+                nets={
+                    pin_net_id: Net(
+                        id=pin_net_id,
+                        name="N",
+                        pins={PinRef(component_id=inst.id, pin_number=1)},
+                    )
+                }
+            )
         else:
             sch = Schematic(nets={})
         idx = PadIndex(board, lay, sch, {"X": defn}, {inst.id: inst})
@@ -731,12 +770,14 @@ class TestSimplifyNoNewPinContact:
         # assigned) at (1.5, 1.5) — the natural diag canonical from start to
         # end would lay copper on that pad.  Must be rejected.
         idx, _comp, _nid = self._make_index_with_pin(
-            (1.5, 1.5), pin_net_id=None,
+            (1.5, 1.5),
+            pin_net_id=None,
         )
         w = _bare((0.5, 0.5), (2.5, 0.5), (2.5, 2.5))
         our_net = uuid.uuid4()
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pad_index=idx,
@@ -750,12 +791,14 @@ class TestSimplifyNoNewPinContact:
         # Same setup but the pin at (1.5, 1.5) is assigned to a different net.
         alien_net = uuid.uuid4()
         idx, _comp, _nid = self._make_index_with_pin(
-            (1.5, 1.5), pin_net_id=alien_net,
+            (1.5, 1.5),
+            pin_net_id=alien_net,
         )
         w = _bare((0.5, 0.5), (2.5, 0.5), (2.5, 2.5))
         our_net = uuid.uuid4()
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pad_index=idx,
@@ -769,13 +812,15 @@ class TestSimplifyNoNewPinContact:
         # straight diagonal, which passes through (1.5, 1.5).
         our_net = uuid.uuid4()
         idx, _comp, _nid = self._make_index_with_pin(
-            (1.5, 1.5), pin_net_id=our_net,
+            (1.5, 1.5),
+            pin_net_id=our_net,
         )
         w = _bare((0.5, 0.5), (2.5, 0.5), (2.5, 2.5))
         # Pass board_pads so bare wire keeps pad-vertex (1.5,1.5) on its path.
         board_pads = {Point(c + 0.5, r + 0.5) for c in range(5) for r in range(5)}
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pad_index=idx,
@@ -794,7 +839,8 @@ class TestSimplifyNoNewPinContact:
         # insulated wire doesn't electrically short (it floats above), the user
         # rule "tylko legalne kontakty" forbids the geometric clash.
         idx, _comp, _nid = self._make_index_with_pin(
-            (1.5, 1.5), pin_net_id=None,
+            (1.5, 1.5),
+            pin_net_id=None,
         )
         w = Wire(
             id=uuid.uuid4(),
@@ -804,7 +850,8 @@ class TestSimplifyNoNewPinContact:
         )
         our_net = uuid.uuid4()
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pad_index=idx,
@@ -818,6 +865,7 @@ class TestSimplifyNoNewPinContact:
             from protoboard.services.routing.postprocess import (
                 _seg_passes_through_pad,
             )
+
             a = Point(coords[0][0], coords[0][1])
             b = Point(coords[1][0], coords[1][1])
             assert not _seg_passes_through_pad(a, b, Point(1.5, 1.5))
@@ -826,27 +874,35 @@ class TestSimplifyNoNewPinContact:
         # No pin anywhere — empty board pads are fine to route through.
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom
-        from protoboard.domain.board.pads import PadLayers
         from protoboard.domain.board.layout_engine import SizePolicy
         from protoboard.domain.board.pad_state import PadIndex
+        from protoboard.domain.board.pads import PadLayers
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.schematic.schematic import Schematic
 
-        board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                layers=PadLayers(top=True, bottom=True, plated_through=True),
-            ),
-            rows=5, cols=5, row_gap=0, col_gap=0,
-        ))
+        board = Board(
+            root=BoardGrid(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(top=True, bottom=True, plated_through=True),
+                ),
+                rows=5,
+                cols=5,
+                row_gap=0,
+                col_gap=0,
+            )
+        )
         lay = Layout()
         lay.ensure_root_group()
         idx = PadIndex(board, lay, Schematic(nets={}), {}, {})
         w = _bare((0.5, 0.5), (2.5, 0.5), (2.5, 2.5))
         our_net = uuid.uuid4()
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=our_net,
             pad_index=idx,
@@ -857,6 +913,7 @@ class TestSimplifyNoNewPinContact:
         assert coords[-1] == (2.5, 2.5)
         # Collapsed length: 2√2 ≈ 2.83 — clearly shorter than original 2+2=4.
         from protoboard.services.routing.postprocess import _path_length
+
         assert _path_length(out.path) < 3.0
 
 
@@ -904,11 +961,13 @@ class TestSimplifyPrefers2x45Over1x90:
         # see next test using pad_index.
         w = _bare((0.5, 0.5), (3.5, 0.5), (3.5, 1.5))
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
         )
         # After simplify there should be NO 90° corner left.
         from protoboard.services.routing.postprocess import _count_90_corners
+
         assert _count_90_corners(list(out.path)) == 0
 
     def test_tie_break_replaces_90_corner_when_diagonal_alternative_same_len(
@@ -922,14 +981,19 @@ class TestSimplifyPrefers2x45Over1x90:
         # 2√2 + 2 ≈ 4.83 — shorter; this fires on "shorter" branch.
         # That's fine — verify post-simplify has zero 90° corners.
         w = _bare(
-            (0.5, 0.5), (2.5, 0.5), (2.5, 1.5),
-            (4.5, 1.5), (4.5, 2.5),
+            (0.5, 0.5),
+            (2.5, 0.5),
+            (2.5, 1.5),
+            (4.5, 1.5),
+            (4.5, 2.5),
         )
         out = generic_simplify_wire(
-            w, [],
+            w,
+            [],
             mode=SimplifyMode.CHEBYSHEV,
         )
         from protoboard.services.routing.postprocess import _count_90_corners
+
         assert _count_90_corners(list(out.path)) == 0
 
 
@@ -951,6 +1015,7 @@ class TestSimplifyNoNewCrossings:
         from protoboard.services.routing.postprocess import (
             _count_crossings_with_other,
         )
+
         ow = _bare((0.5, 1.5), (2.5, 1.5))
         subpath_segs = [
             (Point(0.5, 0.5), Point(0.5, 1.5)),
@@ -958,7 +1023,10 @@ class TestSimplifyNoNewCrossings:
         ]
         subpath_vertices = [Point(0.5, 0.5), Point(0.5, 1.5), Point(0.5, 2.5)]
         n = _count_crossings_with_other(
-            subpath_segs, subpath_vertices, ow, skip_pts=set(),
+            subpath_segs,
+            subpath_vertices,
+            ow,
+            skip_pts=set(),
         )
         assert n == 1
 
@@ -970,6 +1038,7 @@ class TestSimplifyNoNewCrossings:
         from protoboard.services.routing.postprocess import (
             _count_crossings_with_other,
         )
+
         ow = _bare((0.0, 1.5), (2.5, 1.5))  # blocker extends past subpath
         subpath_segs = [
             (Point(0.5, 0.5), Point(0.5, 1.5)),
@@ -977,7 +1046,10 @@ class TestSimplifyNoNewCrossings:
         ]
         subpath_vertices = [Point(0.5, 0.5), Point(0.5, 1.5), Point(0.5, 2.5)]
         n = _count_crossings_with_other(
-            subpath_segs, subpath_vertices, ow, skip_pts=set(),
+            subpath_segs,
+            subpath_vertices,
+            ow,
+            skip_pts=set(),
         )
         assert n == 2
 
@@ -987,7 +1059,9 @@ class TestSimplifyNoNewCrossings:
         w = _bare((0.5, 0.5), (1.5, 0.5), (1.5, 1.5))
         blocker = _bare((0.5, 1.5), (1.5, 0.5))
         out = generic_simplify_wire(
-            w, [blocker], mode=SimplifyMode.CHEBYSHEV,
+            w,
+            [blocker],
+            mode=SimplifyMode.CHEBYSHEV,
         )
         assert len(out.path) == 2  # collapsed
 
@@ -1000,8 +1074,10 @@ class TestSimplifyNoNewCrossings:
         # any candidate diagonal from (0.5,0.5) to (3.5,1.5) but doesn't
         # touch the original L.
         blocker = _bare((1.5, 1.5), (1.5, 0.5))
-        out = generic_simplify_wire(
-            w, [blocker], mode=SimplifyMode.CHEBYSHEV,
+        generic_simplify_wire(
+            w,
+            [blocker],
+            mode=SimplifyMode.CHEBYSHEV,
         )
         # Look — the blocker DOES touch original at (1.5, 0.5) shared with
         # original segment (0.5,0.5)→(3.5,0.5)?  blocker has endpoint
@@ -1013,7 +1089,9 @@ class TestSimplifyNoNewCrossings:
         # Blocker entirely off original L (above, between cols 1-3).
         blocker2 = _bare((1.5, 1.5), (3.5, 1.5))  # parallel horizontal at y=1.5
         out2 = generic_simplify_wire(
-            w2, [blocker2], mode=SimplifyMode.CHEBYSHEV,
+            w2,
+            [blocker2],
+            mode=SimplifyMode.CHEBYSHEV,
         )
         # Original W2 has 0 contacts with blocker2.  Canonical collapse
         # endpoints (0.5,0.5)→(4.5,1.5): canonical L is diag length 1 +
@@ -1032,10 +1110,14 @@ class TestSimplifyNoNewCrossings:
         net_b = uuid.uuid4()
         wa = _bare((1.5, 1.5), (2.5, 1.5), (3.5, 1.5), (4.5, 1.5))
         wb = _bare(
-            (0.5, 0.5), (0.5, 2.5), (5.5, 2.5), (5.5, 1.5),
+            (0.5, 0.5),
+            (0.5, 2.5),
+            (5.5, 2.5),
+            (5.5, 1.5),
         )
         out = generic_simplify_wire(
-            wb, [wa],
+            wb,
+            [wa],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=net_b,
             other_wire_nets={wa.id: net_a, wb.id: net_b},
@@ -1044,7 +1126,12 @@ class TestSimplifyNoNewCrossings:
         assert len(out.path) >= 3
         # Sanity: the dangerous overlap segment is NOT present in the output.
         overlap_present = any(
-            (a.y == 1.5 and b.y == 1.5 and min(a.x, b.x) <= 3.5 and max(a.x, b.x) >= 2.5)
+            (
+                a.y == 1.5
+                and b.y == 1.5
+                and min(a.x, b.x) <= 3.5
+                and max(a.x, b.x) >= 2.5
+            )
             for a, b in zip(out.path, out.path[1:])
         )
         assert not overlap_present
@@ -1056,16 +1143,21 @@ class TestSimplifyNoNewCrossings:
         from protoboard.services.routing.postprocess import (
             _count_crossings_with_other,
         )
+
         ow = Wire(
             id=uuid.uuid4(),
             path=[Point(3.5, 0.5), Point(3.5, 4.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         # Subpath crosses ow once at (3.5, 2.5).
         subpath_segs = [(Point(0.5, 2.5), Point(5.5, 2.5))]
         subpath_vertices = [Point(0.5, 2.5), Point(5.5, 2.5)]
         n = _count_crossings_with_other(
-            subpath_segs, subpath_vertices, ow, skip_pts=set(),
+            subpath_segs,
+            subpath_vertices,
+            ow,
+            skip_pts=set(),
         )
         assert n == 1
 
@@ -1080,11 +1172,16 @@ class TestSimplifyNoNewCrossings:
         wa = Wire(
             id=uuid.uuid4(),
             path=[
-                Point(2.5, 4.5), Point(3.5, 4.5), Point(4.5, 4.5),
-                Point(5.5, 4.5), Point(6.5, 4.5), Point(7.5, 4.5),
+                Point(2.5, 4.5),
+                Point(3.5, 4.5),
+                Point(4.5, 4.5),
+                Point(5.5, 4.5),
+                Point(6.5, 4.5),
+                Point(7.5, 4.5),
                 Point(8.5, 4.5),
             ],
-            insulated=True, side="bottom",
+            insulated=True,
+            side="bottom",
         )
         # Wire B on TOP, U-shape that already AVOIDS A geometrically.
         # Endpoints (0.5,0.5) and (8.5,4.5).  Canonical L would lay copper
@@ -1093,13 +1190,17 @@ class TestSimplifyNoNewCrossings:
         wb = Wire(
             id=uuid.uuid4(),
             path=[
-                Point(0.5, 0.5), Point(0.5, 5.5),
-                Point(8.5, 5.5), Point(8.5, 4.5),
+                Point(0.5, 0.5),
+                Point(0.5, 5.5),
+                Point(8.5, 5.5),
+                Point(8.5, 4.5),
             ],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         out = generic_simplify_wire(
-            wb, [wa],
+            wb,
+            [wa],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=net_b,
             other_wire_nets={wa.id: net_a, wb.id: net_b},
@@ -1110,6 +1211,7 @@ class TestSimplifyNoNewCrossings:
         from protoboard.services.routing.postprocess import (
             _segs_overlap_collinear,
         )
+
         for a, b in zip(out.path, out.path[1:]):
             for wa_a, wa_b in zip(wa.path, wa.path[1:]):
                 assert not _segs_overlap_collinear(a, b, wa_a, wa_b), (
@@ -1127,28 +1229,38 @@ class TestSimplifyNoNewCrossings:
         wa = Wire(
             id=uuid.uuid4(),
             path=[Point(4.5, 4.5), Point(4.5, 6.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         # Long L-shape, 1 original bend.
         wb = Wire(
             id=uuid.uuid4(),
             path=[
-                Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5),
-                Point(6.5, 0.5), Point(8.5, 0.5), Point(10.5, 0.5),
-                Point(10.5, 2.5), Point(10.5, 4.5), Point(10.5, 6.5),
+                Point(0.5, 0.5),
+                Point(2.5, 0.5),
+                Point(4.5, 0.5),
+                Point(6.5, 0.5),
+                Point(8.5, 0.5),
+                Point(10.5, 0.5),
+                Point(10.5, 2.5),
+                Point(10.5, 4.5),
+                Point(10.5, 6.5),
                 Point(10.5, 8.5),
             ],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         all_pads = {Point(c + 0.5, r + 0.5) for c in range(20) for r in range(20)}
         out = generic_simplify_wire(
-            wb, [wa],
+            wb,
+            [wa],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=uuid.uuid4(),
             other_wire_nets={wa.id: uuid.uuid4()},
             board_pads=all_pads,
         )
         from protoboard.services.routing.postprocess import _count_total_corners
+
         in_corners = _count_total_corners(list(wb.path))
         out_corners = _count_total_corners(list(out.path))
         assert out_corners <= in_corners, (
@@ -1173,15 +1285,18 @@ class TestSimplifyNoNewCrossings:
         wa = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 3.5), Point(5.5, 3.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         wb = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(0.5, 6.5), Point(6.5, 6.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         out = generic_simplify_wire(
-            wb, [wa],
+            wb,
+            [wa],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=uuid.uuid4(),
             other_wire_nets={wa.id: uuid.uuid4()},
@@ -1189,7 +1304,7 @@ class TestSimplifyNoNewCrossings:
         # Collapse accepted — diagonal that crosses A in the air is OK
         # because neither wire's endpoints / mid-vertices share a pad
         # with the canonical replacement.
-        coords = [(p.x, p.y) for p in out.path]
+        [(p.x, p.y) for p in out.path]
         # Path may have been shortened (corner-cut to a diagonal).  The
         # important property: vertex count must NOT exceed original.
         assert len(out.path) <= 3
@@ -1197,6 +1312,7 @@ class TestSimplifyNoNewCrossings:
     def test_segs_overlap_collinear_helper(self) -> None:
         # Direct unit test of the helper.
         from protoboard.services.routing.postprocess import _segs_overlap_collinear
+
         # Overlapping collinear horizontal segments.
         assert _segs_overlap_collinear(
             Point(0, 0), Point(3, 0), Point(1, 0), Point(2, 0)
@@ -1226,7 +1342,8 @@ class TestSimplifyNoNewCrossings:
         blocker = _bare((1.5, 1.5), (3.5, 1.5))  # same-net wire
         # Build wire_to_net map putting both wires on the SAME net.
         out = generic_simplify_wire(
-            w, [blocker],
+            w,
+            [blocker],
             mode=SimplifyMode.CHEBYSHEV,
             wire_net_id=same_net,
             other_wire_nets={blocker.id: same_net},

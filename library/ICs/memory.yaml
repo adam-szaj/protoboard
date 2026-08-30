@@ -1,50 +1,121 @@
 components:
-  - name: AT24C02
-    component_class: ic
-    pins: {count: 8}
-    package: {kind: dip_ic}
-    description: "2kbit I2C EEPROM"
-    pin_names:
-      1: A0
-      2: A1
-      3: A2
-      4: GND
-      5: SDA
-      6: SCL
-      7: WP
-      8: VCC
-
-  - name: 28C256
-    component_class: ic
-    pins: {count: 28}
-    package: {kind: wdip_ic}
-    description: "256kbit parallel EEPROM"
-    pin_names:
-      1: A14
-      2: A12
-      3: A7
-      4: A6
-      5: A5
-      6: A4
-      7: A3
-      8: A2
-      9: A1
-      10: A0
-      11: IO0
-      12: IO1
-      13: IO2
-      14: GND
-      15: IO3
-      16: IO4
-      17: IO5
-      18: IO6
-      19: IO7
-      20: NCE
-      21: A10
-      22: NOE
-      23: A11
-      24: A9
-      25: A8
-      26: A13
-      27: NWE
-      28: VCC
+- name: AT24C02
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "2kbit I2C EEPROM"
+  meta_pins:
+  - A0
+  - A1
+  - A2
+  - GND
+  - SDA
+  - SCL
+  - WP
+  - VCC
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+- name: 28C256
+  component_class: ic
+  package: {kind: wdip_ic}
+  description: "256kbit parallel EEPROM"
+  meta_pins:
+  - A14
+  - A12
+  - A7
+  - A6
+  - A5
+  - A4
+  - A3
+  - A2
+  - A1
+  - A0
+  - IO0
+  - IO1
+  - IO2
+  - GND
+  - IO3
+  - IO4
+  - IO5
+  - IO6
+  - IO7
+  - NCE
+  - A10
+  - NOE
+  - A11
+  - A9
+  - A8
+  - A13
+  - NWE
+  - VCC
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+    17:
+    - 17
+    18:
+    - 18
+    19:
+    - 19
+    20:
+    - 20
+    21:
+    - 21
+    22:
+    - 22
+    23:
+    - 23
+    24:
+    - 24
+    25:
+    - 25
+    26:
+    - 26
+    27:
+    - 27
+    28:
+    - 28

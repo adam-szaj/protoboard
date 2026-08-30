@@ -1,31 +1,40 @@
 components:
-  - name: TestPoint
-    description: "Test point (single pad)"
-    component_class: mechanical
-    pins: {count: 1}
-    package:
-      shape: prism
-      margin: 1.27
-      leads:
-        direction: [0, 0, -1]
-        body_offset: {unit: 2.5, value: []}
-        board_offset: default
-      bend: 0
-    pin_names: {1: TP}
-    aliases:
-      - TestPoint_Pad_2_0x2_0mm
-      - TestPoint_Pad_1_0x1_0mm
-      - TestPoint_Pad_1_5x1_5mm
+- name: TestPoint
+  description: "Test point (single pad)"
+  component_class: mechanical
+  package:
+    shape: prism
+    margin: 1.27
+    leads:
+      direction: [0, 0, -1]
+      body_offset: {unit: 2.5, value: []}
+      board_offset: default
+    bend: 0
+  aliases:
+  - TestPoint_Pad_2_0x2_0mm
+  - TestPoint_Pad_1_0x1_0mm
+  - TestPoint_Pad_1_5x1_5mm
 
-  - name: TestPoint_2Pole
-    description: "2-pin test point"
-    component_class: mechanical
-    pins: {count: 2}
-    package:
-      shape: prism
-      leads:
-        direction: [0, 0, -1]
-        body_offset: {unit: 2.5, value: [[0, 1]]}
-        board_offset: default
-      bend: 0
-    pin_names: {1: "1", 2: "2"}
+  meta_pins:
+  - TP
+  pin_map:
+    1:
+    - 1
+- name: TestPoint_2Pole
+  description: "2-pin test point"
+  component_class: mechanical
+  package:
+    shape: prism
+    leads:
+      direction: [0, 0, -1]
+      body_offset: {unit: 2.5, value: [[0, 1]]}
+      board_offset: default
+    bend: 0
+  meta_pins:
+  - '1'
+  - '2'
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""SelectionFilterWidget — compact status-bar widget to filter what SelectTool selects."""
+"""SelectionFilterWidget — compact status-bar widget to filter what SelectTool selects."""  # noqa: E501
 
 from __future__ import annotations
 
@@ -47,6 +47,7 @@ class SelectionFilterWidget(QWidget):
         """Bind to a SelectTool instance and mirror its current filter state."""
         self._tool = tool
         from protoboard.gui.tools.gui_tools import SelectTool
+
         if isinstance(tool, SelectTool):
             f = tool.filter
             self._btn_comps.setChecked(bool(f & SelectionFilter.COMPONENTS))
@@ -82,6 +83,7 @@ class SelectionFilterWidget(QWidget):
         if self._btn_groups.isChecked():
             f |= SelectionFilter.GROUPS
         from protoboard.gui.tools.gui_tools import SelectTool
+
         if isinstance(self._tool, SelectTool):
             self._tool.set_filter(f)
         self.filter_changed.emit(f)

@@ -24,10 +24,11 @@ from protoboard.domain.board.templates import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.domain.layout.layout import Layout
+    import uuid
+
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    import uuid
+    from protoboard.domain.layout.layout import Layout
 
 
 def _detect_board_type(board: Board) -> str:
@@ -38,6 +39,7 @@ def _detect_board_type(board: Board) -> str:
     if isinstance(root, VBox):
         # Stripboard children are HBox rows; Breadboard has GapAtoms too.
         from protoboard.domain.board.boxes import GapAtom
+
         if any(isinstance(c, GapAtom) for c in root.children):
             return "Breadboard"
         return "Stripboard"
@@ -51,10 +53,9 @@ def _detect_dimensions(board: Board) -> tuple[int, int]:
         return root.rows, root.cols
     if isinstance(root, VBox):
         from protoboard.domain.board.boxes import HBox, StripAtom
+
         # Stripboard: count VBox children that are HBox strips.
-        strip_rows = sum(
-            1 for c in root.children if isinstance(c, HBox)
-        )
+        strip_rows = sum(1 for c in root.children if isinstance(c, HBox))
         # Find first StripAtom to get length.
         cols = 1
         for child in root.children:
@@ -74,9 +75,9 @@ def _detect_dimensions(board: Board) -> tuple[int, int]:
 
 def components_outside_bounds(
     new_board: Board,
-    layout: "Layout",
-    instances: "dict[uuid.UUID, ComponentInstance]",
-    components: "dict[str, ComponentDefinition]",
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
 ) -> list[tuple[str, float, float]]:
     """Return list of (refdes, x, y) for components outside new board bounds."""
     from protoboard.domain.layout.placement import pin_world_position
@@ -84,6 +85,7 @@ def components_outside_bounds(
     bounds = new_board.bounds
     outside = []
     from protoboard.domain.components.package import resolved_footprint
+
     for comp_id, placement in layout.placements.items():
         inst = instances.get(comp_id)
         defn = components.get(inst.definition_ref) if inst else None
@@ -92,8 +94,10 @@ def components_outside_bounds(
         fp = resolved_footprint(defn, inst, inst.families if inst else None)
         for pin_num in range(1, fp.pin_count() + 1):
             pt = pin_world_position(fp, placement, pin_num)
-            if not (bounds.x <= pt.x <= bounds.x + bounds.lx and
-                    bounds.y <= pt.y <= bounds.y + bounds.ly):
+            if not (
+                bounds.x <= pt.x <= bounds.x + bounds.lx
+                and bounds.y <= pt.y <= bounds.y + bounds.ly
+            ):
                 refdes = inst.refdes if inst else str(comp_id)[:8]
                 outside.append((refdes, pt.x, pt.y))
                 break  # one violation per component is enough
@@ -106,9 +110,9 @@ class ResizeBoardDialog(QDialog):
     def __init__(
         self,
         board: Board,
-        layout: "Layout",
-        instances: "dict[uuid.UUID, ComponentInstance]",
-        components: "dict[str, ComponentDefinition]",
+        layout: Layout,
+        instances: dict[uuid.UUID, ComponentInstance],
+        components: dict[str, ComponentDefinition],
         parent: object = None,
     ) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -119,7 +123,7 @@ class ResizeBoardDialog(QDialog):
 
         self._board_type = _detect_board_type(board)
         rows, cols = _detect_dimensions(board)
-        self._is_breadboard = (self._board_type == "Breadboard")
+        self._is_breadboard = self._board_type == "Breadboard"
 
         root = QVBoxLayout(self)
         root.setSpacing(8)

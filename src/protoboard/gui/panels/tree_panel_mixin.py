@@ -34,14 +34,14 @@ class TreePanelMixin:
     """
 
     _tree: QTreeWidget
-    _session: "EditorSession | None" = None
+    _session: EditorSession | None = None
     _syncing: bool = False
 
     # Column that stores UUID data (default 0).  Override in subclass if needed.
     _id_col: int = 0
 
     @traced()
-    def refresh(self, session: "EditorSession") -> None:
+    def refresh(self, session: EditorSession) -> None:
         """Store session, (re)subscribe to ``selection_changed``, and rebuild.
 
         The panel owns its own board -> panel sync: it listens directly to the
@@ -99,7 +99,9 @@ class TreePanelMixin:
         try:
             self._tree.clearSelection()
             first_match: QTreeWidgetItem | None = None
-            for raw_id in (comp_ids if isinstance(comp_ids, frozenset) else frozenset()):
+            for raw_id in (
+                comp_ids if isinstance(comp_ids, frozenset) else frozenset()
+            ):
                 item = self._find_item(str(raw_id))
                 if item is not None:
                     item.setSelected(True)

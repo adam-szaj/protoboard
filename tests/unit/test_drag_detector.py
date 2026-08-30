@@ -10,22 +10,30 @@ from __future__ import annotations
 
 import uuid
 
+from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFamily, PackageVariant
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.services.drag_detector import DragDetector, DragSnapshot
 from protoboard.services.pad_strategy import DRCEnforcingStrategy
+from tests.unit._autoroute_invariants import make_sil, sil_families
+
+_TEST_FAMILIES: dict[str, PackageFamily] = {}
 
 
 def _perfboard(rows: int = 10, cols: int = 10) -> Board:
@@ -47,11 +55,9 @@ def _perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n),
-        pin_names={i: str(i) for i in range(1, n + 1)},
-    )
+    defn = make_sil(name, n)
+    _TEST_FAMILIES.update(sil_families(defn))
+    return defn
 
 
 def _rigid_defn(name: str, n: int = 2) -> ComponentDefinition:
@@ -70,23 +76,34 @@ def _rigid_defn(name: str, n: int = 2) -> ComponentDefinition:
     pkg = synth_generic_package(SIL(n))
     assert isinstance(pkg, Prism)
     pkg = dataclasses.replace(pkg, bend_holes=0.0, kind=None)
+    family_id = f"{name}-package"
+    _TEST_FAMILIES[family_id] = PackageFamily(
+        family_id=family_id,
+        variants=(PackageVariant("std", "std", pkg),),
+    )
     return ComponentDefinition(
         name=name,
-        package=pkg,
-        pin_names={i: str(i) for i in range(1, n + 1)},
+        meta_pins=tuple(MetaPin((str(pin),)) for pin in range(1, n + 1)),
+        package_options=(
+            PackageOption(
+                name=name,
+                ref=f"{family_id}/std",
+                pin_map={pin: (pin,) for pin in range(1, n + 1)},
+            ),
+        ),
     )
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes=refdes, value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes=refdes,
+        value="",
+    ).bind(defn, _TEST_FAMILIES)
 
 
 def _snapshot(
-    placements: list[
-        tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]
-    ],
+    placements: list[tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]],
     wires: list[Wire] | None = None,
     nets: list[Net] | None = None,
 ) -> DragSnapshot:
@@ -133,8 +150,10 @@ class TestSeverity:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         snap = _snapshot([(inst, defn, pl)])
         decision = _detector().classify(snap, {inst.id})
@@ -151,12 +170,16 @@ class TestSeverity:
         inst_b = _inst(defn_b, "B1")
         # Bboxes overlap; no pin coincidence.
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.8, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.8, 0.5),
+            rotation=0,
+            side="top",
         )
         snap = _snapshot([(inst_a, defn_a, pl_a), (inst_b, defn_b, pl_b)])
         decision = _detector().classify(snap, {inst_a.id})
@@ -168,31 +191,34 @@ class TestSeverity:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         net_a = uuid.uuid4()
         net_b = uuid.uuid4()
         nets = [
             Net(
-                id=net_a, name="VCC",
-                pins=set(
-                    {PinRef(component_id=inst_a.id, pin_number=1)}
-                ),
+                id=net_a,
+                name="VCC",
+                pins=set({PinRef(component_id=inst_a.id, pin_number=1)}),
             ),
             Net(
-                id=net_b, name="GND",
-                pins=set(
-                    {PinRef(component_id=inst_b.id, pin_number=1)}
-                ),
+                id=net_b,
+                name="GND",
+                pins=set({PinRef(component_id=inst_b.id, pin_number=1)}),
             ),
         ]
         snap = _snapshot(
-            [(inst_a, defn, pl_a), (inst_b, defn, pl_b)], nets=nets,
+            [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
+            nets=nets,
         )
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.HARD
@@ -203,32 +229,37 @@ class TestSeverity:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(3.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(3.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         # Insulated so the wire passes through middle without bare-cross
         # rejection on construction.
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5), Point(7.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         net_n = uuid.uuid4()
         nets = [
             Net(
-                id=net_n, name="N1",
-                pins=set(
-                    {PinRef(component_id=inst_b.id, pin_number=1)}
-                ),
+                id=net_n,
+                name="N1",
+                pins=set({PinRef(component_id=inst_b.id, pin_number=1)}),
             ),
         ]
         snap = _snapshot(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
-            wires=[wire], nets=nets,
+            wires=[wire],
+            nets=nets,
         )
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.SOFT
@@ -240,22 +271,28 @@ class TestSeverity:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(3.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(3.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5), Point(7.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         net_n = uuid.uuid4()
         nets = [
             Net(
-                id=net_n, name="N1",
+                id=net_n,
+                name="N1",
                 pins=set(
                     {
                         PinRef(component_id=inst_a.id, pin_number=1),
@@ -266,7 +303,8 @@ class TestSeverity:
         ]
         snap = _snapshot(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
-            wires=[wire], nets=nets,
+            wires=[wire],
+            nets=nets,
         )
         decision = _detector().classify(snap, {inst_a.id})
         # Same-net is still SOFT (not CLEAR) — wire gets auto-removed.
@@ -278,12 +316,16 @@ class TestSeverity:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         snap = _snapshot([(inst_a, defn, pl_a), (inst_b, defn, pl_b)])
         decision = _detector().classify(snap, {inst_a.id})
@@ -294,17 +336,22 @@ class TestSeverity:
         defn = _defn("R", 2)
         inst = _inst(defn, "R1")
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         skewed = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 3.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         snap = _snapshot([(inst, defn, pl)], wires=[skewed])
         decision = _detector().classify(
-            snap, {inst.id}, dragged_wire_ids=frozenset({skewed.id}),
+            snap,
+            {inst.id},
+            dragged_wire_ids=frozenset({skewed.id}),
         )
         assert decision.severity is DragSeverity.SOFT
         assert skewed.id in decision.auto_remove_wire_ids
@@ -315,40 +362,45 @@ class TestSeverity:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         net_a = uuid.uuid4()
         net_b = uuid.uuid4()
         nets = [
             Net(
-                id=net_a, name="VCC",
-                pins=set(
-                    {PinRef(component_id=inst_a.id, pin_number=1)}
-                ),
+                id=net_a,
+                name="VCC",
+                pins=set({PinRef(component_id=inst_a.id, pin_number=1)}),
             ),
             Net(
-                id=net_b, name="GND",
-                pins=set(
-                    {PinRef(component_id=inst_b.id, pin_number=1)}
-                ),
+                id=net_b,
+                name="GND",
+                pins=set({PinRef(component_id=inst_b.id, pin_number=1)}),
             ),
         ]
         skewed = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 3.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         snap = _snapshot(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
-            wires=[skewed], nets=nets,
+            wires=[skewed],
+            nets=nets,
         )
         decision = _detector().classify(
-            snap, {inst_a.id},
+            snap,
+            {inst_a.id},
             dragged_wire_ids=frozenset({skewed.id}),
         )
         assert decision.severity is DragSeverity.HARD
@@ -367,30 +419,35 @@ class TestStrategyHook:
         inst_a = _inst(defn, "R1")
         inst_b = _inst(defn, "R2")
         pl_a = ComponentPlacement(
-            component_id=inst_a.id, position=Point(3.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_a.id,
+            position=Point(3.5, 0.5),
+            rotation=0,
+            side="top",
         )
         pl_b = ComponentPlacement(
-            component_id=inst_b.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
+            component_id=inst_b.id,
+            position=Point(0.5, 0.5),
+            rotation=0,
+            side="top",
         )
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5), Point(7.5, 0.5)],
-            insulated=False, side="bottom",
+            insulated=False,
+            side="bottom",
         )
         net_n = uuid.uuid4()
         nets = [
             Net(
-                id=net_n, name="N1",
-                pins=set(
-                    {PinRef(component_id=inst_b.id, pin_number=1)}
-                ),
+                id=net_n,
+                name="N1",
+                pins=set({PinRef(component_id=inst_b.id, pin_number=1)}),
             ),
         ]
         snap = _snapshot(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
-            wires=[wire], nets=nets,
+            wires=[wire],
+            nets=nets,
         )
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.SOFT

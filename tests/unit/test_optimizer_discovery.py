@@ -16,6 +16,8 @@ from protoboard.services.routing.discovery import (
 from protoboard.services.routing.optimizer import (
     OptimizerCapabilities,
     _OptimizerRegistry,
+)
+from protoboard.services.routing.optimizer import (
     registry as optimizer_registry,
 )
 from protoboard.services.routing.protocol import ProgressSink
@@ -51,6 +53,7 @@ class _BrokenInitOptimizer:
 
 class _NotAnOptimizer:
     """Missing the `optimize` method — Protocol runtime check fails."""
+
     name = "not-opt"
     display_name = "Not Optimizer"
 
@@ -62,19 +65,25 @@ def _fake_ep(name: str, target: object) -> EntryPoint:
     lightweight proxy so we don't have to touch real package metadata.
     """
     ep = EntryPoint(name=name, value="fake:Target", group=OPTIMIZER_GROUP)
+
     class _Wrap:
         def __init__(self, real: EntryPoint, payload: object) -> None:
             self._real = real
             self._payload = payload
+
         def __getattr__(self, attr: str) -> object:
             return getattr(self._real, attr)
+
         def load(self) -> object:
             return self._payload
+
     return _Wrap(ep, target)  # type: ignore[return-value]
 
 
 class TestDiscoverOptimizerPlugins:
-    def test_registers_into_optimizer_registry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_registers_into_optimizer_registry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         eps = [_fake_ep("good", _NoopOptimizer)]
         monkeypatch.setattr(
             "protoboard.services.routing.discovery.entry_points",
@@ -82,14 +91,17 @@ class TestDiscoverOptimizerPlugins:
         )
         tmp = _OptimizerRegistry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.optimizer_registry", tmp,
+            "protoboard.services.routing.discovery.optimizer_registry",
+            tmp,
         )
 
         discovered = discover_optimizer_plugins()
         assert discovered == ["noop-plugin"]
         assert "noop-plugin" in tmp.list_available()
 
-    def test_broken_plugin_does_not_abort_discovery(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_broken_plugin_does_not_abort_discovery(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         eps = [
             _fake_ep("good", _NoopOptimizer),
             _fake_ep("bad", _BrokenInitOptimizer),
@@ -100,7 +112,8 @@ class TestDiscoverOptimizerPlugins:
         )
         tmp = _OptimizerRegistry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.optimizer_registry", tmp,
+            "protoboard.services.routing.discovery.optimizer_registry",
+            tmp,
         )
 
         discovered = discover_optimizer_plugins()
@@ -115,15 +128,20 @@ class TestDiscoverOptimizerPlugins:
         )
         tmp = _OptimizerRegistry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.optimizer_registry", tmp,
+            "protoboard.services.routing.discovery.optimizer_registry",
+            tmp,
         )
         assert discover_optimizer_plugins() == []
 
-    def test_entry_points_failure_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_entry_points_failure_returns_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         def _boom(group: str) -> list[EntryPoint]:
             raise RuntimeError("entry_points crashed")
+
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.entry_points", _boom,
+            "protoboard.services.routing.discovery.entry_points",
+            _boom,
         )
         assert discover_optimizer_plugins() == []
 
@@ -133,12 +151,17 @@ class TestDiscoverAllPlugins:
         from protoboard.services.routing.discovery import ROUTER_GROUP
 
         class _FakeRouter:
-            name = "fake-router"; display_name = "Fake"
+            name = "fake-router"
+            display_name = "Fake"
+
             def route(self, *_a, **_k) -> AutorouteResult:
                 return AutorouteResult()
+
             def capabilities(self):
                 from protoboard.services.routing.protocol import RouterCapabilities
+
                 return RouterCapabilities()
+
             def supported_cost_keys(self) -> frozenset[str]:
                 return frozenset()
 
@@ -150,19 +173,23 @@ class TestDiscoverAllPlugins:
             return []
 
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.entry_points", _eps,
+            "protoboard.services.routing.discovery.entry_points",
+            _eps,
         )
         from protoboard.services.routing.discovery import (
             registry as router_reg_alias,
         )
+
         # Substitute fresh registries on both sides.
         tmp_router = type(router_reg_alias)()
         tmp_opt = _OptimizerRegistry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry", tmp_router,
+            "protoboard.services.routing.discovery.registry",
+            tmp_router,
         )
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.optimizer_registry", tmp_opt,
+            "protoboard.services.routing.discovery.optimizer_registry",
+            tmp_opt,
         )
 
         out = discover_all_plugins()
@@ -175,4 +202,5 @@ class TestGlobalRegistryIntegration:
     def test_simplify_present_after_builtin_import(self) -> None:
         """Importing builtin_optimizers must register the SimplifyOptimizer."""
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
+
         assert "simplify" in optimizer_registry.list_available()

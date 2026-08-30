@@ -37,9 +37,7 @@ def _step_kinds(path: list) -> list[str]:
 class TestParityFilter:
     def test_even_parity_source_uses_pos_family(self) -> None:
         """Pad at (0.5, 0.5): floor sum = 0+0 = 0 → even → '/' family only."""
-        cm = RoutingCostModel(
-            bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0
-        )
+        cm = RoutingCostModel(bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0)
         result = _astar_parallel(
             valid_nodes=_empty_board(),
             source=Point(0.5, 0.5),
@@ -65,9 +63,7 @@ class TestParityFilter:
 
     def test_odd_parity_source_uses_neg_family(self) -> None:
         """Pad at (1.5, 0.5): floor sum = 1+0 = 1 → odd → '\\' family only."""
-        cm = RoutingCostModel(
-            bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0
-        )
+        cm = RoutingCostModel(bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0)
         result = _astar_parallel(
             valid_nodes=_empty_board(),
             source=Point(1.5, 0.5),
@@ -123,15 +119,13 @@ class TestCrossings:
         We pre-seed the bare-segment index with the '\' wire already placed,
         and verify the '/' path is found (would have been blocked in the
         regular bare mode by crossing_bare_bare = inf).
-        """
+        """  # noqa: E501
         from protoboard.services.routing.astar import _build_bare_seg_index
 
         # Existing bare segment: '\' from (1.5, 2.5) to (2.5, 1.5).
         bare = _build_bare_seg_index({(Point(1.5, 2.5), Point(2.5, 1.5), "top")})
 
-        cm = RoutingCostModel(
-            bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0
-        )
+        cm = RoutingCostModel(bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0)
         # Route a '/' path from (1.5, 1.5) to (2.5, 2.5) — the two diagonals
         # cross at (2.0, 2.0) which is a mesh-cell centre.
         result = _astar_parallel(

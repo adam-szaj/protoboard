@@ -11,7 +11,8 @@ from protoboard.gui.dialogs.drag_ask_remove_dialog import DragAskRemoveDialog
 class TestDragAskRemoveDialog:
     def test_default_state(self, qtbot) -> None:
         dlg = DragAskRemoveDialog(
-            title="Remove?", message="Drop 1 wire?",
+            title="Remove?",
+            message="Drop 1 wire?",
         )
         qtbot.addWidget(dlg)
         assert dlg.session_opt_out() is False
@@ -21,18 +22,14 @@ class TestDragAskRemoveDialog:
     def test_yes_button_accepts(self, qtbot) -> None:
         dlg = DragAskRemoveDialog(title="Q", message="M")
         qtbot.addWidget(dlg)
-        yes = next(
-            b for b in dlg.findChildren(QPushButton) if b.text() == "Yes"
-        )
+        yes = next(b for b in dlg.findChildren(QPushButton) if b.text() == "Yes")
         yes.click()
         assert dlg.result() == QDialog.DialogCode.Accepted
 
     def test_cancel_button_rejects(self, qtbot) -> None:
         dlg = DragAskRemoveDialog(title="Q", message="M")
         qtbot.addWidget(dlg)
-        cancel = next(
-            b for b in dlg.findChildren(QPushButton) if b.text() == "Cancel"
-        )
+        cancel = next(b for b in dlg.findChildren(QPushButton) if b.text() == "Cancel")
         cancel.click()
         assert dlg.result() == QDialog.DialogCode.Rejected
 
@@ -41,9 +38,7 @@ class TestDragAskRemoveDialog:
         qtbot.addWidget(dlg)
         cb = next(iter(dlg.findChildren(QCheckBox)))
         cb.setChecked(True)
-        yes = next(
-            b for b in dlg.findChildren(QPushButton) if b.text() == "Yes"
-        )
+        yes = next(b for b in dlg.findChildren(QPushButton) if b.text() == "Yes")
         yes.click()
         assert dlg.session_opt_out() is True
 
@@ -52,8 +47,6 @@ class TestDragAskRemoveDialog:
         qtbot.addWidget(dlg)
         cb = next(iter(dlg.findChildren(QCheckBox)))
         cb.setChecked(True)
-        cancel = next(
-            b for b in dlg.findChildren(QPushButton) if b.text() == "Cancel"
-        )
+        cancel = next(b for b in dlg.findChildren(QPushButton) if b.text() == "Cancel")
         cancel.click()
         assert dlg.session_opt_out() is False

@@ -96,13 +96,16 @@ def _open_trace():  # type: ignore[no-untyped-def]
     fname = _TRACE_DIR / f"astar_{int(_time.time() * 1000)}_{seq:06d}.jsonl"
     return fname.open("w", buffering=1)
 
+
 # ---------------------------------------------------------------------------
 # Rust extension (optional — true parallelism without GIL)
 # ---------------------------------------------------------------------------
 try:
     import protoboard_astar_rs as _rs  # type: ignore[import-not-found]
+
     _RUST_AVAILABLE = True
     import os as _os
+
     _log.info("astar.rust_extension", status="loaded", cpu_count=_os.cpu_count())
 except ImportError:
     _rs = None  # type: ignore[assignment]
@@ -133,7 +136,9 @@ def _find_paths_rust(
     raw = _rs.find_paths_parallel(
         [(p.x, p.y) for p in valid_nodes["top"]],
         [(p.x, p.y) for p in valid_nodes["bottom"]],
-        source.x, source.y, source_side,
+        source.x,
+        source.y,
+        source_side,
         [(p.x, p.y) for p in target_set],
         cost_model.free_pad,
         cost_model.same_net_pad,
@@ -170,7 +175,7 @@ def _find_paths_rust(
     return results
 
 
-# Spatial index for bare wire segments: (cell_x, cell_y, side) → [(p1, p2, net_idx), ...]
+# Spatial index for bare wire segments: (cell_x, cell_y, side) → [(p1, p2, net_idx), ...]  # noqa: E501
 # Each segment is stored under every integer cell its bounding box covers.
 # Lookup: for a step covering bbox (x0..x1, y0..y1) query all overlapping cells.
 # ``net_idx`` is a compact integer identifier of the segment's electrical net
@@ -212,14 +217,14 @@ def _build_bare_seg_index(
 # 4 orthogonal + 4 diagonal neighbours (same layer), each with its distance
 # multiplier.  Layer changes are handled separately.
 _NEIGHBOURS: list[tuple[float, float, float]] = [
-    (1.0,  0.0, 1.0),
+    (1.0, 0.0, 1.0),
     (-1.0, 0.0, 1.0),
-    (0.0,  1.0, 1.0),
+    (0.0, 1.0, 1.0),
     (0.0, -1.0, 1.0),
-    (1.0,  1.0, 1.4140),
+    (1.0, 1.0, 1.4140),
     (1.0, -1.0, 1.4140),
     (-1.0, 1.0, 1.4140),
-    (-1.0,-1.0, 1.4140),
+    (-1.0, -1.0, 1.4140),
 ]
 
 _SIDES: tuple[str, str] = ("top", "bottom")
@@ -272,6 +277,7 @@ def _fold_path_chain(steps: list[PathStep]) -> _PathChain:
         chain = (chain, step)
     return chain
 
+
 # Executor for parallel universe A*.  Default is *sequential* — see
 # project_silent_crash_post_upgrade memory: a worker thread garbage-collecting
 # concurrently with Qt's paintEvent on the main thread can segfault inside
@@ -309,8 +315,11 @@ class _SequentialUniverseExecutor:
 _ASTAR_PARALLEL = os.environ.get("PROTOBOARD_ASTAR_PARALLEL", "0") == "1"
 _ASTAR_SEQUENTIAL = os.environ.get("PROTOBOARD_ASTAR_SEQUENTIAL", "0") == "1"
 if _ASTAR_PARALLEL and not _ASTAR_SEQUENTIAL:
-    _UNIVERSE_POOL: ThreadPoolExecutor | _SequentialUniverseExecutor = ThreadPoolExecutor(
-        max_workers=_CPU_COUNT, thread_name_prefix="astar_universe",
+    _UNIVERSE_POOL: ThreadPoolExecutor | _SequentialUniverseExecutor = (
+        ThreadPoolExecutor(
+            max_workers=_CPU_COUNT,
+            thread_name_prefix="astar_universe",
+        )
     )
 else:
     _UNIVERSE_POOL = _SequentialUniverseExecutor()
@@ -399,8 +408,21 @@ class _SharedState:
 # When deferred_via_lookahead == 0, all six trailing fields are constant zero;
 # the cost cost per entry is 5 extra floats — marginal vs the path list copy.
 _HE = tuple[
-    float, float, int, float, float, int, float, float, _PathChain,
-    int, float, float, float, float, float,
+    float,
+    float,
+    int,
+    float,
+    float,
+    int,
+    float,
+    float,
+    _PathChain,
+    int,
+    float,
+    float,
+    float,
+    float,
+    float,
 ]
 
 
@@ -457,40 +479,40 @@ def _universe_worker(
 
     # Convert Point-based structures to float-tuple keys — avoids Point.__init__
     # and Point.__hash__ on every neighbour lookup in the hot loop.
-    _vn_top:    set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("top", set())}
-    _vn_bottom: set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("bottom", set())}
+    _vn_top: set[tuple[float, float]] = {
+        (p.x, p.y) for p in valid_nodes.get("top", set())
+    }
+    _vn_bottom: set[tuple[float, float]] = {
+        (p.x, p.y) for p in valid_nodes.get("bottom", set())
+    }
     _vn = (_vn_top, _vn_bottom)  # indexed by cs_idx (0=top, 1=bottom)
     _tgt: set[tuple[float, float]] = {(p.x, p.y) for p in target_set}
     _via: set[tuple[float, float]] = {(p.x, p.y) for p in vias}
-    _occ:  dict[tuple[float, float, str], float] = {
+    _occ: dict[tuple[float, float, str], float] = {
         (p.x, p.y, s): cost_model.occupied_by_other_net for (p, s) in occupied
     }
     _same: dict[tuple[float, float, str], float] = {
         (p.x, p.y, s): cost_model.same_net_pad for (p, s) in same_net
     }
     _near: set[tuple[float, float, str]] = {(p.x, p.y, s) for (p, s) in near_pins}
-    _pen:  dict[tuple[float, float, str], float] = {
+    _pen: dict[tuple[float, float, str], float] = {
         (p.x, p.y, s): v for (p, s), v in penalised.items()
     }
-    _fe:   set[tuple[float, float, str, float, float, str]] = {
+    _fe: set[tuple[float, float, str, float, float, str]] = {
         (pa.x, pa.y, sa, pb.x, pb.y, sb) for (pa, sa, pb, sb) in forbidden_edges
     }
     _free = cost_model.free_pad
     _inf = float("inf")
-    _dc  = cost_model.direction_change
-    _lc  = cost_model.layer_change
+    _dc = cost_model.direction_change
+    _lc = cost_model.layer_change
     # Angle-aware bends — opt-in.  When any bend_* knob is set the hot loop
     # classifies the bend by the cosine of the angle between prev/next step
     # directions and charges the matching cost.  When all three are 0.0 the
     # check degrades to a single _dc charge per turn (legacy behaviour).
-    _b45  = cost_model.get("bend_45",  _dc)
-    _b90  = cost_model.get("bend_90",  _dc)
+    _b45 = cost_model.get("bend_45", _dc)
+    _b90 = cost_model.get("bend_90", _dc)
     _b135 = cost_model.get("bend_135", _dc)
-    _bend_angle_active = (
-        _b45  != _dc
-        or _b90  != _dc
-        or _b135 != _dc
-    )
+    _bend_angle_active = _b45 != _dc or _b90 != _dc or _b135 != _dc
     # Diagonal parity × side × family preferences — opt-in.  Each diagonal
     # step is classified by its family (NE/SW vs NW/SE) and the parity of
     # the destination cell ``(x+y) mod 2``.  Mapping (preferred family per
@@ -500,7 +522,7 @@ def _universe_worker(
     #   parity odd  + top    → NW/SE
     #   parity odd  + bottom → NE/SW
     # When both knobs are 0, the cost is unchanged.  See docs/routing.md.
-    _diag_pref   = cost_model.get("diagonal_preferred_family",   0.0)
+    _diag_pref = cost_model.get("diagonal_preferred_family", 0.0)
     _diag_unpref = cost_model.get("diagonal_dispreferred_family", 0.0)
     _diag_parity_active = (_diag_pref != 0.0) or (_diag_unpref != 0.0)
     # wire_over_foreign_wire_pad — soft cost per step into a cell already
@@ -538,7 +560,8 @@ def _universe_worker(
     # because ``_atp_active`` is False.
     _atp: dict[tuple[float, float, str], int] = (
         {(p.x, p.y, s): bm for (p, s), bm in at_pad_wires.items()}
-        if at_pad_wires else {}
+        if at_pad_wires
+        else {}
     )
     _atp_ii = cost_model.at_pad_insulated_insulated_same_side
     _atp_ib = cost_model.at_pad_insulated_bare_same_side
@@ -549,7 +572,8 @@ def _universe_worker(
     # — touching one's own wire at a pad is electrically free.
     _atp_nets: dict[tuple[float, float, str], frozenset[int]] = (
         {(p.x, p.y, s): nets for (p, s), nets in at_pad_nets.items()}
-        if at_pad_nets else {}
+        if at_pad_nets
+        else {}
     )
     # Parallel-opposite-side penalty: list of (p1x, p1y, p2x, p2y,
     # other_side, other_insulated, other_net_idx) tuples on the OPPOSITE
@@ -559,15 +583,12 @@ def _universe_worker(
     # Granular opposite-side crossing knobs trigger the same per-side
     # segment buckets (built once, consulted by _crossing_cost).
     _granular_opposite_active = (
-        cost_model.get("crossing_ib_at_pad_opposite_side",  0.0) != 0.0
+        cost_model.get("crossing_ib_at_pad_opposite_side", 0.0) != 0.0
         or cost_model.get("crossing_ib_off_pad_opposite_side", 0.0) != 0.0
-        or cost_model.get("crossing_ii_at_pad_opposite_side",  0.0) != 0.0
+        or cost_model.get("crossing_ii_at_pad_opposite_side", 0.0) != 0.0
         or cost_model.get("crossing_ii_off_pad_opposite_side", 0.0) != 0.0
     )
-    _pos_active = (
-        (_pos_pen != 0.0 or _granular_opposite_active)
-        and bool(all_segments)
-    )
+    _pos_active = (_pos_pen != 0.0 or _granular_opposite_active) and bool(all_segments)
     # Two buckets:
     # * ``_segs_on_top``  — segments living on the TOP layer; consulted by
     #   workers stepping on BOTTOM (i.e. opposite to TOP).
@@ -597,7 +618,8 @@ def _universe_worker(
     # a zero-cost neighbour.  Empty when active net has no laid wires.
     _tp: dict[tuple[float, float, str], tuple[tuple[Point, str], ...]] = (
         {(p.x, p.y, s): dests for (p, s), dests in teleport_pads.items()}
-        if teleport_pads else {}
+        if teleport_pads
+        else {}
     )
     _parity_filter = cost_model.bare_diagonal_mode and source_parity in (0, 1)
     # Allowed sign of (ndx * ndy) for diagonal steps in the source's family.
@@ -620,42 +642,76 @@ def _universe_worker(
     _seq = seq_counter
     _trace = _open_trace()
     if _trace is not None:
-        _trace.write(_json.dumps({
-            "e": "init",
-            "insulated": insulated,
-            "source_parity": source_parity,
-            "bare_diagonal_mode": cost_model.bare_diagonal_mode,
-            "n_targets": len(_tgt),
-            "n_valid_top": len(_vn_top),
-            "n_valid_bottom": len(_vn_bottom),
-            "n_occupied": len(_occ),
-            "n_same_net": len(_same),
-            "n_bare_segs": sum(len(v) for v in bare_idx.values()),
-            "first_target": next(iter(_tgt), None),
-        }) + "\n")
+        _trace.write(
+            _json.dumps(
+                {
+                    "e": "init",
+                    "insulated": insulated,
+                    "source_parity": source_parity,
+                    "bare_diagonal_mode": cost_model.bare_diagonal_mode,
+                    "n_targets": len(_tgt),
+                    "n_valid_top": len(_vn_top),
+                    "n_valid_bottom": len(_vn_bottom),
+                    "n_occupied": len(_occ),
+                    "n_same_net": len(_same),
+                    "n_bare_segs": sum(len(v) for v in bare_idx.values()),
+                    "first_target": next(iter(_tgt), None),
+                }
+            )
+            + "\n"
+        )
 
     try:
         while heap:
             if shared.over_budget(nodes_expanded):
                 if _trace is not None:
-                    _trace.write(_json.dumps({
-                        "e": "end", "reason": "over_budget",
-                        "nodes_expanded": nodes_expanded,
-                    }) + "\n")
+                    _trace.write(
+                        _json.dumps(
+                            {
+                                "e": "end",
+                                "reason": "over_budget",
+                                "nodes_expanded": nodes_expanded,
+                            }
+                        )
+                        + "\n"
+                    )
                 return
 
-            (_f, g, _s, cx, cy, cs_idx, dx, dy, path,
-             via_pending, pre_via_x, pre_via_y,
-             shadow_g, shadow_dx, shadow_dy) = heapq.heappop(heap)
+            (
+                _f,
+                g,
+                _s,
+                cx,
+                cy,
+                cs_idx,
+                dx,
+                dy,
+                path,
+                via_pending,
+                pre_via_x,
+                pre_via_y,
+                shadow_g,
+                shadow_dx,
+                shadow_dy,
+            ) = heapq.heappop(heap)
             cur_side = _SIDES[cs_idx]
             # Include deferred-via dimensions in state key so two paths
             # reaching the same (x,y,side,dir) but with different
             # tentative-via context remain distinct.  Falls back to legacy
             # 5-tuple shape (numerically) when _dvl_active is False —
             # via_pending stays 0 and shadow_* stay 0.0 throughout.
-            state_key = (cx, cy, cs_idx, dx, dy,
-                         via_pending, pre_via_x, pre_via_y,
-                         shadow_dx, shadow_dy)
+            state_key = (
+                cx,
+                cy,
+                cs_idx,
+                dx,
+                dy,
+                via_pending,
+                pre_via_x,
+                pre_via_y,
+                shadow_dx,
+                shadow_dy,
+            )
 
             if visited.get(state_key, _inf) <= g:
                 continue
@@ -665,18 +721,27 @@ def _universe_worker(
             if (cx, cy) in _tgt:
                 goal_path = _unfold_path_chain(path)
                 shared.record_found(nodes_expanded)
-                shared.result_queue.put(RoutingResult(
-                    path=goal_path, cost=g, insulated=insulated,
-                    nodes_expanded=nodes_expanded,
-                ))
+                shared.result_queue.put(
+                    RoutingResult(
+                        path=goal_path,
+                        cost=g,
+                        insulated=insulated,
+                        nodes_expanded=nodes_expanded,
+                    )
+                )
                 if _trace is not None:
-                    _trace.write(_json.dumps({
-                        "e": "goal",
-                        "pos": [cx, cy, cur_side],
-                        "g": g,
-                        "path": [[p.x, p.y, s] for p, s in goal_path],
-                        "nodes_expanded": nodes_expanded,
-                    }) + "\n")
+                    _trace.write(
+                        _json.dumps(
+                            {
+                                "e": "goal",
+                                "pos": [cx, cy, cur_side],
+                                "g": g,
+                                "path": [[p.x, p.y, s] for p, s in goal_path],
+                                "nodes_expanded": nodes_expanded,
+                            }
+                        )
+                        + "\n"
+                    )
                     _trace.close()
                 return
 
@@ -735,11 +800,11 @@ def _universe_worker(
                     # NW/SE family: ndx*ndy < 0  ("\" backslash)
                     _is_ne_sw = (ndx * ndy) > 0.0
                     _parity_even = (int(nx + ny) % 2) == 0
-                    _on_top = (cur_side == "top")
+                    _on_top = cur_side == "top"
                     # Mapping: parity_even XOR on_top  → preferred = NE/SW
                     # (parity_even, top) → NE/SW; (parity_even, bottom) → NW/SE
                     # (parity_odd,  top) → NW/SE; (parity_odd,  bottom) → NE/SW
-                    _prefers_ne_sw = (_parity_even == _on_top)
+                    _prefers_ne_sw = _parity_even == _on_top
                     if _is_ne_sw == _prefers_ne_sw:
                         step_cost += _diag_pref
                     else:
@@ -756,10 +821,16 @@ def _universe_worker(
                 npos = Point(nx, ny)
                 _opp_segs = (
                     (_segs_on_bot if cur_side == "top" else _segs_on_top)
-                    if _pos_active else None
+                    if _pos_active
+                    else None
                 )
                 crossing_cost = _crossing_cost(
-                    pos, npos, cur_side, bare_idx, cost_model, insulated,
+                    pos,
+                    npos,
+                    cur_side,
+                    bare_idx,
+                    cost_model,
+                    insulated,
                     active_net_idx=active_net_idx,
                     all_segments_other_side=_opp_segs,
                 )
@@ -780,8 +851,8 @@ def _universe_worker(
                 # on this pad, touching it is electrically free — bypass
                 # both the _atp_ii/_atp_ib add and the at_pad_bare_short
                 # reject.  Pay reuse_cost (default 0.0).
-                _same_net_at_pad = (
-                    _has_reuse and active_net_idx in _atp_nets.get(_nkey, frozenset())
+                _same_net_at_pad = _has_reuse and active_net_idx in _atp_nets.get(
+                    _nkey, frozenset()
                 )
                 if _same_net_at_pad:
                     step_cost += _reuse_cost
@@ -813,10 +884,7 @@ def _universe_worker(
                 # penalty (different layers; physically isolated).
                 if _pos_active:
                     # cur_side="top" → consult segments on BOTTOM, and vice versa.
-                    _opp = (
-                        _segs_on_bot if cur_side == "top"
-                        else _segs_on_top
-                    )
+                    _opp = _segs_on_bot if cur_side == "top" else _segs_on_top
                     if _opp:
                         _step_min_x = cx if cx <= nx else nx
                         _step_max_x = cx if cx >= nx else nx
@@ -850,11 +918,19 @@ def _universe_worker(
                                 continue
                             # 1D overlap interior on dominant axis.
                             if _step_max_x - _step_min_x >= _step_max_y - _step_min_y:
-                                _lo = _step_min_x if _step_min_x > _q_min_x else _q_min_x
-                                _hi = _step_max_x if _step_max_x < _q_max_x else _q_max_x
+                                _lo = (
+                                    _step_min_x if _step_min_x > _q_min_x else _q_min_x
+                                )
+                                _hi = (
+                                    _step_max_x if _step_max_x < _q_max_x else _q_max_x
+                                )
                             else:
-                                _lo = _step_min_y if _step_min_y > _q_min_y else _q_min_y
-                                _hi = _step_max_y if _step_max_y < _q_max_y else _q_max_y
+                                _lo = (
+                                    _step_min_y if _step_min_y > _q_min_y else _q_min_y
+                                )
+                                _hi = (
+                                    _step_max_y if _step_max_y < _q_max_y else _q_max_y
+                                )
                             if _hi > _lo:  # strict interior overlap
                                 step_cost += _pos_pen
 
@@ -867,11 +943,11 @@ def _universe_worker(
                         _l1 = (dx * dx + dy * dy) ** 0.5
                         _l2 = (ndx * ndx + ndy * ndy) ** 0.5
                         _cos = (dx * ndx + dy * ndy) / (_l1 * _l2)
-                        if _cos > 0.6:           # ≈ cos(45°) = 0.707
+                        if _cos > 0.6:  # ≈ cos(45°) = 0.707
                             step_cost += _b45
-                        elif _cos > -0.1:        # ≈ cos(90°) = 0.0
+                        elif _cos > -0.1:  # ≈ cos(90°) = 0.0
                             step_cost += _b90
-                        else:                    # cos(135°) ≈ -0.707, U-turn ≈ -1
+                        else:  # cos(135°) ≈ -0.707, U-turn ≈ -1
                             step_cost += _b135
                     else:
                         step_cost += _dc
@@ -934,10 +1010,15 @@ def _universe_worker(
                         # side).
                         _opp_segs_old = (
                             (_segs_on_top if _old_side == "bottom" else _segs_on_bot)
-                            if _pos_active else None
+                            if _pos_active
+                            else None
                         )
                         _shadow_crossing = _crossing_cost(
-                            pos, npos, _old_side, bare_idx, cost_model,
+                            pos,
+                            npos,
+                            _old_side,
+                            bare_idx,
+                            cost_model,
                             insulated,
                             active_net_idx=active_net_idx,
                             all_segments_other_side=_opp_segs_old,
@@ -989,10 +1070,13 @@ def _universe_worker(
                             if _trigger:
                                 # Tie-break: rollback wins when totals
                                 # are equal (user pref).
-                                _g_real_after  = g + step_cost
+                                _g_real_after = g + step_cost
                                 _g_shadow_after = shadow_g + _shadow_step_cost
-                                if _g_shadow_after <= _g_real_after - _dvl * 0 + 1e-9 \
-                                   if False else _g_shadow_after <= _g_real_after:
+                                if (
+                                    _g_shadow_after <= _g_real_after - _dvl * 0 + 1e-9
+                                    if False
+                                    else _g_shadow_after <= _g_real_after
+                                ):
                                     # ROLLBACK: rewrite path post-via to
                                     # OLD side, drop the via marker, use
                                     # shadow accumulated g + new step cost.
@@ -1016,7 +1100,7 @@ def _universe_worker(
                                         _new_path: list[PathStep] = list(
                                             _path_list[:_via_idx]
                                         )
-                                        for _pp, _pps in _path_list[_via_idx + 1:]:
+                                        for _pp, _pps in _path_list[_via_idx + 1 :]:
                                             _new_path.append((_pp, _old_side))
                                         _new_path.append((npos, _old_side))
                                         _rollback_path = _new_path
@@ -1043,23 +1127,58 @@ def _universe_worker(
                     # Push a fresh entry on the OLD side, no longer
                     # tentative.  State key gets cleared shadow fields
                     # because the via never happened.
-                    _rb_nstate = (nx, ny, _old_side_idx, ndx, ndy,
-                                  0, 0.0, 0.0, 0.0, 0.0)
-                    if not (_rb_nstate in visited and visited[_rb_nstate] <= _rollback_g):
+                    _rb_nstate = (
+                        nx,
+                        ny,
+                        _old_side_idx,
+                        ndx,
+                        ndy,
+                        0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    )
+                    if not (
+                        _rb_nstate in visited and visited[_rb_nstate] <= _rollback_g
+                    ):
                         _rb_nf = _rollback_g + h(nx, ny)
                         _seq += 1
-                        neighbor_entries.append((
-                            _rb_nf, _rollback_g, _seq, nx, ny, _old_side_idx,
-                            ndx, ndy, _fold_path_chain(_rollback_path),
-                            0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        ))
+                        neighbor_entries.append(
+                            (
+                                _rb_nf,
+                                _rollback_g,
+                                _seq,
+                                nx,
+                                ny,
+                                _old_side_idx,
+                                ndx,
+                                ndy,
+                                _fold_path_chain(_rollback_path),
+                                0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                            )
+                        )
                     if _trace_neighbours is not None:
                         _trace_neighbours.append([ndx, ndy, "via_rolled_back"])
                     continue
 
-                nstate = (nx, ny, cs_idx, ndx, ndy,
-                          next_via_pending, next_pre_via_x, next_pre_via_y,
-                          next_shadow_dx, next_shadow_dy)
+                nstate = (
+                    nx,
+                    ny,
+                    cs_idx,
+                    ndx,
+                    ndy,
+                    next_via_pending,
+                    next_pre_via_x,
+                    next_pre_via_y,
+                    next_shadow_dx,
+                    next_shadow_dy,
+                )
                 if nstate in visited and visited[nstate] <= ng:
                     if _trace_neighbours is not None:
                         _trace_neighbours.append([ndx, ndy, "visited_cheaper"])
@@ -1074,10 +1193,23 @@ def _universe_worker(
                     nf = ng + h(nx, ny)
                 _seq += 1
                 neighbor_entries.append(
-                    (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy,
-                     (path, (npos, cur_side)),
-                     next_via_pending, next_pre_via_x, next_pre_via_y,
-                     next_shadow_g, next_shadow_dx, next_shadow_dy)
+                    (
+                        nf,
+                        ng,
+                        _seq,
+                        nx,
+                        ny,
+                        cs_idx,
+                        ndx,
+                        ndy,
+                        (path, (npos, cur_side)),
+                        next_via_pending,
+                        next_pre_via_x,
+                        next_pre_via_y,
+                        next_shadow_g,
+                        next_shadow_dx,
+                        next_shadow_dy,
+                    )
                 )
                 if _trace_neighbours is not None:
                     _trace_neighbours.append([ndx, ndy, "queued", ng, crossing_cost])
@@ -1098,7 +1230,10 @@ def _universe_worker(
                         # this via leaves it (cur_side == dominant), zebra
                         # suppression doubles the penalty.
                         if _rlc_active:
-                            if _dominant_side is not None and cur_side == _dominant_side:
+                            if (
+                                _dominant_side is not None
+                                and cur_side == _dominant_side
+                            ):
                                 _via_cost += _rlc * 2.0
                             else:
                                 _via_cost += _rlc
@@ -1125,7 +1260,9 @@ def _universe_worker(
                             _short = False
                             for _via_side in (cur_side, other_side):
                                 _via_key = (cx, cy, _via_side)
-                                if _has_reuse and active_net_idx in _atp_nets.get(_via_key, frozenset()):
+                                if _has_reuse and active_net_idx in _atp_nets.get(
+                                    _via_key, frozenset()
+                                ):
                                     continue
                                 _bm_via = _atp.get(_via_key, 0)
                                 if _bm_via & 2:
@@ -1145,7 +1282,7 @@ def _universe_worker(
                                         # crowding, same cost knob.
                                         _via_cost += _atp_ib
                             if _short:
-                                pass  # _via_cost == _inf; downstream visited check skips
+                                pass  # _via_cost == _inf; downstream visited check skips  # noqa: E501
                         ng = g + _via_cost
                         # Deferred-via: mark the new via tentative so we
                         # can roll it back later if the shadow (old) side
@@ -1172,19 +1309,37 @@ def _universe_worker(
                             via_next_shadow_g = shadow_g
                             via_next_shadow_dx = shadow_dx
                             via_next_shadow_dy = shadow_dy
-                        nstate = (cx, cy, other_idx, 0.0, 0.0,
-                                  via_next_pending, via_next_pre_x,
-                                  via_next_pre_y,
-                                  via_next_shadow_dx, via_next_shadow_dy)
+                        nstate = (
+                            cx,
+                            cy,
+                            other_idx,
+                            0.0,
+                            0.0,
+                            via_next_pending,
+                            via_next_pre_x,
+                            via_next_pre_y,
+                            via_next_shadow_dx,
+                            via_next_shadow_dy,
+                        )
                         if not (nstate in visited and visited[nstate] <= ng):
                             nf = ng + h(cx, cy)
                             _seq += 1
                             via_entry = (
-                                nf, ng, _seq, cx, cy, other_idx, 0.0, 0.0,
+                                nf,
+                                ng,
+                                _seq,
+                                cx,
+                                cy,
+                                other_idx,
+                                0.0,
+                                0.0,
                                 (path, (pos, other_side)),
-                                via_next_pending, via_next_pre_x,
-                                via_next_pre_y, via_next_shadow_g,
-                                via_next_shadow_dx, via_next_shadow_dy,
+                                via_next_pending,
+                                via_next_pre_x,
+                                via_next_pre_y,
+                                via_next_shadow_g,
+                                via_next_shadow_dx,
+                                via_next_shadow_dy,
                             )
 
             if via_entry is not None:
@@ -1219,42 +1374,75 @@ def _universe_worker(
                         # the geometric continuation is on a different
                         # plane (same-net wire reuse), incompatible with
                         # the shadow-on-old-side accounting.
-                        nstate = (_dx_t, _dy_t, _dside_idx, 0.0, 0.0,
-                                  0, 0.0, 0.0, 0.0, 0.0)
+                        nstate = (
+                            _dx_t,
+                            _dy_t,
+                            _dside_idx,
+                            0.0,
+                            0.0,
+                            0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                        )
                         if nstate in visited and visited[nstate] <= ng:
                             continue
                         nf = ng + h(_dx_t, _dy_t)
                         _seq += 1
-                        neighbor_entries.append((
-                            nf, ng, _seq,
-                            _dx_t, _dy_t, _dside_idx,
-                            0.0, 0.0,
-                            (path, (Point(_dx_t, _dy_t), _dside)),
-                            0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        ))
+                        neighbor_entries.append(
+                            (
+                                nf,
+                                ng,
+                                _seq,
+                                _dx_t,
+                                _dy_t,
+                                _dside_idx,
+                                0.0,
+                                0.0,
+                                (path, (Point(_dx_t, _dy_t), _dside)),
+                                0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                                0.0,
+                            )
+                        )
 
             if _trace is not None:
-                _trace.write(_json.dumps({
-                    "e": "step",
-                    "pos": [cx, cy, cur_side],
-                    "g": g,
-                    "from_dir": [dx, dy],
-                    "queued": len(neighbor_entries),
-                    "neighbours": _trace_neighbours,
-                    "via": via_entry is not None,
-                    "nodes_expanded": nodes_expanded,
-                }) + "\n")
+                _trace.write(
+                    _json.dumps(
+                        {
+                            "e": "step",
+                            "pos": [cx, cy, cur_side],
+                            "g": g,
+                            "from_dir": [dx, dy],
+                            "queued": len(neighbor_entries),
+                            "neighbours": _trace_neighbours,
+                            "via": via_entry is not None,
+                            "nodes_expanded": nodes_expanded,
+                        }
+                    )
+                    + "\n"
+                )
 
             if not neighbor_entries:
                 continue
 
             for entry in neighbor_entries:
-                    heapq.heappush(heap, entry)
+                heapq.heappush(heap, entry)
         if _trace is not None:
-            _trace.write(_json.dumps({
-                "e": "end", "reason": "heap_empty",
-                "nodes_expanded": nodes_expanded,
-            }) + "\n")
+            _trace.write(
+                _json.dumps(
+                    {
+                        "e": "end",
+                        "reason": "heap_empty",
+                        "nodes_expanded": nodes_expanded,
+                    }
+                )
+                + "\n"
+            )
             _trace.close()
     finally:
         shared.record_nodes(nodes_expanded)
@@ -1278,7 +1466,11 @@ def _astar_parallel(
     penalised: dict[tuple[Point, str], float],
     extra_budget_ratio: float = 0.5,
     at_pad_wires: dict[tuple[Point, str], int] | None = None,
-    all_segments: list[tuple[Point, Point, str, bool, int]] | list[tuple[Point, Point, str, bool]] | None = None,
+    all_segments: (
+        list[tuple[Point, Point, str, bool, int]]
+        | list[tuple[Point, Point, str, bool]]
+        | None
+    ) = None,
     active_net_idx: int = -1,
     at_pad_nets: dict[tuple[Point, str], frozenset[int]] | None = None,
     teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
@@ -1291,7 +1483,8 @@ def _astar_parallel(
     Returns the cheapest path found across all universes, or None if unreachable.
     """
     import time
-    from concurrent.futures import wait as _wait, ALL_COMPLETED
+    from concurrent.futures import ALL_COMPLETED
+    from concurrent.futures import wait as _wait
 
     # Precompute target coords once — workers use floats directly, no Point alloc.
     target_coords: list[tuple[float, float]] = [(t.x, t.y) for t in target_set]
@@ -1307,14 +1500,22 @@ def _astar_parallel(
     side_idx = 0 if source_side == "top" else 1
     initial_heap: list[_HE] = [
         (
-            h0(source.x, source.y), 0.0, 0,
-            source.x, source.y, side_idx, 0.0, 0.0,
+            h0(source.x, source.y),
+            0.0,
+            0,
+            source.x,
+            source.y,
+            side_idx,
+            0.0,
+            0.0,
             (None, (source, source_side)),
             # Deferred-via state: not pending at source.
-            0,         # via_pending
-            0.0, 0.0,  # pre_via_x, pre_via_y
-            0.0,       # shadow_g
-            0.0, 0.0,  # shadow_dx, shadow_dy
+            0,  # via_pending
+            0.0,
+            0.0,  # pre_via_x, pre_via_y
+            0.0,  # shadow_g
+            0.0,
+            0.0,  # shadow_dx, shadow_dy
         )
     ]
     # State key includes the deferred-via dimensions so two paths reaching
@@ -1329,8 +1530,10 @@ def _astar_parallel(
     # Parity of the source pad: pads sit at (c+0.5, r+0.5) so floor gives (c, r).
     # Used only by bare_diagonal mode; ignored otherwise.
     source_parity = (
-        int(math.floor(source.x)) + int(math.floor(source.y))
-    ) % 2 if cost_model.bare_diagonal_mode else -1
+        (int(math.floor(source.x)) + int(math.floor(source.y))) % 2
+        if cost_model.bare_diagonal_mode
+        else -1
+    )
 
     shared = _SharedState(
         result_queue=Queue(),
@@ -1344,10 +1547,24 @@ def _astar_parallel(
     # ``teleport_pads``) follow them.
     fut = _UNIVERSE_POOL.submit(
         _universe_worker,
-        initial_heap, initial_visited, 0, 0, shared,
-        valid_nodes, target_set, target_coords, cost_model, insulated,
-        occupied, same_net, near_pins, near_pin_cost,
-        bare_idx, vias, forbidden_edges, penalised,
+        initial_heap,
+        initial_visited,
+        0,
+        0,
+        shared,
+        valid_nodes,
+        target_set,
+        target_coords,
+        cost_model,
+        insulated,
+        occupied,
+        same_net,
+        near_pins,
+        near_pin_cost,
+        bare_idx,
+        vias,
+        forbidden_edges,
+        penalised,
         source_parity,
         at_pad_wires,
         # _universe_worker accepts the legacy 4-tuple form at runtime
@@ -1376,7 +1593,11 @@ def _astar_parallel(
             pending_sample = [f for f in shared.futures[-_CPU_COUNT:] if not f.done()]
         if pending_sample:
             remaining = deadline - time.monotonic()
-            _wait(pending_sample, timeout=min(_POLL_INTERVAL_S, remaining), return_when=ALL_COMPLETED)
+            _wait(
+                pending_sample,
+                timeout=min(_POLL_INTERVAL_S, remaining),
+                return_when=ALL_COMPLETED,
+            )
         else:
             # No recently-added futures to wait on — short sleep to avoid busy spin.
             time.sleep(_POLL_INTERVAL_S)
@@ -1414,12 +1635,20 @@ def find_paths(
     same_net_pads: dict[tuple[Point, str], uuid.UUID] | None = None,
     near_pin_pads: set[tuple[Point, str]] | None = None,
     near_pin_cost: float = 10.0,
-    bare_wire_segments: set[tuple[Point, Point, str, uuid.UUID | None]] | set[tuple[Point, Point, str]] | None = None,
+    bare_wire_segments: (
+        set[tuple[Point, Point, str, uuid.UUID | None]]
+        | set[tuple[Point, Point, str]]
+        | None
+    ) = None,
     plated_through_pads: set[Point] | None = None,
     penalised_pads: dict[tuple[Point, str], float] | None = None,
     extra_budget_ratio: float = 0.5,
     at_pad_wires: dict[tuple[Point, str], int] | None = None,
-    all_segments: list[tuple[Point, Point, str, bool, uuid.UUID | None]] | list[tuple[Point, Point, str, bool]] | None = None,
+    all_segments: (
+        list[tuple[Point, Point, str, bool, uuid.UUID | None]]
+        | list[tuple[Point, Point, str, bool]]
+        | None
+    ) = None,
     active_net_id: uuid.UUID | None = None,
     at_pad_nets: dict[tuple[Point, str], frozenset[uuid.UUID]] | None = None,
     same_net_pad_vertices: set[tuple[Point, str]] | None = None,
@@ -1590,12 +1819,10 @@ def find_paths(
         or cost_model.at_pad_insulated_bare_same_side != 0.0
         or cost_model.parallel_opposite_side != 0.0
     )
-    _reuse_needs_python = (
-        active_net_idx >= 0 and (
-            any(seg[3] >= 0 for seg in bare_segs_canon)
-            or bool(at_pad_nets_canon)
-            or bool(teleport_pads)
-        )
+    _reuse_needs_python = active_net_idx >= 0 and (
+        any(seg[3] >= 0 for seg in bare_segs_canon)
+        or bool(at_pad_nets_canon)
+        or bool(teleport_pads)
     )
     if _RUST_AVAILABLE and not _enhanced_active and not _reuse_needs_python:
         # Strip net_idx from bare_segs for the Rust legacy signature.
@@ -1696,9 +1923,20 @@ def _astar(
 
     _seq = 0
     side_idx = 0 if source_side == "top" else 1
-    heap: list[tuple[float, float, int, float, float, int, float, float, _PathChain]] = [
-        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0,
-         (None, (source, source_side)))
+    heap: list[
+        tuple[float, float, int, float, float, int, float, float, _PathChain]
+    ] = [
+        (
+            h(source.x, source.y),
+            0.0,
+            _seq,
+            source.x,
+            source.y,
+            side_idx,
+            0.0,
+            0.0,
+            (None, (source, source_side)),
+        )
     ]
     visited: dict[tuple[float, float, int, float, float], float] = {}
 
@@ -1722,7 +1960,15 @@ def _astar(
                 continue
 
             step_cost = _step_cost(
-                npos, cur_side, dist_mult, cost_model, occupied, same_net, near_pins, near_pin_cost, penalised
+                npos,
+                cur_side,
+                dist_mult,
+                cost_model,
+                occupied,
+                same_net,
+                near_pins,
+                near_pin_cost,
+                penalised,
             )
             if step_cost >= float("inf"):
                 continue
@@ -1745,8 +1991,18 @@ def _astar(
             nf = ng + h(npos.x, npos.y)
             _seq += 1
             heapq.heappush(
-                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy,
-                       (path, (npos, cur_side)))
+                heap,
+                (
+                    nf,
+                    ng,
+                    _seq,
+                    npos.x,
+                    npos.y,
+                    cs_idx,
+                    ndx,
+                    ndy,
+                    (path, (npos, cur_side)),
+                ),
             )
 
         if pos in vias:
@@ -1760,8 +2016,18 @@ def _astar(
                         nf = ng + h(cx, cy)
                         _seq += 1
                         heapq.heappush(
-                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0,
-                                   (path, (pos, other_side)))
+                            heap,
+                            (
+                                nf,
+                                ng,
+                                _seq,
+                                pos.x,
+                                pos.y,
+                                other_idx,
+                                0.0,
+                                0.0,
+                                (path, (pos, other_side)),
+                            ),
                         )
 
     return None
@@ -1800,7 +2066,9 @@ def _crossing_cost(
     cost_model: RoutingCostModel,
     insulated: bool,
     active_net_idx: int = -1,
-    all_segments_other_side: list[tuple[float, float, float, float, bool, int]] | None = None,
+    all_segments_other_side: (
+        list[tuple[float, float, float, float, bool, int]] | None
+    ) = None,
 ) -> float:
     """Return the extra cost for the step p1→p2 due to wire crossings.
 
@@ -1836,12 +2104,12 @@ def _crossing_cost(
     # Pre-resolve granular knobs (insulated-only).  When the stepping wire
     # is bare we never read these.
     if insulated:
-        _ib_aps    = cost_model.get("crossing_ib_at_pad_same_side",       0.0)
-        _ib_apo    = cost_model.get("crossing_ib_at_pad_opposite_side",   0.0)
-        _ib_ops    = cost_model.get("crossing_ib_off_pad_same_side",      0.0)
-        _ib_opo    = cost_model.get("crossing_ib_off_pad_opposite_side",  0.0)
-        _ii_apo    = cost_model.get("crossing_ii_at_pad_opposite_side",   0.0)
-        _ii_opo    = cost_model.get("crossing_ii_off_pad_opposite_side",  0.0)
+        _ib_aps = cost_model.get("crossing_ib_at_pad_same_side", 0.0)
+        _ib_apo = cost_model.get("crossing_ib_at_pad_opposite_side", 0.0)
+        _ib_ops = cost_model.get("crossing_ib_off_pad_same_side", 0.0)
+        _ib_opo = cost_model.get("crossing_ib_off_pad_opposite_side", 0.0)
+        _ii_apo = cost_model.get("crossing_ii_at_pad_opposite_side", 0.0)
+        _ii_opo = cost_model.get("crossing_ii_off_pad_opposite_side", 0.0)
     else:
         _ib_aps = _ib_apo = _ib_ops = _ib_opo = 0.0
         _ii_apo = _ii_opo = 0.0
@@ -1875,8 +2143,10 @@ def _crossing_cost(
                         return total
 
     # ---- Opposite-side crossings (insulated-only) ------------------
-    if insulated and all_segments_other_side and (
-        _ib_apo or _ib_opo or _ii_apo or _ii_opo
+    if (
+        insulated
+        and all_segments_other_side
+        and (_ib_apo or _ib_opo or _ii_apo or _ii_opo)
     ):
         # Bounding-box filter on the new step.
         x_lo = p1.x if p1.x < p2.x else p2.x
@@ -1914,7 +2184,10 @@ def _crossing_cost(
 
 
 def _intersection_point(
-    a1: Point, a2: Point, b1: Point, b2: Point,
+    a1: Point,
+    a2: Point,
+    b1: Point,
+    b2: Point,
 ) -> tuple[float, float]:
     """Return (x, y) of the intersection of two crossing segments.
 
@@ -1949,10 +2222,8 @@ def _is_at_pad(x: float, y: float) -> bool:
     return half_x and half_y
 
 
-def _seg_crosses_any(
-    p1: Point, p2: Point, side: str, bare_idx: BareSegIndex
-) -> bool:
-    """Return True if segment p1→p2 strictly crosses any bare segment on the same layer."""
+def _seg_crosses_any(p1: Point, p2: Point, side: str, bare_idx: BareSegIndex) -> bool:
+    """Return True if segment p1→p2 strictly crosses any bare segment on the same layer."""  # noqa: E501
     for bsrc, bdst, _net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
         if _segs_cross(p1, p2, bsrc, bdst):
             return True
@@ -1989,9 +2260,7 @@ def _orient(p: Point, q: Point, r: Point) -> float:
     return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
 
 
-def _segs_cross(
-    a1: Point, a2: Point, b1: Point, b2: Point
-) -> bool:
+def _segs_cross(a1: Point, a2: Point, b1: Point, b2: Point) -> bool:
     """Return True if segments a1→a2 and b1→b2 cross strictly in their interiors.
 
     A "strict interior" crossing means neither segment touches the other only

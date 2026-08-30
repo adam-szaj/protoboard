@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from protoboard.geometry import Rect
     from protoboard.controller.selection_fsm import Hit
+    from protoboard.geometry import Rect
     from protoboard.types import NetId
 
 
@@ -97,14 +97,13 @@ class ConnQuery(Protocol):
     so adapters resolve nets without importing the GUI session directly.
     """
 
-    def nets_for_component(self, component_id: object) -> frozenset[NetId]:
-        ...
+    def nets_for_component(self, component_id: object) -> frozenset[NetId]: ...
 
-    def nets_for_pin(self, component_id: object, pin_number: int) -> frozenset[NetId]:
-        ...
+    def nets_for_pin(
+        self, component_id: object, pin_number: int
+    ) -> frozenset[NetId]: ...
 
-    def net_for_wire(self, wire_id: object) -> NetId | None:
-        ...
+    def net_for_wire(self, wire_id: object) -> NetId | None: ...
 
 
 # ---------------------------------------------------------------------------

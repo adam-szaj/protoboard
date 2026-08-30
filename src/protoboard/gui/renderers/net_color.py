@@ -33,8 +33,8 @@ from typing import cast
 
 from PySide6.QtGui import QColor
 
-from protoboard.domain.schematic.net import Net
 from protoboard.controller.theme import Theme
+from protoboard.domain.schematic.net import Net
 
 # Golden ratio conjugate — gives maximally-spaced hues when added
 # successively modulo 1.0.  ~0.618; classic "golden hue rotation" trick.

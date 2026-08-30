@@ -21,7 +21,6 @@ from protoboard.gui.layer_state import LayerVisibility
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 
-
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
 
 
@@ -60,7 +59,9 @@ def _text_items(bv: BoardView) -> list[str]:
 
 
 class TestAxisLabelsRender:
-    def test_no_labels_when_both_disabled(self, view: tuple[BoardView, EditorSession]) -> None:
+    def test_no_labels_when_both_disabled(
+        self, view: tuple[BoardView, EditorSession]
+    ) -> None:
         bv, sess = view
         sess.axis_label_settings = AxisLabelSettings(
             columns=AxisLabelFormat.DISABLED,
@@ -117,9 +118,7 @@ class TestAxisLabelsRender:
         bv.refresh()
         assert _text_items(bv) == []
 
-    def test_alphabetic_cycles_after_z(
-        self, qtbot: QtBot
-    ) -> None:
+    def test_alphabetic_cycles_after_z(self, qtbot: QtBot) -> None:
         library = load_library([_LIBRARY_DIR])
         sess = EditorSession(board=_perfboard(rows=2, cols=30), library=library)
         sess.axis_label_settings = AxisLabelSettings(
@@ -133,8 +132,35 @@ class TestAxisLabelsRender:
         # 30 columns × 2 sides; entries 0..25 are a..z, 26..29 cycle back
         # to a..d.
         expected_one_side = [
-            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-            "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-            "a", "b", "c", "d",
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "f",
+            "g",
+            "h",
+            "i",
+            "j",
+            "k",
+            "l",
+            "m",
+            "n",
+            "o",
+            "p",
+            "q",
+            "r",
+            "s",
+            "t",
+            "u",
+            "v",
+            "w",
+            "x",
+            "y",
+            "z",
+            "a",
+            "b",
+            "c",
+            "d",
         ]
         assert sorted(texts) == sorted(expected_one_side * 2)

@@ -136,8 +136,11 @@ class TestRegistration:
 
     def test_unknown_extends_raises(self, scratch_registries) -> None:
         registry = {
-            "_t_orphan": {"name": "_t_orphan", "kind": "_t_orphan",
-                          "extends": "_no_such_base"},
+            "_t_orphan": {
+                "name": "_t_orphan",
+                "kind": "_t_orphan",
+                "extends": "_no_such_base",
+            },
         }
         with pytest.raises(PackageDefError):
             register_kind_node("_t_orphan", registry)
@@ -161,24 +164,21 @@ class TestNodeBuild:
             generates = "_t_nodekind"
 
         register_kind_node("_t_nodekind", _base_registry())
-        out = build_kind_package(
-            "_t_nodekind", GeneratorContext(pin_count=3))
+        out = build_kind_package("_t_nodekind", GeneratorContext(pin_count=3))
         pkg = out.package
         assert isinstance(pkg, Prism)
         assert pkg.kind == "_t_nodekind"
         # build_package prepends the shape root when the extends chain does
         # not already pass through it (the real kinds.yaml chain does).
         assert pkg.lineage == ("prism", "prismish", "_t_nodekind")
-        assert pkg.color == "#123456"          # node's declared colour
+        assert pkg.color == "#123456"  # node's declared colour
         assert pkg.size_mm == Size3D(7.5, 5.0)
         assert len(pkg.leads.body_offset_mm) == 2
         # raw_values keep the authored ``auto`` for the UI.
         assert pkg.raw_values is not None
         assert pkg.raw_values["dims"]["ly"] == "auto"
 
-    def test_generator_color_is_only_a_fallback(
-        self, scratch_registries
-    ) -> None:
+    def test_generator_color_is_only_a_fallback(self, scratch_registries) -> None:
         class Gen(_NodeGen):
             generates = "_t_nodekind"
             color = "#abcdef"
@@ -186,13 +186,10 @@ class TestNodeBuild:
         registry = _base_registry()
         del registry["_t_nodekind"]["color"]
         register_kind_node("_t_nodekind", registry)
-        pkg = build_kind_package(
-            "_t_nodekind", GeneratorContext(pin_count=2)).package
+        pkg = build_kind_package("_t_nodekind", GeneratorContext(pin_count=2)).package
         assert isinstance(pkg, Prism) and pkg.color == "#abcdef"
 
-    def test_unresolved_auto_is_a_loud_error(
-        self, scratch_registries
-    ) -> None:
+    def test_unresolved_auto_is_a_loud_error(self, scratch_registries) -> None:
         class Identity(PackageGenerator):
             generates = "_t_nodekind"
 
@@ -214,8 +211,8 @@ class TestNodeBuild:
         ).package
         assert isinstance(pkg, Prism)
         assert pkg.size_mm is not None
-        assert pkg.size_mm.ly == 9.0           # explicit override
-        assert pkg.size_mm.lx == 7.5           # auto still filled
+        assert pkg.size_mm.ly == 9.0  # explicit override
+        assert pkg.size_mm.lx == 7.5  # auto still filled
 
 
 class TestLibraryPackagesSection:
@@ -227,6 +224,7 @@ class TestLibraryPackagesSection:
             generates = "_t_libnode"
 
         from protoboard.services.library.loader import load_library
+
         (tmp_path / "lib.yaml").write_text(
             "packages:\n"
             "  - name: _t_libnode\n"
@@ -238,11 +236,15 @@ class TestLibraryPackagesSection:
             "components:\n"
             "  - name: PART_NODE\n"
             "    component_class: ic\n"
-            "    pins: {count: 4}\n"
+            "    meta_pins: [P1, P2, P3, P4]\n"
             "    package: {kind: _t_libnode}\n"
         )
-        defn = load_library([tmp_path], package_families={}).get("PART_NODE")
-        assert isinstance(defn.package, Prism)
-        assert defn.package.kind == "_t_libnode"
-        assert defn.package.color == "#654321"
-        assert defn.package.lineage[-1] == "_t_libnode"
+        lib = load_library([tmp_path], package_families={})
+        defn = lib.get("PART_NODE")
+        from protoboard.domain.components.package import resolve_component_package
+
+        package = resolve_component_package(defn, None, lib.package_families)
+        assert isinstance(package, Prism)
+        assert package.kind == "_t_libnode"
+        assert package.color == "#654321"
+        assert package.lineage[-1] == "_t_libnode"

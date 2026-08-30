@@ -22,7 +22,6 @@ from typing import cast
 import pytest
 
 from protoboard.controller.editing.wire_edit_arm import WireEditArm
-from protoboard.types import Side
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
     WireRange,
@@ -40,6 +39,7 @@ from protoboard.domain.commands.component_cmds import (
 )
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
+from protoboard.types import Side
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
 
@@ -188,8 +188,10 @@ def test_injected_factory_used_by_cross_wire_reroute() -> None:
     wires = cast(Sequence[Wire], sess.layout.wires)
     nm = _net_map(wire_a, wire_b)
     state = WireEditState(
-        start_wire_id=wire_a.id, start_idx=2,
-        end_wire_id=wire_b.id, end_idx=0,
+        start_wire_id=wire_a.id,
+        start_idx=2,
+        end_wire_id=wire_b.id,
+        end_idx=0,
         waypoints=(Point(3.0, 9.0),),
     )
     arm = WireEditArm(add_factory=cast("object", _MarkerAdd))  # type: ignore[arg-type]
@@ -209,7 +211,10 @@ def test_reroute_same_wire_replaces_fragments() -> None:
     wires = cast(Sequence[Wire], sess.layout.wires)
     nm = _net_map(wire)
     state = WireEditState(
-        start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=2,
+        start_wire_id=wire.id,
+        start_idx=1,
+        end_wire_id=wire.id,
+        end_idx=2,
         waypoints=(Point(1.5, 1.0),),
     )
     cmd = WireEditArm().reroute(sess.layout, wires, nm, state)
@@ -234,8 +239,14 @@ def test_autoroute_returns_command_or_none() -> None:
     )
     graph = sess.connectivity_graph()
     cmd = WireEditArm().autoroute(
-        sess.layout, wires, nm, state, graph,
-        Point(1.5, 1.5), Point(2.5, 1.5), "bottom",
+        sess.layout,
+        wires,
+        nm,
+        state,
+        graph,
+        Point(1.5, 1.5),
+        Point(2.5, 1.5),
+        "bottom",
     )
     assert cmd is None or isinstance(cmd, (ReplaceWireFragmentsCommand, MacroCommand))
 
@@ -244,9 +255,13 @@ def test_autoroute_returns_command_or_none() -> None:
 
 
 def test_arm_set_insulated_sub_range_reports_survivors():
-    wire = Wire(id=uuid.uuid4(),
-                path=[Point(0, 0), Point(1, 0), Point(2, 0), Point(3, 0), Point(4, 0)],
-                insulated=False, side="top", color=None)
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(0, 0), Point(1, 0), Point(2, 0), Point(3, 0), Point(4, 0)],
+        insulated=False,
+        side="top",
+        color=None,
+    )
     nm = {wire.id: uuid.uuid4()}
     state = WireRange(wire.id, 1, wire.id, 3)
     result = WireEditArm().set_insulated([wire], nm, state, insulated=True)
@@ -255,9 +270,13 @@ def test_arm_set_insulated_sub_range_reports_survivors():
 
 
 def test_arm_delete_range_full_span_no_survivors():
-    wire = Wire(id=uuid.uuid4(),
-                path=[Point(0, 0), Point(1, 0), Point(2, 0)],
-                insulated=False, side="top", color=None)
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(0, 0), Point(1, 0), Point(2, 0)],
+        insulated=False,
+        side="top",
+        color=None,
+    )
     nm = {wire.id: uuid.uuid4()}
     result = WireEditArm().delete_range([wire], nm, WireRange.full_span(wire))
     assert result is not None and result.survivor_wire_ids == ()

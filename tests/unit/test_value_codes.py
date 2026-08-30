@@ -19,20 +19,23 @@ from protoboard.gui.renderers.value_codes import (
 
 class TestParseResistance:
 
-    @pytest.mark.parametrize(("text", "ohms"), [
-        ("10k", 10_000.0),
-        ("4.7k", 4_700.0),
-        ("4k7", 4_700.0),
-        ("470", 470.0),
-        ("470R", 470.0),
-        ("4R7", 4.7),
-        ("1R2", 1.2),
-        ("0.22", 0.22),
-        ("0,22", 0.22),
-        ("1M", 1_000_000.0),
-        ("2G2", 2.2e9),
-        ("22 k", 22_000.0),
-    ])
+    @pytest.mark.parametrize(
+        ("text", "ohms"),
+        [
+            ("10k", 10_000.0),
+            ("4.7k", 4_700.0),
+            ("4k7", 4_700.0),
+            ("470", 470.0),
+            ("470R", 470.0),
+            ("4R7", 4.7),
+            ("1R2", 1.2),
+            ("0.22", 0.22),
+            ("0,22", 0.22),
+            ("1M", 1_000_000.0),
+            ("2G2", 2.2e9),
+            ("22 k", 22_000.0),
+        ],
+    )
     def test_parses(self, text: str, ohms: float) -> None:
         assert parse_resistance(text) == pytest.approx(ohms)
 
@@ -43,16 +46,19 @@ class TestParseResistance:
 
 class TestParseInductance:
 
-    @pytest.mark.parametrize(("text", "uh"), [
-        ("10uH", 10.0),
-        ("10u", 10.0),
-        ("10", 10.0),          # bare number = µH (the code's unit)
-        ("4u7", 4.7),
-        ("4n7", 0.0047),
-        ("100nH", 0.1),
-        ("2.2mH", 2_200.0),
-        ("1H", 1_000_000.0),   # full henries only with the explicit H
-    ])
+    @pytest.mark.parametrize(
+        ("text", "uh"),
+        [
+            ("10uH", 10.0),
+            ("10u", 10.0),
+            ("10", 10.0),  # bare number = µH (the code's unit)
+            ("4u7", 4.7),
+            ("4n7", 0.0047),
+            ("100nH", 0.1),
+            ("2.2mH", 2_200.0),
+            ("1H", 1_000_000.0),  # full henries only with the explicit H
+        ],
+    )
     def test_parses(self, text: str, uh: float) -> None:
         assert parse_inductance(text) == pytest.approx(uh)
 
@@ -63,13 +69,16 @@ class TestParseInductance:
 
 class TestParseTolerance:
 
-    @pytest.mark.parametrize(("text", "percent"), [
-        ("5%", 5.0),
-        ("5", 5.0),
-        ("0.5%", 0.5),
-        ("0,25 %", 0.25),
-        ("10", 10.0),
-    ])
+    @pytest.mark.parametrize(
+        ("text", "percent"),
+        [
+            ("5%", 5.0),
+            ("5", 5.0),
+            ("0.5%", 0.5),
+            ("0,25 %", 0.25),
+            ("10", 10.0),
+        ],
+    )
     def test_parses(self, text: str, percent: float) -> None:
         assert parse_tolerance(text) == pytest.approx(percent)
 
@@ -97,17 +106,20 @@ class TestCodeDigits:
 
 class TestSmdCode:
 
-    @pytest.mark.parametrize(("value", "code"), [
-        (22_000.0, "223"),     # the user's canonical example: 22k → 223
-        (4_700.0, "472"),
-        (470.0, "471"),
-        (10.0, "100"),
-        (12_400.0, "1242"),
-        (4.7, "4R7"),
-        (4.75, "4R75"),
-        (1.0, "1R0"),
-        (0.22, "R22"),
-    ])
+    @pytest.mark.parametrize(
+        ("value", "code"),
+        [
+            (22_000.0, "223"),  # the user's canonical example: 22k → 223
+            (4_700.0, "472"),
+            (470.0, "471"),
+            (10.0, "100"),
+            (12_400.0, "1242"),
+            (4.7, "4R7"),
+            (4.75, "4R75"),
+            (1.0, "1R0"),
+            (0.22, "R22"),
+        ],
+    )
     def test_codes(self, value: float, code: str) -> None:
         assert smd_code(value) == code
 
@@ -117,18 +129,21 @@ class TestSmdCode:
 
 class TestParseCapacitance:
 
-    @pytest.mark.parametrize(("text", "pf"), [
-        ("100nF", 100_000.0),
-        ("100n", 100_000.0),
-        ("1uF", 1_000_000.0),
-        ("1u", 1_000_000.0),
-        ("22pF", 22.0),
-        ("22p", 22.0),
-        ("4p7", 4.7),
-        ("4.7pF", 4.7),
-        ("10uF", 10_000_000.0),
-        ("1nF", 1_000.0),
-    ])
+    @pytest.mark.parametrize(
+        ("text", "pf"),
+        [
+            ("100nF", 100_000.0),
+            ("100n", 100_000.0),
+            ("1uF", 1_000_000.0),
+            ("1u", 1_000_000.0),
+            ("22pF", 22.0),
+            ("22p", 22.0),
+            ("4p7", 4.7),
+            ("4.7pF", 4.7),
+            ("10uF", 10_000_000.0),
+            ("1nF", 1_000.0),
+        ],
+    )
     def test_parses_to_pf(self, text: str, pf: float) -> None:
         assert parse_capacitance(text) == pytest.approx(pf)
 
@@ -139,10 +154,13 @@ class TestParseCapacitance:
 
 class TestParseValueCapacitor:
 
-    @pytest.mark.parametrize("cls", [
-        ComponentClass.CAPACITOR_POLAR,
-        ComponentClass.CAPACITOR_NONPOLAR,
-    ])
+    @pytest.mark.parametrize(
+        "cls",
+        [
+            ComponentClass.CAPACITOR_POLAR,
+            ComponentClass.CAPACITOR_NONPOLAR,
+        ],
+    )
     def test_capacitor_decodes(self, cls: ComponentClass) -> None:
         # 100 nF = 100000 pF -> smd_code -> "104"
         assert parse_value(cls, "100nF") == pytest.approx(100_000.0)

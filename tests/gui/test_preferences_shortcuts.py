@@ -23,12 +23,12 @@ from protoboard.gui.keymap import GlobalKeyMap, KeyMap
 @pytest.fixture(autouse=True)
 def _mute_warnings(monkeypatch):
     # Validation failures pop a modal QMessageBox — mute it headless.
-    monkeypatch.setattr(
-        QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
 
 
 def _base() -> KeyMap:
     from protoboard.gui.keymap import VIEW_ACTIONS
+
     km = KeyMap(GlobalKeyMap.with_globals())
     km.declare(VIEW_ACTIONS)
     return km
@@ -46,7 +46,8 @@ class _FakeTool(_DefaultTool):
 class TestSubTabs:
     def test_tabs_present(self, qtbot) -> None:
         page = _ShortcutsPage(
-            KeyBindings(), keymap=_base(), keymap_tools=(_FakeTool(),))
+            KeyBindings(), keymap=_base(), keymap_tools=(_FakeTool(),)
+        )
         qtbot.addWidget(page)
         tabs = page.findChild(QTabWidget)
         assert tabs is not None
@@ -68,7 +69,8 @@ class TestSubTabs:
         from protoboard.gui.tools.gui_tools import SelectTool
 
         page = _ShortcutsPage(
-            KeyBindings(), keymap=_base(), keymap_tools=(SelectTool(),))
+            KeyBindings(), keymap=_base(), keymap_tools=(SelectTool(),)
+        )
         qtbot.addWidget(page)
         tabs = page.findChild(QTabWidget)
         assert tabs is not None
@@ -111,8 +113,7 @@ class TestKeyMapTabEditing:
     def test_steal_removes_only_the_taken_alternative(self, qtbot) -> None:
         base = _base()
         layer = KeyMap.layer_over(base)
-        layer.register_tool_actions(
-            {"t.action.step": "Up|W", "t.action.other": ""})
+        layer.register_tool_actions({"t.action.step": "Up|W", "t.action.other": ""})
         tab = _KeyMapTab(layer, ["t.action.step", "t.action.other"])
         qtbot.addWidget(tab)
         tab._edits["t.action.other"].setText("W")
@@ -123,6 +124,7 @@ class TestKeyMapTabEditing:
     def test_final_row_is_read_only(self, qtbot) -> None:
         base = _base()
         from protoboard.gui.keymap import GLOBAL_ACTIONS
+
         tab = _KeyMapTab(base, [a.id for a in GLOBAL_ACTIONS])
         qtbot.addWidget(tab)
         assert tab._edits["global.action.cancel"].isEnabled() is False
@@ -151,6 +153,7 @@ class TestKeyMapTabEditing:
     def test_mouse_chord_is_editable_text(self, qtbot) -> None:
         base = _base()
         from protoboard.gui.keymap import VIEW_ACTIONS, VIEW_ZOOM_IN
+
         tab = _KeyMapTab(base, [a.id for a in VIEW_ACTIONS])
         qtbot.addWidget(tab)
         assert tab._edits[VIEW_ZOOM_IN].text() == "WheelUp"
@@ -162,10 +165,12 @@ class TestKeyMapTabEditing:
 class TestLegacyTabSteal:
     def test_duplicate_shortcut_clears_previous_owner(self, qtbot) -> None:
         from PySide6.QtGui import QKeySequence
+
         from protoboard.gui.keybindings import (
             ACTION_ROTATE_CW,
             ACTION_TOOL_SELECT,
         )
+
         kb = KeyBindings()
         tab = _AppShortcutsTab(kb)
         qtbot.addWidget(tab)

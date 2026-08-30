@@ -86,9 +86,14 @@ def _qt_wheel(dy: int) -> QWheelEvent:
     from PySide6.QtCore import QPoint
 
     return QWheelEvent(
-        QPointF(0, 0), QPointF(0, 0), QPoint(0, 0), QPoint(0, dy),
-        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
-        Qt.ScrollPhase.NoScrollPhase, False,
+        QPointF(0, 0),
+        QPointF(0, 0),
+        QPoint(0, 0),
+        QPoint(0, dy),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
     )
 
 
@@ -99,14 +104,16 @@ def _make_group(
 
     gid = _uuid.uuid4()
     session.layout.groups[gid] = ComponentGroup(
-        id=gid, name=name,
+        id=gid,
+        name=name,
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {gid},
         exported_pins=root.exported_pins,
@@ -125,9 +132,12 @@ def test_construct_and_activate_arms_via_controller(
 ) -> None:
     inst = _place(board_view, session, 0.5, 0.5)
     tool = ArmedTransformTool(
-        frozenset({inst.id}), None,
+        frozenset({inst.id}),
+        None,
         active_group_id=ROOT_GROUP_ID,
-        mode="rotate", pivot=None, return_to=lambda: None,
+        mode="rotate",
+        pivot=None,
+        return_to=lambda: None,
     )
     board_view.set_tool(tool)
     assert session.edit_controller.armed_transform is not None
@@ -137,9 +147,12 @@ def test_construct_and_activate_arms_via_controller(
 
 def test_state_is_idle_when_not_armed() -> None:
     tool = ArmedTransformTool(
-        frozenset(), None,
+        frozenset(),
+        None,
         active_group_id=ROOT_GROUP_ID,
-        mode="rotate", pivot=None, return_to=lambda: None,
+        mode="rotate",
+        pivot=None,
+        return_to=lambda: None,
     )
     assert tool.state == "select.idle"
 
@@ -184,9 +197,7 @@ class TestArmedRotate:
             armed.on_wheel(wheel(40))
         assert _pose(session, inst.id).rotation == (base + 90) % 360
 
-    def test_wheel_hard_spin_steps_proportionally(
-        self, board_view, session
-    ) -> None:
+    def test_wheel_hard_spin_steps_proportionally(self, board_view, session) -> None:
         inst, armed = self._armed(board_view, session)
         base = _pose(session, inst.id).rotation
         armed.on_wheel(wheel(240))  # two notches
@@ -320,8 +331,14 @@ class TestArmedKeyClaims:
         _key(select, Qt.Key.Key_G)  # arm move → ArmedTransformTool active
         armed = _armed_tool(board_view)
         for k in (
-            Qt.Key.Key_S, Qt.Key.Key_W, Qt.Key.Key_A, Qt.Key.Key_D,
-            Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
+            Qt.Key.Key_S,
+            Qt.Key.Key_W,
+            Qt.Key.Key_A,
+            Qt.Key.Key_D,
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
         ):
             assert armed.wants_key(key_inp(k)) is True
         # Task 4: commit/cancel now re-arm instead of calling _return_to (the
@@ -415,7 +432,7 @@ class TestArmedAtomic:
             DragSeverity,
         )
 
-        inst = _place(board_view, session, 0.5, 0.5)
+        _place(board_view, session, 0.5, 0.5)
         select = _select(board_view)
         _press(select, 0.5, 0.5)
 
@@ -473,10 +490,10 @@ class TestFloatTransformSwitch:
         base_pos, base_rot = base.position, base.rotation
         depth = len(session.stack._undo)  # type: ignore[attr-defined]
 
-        _key(armed, Qt.Key.Key_R)        # rotate +90
-        _key(armed, Qt.Key.Key_G)        # -> move sub-mode (no commit)
-        _key(armed, Qt.Key.Key_Right)    # nudge +1x
-        _key(armed, Qt.Key.Key_Return)   # accept the whole transform
+        _key(armed, Qt.Key.Key_R)  # rotate +90
+        _key(armed, Qt.Key.Key_G)  # -> move sub-mode (no commit)
+        _key(armed, Qt.Key.Key_Right)  # nudge +1x
+        _key(armed, Qt.Key.Key_Return)  # accept the whole transform
 
         # Task 4: accept commits (one undo entry) and re-arms — it does not
         # disarm.
@@ -490,7 +507,8 @@ class TestFloatTransformSwitch:
         restored = session.layout.placements[inst.id]
         assert restored.rotation == base_rot
         assert (restored.position.x, restored.position.y) == (
-            base_pos.x, base_pos.y,
+            base_pos.x,
+            base_pos.y,
         )
 
     def test_cancel_from_mixed_state_restores_original(
@@ -502,10 +520,10 @@ class TestFloatTransformSwitch:
         base = session.layout.placements[inst.id]
         base_pos, base_rot = base.position, base.rotation
 
-        _key(armed, Qt.Key.Key_R)        # rotate +90
-        _key(armed, Qt.Key.Key_G)        # -> move
-        _key(armed, Qt.Key.Key_Right)    # nudge
-        _key(armed, Qt.Key.Key_Escape)   # cancel — back to the pristine pose
+        _key(armed, Qt.Key.Key_R)  # rotate +90
+        _key(armed, Qt.Key.Key_G)  # -> move
+        _key(armed, Qt.Key.Key_Right)  # nudge
+        _key(armed, Qt.Key.Key_Escape)  # cancel — back to the pristine pose
 
         assert session.edit_controller.armed_transform is not None
         now = session.layout.placements[inst.id]
@@ -592,7 +610,8 @@ class TestFloatTransformGroupFrames:
         parent_gid = _make_group(session, [a.id], name="parent")
         parent = session.layout.groups[parent_gid]
         session.layout.groups[parent_gid] = ComponentGroup(
-            id=parent_gid, name=parent.name,
+            id=parent_gid,
+            name=parent.name,
             component_ids=parent.component_ids,
             child_group_ids=frozenset({child_gid}),
         )

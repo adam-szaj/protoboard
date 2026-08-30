@@ -8,7 +8,6 @@ Covers the methods directly AND guards that the legacy free-function shims in
 from __future__ import annotations
 
 import uuid
-
 from typing import TYPE_CHECKING
 
 from protoboard.domain.layout import group as group_mod
@@ -32,10 +31,18 @@ def _tree() -> tuple[GroupTree, dict, dict]:
     c1, c2, c3, c4 = _ids(4)
     A, B, C, D = _ids(4)
     groups = {
-        A: ComponentGroup(id=A, name="A", component_ids=frozenset({c1}),
-                          child_group_ids=frozenset({B})),
-        B: ComponentGroup(id=B, name="B", component_ids=frozenset({c2}),
-                          child_group_ids=frozenset({C})),
+        A: ComponentGroup(
+            id=A,
+            name="A",
+            component_ids=frozenset({c1}),
+            child_group_ids=frozenset({B}),
+        ),
+        B: ComponentGroup(
+            id=B,
+            name="B",
+            component_ids=frozenset({c2}),
+            child_group_ids=frozenset({C}),
+        ),
         C: ComponentGroup(id=C, name="C", component_ids=frozenset({c3})),
         D: ComponentGroup(id=D, name="D", component_ids=frozenset({c4})),
     }
@@ -79,9 +86,9 @@ class TestHierarchy:
 
     def test_would_create_cycle(self) -> None:
         t, _, i = _tree()
-        assert t.would_create_cycle(i["A"], i["A"]) is True            # self
-        assert t.would_create_cycle(i["C"], i["A"]) is True            # A ⊃ C
-        assert t.would_create_cycle(i["A"], i["D"]) is False           # disjoint
+        assert t.would_create_cycle(i["A"], i["A"]) is True  # self
+        assert t.would_create_cycle(i["C"], i["A"]) is True  # A ⊃ C
+        assert t.would_create_cycle(i["A"], i["D"]) is False  # disjoint
 
     def test_promote_selection(self) -> None:
         t, _, i = _tree()
@@ -103,7 +110,9 @@ class TestExportAndNets:
         ep = PinRef(component_id=i["c3"], pin_number=1)
         groups = dict(t._groups)
         groups[i["B"]] = ComponentGroup(
-            id=i["B"], name="B", component_ids=frozenset({i["c2"]}),
+            id=i["B"],
+            name="B",
+            component_ids=frozenset({i["c2"]}),
             child_group_ids=frozenset({i["C"]}),
             exported_pins=frozenset({ep}),
         )
@@ -113,23 +122,37 @@ class TestExportAndNets:
     def test_internal_net_ids(self) -> None:
         t, _, i = _tree()
         nid = uuid.uuid4()
-        sch = Schematic(nets={nid: Net(
-            id=nid, name="N",
-            pins={PinRef(i["c2"], 1), PinRef(i["c3"], 1)},
-        )})
+        sch = Schematic(
+            nets={
+                nid: Net(
+                    id=nid,
+                    name="N",
+                    pins={PinRef(i["c2"], 1), PinRef(i["c3"], 1)},
+                )
+            }
+        )
         # both pins inside A's recursive members → internal to {c2,c3}
         assert t.internal_net_ids_for_components(
-            frozenset({i["c2"], i["c3"]}), sch) == frozenset({nid})
+            frozenset({i["c2"], i["c3"]}), sch
+        ) == frozenset({nid})
         # not internal to a smaller set
-        assert t.internal_net_ids_for_components(frozenset({i["c2"]}), sch) == frozenset()
+        assert (
+            t.internal_net_ids_for_components(frozenset({i["c2"]}), sch) == frozenset()
+        )
 
     def test_schematic_projection_drops_thin_nets(self) -> None:
         t, _, i = _tree()
         keep, drop = uuid.uuid4(), uuid.uuid4()
-        sch = Schematic(nets={
-            keep: Net(id=keep, name="K", pins={PinRef(i["c2"], 1), PinRef(i["c3"], 1)}),
-            drop: Net(id=drop, name="D", pins={PinRef(i["c2"], 2), PinRef(i["c4"], 1)}),
-        })
+        sch = Schematic(
+            nets={
+                keep: Net(
+                    id=keep, name="K", pins={PinRef(i["c2"], 1), PinRef(i["c3"], 1)}
+                ),
+                drop: Net(
+                    id=drop, name="D", pins={PinRef(i["c2"], 2), PinRef(i["c4"], 1)}
+                ),
+            }
+        )
         proj = t.schematic_projection_for_group(frozenset({i["c2"], i["c3"]}), sch)
         assert set(proj.nets) == {keep}  # drop has only 1 surviving pin
 
@@ -142,15 +165,22 @@ class TestExportAndNets:
 class TestShimEquivalence:
     def test_free_functions_match_methods(self) -> None:
         t, groups, i = _tree()
-        assert group_mod.all_component_ids(groups, i["A"]) == t.all_component_ids(i["A"])
-        assert group_mod.top_level_group_for(groups, i["c3"]) == t.top_level_group_for(i["c3"])
-        assert group_mod.top_level_group_under(groups, i["A"], i["c3"]) == \
-            t.top_level_group_under(i["A"], i["c3"])
+        assert group_mod.all_component_ids(groups, i["A"]) == t.all_component_ids(
+            i["A"]
+        )
+        assert group_mod.top_level_group_for(groups, i["c3"]) == t.top_level_group_for(
+            i["c3"]
+        )
+        assert group_mod.top_level_group_under(
+            groups, i["A"], i["c3"]
+        ) == t.top_level_group_under(i["A"], i["c3"])
         assert group_mod.parent_group_of(groups, i["C"]) == t.parent_group_of(i["C"])
-        assert group_mod.would_create_cycle(groups, i["C"], i["A"]) == \
-            t.would_create_cycle(i["C"], i["A"])
-        assert group_mod.promote_selection_to_top_level(groups, i["A"], frozenset({i["c3"]})) == \
-            t.promote_selection_to_top_level(i["A"], frozenset({i["c3"]}))
+        assert group_mod.would_create_cycle(
+            groups, i["C"], i["A"]
+        ) == t.would_create_cycle(i["C"], i["A"])
+        assert group_mod.promote_selection_to_top_level(
+            groups, i["A"], frozenset({i["c3"]})
+        ) == t.promote_selection_to_top_level(i["A"], frozenset({i["c3"]}))
 
 
 # ---------------------------------------------------------------------------
@@ -164,15 +194,19 @@ def _two_resistors() -> tuple[
     dict[uuid.UUID, ComponentInstance],
     dict[str, ComponentDefinition],
 ]:
-    from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.components.footprints import SIL
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.geometry import Point
+    from tests.unit._autoroute_invariants import make_sil, sil_families
 
-    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(defn, {})
-    inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k").bind(defn, {})
+    defn = make_sil("R", 2)
+    families = sil_families(defn)
+    inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
+        defn, families
+    )
+    inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k").bind(
+        defn, families
+    )
     placements = {
         inst_a.id: ComponentPlacement(
             component_id=inst_a.id, position=Point(0, 0), rotation=0, side="top"
@@ -191,15 +225,14 @@ class TestPinWorldPositions:
         from protoboard.domain.layout.placement import pin_world_position
 
         comp_ids, placements, instances, components = _two_resistors()
-        got = GroupTree.pin_world_positions(
-            comp_ids, placements, instances, components
-        )
+        got = GroupTree.pin_world_positions(comp_ids, placements, instances, components)
         expected: set[tuple[float, float]] = set()
         for cid in comp_ids:
             pl = placements[cid]
-            defn = components[instances[cid].definition_ref]
-            for n in range(defn.default_footprint().pin_count()):
-                p = pin_world_position(defn.default_footprint(), pl, n + 1)
+            components[instances[cid].definition_ref]
+            footprint = instances[cid].resolved_footprint()
+            for n in range(footprint.pin_count()):
+                p = pin_world_position(footprint, pl, n + 1)
                 expected.add((p.x, p.y))
         assert got == expected
         assert len(got) == 4  # two 2-pin resistors, no coincident pins
@@ -211,9 +244,7 @@ class TestPinWorldPositions:
         positions = GroupTree.pin_world_positions(
             comp_ids, placements, instances, components
         )
-        origin = GroupTree.group_origin(
-            comp_ids, placements, instances, components
-        )
+        origin = GroupTree.group_origin(comp_ids, placements, instances, components)
         assert origin is not None
         assert (origin.x, origin.y) in positions
         assert (origin.x + origin.y) == min(px + py for px, py in positions)

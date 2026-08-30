@@ -24,16 +24,16 @@ def _dbg_enabled() -> bool:
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
-from protoboard.domain.layout.placement import (
+from protoboard.domain.components.package.pin_mapping import (  # noqa: E402
+    meta_pin_for_package_pin,
+)
+from protoboard.domain.layout.placement import (  # noqa: E402
     ComponentPlacement,
     PlacementMap,
     component_bbox,
     pin_world_position,
 )
-from protoboard.domain.components.package.pin_mapping import (
-    meta_pin_for_package_pin,
-)
-from protoboard.geometry import Point
+from protoboard.geometry import Point  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -432,11 +432,11 @@ def _wire_hit_via_pad_index(
     matched only vertex items and silently missed every such case.
     """
     from protoboard.domain.board.pad_state import (
+        SHORT_CIRCUIT,
         BareWireCrossing,
         BareWireItem,
         InsulatedWireCrossing,
         InsulatedWireItem,
-        SHORT_CIRCUIT,
     )
 
     pad = pad_index.pad_at(position)
@@ -763,7 +763,7 @@ def check_group_move_conflicts(
     drag set contributes its own subgroup-bbox set so an intra-drag-set
     wire crossing still hard-blocks when it cuts through a moving
     subgroup's interior.  ``None`` preserves single-group semantics.
-    """
+    """  # noqa: E501
     from protoboard.domain.layout.group import ComponentGroup, all_component_ids
 
     blocking_pads: list[Point] = []

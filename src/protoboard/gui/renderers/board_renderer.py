@@ -39,12 +39,12 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import BOARD_GHOST_ALPHA, Z_BOARD, LayerState
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.gui.layer_state import Z_BOARD, LayerState
 from protoboard.gui.qt_geometry import to_qrectf
 
 # Per-pad colour mapping passed to ``build_board_display_list``.
@@ -186,9 +186,15 @@ class BoardDisplayList:
 
 
 def _build_pad(
-    dl: BoardDisplayList, cx: float, cy: float, r: float,
-    color: QColor, theme: Theme,
-    *, pad_net_map: PadNetMap | None = None, board_alpha: float = 1.0,
+    dl: BoardDisplayList,
+    cx: float,
+    cy: float,
+    r: float,
+    color: QColor,
+    theme: Theme,
+    *,
+    pad_net_map: PadNetMap | None = None,
+    board_alpha: float = 1.0,
 ) -> None:
     fill = _resolve_pad_color(cx, cy, color, pad_net_map, theme, board_alpha)
     outline = QColor(theme.pad_outline_color)
@@ -200,9 +206,15 @@ def _build_pad(
 
 
 def _build_strip(
-    dl: BoardDisplayList, atom: StripAtom, center: Point,
-    strip_color: QColor, isolated_color: QColor, theme: Theme,
-    *, pad_net_map: PadNetMap | None = None, board_alpha: float = 1.0,
+    dl: BoardDisplayList,
+    atom: StripAtom,
+    center: Point,
+    strip_color: QColor,
+    isolated_color: QColor,
+    theme: Theme,
+    *,
+    pad_net_map: PadNetMap | None = None,
+    board_alpha: float = 1.0,
 ) -> None:
     length = atom.length if isinstance(atom.length, int) else 1
 
@@ -223,32 +235,64 @@ def _build_strip(
     if atom.orientation == "horizontal":
         start_x = center.x - length / 2.0 + 0.5
         end_x = start_x + length - 1
-        dl.filled_rects.append(_FilledRect(
-            QRectF(start_x - theme.strip_radius, center.y - track_h,
-                   (end_x - start_x) + 2 * theme.strip_radius, 2 * track_h),
-            QBrush(track_color), track_pen,
-        ))
+        dl.filled_rects.append(
+            _FilledRect(
+                QRectF(
+                    start_x - theme.strip_radius,
+                    center.y - track_h,
+                    (end_x - start_x) + 2 * theme.strip_radius,
+                    2 * track_h,
+                ),
+                QBrush(track_color),
+                track_pen,
+            )
+        )
         for i in range(length):
-            _build_pad(dl, start_x + i, center.y, theme.strip_radius,
-                       strip_color, theme,
-                       pad_net_map=pad_net_map, board_alpha=board_alpha)
+            _build_pad(
+                dl,
+                start_x + i,
+                center.y,
+                theme.strip_radius,
+                strip_color,
+                theme,
+                pad_net_map=pad_net_map,
+                board_alpha=board_alpha,
+            )
     else:
         start_y = center.y - length / 2.0 + 0.5
         end_y = start_y + length - 1
         track_w = track_h
-        dl.filled_rects.append(_FilledRect(
-            QRectF(center.x - track_w, start_y - theme.strip_radius,
-                   2 * track_w, (end_y - start_y) + 2 * theme.strip_radius),
-            QBrush(track_color), track_pen,
-        ))
+        dl.filled_rects.append(
+            _FilledRect(
+                QRectF(
+                    center.x - track_w,
+                    start_y - theme.strip_radius,
+                    2 * track_w,
+                    (end_y - start_y) + 2 * theme.strip_radius,
+                ),
+                QBrush(track_color),
+                track_pen,
+            )
+        )
         for i in range(length):
-            _build_pad(dl, center.x, start_y + i, theme.strip_radius,
-                       strip_color, theme,
-                       pad_net_map=pad_net_map, board_alpha=board_alpha)
+            _build_pad(
+                dl,
+                center.x,
+                start_y + i,
+                theme.strip_radius,
+                strip_color,
+                theme,
+                pad_net_map=pad_net_map,
+                board_alpha=board_alpha,
+            )
 
 
 def _build_frames(
-    dl: BoardDisplayList, node: LayoutNode, *, is_root: bool, theme: Theme,
+    dl: BoardDisplayList,
+    node: LayoutNode,
+    *,
+    is_root: bool,
+    theme: Theme,
     alpha: float,
 ) -> None:
     from protoboard.domain.board.boxes import BoardGrid, HBox, VBox
@@ -310,15 +354,31 @@ def build_board_display_list(
             # board layer paints the bare ring + hole only.  Passing
             # ``pad_net_map=None`` here makes ``_resolve_pad_color``
             # fall back to ``theme.pad_color`` regardless of pin presence.
-            _build_pad(dl, pos.x, pos.y, theme.pad_radius, pad_color, theme,
-                       pad_net_map=None, board_alpha=board_alpha)
+            _build_pad(
+                dl,
+                pos.x,
+                pos.y,
+                theme.pad_radius,
+                pad_color,
+                theme,
+                pad_net_map=None,
+                board_alpha=board_alpha,
+            )
         elif isinstance(atom, StripAtom):
             # Strip tracks DO keep net colouring (A3 from the design
             # discussion): the whole strip is electrically the net, so
             # the track colour visually signals which net it carries.
             # Pin-pads layer adds the pin-specific overlay on top.
-            _build_strip(dl, atom, pos, strip_color, isolated_color, theme,
-                         pad_net_map=pad_net_map, board_alpha=board_alpha)
+            _build_strip(
+                dl,
+                atom,
+                pos,
+                strip_color,
+                isolated_color,
+                theme,
+                pad_net_map=pad_net_map,
+                board_alpha=board_alpha,
+            )
     return dl
 
 
@@ -350,9 +410,14 @@ def paint_board(painter: QPainter, display_list: BoardDisplayList) -> None:
     for p in display_list.pads:
         painter.setBrush(QBrush(p.fill))
         painter.setPen(p.outline_pen)
-        painter.drawEllipse(QRectF(
-            p.cx - p.r, p.cy - p.r, 2 * p.r, 2 * p.r,
-        ))
+        painter.drawEllipse(
+            QRectF(
+                p.cx - p.r,
+                p.cy - p.r,
+                2 * p.r,
+                2 * p.r,
+            )
+        )
     # Isolated-strip X strokes (above pad rings).
     for line in display_list.lines:
         painter.setPen(line.pen)
@@ -361,9 +426,14 @@ def paint_board(painter: QPainter, display_list: BoardDisplayList) -> None:
     for p in display_list.pads:
         painter.setBrush(QBrush(p.hole_fill))
         painter.setPen(p.outline_pen)
-        painter.drawEllipse(QRectF(
-            p.cx - p.hr, p.cy - p.hr, 2 * p.hr, 2 * p.hr,
-        ))
+        painter.drawEllipse(
+            QRectF(
+                p.cx - p.hr,
+                p.cy - p.hr,
+                2 * p.hr,
+                2 * p.hr,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +462,10 @@ def render_board(
     converts each primitive to its matching ``QGraphicsItem``.
     """
     dl = build_board_display_list(
-        board, show_frames=show_frames, theme=theme, layers=layers,
+        board,
+        show_frames=show_frames,
+        theme=theme,
+        layers=layers,
         pad_net_map=pad_net_map,
     )
     # Filled rects (strip tracks) — drawn under pads.
@@ -459,10 +532,10 @@ def build_pad_net_map(
     ``session.layout.placements``, ``session.instances``,
     ``session.components``, ``session.schematic``.
     """
+    from protoboard.domain.components.package import meta_pin_for_package_pin
     from protoboard.domain.layout.pad_conflict import (
         resolved_footprint_or_default,
     )
-    from protoboard.domain.components.package import meta_pin_for_package_pin
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
     from protoboard.gui.renderers.net_color import build_net_color_map

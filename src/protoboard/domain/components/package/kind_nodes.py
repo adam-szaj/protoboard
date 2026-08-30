@@ -114,5 +114,4 @@ def register_kind_nodes(registry: dict[str, PackageDict]) -> None:
             register_kind_node(name, registry)
 
 
-__all__ = ["KIND_NODES", "KindNode", "register_kind_node",
-           "register_kind_nodes"]
+__all__ = ["KIND_NODES", "KindNode", "register_kind_node", "register_kind_nodes"]

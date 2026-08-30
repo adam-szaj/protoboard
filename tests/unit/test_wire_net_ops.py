@@ -6,7 +6,6 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -19,6 +18,7 @@ from protoboard.domain.schematic.wire_net_ops import (
     find_pin_at,
 )
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,13 +26,14 @@ from protoboard.geometry import Point
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _make_inst(refdes: str = "R1") -> ComponentInstance:
-    return ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="10k"
-    ).bind(_r_defn(), {})
+    defn = _r_defn()
+    return ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k").bind(
+        defn, sil_families(defn)
+    )
 
 
 def _placement(
@@ -284,7 +285,8 @@ class TestClassifyWireTouchAutoNet:
         bus = Wire(
             id=uuid.uuid4(),
             path=[_R1_PIN2, Point(2.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         s.layout.wires.append(bus)
         # New wire: R3.pin1 (2.5, 2.5) → bus interior (2.5, 0.5).
@@ -309,7 +311,8 @@ class TestClassifyWireTouchAutoNet:
         wire1 = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         s.layout.wires.append(wire1)
         new_wire = _wire(Point(2.5, 0.5), Point(4.5, 0.5))

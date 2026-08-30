@@ -13,13 +13,13 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -51,11 +51,16 @@ def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UU
     """Place a 2-pin "R": pin 1 at (x, y), pin 2 at (x, y+1)."""
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -63,9 +68,14 @@ def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UU
 
 def test_add_wire_too_short_returns_none() -> None:
     session = _session()
-    assert session.edit_controller.add_wire(
-        [Point(1.0, 1.0)], insulated=True, side="top",
-    ) is None
+    assert (
+        session.edit_controller.add_wire(
+            [Point(1.0, 1.0)],
+            insulated=True,
+            side="top",
+        )
+        is None
+    )
     assert len(session.layout.wires) == 0
 
 
@@ -78,7 +88,9 @@ def test_add_wire_creates_net_between_two_pins() -> None:
     assert pa is not None and pb is not None
 
     wire_id = session.edit_controller.add_wire(
-        [pa, pb], insulated=True, side="top",
+        [pa, pb],
+        insulated=True,
+        side="top",
     )
     assert wire_id is not None
     assert any(w.id == wire_id for w in session.layout.wires)
@@ -130,12 +142,15 @@ def test_add_wire_merge_prompt_invoked_and_can_cancel() -> None:
         return None  # cancel
 
     wire_id = session.edit_controller.add_wire(
-        [pa, pb], insulated=True, side="top", merge_prompt=cancel_prompt,
+        [pa, pb],
+        insulated=True,
+        side="top",
+        merge_prompt=cancel_prompt,
     )
-    assert wire_id is None                       # merge cancelled → no commit
+    assert wire_id is None  # merge cancelled → no commit
     assert asked and set(asked[0]) == {"NA", "NB"}
-    assert len(session.layout.wires) == 0        # wire not added
-    assert net_a.id in session.schematic.nets    # nets untouched
+    assert len(session.layout.wires) == 0  # wire not added
+    assert net_a.id in session.schematic.nets  # nets untouched
     assert net_b.id in session.schematic.nets
 
 
@@ -152,7 +167,9 @@ def test_add_wire_merge_prompt_accept_merges() -> None:
     session.invalidate_graph()
 
     wire_id = session.edit_controller.add_wire(
-        [pa, pb], insulated=True, side="top",
+        [pa, pb],
+        insulated=True,
+        side="top",
         merge_prompt=lambda x, y: "MERGED",
     )
     assert wire_id is not None

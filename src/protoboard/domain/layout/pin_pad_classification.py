@@ -72,10 +72,10 @@ class PinPadClass(Enum):
 class ModifierShape(Enum):
     """Shape carved into a pin-pad and repeated as the top overlay glyph."""
 
-    CIRCLE = "circle"      # default — no modifier
-    SQUARE = "square"      # pin 1 of its component
-    DIAMOND = "diamond"    # exported pin (group interface)
-    STAR = "star"          # pin 1 AND exported
+    CIRCLE = "circle"  # default — no modifier
+    SQUARE = "square"  # pin 1 of its component
+    DIAMOND = "diamond"  # exported pin (group interface)
+    STAR = "star"  # pin 1 AND exported
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +96,7 @@ class PinPadInfo:
 
 
 def _collect_exported_pin_set(
-    layout: "Layout",
+    layout: Layout,
 ) -> frozenset[PinRef]:
     """Return the union of ``exported_pins`` across every group.
 
@@ -124,8 +124,7 @@ def _resolve_modifier(
     is_pin1 = any(p.meta_pin_index == 1 for p in pin_items)
     is_exported = any(
         p.meta_pin_index is not None
-        and PinRef(component_id=p.id, pin_number=p.meta_pin_index)
-        in exported_pin_set
+        and PinRef(component_id=p.id, pin_number=p.meta_pin_index) in exported_pin_set
         for p in pin_items
     )
     if is_pin1 and is_exported:
@@ -138,7 +137,7 @@ def _resolve_modifier(
 
 
 def _classify_pad_side(
-    pad: "Pad",
+    pad: Pad,
     side: LayerId,
     exported_pin_set: frozenset[PinRef],
 ) -> PinPadInfo | None:
@@ -228,8 +227,8 @@ def _classify_pad_side(
 
 
 def classify_pin_pads(
-    pad_index: "PadIndex",
-    layout: "Layout",
+    pad_index: PadIndex,
+    layout: Layout,
 ) -> list[PinPadInfo]:
     """Walk every pad and produce a flat list of pin-pads classifications.
 

@@ -2,6 +2,7 @@
 """Tests for PadLayers — invariants on layer combinations."""
 
 import pytest
+
 from protoboard.domain.board.pads import PadLayers
 
 

@@ -7,6 +7,7 @@ Drives the extracted :class:`WireEditTool` headlessly (harness copied from
 and waits for a fresh re-pick (``_awaiting_repick``) instead of exiting, while a
 full-span delete (whole wire gone, no survivors) still exits.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -20,7 +21,6 @@ from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import SelectTool, WireEditTool
 from tests.fakes.board_view import HeadlessBoardView
 
-
 # --------------------------------------------------------------------------- #
 # Helpers (copied from tests/gui/test_wire_edit_tool.py)
 # --------------------------------------------------------------------------- #
@@ -31,9 +31,15 @@ def _detour_wire(session: EditorSession) -> Wire:
     # endpoint knots.  A sub-range delete of idx 1..3 leaves two surviving
     # halves; a full-span delete removes the whole wire.
     wire_id = session.edit_controller.add_wire(
-        [Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
-         Point(3.5, 2.5), Point(3.5, 3.5)],
-        insulated=False, side="top",
+        [
+            Point(1.5, 1.5),
+            Point(2.5, 1.5),
+            Point(3.5, 1.5),
+            Point(3.5, 2.5),
+            Point(3.5, 3.5),
+        ],
+        insulated=False,
+        side="top",
     )
     assert wire_id is not None
     wire = session.layout.wires.get(wire_id)
@@ -85,7 +91,7 @@ def test_sub_range_delete_now_waits_for_repick(
     tool = wire_edit_tool_on_5pt_wire  # armed on a full-span 5-pt wire
     _arm_sub_range(tool, 1, 3)
     tool._delete_fragment()
-    assert tool._awaiting_repick is True     # was _exit() before — now waits
+    assert tool._awaiting_repick is True  # was _exit() before — now waits
     assert tool._wire_edit is None
     # anchor reassigned to a surviving wire that still exists
     assert tool._wire_edit_wire_id is not None
@@ -118,8 +124,8 @@ def test_set_insulated_sub_range_toggles_and_waits(
     assert tool._awaiting_repick is True
     wires = list(tool._session.layout.wires)
     assert len(wires) == 3
-    assert any(w.insulated for w in wires)     # the insulated middle
-    assert any(not w.insulated for w in wires) # the bare survivors
+    assert any(w.insulated for w in wires)  # the insulated middle
+    assert any(not w.insulated for w in wires)  # the bare survivors
 
 
 def test_set_insulated_full_span_stays_armed(
@@ -128,7 +134,7 @@ def test_set_insulated_full_span_stays_armed(
     tool = wire_edit_tool_on_5pt_wire  # armed full-span, bare
     tool._set_insulated_fragment()
     assert tool._awaiting_repick is False
-    assert tool._wire_edit is not None          # re-armed full span
+    assert tool._wire_edit is not None  # re-armed full span
     assert list(tool._session.layout.wires)[0].insulated is True
 
 
@@ -173,7 +179,6 @@ def test_failed_repick_through_on_release_rearms_pick(
     (zero-length) so the pick finishes and ``_range_repicked`` re-arms.
     """
     from protoboard.controller.selection.adapters import WireVertexSelectable
-
     from tests.gui.input_helpers import pointer
 
     tool = wire_edit_tool_on_5pt_wire

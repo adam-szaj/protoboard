@@ -43,7 +43,8 @@ class TestCrossSideInsulatedSharedPad:
         foreign = Wire(
             id=uuid.uuid4(),
             path=[Point(20.5, 22.5), Point(22.5, 22.5), Point(22.5, 25.5)],
-            insulated=True, side="bottom",
+            insulated=True,
+            side="bottom",
         )
         # Baseline subpath on top, diagonal away from the shared pad.
         original = [Point(23.5, 21.5), Point(22.5, 21.5), Point(21.5, 22.5)]
@@ -72,7 +73,8 @@ class TestCrossSideInsulatedSharedPad:
         foreign = Wire(
             id=uuid.uuid4(),
             path=[Point(22.5, 22.5), Point(22.5, 25.5)],
-            insulated=True, side="bottom",
+            insulated=True,
+            side="bottom",
         )
         # Both baseline and candidate touch (22.5, 22.5) once.
         original = [Point(23.5, 22.5), Point(22.5, 22.5), Point(20.5, 22.5)]
@@ -97,7 +99,8 @@ class TestCrossSideInsulatedSharedPad:
         foreign_same_net = Wire(
             id=uuid.uuid4(),
             path=[Point(22.5, 22.5), Point(22.5, 25.5)],
-            insulated=True, side="bottom",
+            insulated=True,
+            side="bottom",
         )
         original = [Point(23.5, 21.5), Point(22.5, 21.5), Point(21.5, 22.5)]
         candidate = [Point(23.5, 21.5), Point(22.5, 22.5), Point(21.5, 22.5)]
@@ -123,7 +126,8 @@ class TestCrossSideBareSharedPad:
         bare_foreign = Wire(
             id=uuid.uuid4(),
             path=[Point(20.5, 22.5), Point(22.5, 22.5), Point(22.5, 25.5)],
-            insulated=False, side="bottom",
+            insulated=False,
+            side="bottom",
         )
         # Our wire is insulated top — pad (22.5, 22.5) doesn't exist in
         # baseline subpath.

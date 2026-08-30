@@ -25,9 +25,8 @@ from dataclasses import dataclass
 from protoboard.domain.layout.layout import Layout
 from protoboard.geometry import Point
 
-
-_MIN_DELTA = 1e-6          # ignore floating-point noise below this
-_MAX_SNAP_DELTA = 0.5      # don't snap something genuinely off-grid (≥ ±0.5)
+_MIN_DELTA = 1e-6  # ignore floating-point noise below this
+_MAX_SNAP_DELTA = 0.5  # don't snap something genuinely off-grid (≥ ±0.5)
 
 
 def _snap_to_half_grid(v: float) -> float:
@@ -96,9 +95,13 @@ def normalize_layout_positions(layout: Layout) -> NormalizeReport:
     for comp_id, pl in layout.placements.items():
         snapped = _snap_point(pl.position)
         if _needs_snap(pl.position, snapped):
-            p_corr.append(PlacementCorrection(
-                component_id=comp_id, old=pl.position, new=snapped,
-            ))
+            p_corr.append(
+                PlacementCorrection(
+                    component_id=comp_id,
+                    old=pl.position,
+                    new=snapped,
+                )
+            )
             pl.position = snapped
 
     for wire in layout.wires:
@@ -106,9 +109,14 @@ def normalize_layout_positions(layout: Layout) -> NormalizeReport:
         for idx, pt in enumerate(wire.path):
             snapped = _snap_point(pt)
             if _needs_snap(pt, snapped):
-                w_corr.append(WireCorrection(
-                    wire_id=wire.id, point_index=idx, old=pt, new=snapped,
-                ))
+                w_corr.append(
+                    WireCorrection(
+                        wire_id=wire.id,
+                        point_index=idx,
+                        old=pt,
+                        new=snapped,
+                    )
+                )
                 new_path.append(snapped)
             else:
                 new_path.append(pt)
@@ -121,7 +129,8 @@ def normalize_layout_positions(layout: Layout) -> NormalizeReport:
             wire.path = deduped
 
     return NormalizeReport(
-        placements=tuple(p_corr), wires=tuple(w_corr),
+        placements=tuple(p_corr),
+        wires=tuple(w_corr),
     )
 
 

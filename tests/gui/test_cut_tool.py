@@ -6,8 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QMouseEvent
 from pytestqt.qtbot import QtBot
 
 from protoboard.domain.board.board import Board
@@ -28,17 +26,25 @@ _LAYERS = PadLayers(top=False, bottom=True, plated_through=False)
 def _strip_row(length: int) -> HBox:
     """One strip row: HBox(gap=0)[StripAtom(length)]."""
     seg = StripAtom(
-        width_policy=_HUG, height_policy=_HUG,
-        length=length, orientation="horizontal", layers=_LAYERS,
+        width_policy=_HUG,
+        height_policy=_HUG,
+        length=length,
+        orientation="horizontal",
+        layers=_LAYERS,
     )
-    return HBox(width_policy=_HUG, height_policy=_HUG,
-                children=[seg], gap=0.0)
+    return HBox(width_policy=_HUG, height_policy=_HUG, children=[seg], gap=0.0)
+
 
 def _stripboard(rows: int = 3, cols: int = 5) -> Board:
     rows_list = [_strip_row(cols) for _ in range(rows)]
-    return Board(root=VBox(
-        width_policy=_HUG, height_policy=_HUG,
-        children=list(rows_list), gap=1.0,      ))
+    return Board(
+        root=VBox(
+            width_policy=_HUG,
+            height_policy=_HUG,
+            children=list(rows_list),
+            gap=1.0,
+        )
+    )
 
 
 def _session(rows: int = 3, cols: int = 5) -> EditorSession:

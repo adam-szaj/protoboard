@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 
 
 def resolve_package_option(
-    defn: "ComponentDefinition",
-    instance: "ComponentInstance | None",
-) -> "PackageOption":
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
+) -> PackageOption:
     """Return the option selected by the instance, or the definition default."""
     address = instance.package_variant if instance is not None else None
     if address is None:
@@ -24,14 +24,18 @@ def resolve_package_option(
     for option in defn.package_options:
         if option.ref == address:
             return option
-    raise ValueError(
-        f"component {defn.name!r} has no package option for {address!r}"
-    )
+        families = instance.families if instance is not None else None
+        family = families.get(option.ref) if families is not None else None
+        if family is not None and any(
+            family.address(variant.variant_id) == address for variant in family.variants
+        ):
+            return option
+    raise ValueError(f"component {defn.name!r} has no package option for {address!r}")
 
 
 def package_pins_for_meta_pin(
-    defn: "ComponentDefinition",
-    instance: "ComponentInstance | None",
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
     meta_pin_index: int,
 ) -> tuple[int, ...]:
     """Return physical pins carrying a 1-based MetaPin in the active option."""
@@ -40,8 +44,8 @@ def package_pins_for_meta_pin(
 
 
 def meta_pin_for_package_pin(
-    defn: "ComponentDefinition",
-    instance: "ComponentInstance | None",
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
     package_pin_number: int,
 ) -> int | None:
     """Return the MetaPin carried by a physical pin, or None when unmapped."""

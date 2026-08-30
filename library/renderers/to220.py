@@ -4,7 +4,7 @@
 This file doubles as the reference for user renderer plugins: it lives in the
 builtin library's ``renderers/`` directory and is loaded by the exact same
 discovery mechanism as user plugins (``load_renderer_plugins``).
-``@register_renderer(family="TO-220")`` registers the class for the whole
+``@register_renderer(family="q-tht/TO-220")`` registers the class for the whole
 TO-220 package family (the family id sits on the package ``lineage`` just
 above the variant), so every variant gets the tab unless a more specific
 renderer claims its leaf.  Other axes: ``kind=`` (a package kind such as
@@ -37,7 +37,7 @@ from protoboard.geometry import Point
 from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
 
 
-@register_renderer(family="TO-220")
+@register_renderer(family="q-tht/TO-220")
 class TO220Renderer(PrismRenderer):
     """TO-220 (and friends): the prism body + a metal tab on the back edge."""
 

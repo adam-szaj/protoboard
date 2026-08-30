@@ -13,6 +13,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import ItemId
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -20,8 +22,6 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.item_handle import ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -52,11 +52,16 @@ def _session() -> HeadlessSession:
 def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -65,14 +70,16 @@ def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UU
 def _make_group(session: HeadlessSession, member_ids: list[uuid.UUID]) -> uuid.UUID:
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G1",
+        id=grp_id,
+        name="G1",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,
@@ -107,7 +114,9 @@ def test_rotate_works_after_entering_group() -> None:
     gid = _make_group(session, [cid])
     # Rotating the group as a rigid body (group tag → rigid, no lock filter).
     session.edit_controller.rotate(
-        [ItemId.group(gid)], delta_deg=90, active_group_id=ROOT_GROUP_ID,
+        [ItemId.group(gid)],
+        delta_deg=90,
+        active_group_id=ROOT_GROUP_ID,
     )
     assert session.layout.placements[cid].rotation == 90
 
@@ -117,7 +126,9 @@ def test_rotate_around_pivot() -> None:
     cid = _place(session, 2.5, 2.5, "R1")
     session.edit_controller.rotate(
         [ItemId.component(cid)],
-        delta_deg=90, pivot=Point(0.5, 0.5), active_group_id=ROOT_GROUP_ID,
+        delta_deg=90,
+        pivot=Point(0.5, 0.5),
+        active_group_id=ROOT_GROUP_ID,
     )
     # A pivot rotation moves the component off its original cell.
     assert session.layout.placements[cid].position != Point(2.5, 2.5)
@@ -127,7 +138,9 @@ def test_rotate_around_pivot() -> None:
 def test_rotate_empty_selection_is_noop() -> None:
     session = _session()
     removed = session.edit_controller.rotate(
-        [], delta_deg=90, active_group_id=ROOT_GROUP_ID,
+        [],
+        delta_deg=90,
+        active_group_id=ROOT_GROUP_ID,
     )
     assert removed == 0
 
@@ -136,13 +149,13 @@ def test_flip_loose_two_pin_component() -> None:
     session = _session()
     cid = _place(session, 2.5, 2.5, "R1")
     before = session.layout.placements[cid]
-    session.edit_controller.flip(
-        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID
-    )
+    session.edit_controller.flip([ItemId.component(cid)], active_group_id=ROOT_GROUP_ID)
     after = session.layout.placements[cid]
     # A 2-pin flip mirrors the placement about the pin span → something changes.
     assert (after.position, after.rotation, after.vertical_flipped) != (
-        before.position, before.rotation, before.vertical_flipped
+        before.position,
+        before.rotation,
+        before.vertical_flipped,
     )
 
 
@@ -151,7 +164,5 @@ def test_flip_vetoed_for_grouped_from_outside() -> None:
     cid = _place(session, 2.5, 2.5, "R1")
     _make_group(session, [cid])
     before = session.layout.placements[cid]
-    session.edit_controller.flip(
-        [ItemId.component(cid)], active_group_id=ROOT_GROUP_ID
-    )
+    session.edit_controller.flip([ItemId.component(cid)], active_group_id=ROOT_GROUP_ID)
     assert session.layout.placements[cid] == before  # blocked

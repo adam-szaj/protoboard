@@ -28,7 +28,7 @@ class TestPoint:
         result = p1 - v1
         assert result == Point(1.5, 2.0)
 
-        assert (result - p1) == - v1
+        assert (result - p1) == -v1
 
     def test_frozen(self) -> None:
         p = Point(0.0, 0.0)
@@ -95,6 +95,7 @@ class TestVectorAngle:
 
     def test_angle_radians(self) -> None:
         import math
+
         assert Vector(1.0, 1.0).angle() == pytest.approx(math.pi / 4)
 
     def test_angle_of_displacement(self) -> None:

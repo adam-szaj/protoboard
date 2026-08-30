@@ -22,20 +22,18 @@ from __future__ import annotations
 
 import uuid
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import Qt
 
-from protoboard.geometry import Point
-from PySide6.QtGui import QKeyEvent, QMouseEvent
-
-from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.gui.board_view import BoardView
 from protoboard.controller.selection_axes import (
     RELATION_LABELS,
     RelationClass,
     SelectionFilter,
 )
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
+from protoboard.geometry import Point
+from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from tests.gui.input_helpers import key_inp, pointer
@@ -55,6 +53,7 @@ def test_select_tool_module_is_qt_free() -> None:
     assert "from PySide6" not in src
     assert "Qt.Key" not in src
 
+
 # ---------------------------------------------------------------------------
 # Helpers (mirrors of the deleted files', kept local to this parity suite)
 # ---------------------------------------------------------------------------
@@ -73,7 +72,9 @@ def _place(
 
 
 def _press(
-    tool: SelectTool, x: float, y: float,
+    tool: SelectTool,
+    x: float,
+    y: float,
     modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
     tool.on_press(pointer(x, y, mods=modifiers))
@@ -90,14 +91,16 @@ def _make_group(session: EditorSession, member_ids: list[uuid.UUID]) -> uuid.UUI
     """Wrap *member_ids* in a new non-root group, child of ROOT."""
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G1",
+        id=grp_id,
+        name="G1",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,
@@ -110,7 +113,8 @@ def _net(session: EditorSession, *pins: tuple[uuid.UUID, int], name: str = "N"):
     from protoboard.domain.schematic.net import Net, PinRef
 
     net = Net(
-        id=uuid.uuid4(), name=name,
+        id=uuid.uuid4(),
+        name=name,
         pins={PinRef(cid, pn) for cid, pn in pins},
     )
     session.schematic.nets[net.id] = net
@@ -138,10 +142,12 @@ class TestAxesState:
         tool = _v2(board_view)
         relations = list(RelationClass)
         start = relations.index(tool.relation)
-        tool.on_key(key_inp(
-            Qt.Key.Key_QuoteLeft,
-            Qt.KeyboardModifier.NoModifier,
-        ))
+        tool.on_key(
+            key_inp(
+                Qt.Key.Key_QuoteLeft,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
         assert tool.relation == relations[(start + 1) % len(relations)]
 
     def test_set_relation_emits_label(
@@ -206,7 +212,8 @@ class TestAutoHighlightOnClick:
         pl = session.layout.placements[i1.id]
         tool._apply_selection(
             ComponentSelectable(component_id=i1.id, placement=pl),
-            SetOp.SET, BasisScope.SINGLE,
+            SetOp.SET,
+            BasisScope.SINGLE,
         )
         entry = session.highlight_stack.active()
         assert entry is not None
@@ -239,7 +246,8 @@ class TestRelationBasisSelection:
         pl = session.layout.placements[i1.id]
         tool._apply_selection(
             ComponentSelectable(component_id=i1.id, placement=pl),
-            SetOp.SET, BasisScope.RELATION,
+            SetOp.SET,
+            BasisScope.RELATION,
         )
         selected = set(tool._selected_ids)
         if tool._selected_id is not None:
@@ -267,10 +275,18 @@ class TestRelationBasisSelection:
         # Two wires sharing one net via the component pin.
         net = Net(id=uuid.uuid4(), name="N1", pins={PinRef(i1.id, 1)})
         session.schematic.nets[net.id] = net
-        w1 = Wire(id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(2.5, 0.5)],
-                  insulated=False, side="top")
-        w2 = Wire(id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(0.5, 2.5)],
-                  insulated=False, side="top")
+        w1 = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        w2 = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(0.5, 2.5)],
+            insulated=False,
+            side="top",
+        )
         session.layout.wires.append(w1)
         session.layout.wires.append(w2)
         session.invalidate_graph()
@@ -485,7 +501,7 @@ class TestGroupedComponentProtection:
         tool._selected_ids = {free.id, grouped.id}
         tool._delete_selection()
         assert free.id not in session.layout.placements  # free deleted
-        assert grouped.id in session.layout.placements   # grouped survives
+        assert grouped.id in session.layout.placements  # grouped survives
 
     def test_delete_works_after_entering_group(
         self, board_view: BoardView, session: EditorSession

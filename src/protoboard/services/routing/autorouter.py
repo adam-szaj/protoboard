@@ -21,21 +21,25 @@ Multi-layer routing:
 
 from __future__ import annotations
 
-import threading
 import csv
 import datetime
 import io
+import threading
 import uuid
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 
 from protoboard.domain.board.board import Board
-from protoboard.types import Side
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -50,6 +54,7 @@ from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.cost_model import RoutingCostModel
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -69,8 +74,9 @@ _log = structlog.get_logger(__name__)
 # Useful for diagnosing suboptimal paths; too noisy for normal use.
 _DEEP_DEBUG = False
 
-import atexit as _atexit
-import os as _os
+import atexit as _atexit  # noqa: E402
+import os as _os  # noqa: E402
+
 _CPU_COUNT = max(2, (_os.cpu_count() or 2))
 
 # Live short-detection: after every add_wire, check whether two distinct
@@ -87,10 +93,10 @@ _SEEN_FUSIONS: set[frozenset[str]] = set()
 
 
 def _check_no_net_fusion(
-    graph: "ConnectivityGraph",
-    schematic: "Schematic",
-    current_net: "Net",
-    just_added: "Wire",
+    graph: ConnectivityGraph,
+    schematic: Schematic,
+    current_net: Net,
+    just_added: Wire,
     fail: bool = False,
     seen_fusions: set[frozenset[str]] | None = None,
 ) -> None:
@@ -107,6 +113,7 @@ def _check_no_net_fusion(
     caller owns the set lifetime (reset on each ``autoroute()`` call).
     """
     from collections import defaultdict as _dd
+
     key_to_nets: dict[object, set[str]] = _dd(set)
     for net in schematic.nets.values():
         for ref in net.pins:
@@ -143,9 +150,9 @@ def _check_no_net_fusion(
 
 
 def _log_preexisting_fusions(
-    graph: "ConnectivityGraph",
-    schematic: "Schematic",
-    user_wires: list["Wire"],
+    graph: ConnectivityGraph,
+    schematic: Schematic,
+    user_wires: list[Wire],
 ) -> set[frozenset[str]]:
     """One-shot diagnostic: log every electric-set fusion that already exists
     before autoroute starts adding wires.
@@ -161,6 +168,7 @@ def _log_preexisting_fusions(
     already bridge nets.
     """
     from collections import defaultdict as _dd
+
     key_to_nets: dict[object, set[str]] = _dd(set)
     for net in schematic.nets.values():
         for ref in net.pins:
@@ -185,6 +193,7 @@ def _log_preexisting_fusions(
             ),
         )
     return seen
+
 
 class _SequentialExecutor:
     """Drop-in replacement for ThreadPoolExecutor that runs work inline.
@@ -224,7 +233,8 @@ _ASTAR_PARALLEL = _os.environ.get("PROTOBOARD_ASTAR_PARALLEL", "0") == "1"
 _ASTAR_SEQUENTIAL = _os.environ.get("PROTOBOARD_ASTAR_SEQUENTIAL", "0") == "1"
 if _ASTAR_PARALLEL and not _ASTAR_SEQUENTIAL:
     _ASTAR_POOL: ThreadPoolExecutor | _SequentialExecutor = ThreadPoolExecutor(
-        max_workers=_CPU_COUNT, thread_name_prefix="astar",
+        max_workers=_CPU_COUNT,
+        thread_name_prefix="astar",
     )
     _atexit.register(lambda: _ASTAR_POOL.shutdown(wait=False, cancel_futures=True))
     _log.info("astar.pool", mode="parallel", reason="PROTOBOARD_ASTAR_PARALLEL=1")
@@ -254,7 +264,7 @@ class AutoroutePreconditionError(Exception):
     that DRC would reject anyway.  Bail out cleanly instead.
     """
 
-    def __init__(self, issues: "list[DRCIssue]") -> None:  # noqa: F821
+    def __init__(self, issues: list[DRCIssue]) -> None:  # noqa: F821
         self.issues = issues
         codes = sorted({iss.code for iss in issues})
         super().__init__(
@@ -284,21 +294,21 @@ class NetStats:
 
     net_name: str
     routed: bool
-    nodes_expanded: int        # total A* nodes expanded across all segments/attempts
-    over_budget_hits: int      # times over_budget cutoff fired
-    rip_up_attempts: int       # number of rip-up retries (0 = routed on first try)
-    path_hops_min: int         # shortest segment path (in raster hops)
-    path_hops_max: int         # longest segment path
-    path_hops_final: int       # total hops in final routed path
-    segments_found: int        # number of wire segments placed
+    nodes_expanded: int  # total A* nodes expanded across all segments/attempts
+    over_budget_hits: int  # times over_budget cutoff fired
+    rip_up_attempts: int  # number of rip-up retries (0 = routed on first try)
+    path_hops_min: int  # shortest segment path (in raster hops)
+    path_hops_max: int  # longest segment path
+    path_hops_final: int  # total hops in final routed path
+    segments_found: int  # number of wire segments placed
 
 
 @dataclass
 class PassStats:
     """Statistics for one full routing pass (greedy or optimize iteration)."""
 
-    pass_index: int            # 0 = greedy, 1..N = optimize iterations
-    seed: int                  # net-order seed (0 for greedy)
+    pass_index: int  # 0 = greedy, 1..N = optimize iterations
+    seed: int  # net-order seed (0 for greedy)
     routed_count: int
     unrouted_count: int
     total_wires: int
@@ -321,9 +331,9 @@ _ORPHAN_EPS = 1e-4
 
 
 def _drop_orphan_wires(
-    layout: "Layout",
-    board: "Board",
-    pin_positions: "dict[PinRef, tuple[Point, str]]",
+    layout: Layout,
+    board: Board,
+    pin_positions: dict[PinRef, tuple[Point, str]],
 ) -> int:
     """Remove wires whose endpoints aren't anchored to anything meaningful.
 
@@ -408,14 +418,14 @@ def autoroute(
     optimize_progress_callback: Callable[[int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     net_ids: set[uuid.UUID] | None = None,
-    report_path: "Path | None" = None,
+    report_path: Path | None = None,
     push_and_shove: bool = True,
     enable_simplify_pass: bool = True,
     simplify_after_each_wire: bool = False,
     simplify_all_after_autoroute: bool = True,
     simplify_all_max_iterations: int = 50,
-    simplify_mode: "SimplifyMode | None" = None,
-    pad_index: "PadIndex | None" = None,
+    simplify_mode: SimplifyMode | None = None,
+    pad_index: PadIndex | None = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -470,15 +480,19 @@ def autoroute(
     # than to flood the log with shorts and emit broken wires.
     # ------------------------------------------------------------------
     from protoboard.services.drc.engine import DRCEngine
+
     _drc_issues = DRCEngine().check(
-        board=board, schematic=schematic, layout=layout,
-        components=components, instances=instances,
+        board=board,
+        schematic=schematic,
+        layout=layout,
+        components=components,
+        instances=instances,
         pad_index=pad_index,
     )
     _blocking = [
-        iss for iss in _drc_issues
-        if iss.severity == "error"
-        and iss.code in _AUTOROUTE_BLOCKING_DRC_CODES
+        iss
+        for iss in _drc_issues
+        if iss.severity == "error" and iss.code in _AUTOROUTE_BLOCKING_DRC_CODES
     ]
     if _blocking:
         _log.error(
@@ -497,6 +511,7 @@ def autoroute(
     # with ``max_detour_factor=0.0`` (no budget cap) this exhausts memory
     # on dense boards.  Bail out before A* sees anything.
     from protoboard.services.drc.engine import DRCIssue as _DRCIssue
+
     # When a pad_index is supplied, derive the board pad set from it in
     # a single dict-keys() pass — otherwise fall back to the historical
     # board.atoms() walk.
@@ -504,9 +519,9 @@ def autoroute(
         _board_pad_set = {pad.position for pad in pad_index.iter_pads()}
     else:
         from protoboard.domain.layout.wire_utils import board_pads_for_side
-        _board_pad_set = (
-            board_pads_for_side(board, "top")
-            | board_pads_for_side(board, "bottom")
+
+        _board_pad_set = board_pads_for_side(board, "top") | board_pads_for_side(
+            board, "bottom"
         )
     if net_ids is not None:
         _nets_to_check = [n for n in schematic.nets.values() if n.id in net_ids]
@@ -520,20 +535,22 @@ def autoroute(
                 continue
             _pt, _side = _ps
             if _pt not in _board_pad_set:
-                _off_board_issues.append(_DRCIssue(
-                    severity="error",
-                    code="OFF_BOARD_PIN",
-                    message=(
-                        f"Pin {_ref.pin_number} of component {_ref.component_id} "
-                        f"on net '{_net.name}' is outside the board grid "
-                        f"({_pt}).  Move the component onto the board before "
-                        f"autorouting."
-                    ),
-                    locations=[_pt],
-                    affected_nets=[_net.id],
-                    affected_pins=[_ref],
-                    affected_components=[_ref.component_id],
-                ))
+                _off_board_issues.append(
+                    _DRCIssue(
+                        severity="error",
+                        code="OFF_BOARD_PIN",
+                        message=(
+                            f"Pin {_ref.pin_number} of component {_ref.component_id} "
+                            f"on net '{_net.name}' is outside the board grid "
+                            f"({_pt}).  Move the component onto the board before "
+                            f"autorouting."
+                        ),
+                        locations=[_pt],
+                        affected_nets=[_net.id],
+                        affected_pins=[_ref],
+                        affected_components=[_ref.component_id],
+                    )
+                )
     if _off_board_issues:
         _log.error(
             "autoroute.precondition_failed",
@@ -569,8 +586,7 @@ def autoroute(
         plated_through_pads: set[Point] = set()
     elif pad_index is not None:
         plated_through_pads = {
-            p.position for p in pad_index.iter_pads()
-            if p.layers.plated_through
+            p.position for p in pad_index.iter_pads() if p.layers.plated_through
         }
     else:
         plated_through_pads = _collect_plated_through_pads(board)
@@ -604,7 +620,9 @@ def autoroute(
             extra = congestion_weight * votes
             for side_key in ("top", "bottom"):
                 key = (cell, side_key)
-                under_component_penalty[key] = under_component_penalty.get(key, 0.0) + extra
+                under_component_penalty[key] = (
+                    under_component_penalty.get(key, 0.0) + extra
+                )
 
     # Sort nets: longest manhattan distance first.  Long nets need more board
     # space and should be planned while the board is still empty; short nets
@@ -620,7 +638,7 @@ def autoroute(
         max_d = max(
             abs(a.x - b.x) + abs(a.y - b.y)
             for i, a in enumerate(pts)
-            for b in pts[i + 1:]
+            for b in pts[i + 1 :]
         )
         return (global_penalty, -max_d, -len(pts))
 
@@ -716,23 +734,46 @@ def autoroute(
     # (bypasses GIL) and keep the result with fewest unrouted nets.
     if max_optimize_iterations > 0:
         _pass_args = (
-            sorted_nets, pin_positions, all_pin_positions, schematic, board,
-            layout, user_wires, cost_model, max_rip_up_passes, side, insulated,
-            wire_mode, max_detour_factor,
-            plated_through_pads, under_component_penalty, failed_net_ids,
-            components, instances, preferred_side,
-            simplify_after_each_wire, simplify_mode,
+            sorted_nets,
+            pin_positions,
+            all_pin_positions,
+            schematic,
+            board,
+            layout,
+            user_wires,
+            cost_model,
+            max_rip_up_passes,
+            side,
+            insulated,
+            wire_mode,
+            max_detour_factor,
+            plated_through_pads,
+            under_component_penalty,
+            failed_net_ids,
+            components,
+            instances,
+            preferred_side,
+            simplify_after_each_wire,
+            simplify_mode,
         )
         n_parallel = min(max_optimize_iterations, _CPU_COUNT)
-        _log.info("autoroute.optimize.parallel", passes=max_optimize_iterations, workers=n_parallel)
+        _log.info(
+            "autoroute.optimize.parallel",
+            passes=max_optimize_iterations,
+            workers=n_parallel,
+        )
 
         from concurrent.futures import ProcessPoolExecutor
+
         best_wires = current_wires
         best_unrouted_count = len(unrouted_names)
 
         try:
-            _log.info("autoroute.optimize.pool_start",
-                      n_parallel=n_parallel, iterations=max_optimize_iterations)
+            _log.info(
+                "autoroute.optimize.pool_start",
+                n_parallel=n_parallel,
+                iterations=max_optimize_iterations,
+            )
             pool = ProcessPoolExecutor(max_workers=n_parallel)
             try:
                 _log.info("autoroute.optimize.pool_created")
@@ -752,8 +793,11 @@ def autoroute(
                     try:
                         opt_wires, opt_unrouted, opt_ps = fut.result()
                         result.pass_stats.append(opt_ps)
-                        _log.info("autoroute.optimize.future_done",
-                                  wires=len(opt_wires), unrouted=len(opt_unrouted))
+                        _log.info(
+                            "autoroute.optimize.future_done",
+                            wires=len(opt_wires),
+                            unrouted=len(opt_unrouted),
+                        )
                     except Exception as _fe:
                         _log.warning("autoroute.optimize.future_error", error=str(_fe))
                         continue
@@ -764,8 +808,11 @@ def autoroute(
                         best_wires = opt_wires
                         best_unrouted_count = len(opt_unrouted)
                         unrouted_names = opt_unrouted
-                _log.info("autoroute.optimize.pool_done",
-                          best_wires=len(best_wires), best_unrouted=best_unrouted_count)
+                _log.info(
+                    "autoroute.optimize.pool_done",
+                    best_wires=len(best_wires),
+                    best_unrouted=best_unrouted_count,
+                )
             finally:
                 # Always tear the pool down without blocking on running tasks.
                 # On cancel we additionally SIGTERM the worker processes so
@@ -777,8 +824,11 @@ def autoroute(
         except Exception as e:
             # ProcessPoolExecutor may fail in some environments (e.g. no fork,
             # pickle error). Catch ALL exceptions and fall back to sequential.
-            _log.warning("autoroute.optimize.fallback_sequential",
-                         exc_type=type(e).__name__, reason=str(e))
+            _log.warning(
+                "autoroute.optimize.fallback_sequential",
+                exc_type=type(e).__name__,
+                reason=str(e),
+            )
             prev_fp = _wire_fingerprint(current_wires)
             for opt_iter in range(max_optimize_iterations):
                 if cancel_flag is not None and cancel_flag.is_set():
@@ -813,8 +863,7 @@ def autoroute(
                 result.pass_stats.append(_opt_ps)
                 new_fp = _wire_fingerprint(next_wires)
                 if len(next_unrouted) < best_unrouted_count or (
-                    len(next_unrouted) == best_unrouted_count
-                    and new_fp != prev_fp
+                    len(next_unrouted) == best_unrouted_count and new_fp != prev_fp
                 ):
                     best_wires = next_wires
                     best_unrouted_count = len(next_unrouted)
@@ -838,18 +887,16 @@ def autoroute(
     _need_legacy_simplify = (
         wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires
     )
-    _need_iterative_simplify = (
-        simplify_all_after_autoroute and current_wires
-    )
+    _need_iterative_simplify = simplify_all_after_autoroute and current_wires
     if _need_legacy_simplify or _need_iterative_simplify:
-        from protoboard.services.routing.builtin_optimizers import SimplifyOptimizer
-        from protoboard.services.routing.protocol import ProgressSink
-        from protoboard.services.routing.snapshot import RouteRequest
-
         # Build a snapshot of the current (post-routing) state once.  The
         # routing_settings field is unused by SimplifyOptimizer but the
         # snapshot constructor requires it, so reach for a minimal one.
         from protoboard.domain.routing_settings import RoutingSettings
+        from protoboard.services.routing.builtin_optimizers import SimplifyOptimizer
+        from protoboard.services.routing.protocol import ProgressSink
+        from protoboard.services.routing.snapshot import RouteRequest
+
         _req = RouteRequest.from_session(
             board=board,
             layout=layout,
@@ -864,8 +911,12 @@ def autoroute(
         def _path_fingerprint(ws: list[Wire]) -> tuple:
             """Hashable snapshot of every wire's path + side + insulated."""
             return tuple(
-                (w.id, w.side, w.insulated,
-                 tuple((round(p.x, 6), round(p.y, 6)) for p in w.path))
+                (
+                    w.id,
+                    w.side,
+                    w.insulated,
+                    tuple((round(p.x, 6), round(p.y, 6)) for p in w.path),
+                )
                 for w in ws
             )
 
@@ -894,14 +945,17 @@ def autoroute(
                 current_wires = _optimized.wires
                 after_fp = _path_fingerprint(current_wires)
                 n_simplified = sum(
-                    1 for w in current_wires
+                    1
+                    for w in current_wires
                     if _before_paths.get(w.id)
                     != tuple((round(p.x, 6), round(p.y, 6)) for p in w.path)
                 )
                 if _sink.simplify_progress is not None:
                     try:
                         _sink.simplify_progress(
-                            n_iters, simplify_all_max_iterations, n_simplified,
+                            n_iters,
+                            simplify_all_max_iterations,
+                            n_simplified,
                         )
                     except Exception:  # noqa: BLE001
                         # Progress callbacks must never break the loop.
@@ -952,7 +1006,8 @@ def autoroute(
 # Report writer
 # ---------------------------------------------------------------------------
 
-def _write_report(result: "AutorouteResult", path: Path) -> None:
+
+def _write_report(result: AutorouteResult, path: Path) -> None:
     """Append a CSV report for this autoroute run to *path*.
 
     Format (append mode, UTF-8):
@@ -975,32 +1030,62 @@ def _write_report(result: "AutorouteResult", path: Path) -> None:
 
     # --- passes summary ---
     buf.write("## passes\n")
-    w.writerow([
-        "pass_index", "seed",
-        "routed_count", "unrouted_count", "total_wires",
-        "total_nodes_expanded", "total_over_budget_hits", "total_rip_up_attempts",
-    ])
+    w.writerow(
+        [
+            "pass_index",
+            "seed",
+            "routed_count",
+            "unrouted_count",
+            "total_wires",
+            "total_nodes_expanded",
+            "total_over_budget_hits",
+            "total_rip_up_attempts",
+        ]
+    )
     for ps in result.pass_stats:
-        w.writerow([
-            ps.pass_index, ps.seed,
-            ps.routed_count, ps.unrouted_count, ps.total_wires,
-            ps.total_nodes_expanded, ps.total_over_budget_hits, ps.total_rip_up_attempts,
-        ])
+        w.writerow(
+            [
+                ps.pass_index,
+                ps.seed,
+                ps.routed_count,
+                ps.unrouted_count,
+                ps.total_wires,
+                ps.total_nodes_expanded,
+                ps.total_over_budget_hits,
+                ps.total_rip_up_attempts,
+            ]
+        )
 
     # --- per-net details per pass ---
     for ps in result.pass_stats:
         buf.write(f"## nets pass={ps.pass_index}\n")
-        w.writerow([
-            "net_name", "routed",
-            "nodes_expanded", "over_budget_hits", "rip_up_attempts",
-            "path_hops_min", "path_hops_max", "path_hops_final", "segments_found",
-        ])
+        w.writerow(
+            [
+                "net_name",
+                "routed",
+                "nodes_expanded",
+                "over_budget_hits",
+                "rip_up_attempts",
+                "path_hops_min",
+                "path_hops_max",
+                "path_hops_final",
+                "segments_found",
+            ]
+        )
         for ns in ps.nets:
-            w.writerow([
-                ns.net_name, int(ns.routed),
-                ns.nodes_expanded, ns.over_budget_hits, ns.rip_up_attempts,
-                ns.path_hops_min, ns.path_hops_max, ns.path_hops_final, ns.segments_found,
-            ])
+            w.writerow(
+                [
+                    ns.net_name,
+                    int(ns.routed),
+                    ns.nodes_expanded,
+                    ns.over_budget_hits,
+                    ns.rip_up_attempts,
+                    ns.path_hops_min,
+                    ns.path_hops_max,
+                    ns.path_hops_final,
+                    ns.segments_found,
+                ]
+            )
 
     buf.write("\n")
 
@@ -1018,8 +1103,8 @@ def _write_report(result: "AutorouteResult", path: Path) -> None:
 
 
 def _shutdown_pool_fast(
-    pool: "ProcessPoolExecutor",  # type: ignore[name-defined]
-    cancel_flag: "threading.Event | None",
+    pool: ProcessPoolExecutor,
+    cancel_flag: threading.Event | None,
 ) -> None:
     """Tear down a ProcessPoolExecutor without waiting for running tasks.
 
@@ -1033,7 +1118,7 @@ def _shutdown_pool_fast(
       3. Call shutdown(wait=False) so the executor's manager threads
          stop scheduling but don't block our thread on the join.
     """
-    import signal as _sig
+
     cancelled = cancel_flag is not None and cancel_flag.is_set()
     try:
         pool.shutdown(wait=False, cancel_futures=True)
@@ -1058,21 +1143,44 @@ def _shutdown_pool_fast(
 
 def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str], PassStats]:  # type: ignore[type-arg]
     """Top-level wrapper for ProcessPoolExecutor — one optimization pass."""
-    import os as _os2, threading as _th
-    _log.info("autoroute.subprocess.start",
-              pid=_os2.getpid(),
-              thread_id=_th.get_ident(),
-              is_main=_th.current_thread() is _th.main_thread())
+    import os as _os2
+    import threading as _th
 
-    (sorted_nets, pin_positions, all_pin_positions, schematic, board, layout,
-     user_wires, cost_model, max_rip_up_passes, side, insulated,
-     wire_mode, max_detour_factor,
-     plated_through_pads, under_component_penalty, failed_net_ids,
-     components, instances, preferred_side,
-     simplify_after_each_wire, simplify_mode, seed_offset) = args
+    _log.info(
+        "autoroute.subprocess.start",
+        pid=_os2.getpid(),
+        thread_id=_th.get_ident(),
+        is_main=_th.current_thread() is _th.main_thread(),
+    )
+
+    (
+        sorted_nets,
+        pin_positions,
+        all_pin_positions,
+        schematic,
+        board,
+        layout,
+        user_wires,
+        cost_model,
+        max_rip_up_passes,
+        side,
+        insulated,
+        wire_mode,
+        max_detour_factor,
+        plated_through_pads,
+        under_component_penalty,
+        failed_net_ids,
+        components,
+        instances,
+        preferred_side,
+        simplify_after_each_wire,
+        simplify_mode,
+        seed_offset,
+    ) = args
 
     # Shuffle net order by seed_offset to explore different routing strategies.
     import random as _rnd
+
     nets = list(sorted_nets)
     if seed_offset > 0:
         _rnd.Random(seed_offset).shuffle(nets)
@@ -1106,6 +1214,7 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str], PassSt
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _wire_fingerprint(
     wires: list[Wire],
 ) -> frozenset[tuple[tuple[tuple[float, float], ...], str, bool]]:
@@ -1115,8 +1224,7 @@ def _wire_fingerprint(
     hash equal.  The result is order-independent (frozenset over all wires).
     """
     return frozenset(
-        (tuple(sorted((p.x, p.y) for p in w.path)), w.side, w.insulated)
-        for w in wires
+        (tuple(sorted((p.x, p.y) for p in w.path)), w.side, w.insulated) for w in wires
     )
 
 
@@ -1147,7 +1255,7 @@ def _run_one_pass(
     n_nets: int = 0,
     push_and_shove: bool = True,
     simplify_after_each_wire: bool = False,
-    simplify_mode: "SimplifyMode | None" = None,
+    simplify_mode: SimplifyMode | None = None,
 ) -> tuple[list[Wire], list[str], PassStats]:
     """Run one full greedy routing pass over *sorted_nets*.
 
@@ -1164,11 +1272,14 @@ def _run_one_pass(
 
     # Pre-compute total segment count for sub-net progress granularity.
     # A net with k placed pins needs k-1 segments (Steiner spanning tree).
-    total_segments = max(1, sum(
-        max(0, len([r for r in net.pins if r in pin_positions]) - 1)
-        for net in sorted_nets
-        if net.id not in skip_net_ids
-    ))
+    total_segments = max(
+        1,
+        sum(
+            max(0, len([r for r in net.pins if r in pin_positions]) - 1)
+            for net in sorted_nets
+            if net.id not in skip_net_ids
+        ),
+    )
     segs_done = 0
 
     for net_idx, net in enumerate(sorted_nets):
@@ -1193,6 +1304,7 @@ def _run_one_pass(
             def _seg_cb(net_name: str, seg_idx: int, seg_total: int) -> None:
                 pct = int((_base + seg_idx) * 100 / _total)
                 _cb(_pass, net_name, pct)
+
         else:
             _seg_cb = None  # type: ignore[assignment]
 
@@ -1223,11 +1335,19 @@ def _run_one_pass(
         segs_done += net_segs
         if routed is None:
             unrouted.append(net.name)
-            _pass_net_stats.append(NetStats(
-                net_name=net.name, routed=False,
-                nodes_expanded=0, over_budget_hits=0, rip_up_attempts=0,
-                path_hops_min=0, path_hops_max=0, path_hops_final=0, segments_found=0,
-            ))
+            _pass_net_stats.append(
+                NetStats(
+                    net_name=net.name,
+                    routed=False,
+                    nodes_expanded=0,
+                    over_budget_hits=0,
+                    rip_up_attempts=0,
+                    path_hops_min=0,
+                    path_hops_max=0,
+                    path_hops_final=0,
+                    segments_found=0,
+                )
+            )
         else:
             routed_wires, net_st = routed
             # Optional per-wire simplify: shorten each freshly routed
@@ -1240,6 +1360,7 @@ def _run_one_pass(
                     SimplifyMode,
                     simplify_wires_generic,
                 )
+
                 eff_mode = simplify_mode or SimplifyMode.BARE_PARITY
                 pin_pt_set = {pos for (pos, _side) in pin_positions.values()}
                 simplified = simplify_wires_generic(
@@ -1322,7 +1443,8 @@ def _build_pin_positions(
                 continue
             p = pin_world_position(fp, placement, package_pins[0])
             pos[PinRef(component_id=comp_id, pin_number=meta_pin_index)] = (
-                p, placement.side,
+                p,
+                placement.side,
             )
     return pos
 
@@ -1362,21 +1484,35 @@ def _route_net(
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
     if len(placed_refs) < 2:
         if _DEEP_DEBUG:
-            _log.debug("autoroute.net.skip", net=net.name, reason="fewer than 2 placed pins")
-        return ([], NetStats(
-            net_name=net.name, routed=True,
-            nodes_expanded=0, over_budget_hits=0, rip_up_attempts=0,
-            path_hops_min=0, path_hops_max=0, path_hops_final=0, segments_found=0,
-        ))
+            _log.debug(
+                "autoroute.net.skip", net=net.name, reason="fewer than 2 placed pins"
+            )
+        return (
+            [],
+            NetStats(
+                net_name=net.name,
+                routed=True,
+                nodes_expanded=0,
+                over_budget_hits=0,
+                rip_up_attempts=0,
+                path_hops_min=0,
+                path_hops_max=0,
+                path_hops_final=0,
+                segments_found=0,
+            ),
+        )
 
     if _DEEP_DEBUG:
         _log.debug(
             "autoroute.net.start",
             net=net.name,
             pins=[
-                {"cid": str(r.component_id)[:8], "pin": r.pin_number,
-                 "pos": f"({pin_positions[r][0].x},{pin_positions[r][0].y})",
-                 "side": pin_positions[r][1]}
+                {
+                    "cid": str(r.component_id)[:8],
+                    "pin": r.pin_number,
+                    "pos": f"({pin_positions[r][0].x},{pin_positions[r][0].y})",
+                    "side": pin_positions[r][1],
+                }
                 for r in placed_refs
             ],
         )
@@ -1390,13 +1526,9 @@ def _route_net(
             net_ps.add((pt, "top"))
             net_ps.add((pt, "bottom"))
     occupied_pads: dict[tuple[Point, str], uuid.UUID] = {
-        ps: nid
-        for ps, nid in all_pin_positions.items()
-        if ps not in net_ps
+        ps: nid for ps, nid in all_pin_positions.items() if ps not in net_ps
     }
-    same_net_pads: dict[tuple[Point, str], uuid.UUID] = {
-        ps: net_id for ps in net_ps
-    }
+    same_net_pads: dict[tuple[Point, str], uuid.UUID] = {ps: net_id for ps in net_ps}
 
     new_wires: list[Wire] = []
     _ns_nodes = 0
@@ -1476,7 +1608,10 @@ def _route_net(
         # pins share an enclosure with the route and their 4-adjacent neighbours
         # inevitably lie on the only viable intra-component path (Panama Canal).
         candidate_ref = point_to_ref.get((pin_pt, _pin_side))
-        if candidate_ref is not None and candidate_ref.component_id in net_component_ids:
+        if (
+            candidate_ref is not None
+            and candidate_ref.component_id in net_component_ids
+        ):
             continue
         net_obj = schematic.nets.get(nid)
         if net_obj is None:
@@ -1510,7 +1645,7 @@ def _route_net(
     best_seed = placed_refs[0]
     best_dist = float("inf")
     for i, ra in enumerate(placed_refs):
-        for rb in placed_refs[i + 1:]:
+        for rb in placed_refs[i + 1 :]:
             d = _manhattan(ra, rb)
             if d < best_dist:
                 best_dist = d
@@ -1677,9 +1812,12 @@ def _route_net(
                 net=net.name,
                 seg=seg_index,
                 wires=[
-                    {"side": w.side, "hops": len(w.path) - 1,
-                     "from": f"({w.path[0].x},{w.path[0].y})",
-                     "to": f"({w.path[-1].x},{w.path[-1].y})"}
+                    {
+                        "side": w.side,
+                        "hops": len(w.path) - 1,
+                        "from": f"({w.path[0].x},{w.path[0].y})",
+                        "to": f"({w.path[-1].x},{w.path[-1].y})",
+                    }
                     for w in routed_wires
                 ],
             )
@@ -1705,9 +1843,7 @@ def _route_net(
         # 2026-06-01: GND with 48 pins, 4 left as a separate electric set).
         _OTHER = {"top": "bottom", "bottom": "top"}
         for w in routed_wires:
-            contact_pts = (
-                [w.path[0], w.path[-1]] if w.insulated else list(w.path)
-            )
+            contact_pts = [w.path[0], w.path[-1]] if w.insulated else list(w.path)
             for pt in contact_pts:
                 cur_net_wire_points.add((pt, w.side))
                 if pt in plated_through_pads:
@@ -1720,7 +1856,11 @@ def _route_net(
             # autoroute the moment it happens; otherwise just warn loudly.
             if _SHORT_DETECTION_ENABLED:
                 _check_no_net_fusion(
-                    current_graph, schematic, net, w, fail=_FAIL_ON_SHORT,
+                    current_graph,
+                    schematic,
+                    net,
+                    w,
+                    fail=_FAIL_ON_SHORT,
                     seen_fusions=_SEEN_FUSIONS,
                 )
 
@@ -1844,7 +1984,8 @@ def _route_segment_with_ripup(
         at_pad_nets_idx = _nets_idx if _needs_at_pad_nets else None
         all_seg_idx = (
             _build_all_seg_index(working_wires, wire_to_net_id)
-            if _enh_parallel_active else None
+            if _enh_parallel_active
+            else None
         )
         # Foreign-wire cell set: every (Point, side) where a wire belonging
         # to a *different* net (i.e. not active_net_id) has a vertex.  Used
@@ -1864,6 +2005,7 @@ def _route_segment_with_ripup(
             # that pad belongs to the other net.  Detected by gathering
             # endpoints per (Point) per side and intersecting.
             from collections import defaultdict
+
             _foreign_endpoint_sides: dict[Point, set[str]] = defaultdict(set)
             for _w in working_wires:
                 if wire_to_net_id.get(_w.id) == active_net_id:
@@ -1875,9 +2017,7 @@ def _route_segment_with_ripup(
                     _foreign_endpoint_sides[_w.path[0]].add(_w.side)
                     _foreign_endpoint_sides[_w.path[-1]].add(_w.side)
             foreign_via_pads: set[Point] = {
-                pad
-                for pad, sides in _foreign_endpoint_sides.items()
-                if len(sides) >= 2
+                pad for pad, sides in _foreign_endpoint_sides.items() if len(sides) >= 2
             }
         else:
             foreign_wire_cells = set()
@@ -1912,7 +2052,7 @@ def _route_segment_with_ripup(
         #                            with perpendicular mesh-cell crossings
         #                            allowed at cost_model.crossing_bare_bare_diagonal.
         # wire_mode="insulated":     insulated only.
-        import dataclasses as _dc
+
         if wire_mode == "bare" or wire_mode == "bare_diagonal":
             insulation_attempts = [False]
         elif wire_mode == "insulated":
@@ -1939,7 +2079,6 @@ def _route_segment_with_ripup(
             )
 
         best: tuple[float, list[PathStep]] | None = None
-        best_is_preferred = False
         result_insulated: bool = insulation_attempts[-1]  # default to last attempt
 
         # Pre-compute the canonical keys of every pad belonging to the
@@ -1958,7 +2097,7 @@ def _route_segment_with_ripup(
         # the full set of pads in that electric set.
         alien_pad_set: set[tuple[Point, str]] = set()
         seen_alien_canonicals: set[object] = set()
-        for (pin_pt, pin_side) in occupied_pins:
+        for pin_pt, pin_side in occupied_pins:
             ck = connectivity_graph.node_for_pad(pin_pt, pin_side)
             if ck is None or ck in own_canonicals or ck in seen_alien_canonicals:
                 continue
@@ -1988,7 +2127,8 @@ def _route_segment_with_ripup(
             _same_net_wire_ids: set[uuid.UUID] = set()
             if active_net_id is not None and wire_to_net_id is not None:
                 _same_net_wire_ids = {
-                    _wid for _wid, _nid in wire_to_net_id.items()
+                    _wid
+                    for _wid, _nid in wire_to_net_id.items()
                     if _nid == active_net_id
                 }
             _wires_for_occupancy = (
@@ -2015,13 +2155,16 @@ def _route_segment_with_ripup(
             for ps in same_net_pins:
                 combined_occupied.pop(ps, None)
             effective_near = {
-                ps for ps in near_pin_pads
+                ps
+                for ps in near_pin_pads
                 if ps not in combined_occupied and ps not in same_net_pins
             }
 
-            sides_to_try = ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
+            sides_to_try = (
+                ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
+            )
 
-            def _astar_call(src_pt: Point, start_side: str, _ins: bool = try_insulated, _cm: RoutingCostModel = active_cm) -> tuple[str, list]:  # type: ignore[type-arg]
+            def _astar_call(src_pt: Point, start_side: str, _ins: bool = try_insulated, _cm: RoutingCostModel = active_cm) -> tuple[str, list]:  # type: ignore[type-arg]  # noqa: E501
                 target_pads = graph.pads_in_same_electric_set(target, start_side)
                 return start_side, find_paths(
                     graph=graph,
@@ -2068,7 +2211,11 @@ def _route_segment_with_ripup(
                         if (
                             attempt_best is None
                             or cost < attempt_best[0]
-                            or (cost == attempt_best[0] and is_preferred and not attempt_best_is_preferred)
+                            or (
+                                cost == attempt_best[0]
+                                and is_preferred
+                                and not attempt_best_is_preferred
+                            )
                         ):
                             attempt_best = (cost, results[0].path)
                             attempt_best_is_preferred = is_preferred
@@ -2103,19 +2250,26 @@ def _route_segment_with_ripup(
                         if (
                             attempt_best is None
                             or cost < attempt_best[0]
-                            or (cost == attempt_best[0] and is_preferred and not attempt_best_is_preferred)
+                            or (
+                                cost == attempt_best[0]
+                                and is_preferred
+                                and not attempt_best_is_preferred
+                            )
                         ):
                             attempt_best = (cost, results[0].path)
                             attempt_best_is_preferred = is_preferred
 
             # Apply max_detour_factor filter.
-            if attempt_best is not None and max_detour_factor > 0.0 and manhattan_dist > 0.0:
+            if (
+                attempt_best is not None
+                and max_detour_factor > 0.0
+                and manhattan_dist > 0.0
+            ):
                 if len(attempt_best[1]) > manhattan_dist * max_detour_factor:
                     attempt_best = None  # path too long — try next insulation mode
 
             if attempt_best is not None:
                 best = attempt_best
-                best_is_preferred = attempt_best_is_preferred
                 result_insulated = try_insulated
                 break  # found a valid path — no need for fallback
 
@@ -2143,9 +2297,12 @@ def _route_segment_with_ripup(
                     path_pts=len(best[1]),
                     truncated=len(path) < len(best[1]),
                     result_wires=[
-                        {"side": w.side, "hops": len(w.path) - 1,
-                         "from": f"({w.path[0].x},{w.path[0].y})",
-                         "to": f"({w.path[-1].x},{w.path[-1].y})"}
+                        {
+                            "side": w.side,
+                            "hops": len(w.path) - 1,
+                            "from": f"({w.path[0].x},{w.path[0].y})",
+                            "to": f"({w.path[-1].x},{w.path[-1].y})",
+                        }
                         for w in wires
                     ],
                 )
@@ -2182,8 +2339,10 @@ def _route_segment_with_ripup(
         pushed = None
         if push_and_shove and cost_model.max_reroute_factor > 0.0:
             mid_cell = _try_mid_cell_reroute(
-                nearest_source[0], target,
-                working_wires, additional_wires,
+                nearest_source[0],
+                target,
+                working_wires,
+                additional_wires,
                 connectivity_graph,
                 cost_model,
                 occupied_pins,
@@ -2202,8 +2361,13 @@ def _route_segment_with_ripup(
         # global toggle and gates the whole feature.
         if pushed is None and push_and_shove:
             pushed = _try_push_wire(
-                nearest_source[0], target, working_wires, additional_wires,
-                board, occupied_pins, _board_pads=_board_pad_set,
+                nearest_source[0],
+                target,
+                working_wires,
+                additional_wires,
+                board,
+                occupied_pins,
+                _board_pads=_board_pad_set,
             )
         if pushed is not None:
             old_wire, new_wire = pushed
@@ -2231,9 +2395,11 @@ def _route_segment_with_ripup(
         )
         if ripped is None:
             if _DEEP_DEBUG:
-                _log.debug("autoroute.ripup.nothing_to_rip",
-                           src=f"({nearest_source[0].x},{nearest_source[0].y})",
-                           tgt=f"({target.x},{target.y})")
+                _log.debug(
+                    "autoroute.ripup.nothing_to_rip",
+                    src=f"({nearest_source[0].x},{nearest_source[0].y})",
+                    tgt=f"({target.x},{target.y})",
+                )
             break
         if _DEEP_DEBUG:
             _log.warning(
@@ -2254,9 +2420,7 @@ def _route_segment_with_ripup(
         # same pin pair, one stale and one freshly laid through a different
         # corridor.  We track whether the wire was donor-owned so the
         # failure restore knows where to put it back.
-        ripped_from_pass = (
-            pass_new_wires is not None and ripped in pass_new_wires
-        )
+        ripped_from_pass = pass_new_wires is not None and ripped in pass_new_wires
         if ripped_from_pass:
             pass_new_wires.remove(ripped)  # type: ignore[union-attr]
         _ripped_wires.append((ripped, ripped_from_pass))
@@ -2341,12 +2505,14 @@ def _path_to_wires(path: list[PathStep], insulated: bool) -> list[Wire]:
     for pts, seg_side in segments:
         if len(pts) < 2:
             continue
-        wires.append(Wire(
-            id=uuid.uuid4(),
-            path=pts,
-            insulated=insulated,
-            side=cast(Side, seg_side),
-        ))
+        wires.append(
+            Wire(
+                id=uuid.uuid4(),
+                path=pts,
+                insulated=insulated,
+                side=cast(Side, seg_side),
+            )
+        )
     return wires
 
 
@@ -2365,6 +2531,7 @@ def _collect_wire_points(
 def _layout_with_wires(layout: Layout, wires: list[Wire]) -> Layout:
     """Return a Layout view that uses *wires* instead of layout.wires."""
     from dataclasses import replace
+
     return replace(layout, wires=wires)
 
 
@@ -2480,7 +2647,7 @@ def _build_bare_wire_segments(
     ``net_id`` is looked up via ``wire_to_net_id`` (None when the wire
     is not associated with any electrical net).  Same-net reuse logic
     in the A* core consults this field.
-    """
+    """  # noqa: E501
     segs: set[tuple[Point, Point, str, uuid.UUID | None]] = set()
     for wire in wires:
         if wire.insulated:
@@ -2598,7 +2765,9 @@ def _nudge_wire(
         if (pt, wire.side) in other_wire_occupied:
             return None
 
-    from typing import cast, Literal as _Lit
+    from typing import Literal as _Lit
+    from typing import cast
+
     # Preserve wire id — nudge is a translation of the same logical wire.
     return Wire(
         id=wire.id,
@@ -2614,7 +2783,7 @@ def _try_mid_cell_reroute(
     target: Point,
     working_wires: list[Wire],
     additional_wires: list[Wire],
-    connectivity_graph: "ConnectivityGraph",
+    connectivity_graph: ConnectivityGraph,
     cost_model: RoutingCostModel,
     occupied_pins: dict[tuple[Point, str], uuid.UUID],
     same_net_pins: dict[tuple[Point, str], uuid.UUID],
@@ -2644,7 +2813,6 @@ def _try_mid_cell_reroute(
     factor = cost_model.max_reroute_factor
     if factor <= 0.0:
         return None
-    import dataclasses as _dc
 
     protected_ids = {w.id for w in additional_wires}
     min_x = min(source.x, target.x) - 0.5
@@ -2657,9 +2825,11 @@ def _try_mid_cell_reroute(
     reroute_cm = cost_model.with_overrides(
         bare_diagonal_mode=True,
         crossing_bare_bare=float("inf"),
-        crossing_bare_bare_diagonal=max(
-            cost_model.crossing_bare_bare_diagonal, 0.5
-        ) if cost_model.crossing_bare_bare_diagonal != float("inf") else 0.5,
+        crossing_bare_bare_diagonal=(
+            max(cost_model.crossing_bare_bare_diagonal, 0.5)
+            if cost_model.crossing_bare_bare_diagonal != float("inf")
+            else 0.5
+        ),
     )
 
     for wire in working_wires:
@@ -2669,8 +2839,7 @@ def _try_mid_cell_reroute(
             continue
         # Wire must cross the requested source↔target bbox.
         if not any(
-            min_x <= pt.x <= max_x and min_y <= pt.y <= max_y
-            for pt in wire.path
+            min_x <= pt.x <= max_x and min_y <= pt.y <= max_y for pt in wire.path
         ):
             continue
 
@@ -2695,9 +2864,7 @@ def _try_mid_cell_reroute(
             # Derive active net for the rerouted wire from wire_to_net_id;
             # may be None (floating, or caller didn't provide the map) —
             # find_paths tolerates a missing active_net_id (no discount).
-            _reroute_net_id = (
-                wire_to_net_id.get(wire.id) if wire_to_net_id else None
-            )
+            _reroute_net_id = wire_to_net_id.get(wire.id) if wire_to_net_id else None
             # Same-net pad vertices = vertices of *other* wires of this net.
             _reroute_pv: set[tuple[Point, str]] = set()
             if _reroute_net_id is not None and wire_to_net_id is not None:
@@ -2778,9 +2945,9 @@ def _try_push_wire(
 
     Returns (old_wire, new_wire) if a push is possible, else None.
     """
-    board_pads: set[Point] = _board_pads if _board_pads is not None else {
-        pos for _, pos in board.atoms()
-    }
+    board_pads: set[Point] = (
+        _board_pads if _board_pads is not None else {pos for _, pos in board.atoms()}
+    )
     protected_ids = {w.id for w in additional_wires}
     min_x = min(source.x, target.x) - 0.5
     max_x = max(source.x, target.x) + 0.5
@@ -2802,8 +2969,7 @@ def _try_push_wire(
 
         # Wire must pass through the corridor region.
         if not any(
-            min_x <= pt.x <= max_x and min_y <= pt.y <= max_y
-            for pt in wire.path
+            min_x <= pt.x <= max_x and min_y <= pt.y <= max_y for pt in wire.path
         ):
             continue
 
@@ -2828,7 +2994,7 @@ def _find_wire_to_rip(
     target: Point,
     protected: list[Wire],
 ) -> Wire | None:
-    """Find a wire in *wires* (not in *protected*) that lies roughly between source and target."""
+    """Find a wire in *wires* (not in *protected*) that lies roughly between source and target."""  # noqa: E501
     protected_ids = {w.id for w in protected}
     min_x = min(source.x, target.x) - 1
     max_x = max(source.x, target.x) + 1

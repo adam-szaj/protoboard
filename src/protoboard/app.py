@@ -15,8 +15,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 import structlog as _structlog
 from PySide6.QtWidgets import QApplication, QMessageBox
 
+from protoboard.controller.app_settings import load_app_settings
 from protoboard.gui import recent_projects
-from protoboard.controller.app_settings import AppSettings, load_app_settings
 from protoboard.gui.dialogs.welcome_dialog import WelcomeDialog
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
@@ -81,13 +81,21 @@ def _open_session(
                 set_migration_families,
                 set_migration_library,
             )
+
             set_migration_library(library)
             # The catalogue lets load resolve each component's chosen variant
             # footprint, so stale-path snapping measures pins against the
             # variant, not the definition default (which moves every pin).
             set_migration_families(load_full_package_catalogue())
-            (board, layout, schematic, instances,
-             routing_settings, layer_overrides, axis_label_settings) = load_project(project_path)
+            (
+                board,
+                layout,
+                schematic,
+                instances,
+                routing_settings,
+                layer_overrides,
+                axis_label_settings,
+            ) = load_project(project_path)
         except Exception as exc:
             _log.warning("project.open_failed", path=str(project_path), error=str(exc))
             QMessageBox.critical(None, "Open error", str(exc))
@@ -118,15 +126,15 @@ def main() -> None:
         # Minimal help text — Qt argv is appended after our flags, so we
         # use a compact summary rather than the full argparse usage to
         # avoid confusing the user with PySide6 internals.
-        print(
-            "Usage: protoboard [-v|--verbose] [--version] [--help] [project_path]"
-        )
+        print("Usage: protoboard [-v|--verbose] [--version] [--help] [project_path]")
         return
     if args.version:
         from protoboard import __version__
+
         print(f"protoboard-designer {__version__}")
         return
     import logging as _logging
+
     configure_logging(
         verbose=args.verbose,
         module_overrides={"protoboard.gui": _logging.INFO},
@@ -141,6 +149,7 @@ def main() -> None:
     import protoboard.services.routing.builtin_enhanced  # noqa: F401
     import protoboard.services.routing.builtin_optimizers  # noqa: F401
     from protoboard.services.routing.discovery import discover_all_plugins
+
     _discovered = discover_all_plugins()
     if any(_discovered.values()):
         _log.info("routing.plugins_loaded", **_discovered)
@@ -153,7 +162,9 @@ def main() -> None:
 
     app_settings = load_app_settings()
     extra_dirs = [d for d in app_settings.component_library_dirs if d.exists()]
-    library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
+    library_dirs = (
+        [BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []
+    ) + extra_dirs
     # Renderer / generator plugins ride along with the component libraries:
     # any library dir may carry a ``renderers/`` or ``generators/`` subdir
     # whose *.py files register PackageRenderer / PackageGenerator subclasses
@@ -162,6 +173,7 @@ def main() -> None:
     from protoboard.services.library.plugin_discovery import (
         load_generator_plugins,
     )
+
     load_renderer_plugins(library_dirs)
     load_generator_plugins(library_dirs)
     # The body catalogue lets the loader resolve a rigid PackageOption reference
@@ -217,6 +229,7 @@ def main() -> None:
 
     def _shutdown_pools() -> None:
         from protoboard.services.routing.autorouter import _ASTAR_POOL
+
         _ASTAR_POOL.shutdown(wait=False, cancel_futures=True)
 
     app.aboutToQuit.connect(_shutdown_pools)

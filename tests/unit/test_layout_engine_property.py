@@ -92,7 +92,12 @@ def _bbox(node: LayoutNode) -> tuple[float, float, float, float]:
     """(x_min, y_min, x_max, y_max) — node.x/y are centers."""
     half_w = node.size.lx / 2.0
     half_h = node.size.ly / 2.0
-    return (node.center.x - half_w, node.center.y - half_h, node.center.x + half_w, node.center.y + half_h)
+    return (
+        node.center.x - half_w,
+        node.center.y - half_h,
+        node.center.x + half_w,
+        node.center.y + half_h,
+    )
 
 
 def _rects_overlap(

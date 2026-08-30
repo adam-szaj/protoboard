@@ -63,13 +63,19 @@ class TestSaveResyncsCaches:
         # same-insulation touching wires persist until the save-time
         # canonicalise pass merges them.
         w1 = session.edit_controller.add_wire(
-            [Point(1.5, 1.5), Point(2.5, 1.5)], insulated=False, side="top",
+            [Point(1.5, 1.5), Point(2.5, 1.5)],
+            insulated=False,
+            side="top",
         )
         w2 = session.edit_controller.add_wire(
-            [Point(2.5, 1.5), Point(3.5, 1.5)], insulated=True, side="top",
+            [Point(2.5, 1.5), Point(3.5, 1.5)],
+            insulated=True,
+            side="top",
         )
         w3 = session.edit_controller.add_wire(
-            [Point(3.5, 1.5), Point(4.5, 1.5)], insulated=False, side="top",
+            [Point(3.5, 1.5), Point(4.5, 1.5)],
+            insulated=False,
+            side="top",
         )
         assert w1 is not None and w2 is not None and w3 is not None
         session.edit_controller.set_wires_insulated([w2], insulated=False)
@@ -94,11 +100,7 @@ class TestSaveResyncsCaches:
             f"expected the save canonicalise pass to fuse into 1 wire, "
             f"got {len(live_ids)}"
         )
-        indexed = {
-            wid
-            for ids in session.wire_spatial_index().values()
-            for wid in ids
-        }
+        indexed = {wid for ids in session.wire_spatial_index().values() for wid in ids}
         assert indexed == live_ids, (
             f"session caches were not resynced after save mutated the "
             f"layout: index={indexed} live={live_ids}"

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.package.family import PackageFamily
     from protoboard.gui.footprint_choice import (
         FootprintChoiceProvider,
-        FootprintOptionView,
+        PackageOptionView,
     )
 
 # Sentinel distinguishing "the user dismissed the picker" (place nothing) from a
@@ -111,7 +111,9 @@ class LibraryPanel(QWidget):
         # { subdir_parts: { file_stem: [name, ...] } }
         # e.g. ("audio",) -> {"opamps": ["LM358", ...]}
         # A flat library (all files at root) → subdir_parts = ()
-        tree: dict[tuple[str, ...], dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+        tree: dict[tuple[str, ...], dict[str, list[str]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
 
         for src, names in by_file.items():
             if src == _NO_SOURCE:
@@ -119,9 +121,9 @@ class LibraryPanel(QWidget):
                 stem = "Other"
             else:
                 rel = src.relative_to(root_dir)
-                parts = rel.parts          # e.g. ("audio", "opamps.yaml")
+                parts = rel.parts  # e.g. ("audio", "opamps.yaml")
                 subdir = tuple(parts[:-1])  # directory components
-                stem = src.stem            # filename without .yaml
+                stem = src.stem  # filename without .yaml
             for name in names:
                 tree[subdir][stem].append(name)
 
@@ -202,6 +204,12 @@ class LibraryPanel(QWidget):
         if resolved is _CANCELLED:
             return  # the user dismissed the pop-up — nothing placed
         address: str | None = resolved  # type: ignore[assignment]
+        if (
+            address is not None
+            and isinstance(self._choice, DefaultFootprintChoiceProvider)
+            and not self._choice.accepts_selection(defn, address)
+        ):
+            return
         if address is not None:
             self._record_recent(name, address, options, recent)
         self.component_selected.emit(name, address)
@@ -209,8 +217,8 @@ class LibraryPanel(QWidget):
     def _resolve_address(
         self,
         name: str,
-        options: list[FootprintOptionView],
-        recent: list[FootprintOptionView],
+        options: list[PackageOptionView],
+        recent: list[PackageOptionView],
     ) -> str | None | object:
         """The footprint address to place with, or ``_CANCELLED``.
 
@@ -245,8 +253,8 @@ class LibraryPanel(QWidget):
         self,
         name: str,
         address: str,
-        options: list[FootprintOptionView],
-        recent: list[FootprintOptionView],
+        options: list[PackageOptionView],
+        recent: list[PackageOptionView],
     ) -> None:
         from protoboard.gui import recent_footprints
 
@@ -260,9 +268,7 @@ class LibraryPanel(QWidget):
         """Replace the footprint-choice seam (e.g. a model-backed provider)."""
         self._choice = provider
 
-    def set_package_families(
-        self, families: dict[str, PackageFamily] | None
-    ) -> None:
+    def set_package_families(self, families: dict[str, PackageFamily] | None) -> None:
         """Wire the package-family catalogue from the active session.
 
         Called by MainWindow whenever the session changes. The default provider

@@ -76,10 +76,8 @@ class TestFinalOnLayers:
         layer.register_tool_actions({"global.action.cancel": "Q"})
         # Union, base trigger first — Esc can never be shadowed away.
         assert layer.resolve("global.action.cancel") == "Esc|Q"
-        assert layer.matches(
-            Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
-        assert layer.matches(
-            Qt.Key.Key_Q.value, _NOMOD, "global.action.cancel")
+        assert layer.matches(Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
+        assert layer.matches(Qt.Key.Key_Q.value, _NOMOD, "global.action.cancel")
 
     def test_extended_final_action_stays_final(self) -> None:
         layer = KeyMap.layer_over(_base())
@@ -104,7 +102,9 @@ class TestLookup:
         layer = KeyMap.layer_over(base)
         layer.register_tool_actions({"x-tool.action.spin": "K"})
         assert layer.lookup(Qt.Key.Key_K.value, _NOMOD) == (
-            "x-tool.action.spin", "view.action.zoom")
+            "x-tool.action.spin",
+            "view.action.zoom",
+        )
 
     def test_lookup_follows_overrides(self) -> None:
         base = _base()
@@ -118,14 +118,11 @@ class TestLookup:
     def test_lookup_matches_any_alternative(self) -> None:
         layer = KeyMap.layer_over(_base())
         layer.register_tool_actions({"x-tool.action.step_up": "Up|W"})
-        assert layer.lookup(Qt.Key.Key_W.value, _NOMOD) == (
-            "x-tool.action.step_up",)
-        assert layer.lookup(Qt.Key.Key_Up.value, _NOMOD) == (
-            "x-tool.action.step_up",)
+        assert layer.lookup(Qt.Key.Key_W.value, _NOMOD) == ("x-tool.action.step_up",)
+        assert layer.lookup(Qt.Key.Key_Up.value, _NOMOD) == ("x-tool.action.step_up",)
 
     def test_lookup_unbound_key_is_empty(self) -> None:
-        assert KeyMap.layer_over(_base()).lookup(
-            Qt.Key.Key_F35.value, _NOMOD) == ()
+        assert KeyMap.layer_over(_base()).lookup(Qt.Key.Key_F35.value, _NOMOD) == ()
 
 
 class TestMouseChords:
@@ -133,6 +130,7 @@ class TestMouseChords:
 
     def test_chord_builders(self) -> None:
         from protoboard.gui.keymap import mouse_button_chord, wheel_chord
+
         ctrl = Qt.KeyboardModifier.ControlModifier
         assert mouse_button_chord(Qt.MouseButton.LeftButton, ctrl) == "Ctrl+LMB"
         assert mouse_button_chord(Qt.MouseButton.RightButton, _NOMOD) == "RMB"
@@ -143,30 +141,32 @@ class TestMouseChords:
 
     def _base_with_view(self) -> KeyMap:
         from protoboard.gui.keymap import VIEW_ACTIONS
+
         base = _base()
         base.declare(VIEW_ACTIONS)
         return base
 
     def test_layer_shadows_view_gesture(self) -> None:
         from protoboard.gui.keymap import VIEW_ZOOM_IN
+
         layer = KeyMap.layer_over(self._base_with_view())
-        layer.register_tool_actions(
-            {"x-tool.action.wheel_rotate": "WheelUp|WheelDown"})
+        layer.register_tool_actions({"x-tool.action.wheel_rotate": "WheelUp|WheelDown"})
         assert layer.mouse_lookup("WheelUp") == (
-            "x-tool.action.wheel_rotate", VIEW_ZOOM_IN)
+            "x-tool.action.wheel_rotate",
+            VIEW_ZOOM_IN,
+        )
 
     def test_final_action_gains_mouse_trigger(self) -> None:
         # The user-facing point of additive-final: RMB can fire cancel in a
         # tool without Esc ever losing the job.
         from protoboard.gui.keymap import VIEW_CANVAS_MENU
+
         layer = KeyMap.layer_over(self._base_with_view())
         layer.register_tool_actions({"global.action.cancel": "RMB"})
         assert layer.resolve("global.action.cancel") == "Esc|RMB"
         assert layer.mouse_matches("RMB", "global.action.cancel")
-        assert layer.matches(
-            Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
-        assert layer.mouse_lookup("RMB") == (
-            "global.action.cancel", VIEW_CANVAS_MENU)
+        assert layer.matches(Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
+        assert layer.mouse_lookup("RMB") == ("global.action.cancel", VIEW_CANVAS_MENU)
 
     def test_key_matcher_skips_mouse_alternatives(self) -> None:
         layer = KeyMap.layer_over(self._base_with_view())
@@ -196,8 +196,7 @@ class TestMakeKeyMapFactory:
         assert isinstance(layer, KeyMap)
         # The offending entry is dropped; Esc keeps meaning cancel.
         assert layer.resolve("fake-tool.action.bad") == ""
-        assert layer.matches(
-            Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
+        assert layer.matches(Qt.Key.Key_Escape.value, _NOMOD, "global.action.cancel")
 
     def test_layer_shares_parent_store(self) -> None:
         base = _base()

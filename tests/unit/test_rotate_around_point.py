@@ -31,9 +31,14 @@ class _FakeState:
     components: dict[str, object] = field(default_factory=dict)
 
 
-def _placement(cid: uuid.UUID, x: float, y: float, rotation: int = 0) -> ComponentPlacement:
+def _placement(
+    cid: uuid.UUID, x: float, y: float, rotation: int = 0
+) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=cid, position=Point(x, y), rotation=rotation, side="top",
+        component_id=cid,
+        position=Point(x, y),
+        rotation=rotation,
+        side="top",
     )
 
 
@@ -54,7 +59,9 @@ class TestRotateAroundPoint:
         pivot = Point(1.0, 1.0)
 
         RotateAroundPointCommand(
-            comp_ids=frozenset({cid1, cid2}), origin=pivot, delta=90,
+            comp_ids=frozenset({cid1, cid2}),
+            origin=pivot,
+            delta=90,
         ).apply(cast(ComponentState, state))
 
         # Same geometry as a group rotation around (1,1):
@@ -75,7 +82,9 @@ class TestRotateAroundPoint:
         pivot = Point(3.0, 3.0)
 
         RotateAroundPointCommand(
-            comp_ids=frozenset({cid}), origin=pivot, delta=270,
+            comp_ids=frozenset({cid}),
+            origin=pivot,
+            delta=270,
         ).apply(cast(ComponentState, state))
 
         expected = _rotate_point_around(Point(5.0, 2.0), pivot, 270)
@@ -91,7 +100,9 @@ class TestRotateAroundPoint:
         pivot = Point(0.0, 0.0)
 
         cmd = RotateAroundPointCommand(
-            comp_ids=frozenset({cid}), origin=pivot, delta=90,
+            comp_ids=frozenset({cid}),
+            origin=pivot,
+            delta=90,
         )
         cmd.apply(cast(ComponentState, state))
         assert state.layout.placements[cid].position != Point(4.0, 1.0)
@@ -108,7 +119,9 @@ class TestRotateAroundPoint:
         state = _state({cid: pl})
 
         RotateAroundPointCommand(
-            comp_ids=frozenset(), origin=Point(0.0, 0.0), delta=90,
+            comp_ids=frozenset(),
+            origin=Point(0.0, 0.0),
+            delta=90,
         ).apply(cast(ComponentState, state))
 
         unchanged = state.layout.placements[cid]

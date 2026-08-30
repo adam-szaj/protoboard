@@ -27,7 +27,6 @@ from protoboard.controller.selection_fsm import (
     StackLayer,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: tiny "world" of three components in two logical nets
 # ---------------------------------------------------------------------------
@@ -90,7 +89,8 @@ class TestLmbFromNormal:
         assert st.multi == frozenset()
 
     def test_empty_canvas_lmb_is_noop_at_normal(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_lmb(None)  # equivalent to Esc — no layer to pop
         st = fsm.current()
@@ -108,14 +108,15 @@ class TestLmbFromSelection:
         assert st.relation == RelationClass.SAME_LOGICAL_NET
 
     def test_lmb_other_object_switches_primary(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_lmb(_a1)
         fsm.step_lmb(_b)
         st = fsm.current()
         assert st.depth == StackLayer.SELECTION
         assert st.primary == _b
-        assert st.highlight_source == _b   # highlight reseats to new object
+        assert st.highlight_source == _b  # highlight reseats to new object
 
     def test_lmb_empty_canvas_pops_one_layer(self, fsm: SelectionFSM) -> None:
         fsm.step_lmb(_a1)
@@ -140,19 +141,21 @@ class TestLmbFromHighlight:
 
 class TestLmbFromMulti:
     def test_lmb_on_primary_collapses_to_highlight(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
-        fsm.step_shift_lmb(_a1)            # NORMAL → MULTI
-        fsm.step_shift_lmb(_a2)            # grow multi within net A
+        fsm.step_shift_lmb(_a1)  # NORMAL → MULTI
+        fsm.step_shift_lmb(_a2)  # grow multi within net A
         assert fsm.current().depth == StackLayer.MULTI_SELECTION
-        fsm.step_lmb(_a1)                   # LMB on primary — collapses
+        fsm.step_lmb(_a1)  # LMB on primary — collapses
         st = fsm.current()
         assert st.depth == StackLayer.HIGHLIGHT
         assert st.primary is None
         assert st.multi == frozenset()
 
     def test_lmb_on_other_object_drops_to_selection(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_shift_lmb(_a1)
         fsm.step_shift_lmb(_a2)
@@ -180,20 +183,22 @@ class TestShiftLmbFromNormal:
 
 class TestShiftLmbFromSelection:
     def test_shift_same_relation_extends_to_multi(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_lmb(_a1)
-        fsm.step_shift_lmb(_a2)            # same net A
+        fsm.step_shift_lmb(_a2)  # same net A
         st = fsm.current()
         assert st.depth == StackLayer.MULTI_SELECTION
         assert st.primary == _a1
         assert st.multi == frozenset({_a1, _a2})
 
     def test_shift_different_relation_resets(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_lmb(_a1)
-        fsm.step_shift_lmb(_b)             # net B != A — reset
+        fsm.step_shift_lmb(_b)  # net B != A — reset
         st = fsm.current()
         assert st.depth == StackLayer.MULTI_SELECTION
         assert st.primary == _b
@@ -202,45 +207,49 @@ class TestShiftLmbFromSelection:
 
 class TestShiftLmbFromMulti:
     def test_shift_on_set_member_collapses_to_highlight(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_shift_lmb(_a1)
         fsm.step_shift_lmb(_a2)
-        fsm.step_shift_lmb(_a2)            # already in set — collapse
+        fsm.step_shift_lmb(_a2)  # already in set — collapse
         st = fsm.current()
         assert st.depth == StackLayer.HIGHLIGHT
         assert st.primary is None
         assert st.multi == frozenset()
 
     def test_shift_on_other_same_relation_grows_multi(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_shift_lmb(_a1)
         fsm.step_shift_lmb(_a2)
-        fsm.step_shift_lmb(_w_a)           # also net A, new member
+        fsm.step_shift_lmb(_w_a)  # also net A, new member
         st = fsm.current()
         assert st.depth == StackLayer.MULTI_SELECTION
         assert st.multi == frozenset({_a1, _a2, _w_a})
 
     def test_shift_cross_relation_resets_multi(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_shift_lmb(_a1)
         fsm.step_shift_lmb(_a2)
-        fsm.step_shift_lmb(_b)             # net B — reset to fresh MULTI
+        fsm.step_shift_lmb(_b)  # net B — reset to fresh MULTI
         st = fsm.current()
         assert st.depth == StackLayer.MULTI_SELECTION
         assert st.primary == _b
         assert st.multi == frozenset({_b})
 
     def test_shift_on_primary_also_collapses(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         # Spec: ``Shift{same-set}`` covers both "any member of multi"
         # and "the primary" — both should collapse.
         fsm.step_shift_lmb(_a1)
         fsm.step_shift_lmb(_a2)
-        fsm.step_shift_lmb(_a1)            # primary == _a1
+        fsm.step_shift_lmb(_a1)  # primary == _a1
         st = fsm.current()
         assert st.depth == StackLayer.HIGHLIGHT
 
@@ -265,7 +274,8 @@ class TestEsc:
         assert st.multi == frozenset()
 
     def test_esc_pops_selection_to_highlight(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_lmb(_a1)
         fsm.step_esc()
@@ -276,8 +286,8 @@ class TestEsc:
 
     def test_esc_pops_highlight_to_normal(self, fsm: SelectionFSM) -> None:
         fsm.step_lmb(_a1)
-        fsm.step_esc()       # SELECTION → HIGHLIGHT
-        fsm.step_esc()       # HIGHLIGHT → NORMAL
+        fsm.step_esc()  # SELECTION → HIGHLIGHT
+        fsm.step_esc()  # HIGHLIGHT → NORMAL
         st = fsm.current()
         assert st.depth == StackLayer.NORMAL
         assert st.highlight_source is None
@@ -309,7 +319,8 @@ class TestEmptyCanvas:
         assert fsm.current().depth == StackLayer.HIGHLIGHT
 
     def test_empty_canvas_shift_lmb_equals_esc(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_shift_lmb(_a1)
         fsm.step_shift_lmb(None)
@@ -325,7 +336,8 @@ class TestEmptyCanvas:
 
 class TestSubscribers:
     def test_subscribers_receive_old_and_new_states(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         seen: list[tuple[SelectionState, SelectionState]] = []
         fsm.subscribe(lambda old, new: seen.append((old, new)))
@@ -357,14 +369,16 @@ class TestSubscribers:
 
 class TestDefaultRelation:
     def test_set_default_relation_affects_new_layers(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.set_default_relation(RelationClass.NEIGHBORS)
         fsm.step_lmb(_a1)
         assert fsm.current().relation == RelationClass.NEIGHBORS
 
     def test_set_default_does_not_rewrite_active_layer(
-        self, fsm: SelectionFSM,
+        self,
+        fsm: SelectionFSM,
     ) -> None:
         fsm.step_lmb(_a1)
         original_relation = fsm.current().relation

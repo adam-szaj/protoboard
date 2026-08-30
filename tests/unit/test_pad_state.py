@@ -34,12 +34,17 @@ def board() -> Board:
     """Minimal 1×1 perfboard for make_pad tests."""
     return Board(
         root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=1, cols=1, row_gap=0, col_gap=0,
+            rows=1,
+            cols=1,
+            row_gap=0,
+            col_gap=0,
         )
     )
 
@@ -135,20 +140,23 @@ class TestConnectedDoubleSidedBoardPad:
 
     def test_empty(self) -> None:
         p = self._make()
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (
+            None,
+            None,
+        )
         assert p.is_free("top") and p.is_free("bottom")
 
     def test_bare_top_propagates_to_both(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
 
     def test_bare_bottom_propagates_to_both(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "bottom")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
 
     def test_insulated_endpoint_top_electrical_both(self) -> None:
         # InsulatedWireItem (endpoint) is electrical contact at the solder
@@ -156,13 +164,16 @@ class TestConnectedDoubleSidedBoardPad:
         p = self._make()
         n = _net()
         p._add_item(_ins(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
 
     def test_insulated_crossing_no_electrical(self) -> None:
         # Mid-segment of an insulated wire is purely air contact.
         p = self._make()
         p._add_item(_ins_xing(_net()), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (
+            None,
+            None,
+        )
         # But physically blocks the top side.
         assert len(p.physically_blocked_on("top")) == 1
         assert len(p.physically_blocked_on("bottom")) == 0
@@ -171,7 +182,7 @@ class TestConnectedDoubleSidedBoardPad:
         p = self._make()
         n = _net()
         p._add_item(_pin(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
         # Pin physically blocks both sides (through-hole).
         assert len(p.physically_blocked_on("top")) == 1
         assert len(p.physically_blocked_on("bottom")) == 1
@@ -179,7 +190,10 @@ class TestConnectedDoubleSidedBoardPad:
     def test_component_body_no_electrical(self) -> None:
         p = self._make()
         p._add_item(_body(), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (
+            None,
+            None,
+        )
         assert len(p.physically_blocked_on("top")) == 1
         assert len(p.physically_blocked_on("bottom")) == 0
 
@@ -200,26 +214,26 @@ class TestIsolatedDoubleSidedBoardPad:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, None)
 
     def test_bare_bottom_only_to_bottom(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "bottom")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (None, n)
 
     def test_insulated_endpoint_top_only(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_ins(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, None)
 
     def test_pin_propagates_both(self) -> None:
         # Pin bridges the hole via its metal lead.
         p = self._make()
         n = _net()
         p._add_item(_pin(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +250,7 @@ class TestSingleSidedBoardPad:
         )
         n = _net()
         p._add_item(_bare(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, None)
 
     def test_bare_on_unarmed_side_no_electrical(self) -> None:
         # Top-only board, wire placed on bottom (no copper).  Physical
@@ -247,7 +261,10 @@ class TestSingleSidedBoardPad:
         )
         n = _net()
         p._add_item(_bare(n), "bottom")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (
+            None,
+            None,
+        )
         assert len(p.physically_blocked_on("bottom")) == 1
 
     def test_pin_propagates_both_even_unarmed(self) -> None:
@@ -259,7 +276,7 @@ class TestSingleSidedBoardPad:
         )
         n = _net()
         p._add_item(_pin(n), "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +295,15 @@ class TestMultiSourceTracking:
         w2 = _bare(n)
         p._add_item(w1, "top")
         p._add_item(w2, "top")
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
         p._remove_item(w1.id)
         # Still net n because w2 remains.
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (n, n)
         p._remove_item(w2.id)
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (
+            None,
+            None,
+        )
 
     def test_different_nets_on_same_side_returns_short_sentinel(self) -> None:
         p = ConnectedDoubleSidedBoardPad(
@@ -306,8 +326,14 @@ class TestMultiSourceTracking:
         w = _bare(n)
         p._add_item(w, "top")
         p._remove_item(w.id)
-        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
-        assert p.physically_blocked_on('top') == [] and p.physically_blocked_on('bottom') == []
+        assert (p.electrical_net_on("top"), p.electrical_net_on("bottom")) == (
+            None,
+            None,
+        )
+        assert (
+            p.physically_blocked_on("top") == []
+            and p.physically_blocked_on("bottom") == []
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -315,36 +341,52 @@ class TestMultiSourceTracking:
 # ---------------------------------------------------------------------------
 
 
-from protoboard.domain.board.pad_state import PadIndex
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
-from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import body_holes
-from protoboard.domain.components.package.loader import build_package
-from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
-from protoboard.domain.schematic.net import Net
-from protoboard.domain.schematic.schematic import PinRef, Schematic
-from protoboard.services.library.loader import _component_from_dict
+from protoboard.domain.board.pad_state import PadIndex  # noqa: E402
+from protoboard.domain.components.definition import (  # noqa: E402
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
+from protoboard.domain.components.instance import ComponentInstance  # noqa: E402
+from protoboard.domain.components.package import body_holes  # noqa: E402
+from protoboard.domain.components.package.family import (  # noqa: E402
+    PackageFamily,
+    PackageVariant,
+)
+from protoboard.domain.components.package.loader import build_package  # noqa: E402
+from protoboard.domain.layout.layout import Layout  # noqa: E402
+from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
+from protoboard.domain.layout.wire import Wire  # noqa: E402
+from protoboard.domain.schematic.net import Net  # noqa: E402
+from protoboard.domain.schematic.schematic import PinRef, Schematic  # noqa: E402
+from protoboard.services.library.loader import _component_from_dict  # noqa: E402
+from tests.unit._autoroute_invariants import make_sil, sil_families  # noqa: E402
 
 
 def _perfboard(rows: int, cols: int) -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0, col_gap=0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
 
 
 def _bare_wire(*pts: tuple[float, float], side: str = "top") -> Wire:
     return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
-        insulated=False, side=side,  # type: ignore[arg-type]
+        insulated=False,
+        side=side,  # type: ignore[arg-type]
     )
 
 
@@ -378,24 +420,36 @@ class TestPadIndexBuild:
 
     def test_component_pin_adds_pin_item_and_net(self) -> None:
         board = _perfboard(3, 3)
-        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+        defn = make_sil("R", 2)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+            defn, sil_families(defn)
+        )
         pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=90, side="top",  # SIL(2) rot=90: pin2 at (1.5, 0.5)
+            component_id=inst.id,
+            position=Point(0.5, 0.5),
+            rotation=90,
+            side="top",  # SIL(2) rot=90: pin2 at (1.5, 0.5)
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
         net_id = uuid.uuid4()
-        sch = Schematic(nets={net_id: Net(
-            id=net_id, name="N1",
-            pins={PinRef(component_id=inst.id, pin_number=1)},
-        )})
+        sch = Schematic(
+            nets={
+                net_id: Net(
+                    id=net_id,
+                    name="N1",
+                    pins={PinRef(component_id=inst.id, pin_number=1)},
+                )
+            }
+        )
         idx = PadIndex(board, lay, sch, {"R": defn}, {inst.id: inst})
         pin_pad = idx.pad_at(Point(0.5, 0.5))
         assert pin_pad is not None
         # Pin on plated-through pad propagates to both sides.
-        assert (pin_pad.electrical_net_on('top'), pin_pad.electrical_net_on('bottom')) == (net_id, net_id)
+        assert (
+            pin_pad.electrical_net_on("top"),
+            pin_pad.electrical_net_on("bottom"),
+        ) == (net_id, net_id)
         # PinItem present on both sides (through-hole).
         assert len(pin_pad.physically_blocked_on("top")) == 1
         assert len(pin_pad.physically_blocked_on("bottom")) == 1
@@ -405,8 +459,7 @@ class TestPadIndexBuild:
         defn = _component_from_dict(
             {
                 "name": "X",
-                "pins": {"count": 2},
-                "package": {"kind": "sil"},
+                "package": {"kind": "sil", "pins": 2},
                 "meta_pins": [["GND"]],
                 "pin_map": {1: [1, 2]},
             },
@@ -505,7 +558,10 @@ class TestPadIndexCanRouteThrough:
         n = _net()
         idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5)), net=n)
         assert idx.can_route_through(
-            Point(1.5, 0.5), "top", our_net=n, wire_type="bare",
+            Point(1.5, 0.5),
+            "top",
+            our_net=n,
+            wire_type="bare",
         )
 
     def test_bare_alien_net_pad_blocked(self) -> None:
@@ -515,14 +571,20 @@ class TestPadIndexCanRouteThrough:
         our_net = _net()
         idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5)), net=their_net)
         assert not idx.can_route_through(
-            Point(1.5, 0.5), "top", our_net=our_net, wire_type="bare",
+            Point(1.5, 0.5),
+            "top",
+            our_net=our_net,
+            wire_type="bare",
         )
 
     def test_bare_free_pad_allowed(self) -> None:
         board = _perfboard(3, 3)
         idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
         assert idx.can_route_through(
-            Point(0.5, 0.5), "top", our_net=None, wire_type="bare",
+            Point(0.5, 0.5),
+            "top",
+            our_net=None,
+            wire_type="bare",
         )
 
     def test_plated_through_alien_net_other_side_blocked(self) -> None:
@@ -536,7 +598,10 @@ class TestPadIndexCanRouteThrough:
         idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5), side="bottom"), net=net_a)
         # Top side of (1.5, 0.5) now also carries net A.
         assert not idx.can_route_through(
-            Point(1.5, 0.5), "top", our_net=net_b, wire_type="bare",
+            Point(1.5, 0.5),
+            "top",
+            our_net=net_b,
+            wire_type="bare",
         )
 
     def test_component_body_non_blocking_allows_routing_under(self) -> None:
@@ -555,10 +620,16 @@ class TestPadIndexCanRouteThrough:
         target._add_item(ComponentBody(id=uuid.uuid4(), blocks_routing=False), "top")
         # Both insulated and bare wires of any net may pass through.
         assert idx.can_route_through(
-            Point(1.5, 1.5), "top", our_net=None, wire_type="insulated",
+            Point(1.5, 1.5),
+            "top",
+            our_net=None,
+            wire_type="insulated",
         )
         assert idx.can_route_through(
-            Point(1.5, 1.5), "top", our_net=None, wire_type="bare",
+            Point(1.5, 1.5),
+            "top",
+            our_net=None,
+            wire_type="bare",
         )
 
     def test_component_body_blocking_blocks_routing(self) -> None:
@@ -573,14 +644,23 @@ class TestPadIndexCanRouteThrough:
         target._add_item(ComponentBody(id=uuid.uuid4(), blocks_routing=True), "top")
         # Same side — blocked for both wire types.
         assert not idx.can_route_through(
-            Point(1.5, 1.5), "top", our_net=None, wire_type="insulated",
+            Point(1.5, 1.5),
+            "top",
+            our_net=None,
+            wire_type="insulated",
         )
         assert not idx.can_route_through(
-            Point(1.5, 1.5), "top", our_net=None, wire_type="bare",
+            Point(1.5, 1.5),
+            "top",
+            our_net=None,
+            wire_type="bare",
         )
         # Opposite side — body on top doesn't constrain bottom-side wires.
         assert idx.can_route_through(
-            Point(1.5, 1.5), "bottom", our_net=None, wire_type="insulated",
+            Point(1.5, 1.5),
+            "bottom",
+            our_net=None,
+            wire_type="insulated",
         )
 
 
@@ -605,31 +685,54 @@ def _prism_package():  # noqa: ANN202  (Package protocol)
     )
 
 
-def _packaged_defn(*, blocks_routing: bool = False) -> ComponentDefinition:
+def _packaged_defn(
+    *, blocks_routing: bool = False
+) -> tuple[ComponentDefinition, dict[str, PackageFamily]]:
     pkg = _prism_package()
-    return ComponentDefinition(
-        name="U",
-        # type: ignore[arg-type]
-        pin_names={},
-        package=pkg,  # type: ignore[arg-type]
-        body_blocks_routing=blocks_routing,
+    family = PackageFamily(
+        family_id="test-dip4",
+        variants=(PackageVariant("std", "std", pkg),),
+    )
+    return (
+        ComponentDefinition(
+            name="U",
+            meta_pins=tuple(MetaPin((str(pin),)) for pin in range(1, 5)),
+            package_options=(
+                PackageOption(
+                    name="TEST_DIP4",
+                    ref="test-dip4/std",
+                    pin_map={pin: (pin,) for pin in range(1, 5)},
+                ),
+            ),
+            body_blocks_routing=blocks_routing,
+        ),
+        {family.family_id: family},
     )
 
 
 def _placed_packaged_index(
-    *, blocks_routing: bool = False,
-) -> "PadIndex":
+    *,
+    blocks_routing: bool = False,
+) -> PadIndex:
     board = _perfboard(4, 4)
-    defn = _packaged_defn(blocks_routing=blocks_routing)
-    inst = ComponentInstance.new(definition_ref="U", refdes="U1", value="").bind(defn, {})
+    defn, families = _packaged_defn(blocks_routing=blocks_routing)
+    inst = ComponentInstance.new(definition_ref="U", refdes="U1", value="").bind(
+        defn, families
+    )
     pl = ComponentPlacement(
-        component_id=inst.id, position=Point(0.5, 0.5),
-        rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(0.5, 0.5),
+        rotation=0,
+        side="top",
     )
     lay = _empty_layout()
     lay.placements[inst.id] = pl
     return PadIndex(
-        board, lay, Schematic(nets={}), {"U": defn}, {inst.id: inst},
+        board,
+        lay,
+        Schematic(nets={}),
+        {"U": defn},
+        {inst.id: inst},
     )
 
 
@@ -656,17 +759,26 @@ class TestPadIndexPackageBody:
     def test_non_blocking_body_allows_routing_under(self) -> None:
         idx = _placed_packaged_index(blocks_routing=False)
         assert idx.can_route_through(
-            Point(1.5, 0.5), "top", our_net=None, wire_type="insulated",
+            Point(1.5, 0.5),
+            "top",
+            our_net=None,
+            wire_type="insulated",
         )
 
     def test_blocking_body_blocks_routing_under(self) -> None:
         idx = _placed_packaged_index(blocks_routing=True)
         assert not idx.can_route_through(
-            Point(1.5, 0.5), "top", our_net=None, wire_type="insulated",
+            Point(1.5, 0.5),
+            "top",
+            our_net=None,
+            wire_type="insulated",
         )
         # Opposite side stays free — body sits on top only.
         assert idx.can_route_through(
-            Point(1.5, 0.5), "bottom", our_net=None, wire_type="insulated",
+            Point(1.5, 0.5),
+            "bottom",
+            our_net=None,
+            wire_type="insulated",
         )
 
     def test_body_footprint_matches_mask_not_flooded_bbox(self) -> None:
@@ -675,13 +787,10 @@ class TestPadIndexPackageBody:
         # have covered them.
         idx = _placed_packaged_index()
         pkg = _prism_package()
-        body_world = {
-            Point(0.5 + h.x, 0.5 + h.y) for h in body_holes(pkg)
-        }
+        body_world = {Point(0.5 + h.x, 0.5 + h.y) for h in body_holes(pkg)}
         for pad in idx.iter_pads():
             has_body = any(
-                isinstance(it, ComponentBody)
-                for it in pad.physically_blocked_on("top")
+                isinstance(it, ComponentBody) for it in pad.physically_blocked_on("top")
             )
             if has_body:
                 assert pad.position in body_world
@@ -697,8 +806,10 @@ class TestPadIndexClone:
         # Remove from clone, original unchanged.
         for wid, _ in list(twin._wire_records.items()):
             wire_obj = Wire(
-                id=wid, path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-                insulated=False, side="top",
+                id=wid,
+                path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+                insulated=False,
+                side="top",
             )
             twin.remove_wire(wire_obj)
         # Original still has the wire on pads.

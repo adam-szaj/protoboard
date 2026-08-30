@@ -6,7 +6,6 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -14,23 +13,23 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _defn(name: str, n_pins: int = 2) -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n_pins),
-        pin_names={i: str(i) for i in range(1, n_pins + 1)},
-    )
+    return make_sil(name, n_pins)
 
 
 def _inst(defn: ComponentDefinition) -> ComponentInstance:
     return ComponentInstance.new(
-        definition_ref=defn.name, refdes="X1", value="",
-    ).bind(defn, {})
+        definition_ref=defn.name,
+        refdes="X1",
+        value="",
+    ).bind(defn, sil_families(defn))
 
 
 def _pl(x: float, y: float, rotation: int = 0) -> ComponentPlacement:
@@ -63,6 +62,7 @@ def _schematic(*nets: tuple[uuid.UUID, list[tuple[uuid.UUID, int]]]) -> Schemati
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestFindWiresCrossingPads:
 
@@ -109,17 +109,17 @@ class TestFindWiresCrossingPads:
         net_b = uuid.uuid4()
 
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(0.0, 0.0), rotation=0, side="top"
         )
 
         defn_b = _defn("B", 1)
-        inst_b = ComponentInstance.new(
-            definition_ref="B", refdes="B1", value=""
-        ).bind(defn_b, {})
+        inst_b = ComponentInstance.new(definition_ref="B", refdes="B1", value="").bind(
+            defn_b, sil_families(defn_b)
+        )
         pl_b = ComponentPlacement(
             component_id=inst_b.id, position=Point(3.0, 0.0), rotation=0, side="top"
         )
@@ -146,16 +146,16 @@ class TestFindWiresCrossingPads:
         """Wire endpoint on pad of the SAME net → no conflict (intentional)."""
         net = uuid.uuid4()
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(0.0, 0.0), rotation=0, side="top"
         )
         defn_b = _defn("B", 1)
-        inst_b = ComponentInstance.new(
-            definition_ref="B", refdes="B1", value=""
-        ).bind(defn_b, {})
+        inst_b = ComponentInstance.new(definition_ref="B", refdes="B1", value="").bind(
+            defn_b, sil_families(defn_b)
+        )
         pl_b = ComponentPlacement(
             component_id=inst_b.id, position=Point(3.0, 0.0), rotation=0, side="top"
         )
@@ -175,22 +175,22 @@ class TestFindWiresCrossingPads:
         assert result == []
 
     def test_wire_mid_segment_crosses_alien_pad(self) -> None:
-        """Pad sits in the middle of a wire segment but at no vertex → still detected."""
+        """Pad sits in the middle of a wire segment but at no vertex → still detected."""  # noqa: E501
         net_a = uuid.uuid4()
         net_b = uuid.uuid4()
 
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(0.0, 0.0), rotation=0, side="top"
         )
 
         defn_b = _defn("B", 1)
-        inst_b = ComponentInstance.new(
-            definition_ref="B", refdes="B1", value=""
-        ).bind(defn_b, {})
+        inst_b = ComponentInstance.new(definition_ref="B", refdes="B1", value="").bind(
+            defn_b, sil_families(defn_b)
+        )
         # B's pin sits at (2, 0) — midpoint of wire segment (0,0)→(4,0)
         pl_b = ComponentPlacement(
             component_id=inst_b.id, position=Point(2.0, 0.0), rotation=0, side="top"
@@ -220,17 +220,17 @@ class TestFindWiresCrossingPads:
         net_b = uuid.uuid4()
 
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(0.0, 0.0), rotation=0, side="top"
         )
 
         defn_b = _defn("B", 1)
-        inst_b = ComponentInstance.new(
-            definition_ref="B", refdes="B1", value=""
-        ).bind(defn_b, {})
+        inst_b = ComponentInstance.new(definition_ref="B", refdes="B1", value="").bind(
+            defn_b, sil_families(defn_b)
+        )
         # B's pin at (2, 2) — wire goes diagonally from (0,0) to (4,4),
         # passing exactly through (2,2), which is within _CROSS_EPS=0.5
         pl_b = ComponentPlacement(
@@ -260,17 +260,17 @@ class TestFindWiresCrossingPads:
         net_b = uuid.uuid4()
 
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(0.0, 0.0), rotation=0, side="top"
         )
 
         defn_b = _defn("B", 1)
-        inst_b = ComponentInstance.new(
-            definition_ref="B", refdes="B1", value=""
-        ).bind(defn_b, {})
+        inst_b = ComponentInstance.new(definition_ref="B", refdes="B1", value="").bind(
+            defn_b, sil_families(defn_b)
+        )
         # Wire from (0,0) to (4,0) — horizontal; B's pad at (2, 1.0)
         # Distance from (2, 1.0) to the segment is 1.0 > 0.5 → no conflict
         pl_b = ComponentPlacement(
@@ -297,9 +297,9 @@ class TestFindWiresCrossingPads:
     def test_both_unconnected_no_conflict(self) -> None:
         """Wire and pad both without a net → no conflict (free elements)."""
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(2.0, 0.0), rotation=0, side="top"
         )
@@ -318,21 +318,21 @@ class TestFindWiresCrossingPads:
         assert result == []
 
     def test_wire_has_net_pad_unconnected_is_conflict(self) -> None:
-        """Wire has a net, pad is unconnected → conflict (could create unintended join)."""
+        """Wire has a net, pad is unconnected → conflict (could create unintended join)."""  # noqa: E501
         net_a = uuid.uuid4()
 
         defn_a = _defn("A", 1)
-        inst_a = ComponentInstance.new(
-            definition_ref="A", refdes="A1", value=""
-        ).bind(defn_a, {})
+        inst_a = ComponentInstance.new(definition_ref="A", refdes="A1", value="").bind(
+            defn_a, sil_families(defn_a)
+        )
         pl_a = ComponentPlacement(
             component_id=inst_a.id, position=Point(0.0, 0.0), rotation=0, side="top"
         )
 
         defn_b = _defn("B", 1)
-        inst_b = ComponentInstance.new(
-            definition_ref="B", refdes="B1", value=""
-        ).bind(defn_b, {})
+        inst_b = ComponentInstance.new(definition_ref="B", refdes="B1", value="").bind(
+            defn_b, sil_families(defn_b)
+        )
         pl_b = ComponentPlacement(
             component_id=inst_b.id, position=Point(2.0, 0.0), rotation=0, side="top"
         )

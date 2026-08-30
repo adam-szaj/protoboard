@@ -5,16 +5,20 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
 
 import pytest
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
@@ -22,14 +26,13 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.placement.auto_placer import (
     AutoPlaceResult,
-    auto_place,
     _centroid,
-    _sort_candidates,
-    _has_collision,
     _extended_candidates,
+    _has_collision,
+    _sort_candidates,
+    auto_place,
 )
 from tests.instance_utils import bind
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -58,19 +61,31 @@ def _make_perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _resistor_defn(name: str = "R") -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
+    return ComponentDefinition(
         name=name,
-        footprint=SIL(n=2),
-        pin_names={},
+        meta_pins=(MetaPin(("1",)), MetaPin(("2",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
         component_class=ComponentClass.RESISTOR,
     )
 
 
 def _connector_defn(n: int = 2, name: str = "J") -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
+    return ComponentDefinition(
         name=name,
-        footprint=SIL(n=n),
-        pin_names={},
+        meta_pins=tuple(MetaPin((str(pin),)) for pin in range(1, n + 1)),
+        package_options=(
+            PackageOption(
+                name=f"SIL-{n}",
+                ref=f"sil-{n}/std",
+                pin_map={pin: (pin,) for pin in range(1, n + 1)},
+            ),
+        ),
         component_class=ComponentClass.CONNECTOR,
     )
 
@@ -86,7 +101,11 @@ def _inst(
         refdes=refdes,
         value="",
     )
-    return inst if defn is None else bind(inst, defn, {})
+    if defn is None:
+        return inst
+    family = sil_family(len(defn.meta_pins))
+    assert family is not None
+    return bind(inst, defn, {family.family_id: family})
 
 
 @dataclass
@@ -181,6 +200,7 @@ class TestExtendedCandidates:
     def test_returns_points_outside_board(self) -> None:
         board = _make_perfboard(5, 5)
         from protoboard.domain.layout.wire_utils import board_pads_for_side
+
         pads = board_pads_for_side(board, "top")
         extra = _extended_candidates(pads, board.bounds)
         # All returned points must NOT be in board pads
@@ -190,6 +210,7 @@ class TestExtendedCandidates:
     def test_nonempty_for_small_board(self) -> None:
         board = _make_perfboard(3, 3)
         from protoboard.domain.layout.wire_utils import board_pads_for_side
+
         pads = board_pads_for_side(board, "top")
         extra = _extended_candidates(pads, board.bounds)
         assert len(extra) > 0
@@ -240,13 +261,15 @@ class TestAutoPlaceBasic:
     def test_respects_already_placed_components(self) -> None:
         board = _make_perfboard(5, 5)
         defn = _resistor_defn()
+        family = sil_family(2)
+        assert family is not None
         existing_id = uuid.uuid4()
         existing_inst = bind(
             ComponentInstance(
                 id=existing_id, definition_ref="R", refdes="R0", value=""
             ),
             defn,
-            {},
+            {family.family_id: family},
         )
         layout = Layout()
         layout.placements[existing_id] = ComponentPlacement(
@@ -271,6 +294,7 @@ class TestAutoPlaceBasic:
     def test_placement_position_is_on_board_pad(self) -> None:
         board = _make_perfboard(5, 5)
         from protoboard.domain.layout.wire_utils import board_pads_for_side
+
         board_pads = board_pads_for_side(board, "top")
         defn = _resistor_defn()
         inst = _inst("R1", "R", defn)
@@ -285,15 +309,16 @@ class TestAutoPlaceGravity:
         the opposite corner of the board."""
         board = _make_perfboard(20, 20)
         defn = _resistor_defn()
+        family = sil_family(2)
+        assert family is not None
+        families = {family.family_id: family}
 
         # R1 already placed at top-left corner area
         r1_id = uuid.uuid4()
         r1_inst = bind(
-            ComponentInstance(
-                id=r1_id, definition_ref="R", refdes="R1", value=""
-            ),
+            ComponentInstance(id=r1_id, definition_ref="R", refdes="R1", value=""),
             defn,
-            {},
+            families,
         )
         layout = Layout()
         layout.placements[r1_id] = ComponentPlacement(
@@ -306,11 +331,9 @@ class TestAutoPlaceGravity:
         # R2 shares a net with R1 (pin 1 ↔ pin 1)
         r2_id = uuid.uuid4()
         r2_inst = bind(
-            ComponentInstance(
-                id=r2_id, definition_ref="R", refdes="R2", value=""
-            ),
+            ComponentInstance(id=r2_id, definition_ref="R", refdes="R2", value=""),
             defn,
-            {},
+            families,
         )
 
         net_id = uuid.uuid4()
@@ -343,9 +366,9 @@ class TestAutoPlaceGravity:
         # R2 should be placed near top-left, not near bottom-right (19.5, 19.5).
         dist_to_r1 = (placed_pos.x - 0.5) ** 2 + (placed_pos.y - 0.5) ** 2
         dist_to_br = (placed_pos.x - 19.5) ** 2 + (placed_pos.y - 19.5) ** 2
-        assert dist_to_r1 < dist_to_br, (
-            f"Placed at {placed_pos} which is closer to bottom-right than to R1"
-        )
+        assert (
+            dist_to_r1 < dist_to_br
+        ), f"Placed at {placed_pos} which is closer to bottom-right than to R1"
 
 
 class TestAutoPlaceOutsideBoard:
@@ -354,15 +377,15 @@ class TestAutoPlaceOutsideBoard:
         be placed outside board bounds."""
         board = _make_perfboard(rows=1, cols=1)
         defn = _resistor_defn()
+        family = sil_family(2)
+        assert family is not None
 
         # First component already occupies the only pad on the 1×1 board.
         r1_id = uuid.uuid4()
         r1_inst = bind(
-            ComponentInstance(
-                id=r1_id, definition_ref="R", refdes="R1", value=""
-            ),
+            ComponentInstance(id=r1_id, definition_ref="R", refdes="R1", value=""),
             defn,
-            {},
+            {family.family_id: family},
         )
         layout = Layout()
         layout.placements[r1_id] = ComponentPlacement(

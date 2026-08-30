@@ -63,8 +63,8 @@ class HighlightStackBase:
         # Scan from top of stack within each tier.
         for predicate in (
             lambda e: not e.transient and not e.auto,  # persistent
-            lambda e: e.transient,                      # transient
-            lambda e: e.auto,                           # auto
+            lambda e: e.transient,  # transient
+            lambda e: e.auto,  # auto
         ):
             for entry in reversed(self._stack):
                 if predicate(entry):
@@ -119,8 +119,7 @@ class HighlightStackBase:
 
         # Drop existing auto entry from this source.
         self._stack = [
-            e for e in self._stack
-            if not (e.auto and e.source_id == source_id)
+            e for e in self._stack if not (e.auto and e.source_id == source_id)
         ]
         new = HighlightEntry(
             comp_ids=entry.comp_ids,
@@ -139,8 +138,7 @@ class HighlightStackBase:
         """Remove the auto entry pushed by ``source_id`` (if any)."""
         before = len(self._stack)
         self._stack = [
-            e for e in self._stack
-            if not (e.auto and e.source_id == source_id)
+            e for e in self._stack if not (e.auto and e.source_id == source_id)
         ]
         if len(self._stack) != before:
             self._changed()

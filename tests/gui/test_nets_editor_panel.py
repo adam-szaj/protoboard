@@ -9,18 +9,20 @@ from dataclasses import replace
 import pytest
 from pytestqt.qtbot import QtBot
 
-from PySide6.QtCore import Qt
-
-from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.definition import MetaPin
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.schematic.net import Net, PinRef
-from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel, _NET_COL_NAME, _ROLE
+from protoboard.gui.panels.nets_editor_panel import (
+    _NET_COL_NAME,
+    _ROLE,
+    NetsEditorPanel,
+)
 from protoboard.gui.session import EditorSession
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _add_net(session: EditorSession, name: str) -> Net:
     net = Net(id=uuid.uuid4(), name=name, pins=set())
@@ -46,10 +48,9 @@ def _panel(qtbot: QtBot) -> NetsEditorPanel:
 # Net list
 # ---------------------------------------------------------------------------
 
+
 class TestNetsEditorPanelNetList:
-    def test_refresh_shows_nets(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_refresh_shows_nets(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = _panel(qtbot)
         _add_net(session, "VCC")
         _add_net(session, "GND")
@@ -70,14 +71,13 @@ class TestNetsEditorPanelNetList:
         assert item0.text(0) == "A_NET"
         assert item1.text(0) == "Z_NET"
 
-    def test_net_pin_count_shown(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_net_pin_count_shown(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = _panel(qtbot)
         inst = _add_instance(session, "R1")
         net = Net(
-            id=uuid.uuid4(), name="VCC",
-            pins={PinRef(component_id=inst.id, pin_number=1)}
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={PinRef(component_id=inst.id, pin_number=1)},
         )
         session.schematic.nets[net.id] = net
         panel.refresh(session)
@@ -123,6 +123,7 @@ class TestNetsEditorPanelNetList:
 # Pin list
 # ---------------------------------------------------------------------------
 
+
 class TestNetsEditorPanelPinList:
     def test_pin_shows_all_metapin_labels(
         self, qtbot: QtBot, session: EditorSession
@@ -161,8 +162,9 @@ class TestNetsEditorPanelPinList:
         panel = _panel(qtbot)
         inst = _add_instance(session, "R1")
         net = Net(
-            id=uuid.uuid4(), name="VCC",
-            pins={PinRef(component_id=inst.id, pin_number=1)}
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={PinRef(component_id=inst.id, pin_number=1)},
         )
         session.schematic.nets[net.id] = net
         panel.refresh(session)
@@ -199,6 +201,7 @@ class TestNetsEditorPanelPinList:
 # sync_selection
 # ---------------------------------------------------------------------------
 
+
 class TestNetsEditorPanelSyncSelection:
     def test_sync_selects_matching_net_row(
         self, qtbot: QtBot, session: EditorSession
@@ -225,9 +228,7 @@ class TestNetsEditorPanelSyncSelection:
         panel.sync_selection(frozenset(), frozenset(), None)
         assert panel._net_tree.selectedItems() == []
 
-    def test_sync_noop_when_hidden(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_sync_noop_when_hidden(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = _panel(qtbot)
         # Panel is not shown.
         net = _add_net(session, "VCC")
@@ -263,9 +264,7 @@ class TestNetsEditorPinClickToBoard:
         inst = _add_instance(session, "R1")
         panel.refresh(session)
         captured: list[tuple] = []
-        session.selection_requested.connect(
-            lambda c, w, n: captured.append((c, w, n))
-        )
+        session.selection_requested.connect(lambda c, w, n: captured.append((c, w, n)))
 
         # Grab the first pin row and fire the click slot directly.
         parent = panel._pin_tree.topLevelItem(0)
@@ -301,10 +300,9 @@ class TestNetsEditorPinClickToBoard:
 # signals — nets_changed
 # ---------------------------------------------------------------------------
 
+
 class TestNetsEditorPanelSignals:
-    def test_nets_changed_exists(
-        self, qtbot: QtBot, session: EditorSession
-    ) -> None:
+    def test_nets_changed_exists(self, qtbot: QtBot, session: EditorSession) -> None:
         panel = _panel(qtbot)
         received: list[None] = []
         panel.nets_changed.connect(lambda: received.append(None))
@@ -329,11 +327,13 @@ class TestAssignFromBoardClick:
         assert session.schematic.nets == {}  # precondition: no nets
 
         monkeypatch.setattr(
-            QMessageBox, "question",
+            QMessageBox,
+            "question",
             staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
         )
         monkeypatch.setattr(
-            QInputDialog, "getText",
+            QInputDialog,
+            "getText",
             staticmethod(lambda *a, **k: ("MyNet", True)),
         )
         # Board-click path: assign a specific pin with no panel selection.
@@ -353,7 +353,8 @@ class TestAssignFromBoardClick:
         inst = _add_instance(session)
         panel.refresh(session)
         monkeypatch.setattr(
-            QMessageBox, "question",
+            QMessageBox,
+            "question",
             staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
         )
         panel._show_assign_dialog(inst.id, 1)

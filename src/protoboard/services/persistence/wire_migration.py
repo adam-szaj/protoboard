@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
+
 from protoboard.domain.layout.knot import JointKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
@@ -74,7 +75,7 @@ class MigrationReport:
 
 def migrate_layout_to_v2(
     layout: Layout,
-    board: "Board",
+    board: Board,
     placements_pin_index: dict[Point, PinRef],
     pin_position_resolver: PinPositionResolver,
 ) -> MigrationReport:
@@ -132,9 +133,8 @@ def migrate_layout_to_v2(
         plated_through_pads,
     )
 
-    all_pads: set[Point] = (
-        board_pads_for_side(board, "top")
-        | board_pads_for_side(board, "bottom")
+    all_pads: set[Point] = board_pads_for_side(board, "top") | board_pads_for_side(
+        board, "bottom"
     )
     plated_pads: frozenset[Point] = frozenset(plated_through_pads(board))
 
@@ -192,9 +192,13 @@ def migrate_layout_to_v2(
             if kid not in layout.knots:
                 # Removed by a previous merge in this batch.
                 continue
-            if layout.try_collapse_joint(
-                kid, plated_through_pads=plated_pads,
-            ) is not None:
+            if (
+                layout.try_collapse_joint(
+                    kid,
+                    plated_through_pads=plated_pads,
+                )
+                is not None
+            ):
                 merges += 1
                 progressed = True
         if not progressed:

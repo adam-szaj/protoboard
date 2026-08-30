@@ -19,7 +19,10 @@ from protoboard.geometry import Point
 
 def _pl(pos: Point, rotation: int = 0) -> ComponentPlacement:
     return ComponentPlacement(
-        component_id=uuid.uuid4(), position=pos, rotation=rotation, side="top",
+        component_id=uuid.uuid4(),
+        position=pos,
+        rotation=rotation,
+        side="top",
     )
 
 
@@ -144,6 +147,7 @@ class TestTransformWireGeometry:
                 if delta % 360 == 270:
                     return Point(origin.x - dy, origin.y + dx)
                 return p
+
             return fn
 
         origin = Point(1, 1)
@@ -164,8 +168,13 @@ class TestTransformWireGeometry:
         wid = uuid.uuid4()
         a, b = KnotRef(id=uuid.uuid4()), KnotRef(id=uuid.uuid4())
         wire = Wire(
-            id=wid, path=[Point(0, 0), Point(1, 0)], side="top",
-            insulated=True, color="#abc", a=a, b=b,
+            id=wid,
+            path=[Point(0, 0), Point(1, 0)],
+            side="top",
+            insulated=True,
+            color="#abc",
+            a=a,
+            b=b,
         )
         transform_wire_geometry(wire, self._translate(10, 0))
         assert wire.id == wid

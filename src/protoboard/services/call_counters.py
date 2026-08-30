@@ -54,10 +54,10 @@ from __future__ import annotations
 import functools
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 # ---------------------------------------------------------------------------
 # Public state
@@ -67,11 +67,13 @@ _ENABLED: bool = os.environ.get("PROTOBOARD_CALL_COUNTERS", "0") == "1"
 _COUNTS: dict[str, int] = {}
 # Registry of every @counted wrapper so ``counters_enabled`` can flip
 # the per-wrapper "active" bit without rebuilding decorated functions.
-_REGISTRY: list["_CountedWrapper"] = []
+_REGISTRY: list[_CountedWrapper] = []
 # Per-context label stack — context-local so threads / async tasks
 # don't collide.  Stored as a tuple so the snapshot is immutable per
 # stack frame (we replace the var on push/pop instead of mutating).
-_STACK: ContextVar[tuple[str, ...]] = ContextVar("_protoboard_counter_stack", default=())
+_STACK: ContextVar[tuple[str, ...]] = ContextVar(
+    "_protoboard_counter_stack", default=()
+)
 
 # Optional cap on how deep the recorded stack may grow.  Calls beyond
 # this depth pass through as if the decorator weren't there — no count,

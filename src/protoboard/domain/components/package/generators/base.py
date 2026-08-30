@@ -128,7 +128,10 @@ class GeneratorContext:
         (no package, no residual: the chain driver feeds it to the next step).
         """
         return dataclasses.replace(
-            self, values=dict(values), package=None, residual=None,
+            self,
+            values=dict(values),
+            package=None,
+            residual=None,
         )
 
 
@@ -310,7 +313,9 @@ class PackageGenerator(ABC):
     preview_pin_count: ClassVar[int] = 4
 
     def variant_suffix(
-        self, pin_count: int, values: Mapping[str, Any],
+        self,
+        pin_count: int,
+        values: Mapping[str, Any],
     ) -> str:
         """Deterministic name suffix of a concretized parametric entry.
 
@@ -322,7 +327,8 @@ class PackageGenerator(ABC):
         return f"{pin_count}pin"
 
     def parse_variant_suffix(
-        self, suffix: str,
+        self,
+        suffix: str,
     ) -> tuple[int, dict[str, Any]] | None:
         """Inverse of :meth:`variant_suffix`: ``(pin_count, values)`` or
         ``None`` when *suffix* is not one of this generator's names."""

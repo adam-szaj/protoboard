@@ -4,31 +4,61 @@ components:
     # -----------------------------------------------------------------------
 
     # Audio amp LM386
-    - name: LM386
-      component_class: ic
-      pins: { count: 8 }
-      package: { kind: dip_ic }
-      pin_names:
-          1: GAIN_A
-          2: IN-
-          3: IN+
-          4: GND
-          5: OUT
-          6: VCC
-          7: BYPASS
-          8: GAIN_B
-
-    # Audio amp TDA2822
-    - name: TDA2822
-      component_class: ic
-      pins: { count: 8 }
-      package: { kind: dip_ic }
-      pin_names:
-          1: OUT1
-          2: VCC
-          3: OUT2
-          4: GND
-          5: IN2-
-          6: IN2+
-          7: IN1+
-          8: IN1-
+- name: LM386
+  component_class: ic
+  package: {kind: dip_ic}
+  meta_pins:
+  - GAIN_A
+  - IN-
+  - IN+
+  - GND
+  - OUT
+  - VCC
+  - BYPASS
+  - GAIN_B
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+- name: TDA2822
+  component_class: ic
+  package: {kind: dip_ic}
+  meta_pins:
+  - OUT1
+  - VCC
+  - OUT2
+  - GND
+  - IN2-
+  - IN2+
+  - IN1+
+  - IN1-
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8

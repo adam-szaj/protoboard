@@ -62,10 +62,13 @@ class TestAxisLabelsPersistence:
 
     def test_non_default_settings_write_file(self, tmp_path: Path) -> None:
         # Disabling both axes is a non-default state and must persist.
-        _save(tmp_path, AxisLabelSettings(
-            columns=AxisLabelFormat.DISABLED,
-            rows=AxisLabelFormat.DISABLED,
-        ))
+        _save(
+            tmp_path,
+            AxisLabelSettings(
+                columns=AxisLabelFormat.DISABLED,
+                rows=AxisLabelFormat.DISABLED,
+            ),
+        )
         assert (tmp_path / "axis_labels.yaml").exists()
 
     def test_roundtrip_non_default(self, tmp_path: Path) -> None:
@@ -74,20 +77,23 @@ class TestAxisLabelsPersistence:
             rows=AxisLabelFormat.DISABLED,
         )
         _save(tmp_path, original)
-        (*_, loaded) = load_project(tmp_path)
+        *_, loaded = load_project(tmp_path)
         assert loaded == original
 
     def test_load_without_file_returns_default(self, tmp_path: Path) -> None:
         _save(tmp_path, AxisLabelSettings())  # default → no file written
-        (*_, loaded) = load_project(tmp_path)
+        *_, loaded = load_project(tmp_path)
         assert loaded == AxisLabelSettings()
 
     def test_returning_to_default_deletes_file(self, tmp_path: Path) -> None:
         # First save with a non-default state — file appears.
-        _save(tmp_path, AxisLabelSettings(
-            columns=AxisLabelFormat.NUMERIC_0,
-            rows=AxisLabelFormat.NUMERIC_0,
-        ))
+        _save(
+            tmp_path,
+            AxisLabelSettings(
+                columns=AxisLabelFormat.NUMERIC_0,
+                rows=AxisLabelFormat.NUMERIC_0,
+            ),
+        )
         assert (tmp_path / "axis_labels.yaml").exists()
         # Second save with defaults — file gone.
         _save(tmp_path, AxisLabelSettings())
@@ -97,7 +103,7 @@ class TestAxisLabelsPersistence:
         _save(tmp_path, AxisLabelSettings(columns=AxisLabelFormat.NUMERIC_0))
         # Tamper with the file — invalid format string for the columns key.
         (tmp_path / "axis_labels.yaml").write_text("columns: bogus\nrows: alphabetic\n")
-        (*_, loaded) = load_project(tmp_path)
+        *_, loaded = load_project(tmp_path)
         # Invalid value falls back to DISABLED for that axis; valid one survives.
         assert loaded.columns == AxisLabelFormat.DISABLED
         assert loaded.rows == AxisLabelFormat.ALPHABETIC

@@ -12,14 +12,13 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from pytestqt.qtbot import QtBot
-
 from PySide6.QtWidgets import (
     QGraphicsItemGroup,
     QGraphicsLineItem,
     QGraphicsPathItem,
     QGraphicsScene,
 )
+from pytestqt.qtbot import QtBot
 
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.geometry import Point
@@ -57,7 +56,11 @@ class _RenderState:
 
     def render(self, scene: QGraphicsScene, wire: Wire) -> QGraphicsItemGroup:
         update_wire_groups_v2(
-            scene, [wire], {}, self.groups, self.fingerprints,
+            scene,
+            [wire],
+            {},
+            self.groups,
+            self.fingerprints,
             layers=LayerState(),
         )
         return self.groups[wire.id]
@@ -125,9 +128,9 @@ def test_camera_side_fragment_is_full_alpha_even_when_wire_starts_far(
     )
     grp = _RenderState().render(scene, starts_far)
     top_alpha = _min_pen_alpha_at(grp, round(Z_FRONT_WIRES))
-    assert top_alpha == pytest.approx(1.0), (
-        f"camera-side fragment dimmed to {top_alpha} by the far-side start"
-    )
+    assert top_alpha == pytest.approx(
+        1.0
+    ), f"camera-side fragment dimmed to {top_alpha} by the far-side start"
 
 
 def test_hidden_first_side_does_not_hide_the_other_fragments(
@@ -145,13 +148,20 @@ def test_hidden_first_side_does_not_hide_the_other_fragments(
             Fragment(path=[Point(2, 0), Point(4, 0)], side="top"),
         ],
     )
-    layers = LayerState(overrides=LayerOverrides(
-        wires_bottom=LayerVisibility.HIDDEN,
-    ))
+    layers = LayerState(
+        overrides=LayerOverrides(
+            wires_bottom=LayerVisibility.HIDDEN,
+        )
+    )
     groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
     update_wire_groups_v2(
-        scene, [starts_hidden], {}, groups, fingerprints, layers=layers,
+        scene,
+        [starts_hidden],
+        {},
+        groups,
+        fingerprints,
+        layers=layers,
     )
     grp = groups.get(starts_hidden.id)
     assert grp is not None, "wire skipped entirely because its FIRST side is hidden"
@@ -180,8 +190,7 @@ def test_via_marker_renders_under_the_wire_strokes(
     grp = _RenderState().render(scene, _mixed_wire())
     marker_zs = {m.zValue() for m in _via_markers(grp)}
     front_line_zs = {
-        it.zValue() for it in grp.childItems()
-        if isinstance(it, QGraphicsLineItem)
+        it.zValue() for it in grp.childItems() if isinstance(it, QGraphicsLineItem)
     }
     assert marker_zs, "no via markers"
     assert front_line_zs, "no front strokes"
@@ -224,9 +233,7 @@ class TestBackFragmentIsOnTheBackLayer:
         ]
         assert back_lines, "bottom fragment's lines must be in the back group"
 
-    def test_group_ops_fan_out_to_the_back_sibling(
-        self, scene: QGraphicsScene
-    ) -> None:
+    def test_group_ops_fan_out_to_the_back_sibling(self, scene: QGraphicsScene) -> None:
         grp = _RenderState().render(scene, _mixed_wire())
         grp.setOpacity(0.5)
         assert grp.back.opacity() == pytest.approx(0.5)
@@ -245,7 +252,9 @@ class TestBackFragmentIsOnTheBackLayer:
         test_camera_mirror_rendering.py::TestOppositeSideWireBackCache.
         """
         all_bottom = Wire(
-            id=uuid.uuid4(), path=[Point(1, 2), Point(5, 2)], side="bottom",
+            id=uuid.uuid4(),
+            path=[Point(1, 2), Point(5, 2)],
+            side="bottom",
         )
         grp = _RenderState().render(scene, all_bottom)
         rect = grp.sceneBoundingRect()
@@ -253,15 +262,17 @@ class TestBackFragmentIsOnTheBackLayer:
         assert rect.left() <= 1.0 <= rect.right()
         assert rect.left() <= 5.0 <= rect.right()
 
-    def test_removed_wire_removes_its_back_group(
-        self, scene: QGraphicsScene
-    ) -> None:
+    def test_removed_wire_removes_its_back_group(self, scene: QGraphicsScene) -> None:
         state = _RenderState()
         wire = _mixed_wire()
         grp = state.render(scene, wire)
         back = grp.back
         update_wire_groups_v2(
-            scene, [], {}, state.groups, state.fingerprints,
+            scene,
+            [],
+            {},
+            state.groups,
+            state.fingerprints,
             layers=LayerState(),
         )
         assert back.scene() is None, "back group leaked after wire removal"
@@ -296,9 +307,12 @@ def test_wire_back_alpha_gap_survives_ghost_top_full_bottom() -> None:
     )
 
     layers = layer_state_for_tool(
-        object(), "top", theme=DEFAULT_THEME,
+        object(),
+        "top",
+        theme=DEFAULT_THEME,
         overrides=LayerOverrides(
-            wires_top=LayerVisibility.GHOST, wires_bottom=LayerVisibility.FULL,
+            wires_top=LayerVisibility.GHOST,
+            wires_bottom=LayerVisibility.FULL,
         ),
     )
     gap = layers.alpha_for_wire("top") - layers.alpha_for_wire("bottom")
@@ -325,8 +339,13 @@ def test_routing_target_net_renders_in_neon(scene: QGraphicsScene) -> None:
     groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
     update_wire_groups_v2(
-        scene, [wire], {wire.id: net_id}, groups, fingerprints,
-        layers=LayerState(), routing_target_net_id=net_id,
+        scene,
+        [wire],
+        {wire.id: net_id},
+        groups,
+        fingerprints,
+        layers=LayerState(),
+        routing_target_net_id=net_id,
     )
     neon = QColor(DEFAULT_THEME.routing_target_color).rgb()
     pen_colors = {it.pen().color().rgb() for it in _line_items(groups[wire.id])}

@@ -16,6 +16,7 @@ import uuid
 
 from PySide6.QtWidgets import QGraphicsScene
 
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,
@@ -27,8 +28,6 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.component_renderer import _render_one
-from protoboard.controller.theme import DEFAULT_THEME
-
 
 _SIL2_FAMILY = sil_family(2)
 assert _SIL2_FAMILY is not None
@@ -36,7 +35,9 @@ _FAMILIES = {_SIL2_FAMILY.family_id: _SIL2_FAMILY}
 _THEME = dataclasses.replace(DEFAULT_THEME, package_families=_FAMILIES)
 
 
-def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlacement, uuid.UUID]:
+def _make_comp() -> (
+    tuple[ComponentDefinition, ComponentInstance, ComponentPlacement, uuid.UUID]
+):
     cid = uuid.uuid4()
     defn = ComponentDefinition(
         name="R",
@@ -49,11 +50,14 @@ def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlace
             ),
         ),
     )
-    inst = ComponentInstance(
-        id=cid, definition_ref="R", refdes="R1", value=""
-    ).bind(defn, _FAMILIES)
+    inst = ComponentInstance(id=cid, definition_ref="R", refdes="R1", value="").bind(
+        defn, _FAMILIES
+    )
     placement = ComponentPlacement(
-        component_id=cid, position=Point(0.5, 0.5), rotation=90, side="top",
+        component_id=cid,
+        position=Point(0.5, 0.5),
+        rotation=90,
+        side="top",
     )
     return defn, inst, placement, cid
 
@@ -70,23 +74,41 @@ class TestHighlightedComponentBypassesGhost:
 
         scene_normal = QGraphicsScene()
         grp_normal = _render_one(
-            scene_normal, placement, inst, defn, cid, {}, None,
-            _THEME, layers, group_alpha=1.0,
-            highlighted_net_id=None, is_highlighted_comp=False,
+            scene_normal,
+            placement,
+            inst,
+            defn,
+            cid,
+            {},
+            None,
+            _THEME,
+            layers,
+            group_alpha=1.0,
+            highlighted_net_id=None,
+            is_highlighted_comp=False,
         )
-        assert grp_normal is None, (
-            "ghost_comp_alpha=0 should crush un-highlighted comp to alpha=0"
-        )
+        assert (
+            grp_normal is None
+        ), "ghost_comp_alpha=0 should crush un-highlighted comp to alpha=0"
 
         scene_bold = QGraphicsScene()
         grp_bold = _render_one(
-            scene_bold, placement, inst, defn, cid, {}, None,
-            _THEME, layers, group_alpha=1.0,
-            highlighted_net_id=None, is_highlighted_comp=True,
+            scene_bold,
+            placement,
+            inst,
+            defn,
+            cid,
+            {},
+            None,
+            _THEME,
+            layers,
+            group_alpha=1.0,
+            highlighted_net_id=None,
+            is_highlighted_comp=True,
         )
-        assert grp_bold is not None, (
-            "highlighted comp must skip the ghost factor and render at full alpha"
-        )
+        assert (
+            grp_bold is not None
+        ), "highlighted comp must skip the ghost factor and render at full alpha"
 
     def test_group_alpha_still_applies_when_highlighted(self, qtbot) -> None:
         """Bypass affects only the ghost factor — group_alpha=0 still drops."""
@@ -95,8 +117,17 @@ class TestHighlightedComponentBypassesGhost:
         qtbot.addWidget
         scene = QGraphicsScene()
         grp = _render_one(
-            scene, placement, inst, defn, cid, {}, None,
-            _THEME, layers, group_alpha=0.0,
-            highlighted_net_id=None, is_highlighted_comp=True,
+            scene,
+            placement,
+            inst,
+            defn,
+            cid,
+            {},
+            None,
+            _THEME,
+            layers,
+            group_alpha=0.0,
+            highlighted_net_id=None,
+            is_highlighted_comp=True,
         )
         assert grp is None

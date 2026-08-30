@@ -257,18 +257,18 @@ hovered component:
 - **`labels` hidden → dwell tooltip.** After the dwell, a small
   cursor-anchored tooltip (`HoverTooltip`, `gui/hover_tooltip.py`) shows
   `refdes value` (just `refdes` if the value is unset) at the pointer.
-- **`pin_names` hidden + Alt held → per-component pin-name reveal.** After
-  the dwell, that one component's pin names render as if the layer were on
-  for it alone — `LayerState.pin_names_reveal_cid` is set to the hovered
-  component id (persisted on `BoardView._pin_names_reveal_cid`, threaded onto
+- **`meta_pin_labels` hidden + Alt held → per-component MetaPin reveal.** After
+  the dwell, that one component's primary MetaPin labels render as if the layer
+  were on for it alone — `LayerState.meta_pin_labels_reveal_cid` is set to the hovered
+  component id (persisted on `BoardView._meta_pin_labels_reveal_cid`, threaded onto
   the fresh `LayerState` each `layer_state()` call) and
-  `alpha_for_pin_names(side, cid=)` special-cases that one id back to full
+  `alpha_for_meta_pin_labels(side, cid=)` special-cases that one id back to full
   alpha.
 
 Either reveal clears on a hovered-component change, an Alt press/release, a
 move to bare canvas, or the mouse leaving the view — so nothing lingers past
 the gesture that triggered it. See [rendering.md](rendering.md) §1.2 for the
-Layers panel and the `pin_names` / `labels` toggle keys.
+Layers panel and the `meta_pin_labels` / `labels` toggle keys.
 
 ## Zoom and pan
 

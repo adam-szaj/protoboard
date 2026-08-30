@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class FootprintOptionView:
+class PackageOptionView:
     """One selectable footprint in the first pop-up.
 
     ``is_kind`` True → confirming this row opens the kind-variant pop-up; False →
@@ -49,6 +49,7 @@ class FootprintOptionView:
     label: str
     address: str
     is_kind: bool = False
+    namespace: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,13 +79,11 @@ class KindVariantView:
 class FootprintChoiceProvider(Protocol):
     """What the picker dialogs ask of the package model (see module docstring)."""
 
-    def options(self, defn: ComponentDefinition) -> list[FootprintOptionView]:
+    def options(self, defn: ComponentDefinition) -> list[PackageOptionView]:
         """The footprints *defn* offers, in declared order."""
         ...
 
-    def recent(
-        self, defn_ref: str, offered: set[str]
-    ) -> list[FootprintOptionView]:
+    def recent(self, defn_ref: str, offered: set[str]) -> list[PackageOptionView]:
         """Recently-used footprints for *defn_ref*, prepared and filtered to
         *offered*, most-recent first. The UI renders these on top as-is."""
         ...
@@ -127,64 +126,63 @@ class DefaultFootprintChoiceProvider:
         # registers freshly-built variants into it, and the session must see
         # them — ``or {}`` would silently swap in a private copy.
         self._families: dict[str, PackageFamily] = (
-            package_families if package_families is not None else {})
+            package_families if package_families is not None else {}
+        )
         self._last_defn: ComponentDefinition | None = None
 
-    def set_package_families(
-        self, families: dict[str, PackageFamily] | None
-    ) -> None:
+    def set_package_families(self, families: dict[str, PackageFamily] | None) -> None:
         self._families = families if families is not None else {}
 
-    def options(self, defn: ComponentDefinition) -> list[FootprintOptionView]:
+    def options(self, defn: ComponentDefinition) -> list[PackageOptionView]:
         self._last_defn = defn
-        out: list[FootprintOptionView] = []
+        out: list[PackageOptionView] = []
         root = defn.refdes_prefix
-        if defn.package_options:
-            for opt in defn.package_options:
-                out.append(
-                    FootprintOptionView(
-                        label=f"{root}_{opt.name}",
-                        address=opt.ref,
-                        is_kind=self._ref_is_kind(opt.ref),
-                    )
-                )
-            return out
-
-        # Legacy fallback — catalogue families fitting the singular footprint.
-        if not self._families:
-            return out
         from protoboard.domain.components.package.generated_families import (
-            offered_body_families,
+            offered_package_options,
         )
 
-        for pkg in offered_body_families(defn, self._families):
-            for v in pkg.variants:
-                label = f"{pkg.family_id} / {v.variant_id}"
-                if v.label and v.label != v.variant_id:
-                    label = f"{label} — {v.label}"
-                out.append(
-                    FootprintOptionView(
-                        label=label,
-                        address=f"{pkg.family_id}/{v.variant_id}",
-                        is_kind=self._package_is_kind(v.package),
-                    )
+        for option in offered_package_options(defn, self._families):
+            out.append(
+                PackageOptionView(
+                    label=f"{root}_{option.name}",
+                    address=option.ref,
+                    is_kind=self._ref_is_kind(option.ref),
+                    namespace=tuple(option.ref.split("/")[:-1]),
                 )
+            )
         return out
 
-    def recent(
-        self, defn_ref: str, offered: set[str]
-    ) -> list[FootprintOptionView]:
+    def accepts_selection(self, defn: ComponentDefinition, address: str) -> bool:
+        """Whether *address* is a declared leaf or a built declared kind."""
+        if any(option.address == address for option in self.options(defn)):
+            return True
+        from protoboard.domain.components.package.family import resolve_variant
+
+        selected = resolve_variant(self._families, address)
+        selected_kind = (
+            getattr(selected.package, "kind", None) if selected is not None else None
+        )
+        if not isinstance(selected_kind, str):
+            return False
+        for option in defn.package_options:
+            declared = resolve_variant(self._families, option.ref)
+            if (
+                declared is not None
+                and getattr(declared.package, "kind", None) == selected_kind
+            ):
+                return True
+        return False
+
+    def recent(self, defn_ref: str, offered: set[str]) -> list[PackageOptionView]:
         from protoboard.gui import recent_footprints
 
-        out: list[FootprintOptionView] = []
+        out: list[PackageOptionView] = []
         for r in recent_footprints.load():
             if r.definition_ref == defn_ref and r.address in offered:
                 # A recorded pick is an already-built package address, so it is
                 # never a kind (re-using it is one confirm, no second pop-up).
                 out.append(
-                    FootprintOptionView(
-                        label=r.label, address=r.address, is_kind=False
-                    )
+                    PackageOptionView(label=r.label, address=r.address, is_kind=False)
                 )
         return out
 
@@ -207,10 +205,12 @@ class DefaultFootprintChoiceProvider:
         for view in schema.fields_view(declared):
             if view.editable:
                 spec_type = view.spec.type
-                out.append(ParamSpec(
-                    name=view.path,
-                    type=spec_type if isinstance(spec_type, str) else "str",
-                ))
+                out.append(
+                    ParamSpec(
+                        name=view.path,
+                        type=spec_type if isinstance(spec_type, str) else "str",
+                    )
+                )
         return out
 
     def recent_variants(self, address: str) -> list[KindVariantView]:
@@ -238,7 +238,8 @@ class DefaultFootprintChoiceProvider:
             if entry.kind != kind:
                 continue
             built = self._build_and_register(
-                kind, dict(entry.values), len(defn.meta_pins))
+                kind, dict(entry.values), len(defn.meta_pins)
+            )
             if built is None:
                 continue
             built_address, label = built
@@ -274,11 +275,15 @@ class DefaultFootprintChoiceProvider:
             return None
         built_address, label = built
         from protoboard.gui import recent_kind_variants
+
         recent_kind_variants.add(kind, merged, label)
         return built_address
 
     def _build_and_register(
-        self, kind: str, merged: dict[str, object], pin_count: int,
+        self,
+        kind: str,
+        merged: dict[str, object],
+        pin_count: int,
     ) -> tuple[str, str] | None:
         """Build *kind* from the full parameter set *merged* and register it.
 
@@ -312,8 +317,11 @@ class DefaultFootprintChoiceProvider:
             return None  # still-missing parameters — nothing to place yet
 
         gen_cls = KIND_GENERATORS.get(kind)
-        label = (gen_cls(kind).variant_label(kind, ctx) if gen_cls is not None
-                 else f"{kind}-{pin_count}")
+        label = (
+            gen_cls(kind).variant_label(kind, ctx)
+            if gen_cls is not None
+            else f"{kind}-{pin_count}"
+        )
         slug = "".join(
             f"-{k}{merged[k]}" for k in sorted(merged) if merged[k] is not None
         )
@@ -321,8 +329,9 @@ class DefaultFootprintChoiceProvider:
         self._families[family_id] = PackageFamily(
             family_id=family_id,
             label=label,
-            variants=(PackageVariant(variant_id=STD, label=label,
-                                     package=result.package),),
+            variants=(
+                PackageVariant(variant_id=STD, label=label, package=result.package),
+            ),
         )
         return f"{family_id}/{STD}", label
 
@@ -349,6 +358,7 @@ class DefaultFootprintChoiceProvider:
             from protoboard.domain.components.package.family import (
                 resolve_variant,
             )
+
             variant = resolve_variant(self._families, address)
             pkg = variant.package if variant is not None else None
         kind = getattr(pkg, "kind", None)
@@ -357,6 +367,7 @@ class DefaultFootprintChoiceProvider:
         from protoboard.domain.components.package.generators import (
             KIND_GENERATORS,
         )
+
         gen_cls = KIND_GENERATORS.get(kind)
         schema: ParamSchema | None
         if gen_cls is not None:

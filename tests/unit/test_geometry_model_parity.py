@@ -45,8 +45,7 @@ def _leads(*steps: tuple[float, float]) -> Leads:
     the grid steps in mm so BOARD_DEFAULT-independent fixtures stay simple."""
     return Leads(
         direction=tuple(_DOWN for _ in range(len(steps) + 1)),
-        body_offset_mm=tuple(
-            Vector(sx * 2.54, sy * 2.54) for sx, sy in steps),
+        body_offset_mm=tuple(Vector(sx * 2.54, sy * 2.54) for sx, sy in steps),
         board_offset=tuple(Vector(sx, sy) for sx, sy in steps),
     )
 
@@ -110,8 +109,7 @@ class TestPrismBbox:
         assert along_across(p) == pytest.approx((5.4, 3.6), abs=_TOL)
 
     def test_pitch_fallbacks(self) -> None:
-        explicit = Prism(
-            leads=_leads((3.0, 0.0)), size_mm=Size3D(10.0, 6.0))
+        explicit = Prism(leads=_leads((3.0, 0.0)), size_mm=Size3D(10.0, 6.0))
         assert explicit.min_radial_pitch_mm() == pytest.approx(3.25, abs=_TOL)
         assert explicit.min_axial_pitch_mm() == pytest.approx(10.5, abs=_TOL)
         margin = Prism(
@@ -212,13 +210,11 @@ class TestDiagonalAlongAcross:
 class TestFlipReflection:
     def test_row_along_x_reflects_y(self) -> None:
         t = flip_reflection_from_pins([Point(0.0, 0.0), Point(3.0, 0.0)])
-        assert t.coeffs() == pytest.approx(
-            (1.0, 0.0, 0.0, -1.0, 0.0, 0.0), abs=_TOL)
+        assert t.coeffs() == pytest.approx((1.0, 0.0, 0.0, -1.0, 0.0, 0.0), abs=_TOL)
 
     def test_row_along_y_reflects_x(self) -> None:
         t = flip_reflection_from_pins([Point(0.0, 0.0), Point(0.0, 3.0)])
-        assert t.coeffs() == pytest.approx(
-            (-1.0, 0.0, 0.0, 1.0, 0.0, 0.0), abs=_TOL)
+        assert t.coeffs() == pytest.approx((-1.0, 0.0, 0.0, 1.0, 0.0, 0.0), abs=_TOL)
 
     def test_square_cloud_tie_reflects_y_about_centre(self) -> None:
         pins = [
@@ -228,8 +224,7 @@ class TestFlipReflection:
             Point(3.0, 3.0),
         ]
         t = flip_reflection_from_pins(pins)
-        assert t.coeffs() == pytest.approx(
-            (1.0, 0.0, 0.0, -1.0, 0.0, 3.0), abs=_TOL)
+        assert t.coeffs() == pytest.approx((1.0, 0.0, 0.0, -1.0, 0.0, 3.0), abs=_TOL)
 
 
 # ---------------------------------------------------------------------------

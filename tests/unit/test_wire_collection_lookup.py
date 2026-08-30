@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 """Tests for WireCollection.get_or_raise / get_or_return."""
+
 import uuid
 
 import pytest

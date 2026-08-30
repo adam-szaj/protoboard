@@ -54,6 +54,7 @@ PROFILE_ROUTE_ACTIVE = HighlightProfile(
 # HighlightEntry
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class HighlightEntry:
     """One entry on the highlight stack."""

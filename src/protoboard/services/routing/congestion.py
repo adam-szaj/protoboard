@@ -16,7 +16,7 @@ where n is pins-per-net, k = n-1 MST edges, L = path length in cells.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
 
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
@@ -62,7 +62,10 @@ def _mst_edges(points: list[Point]) -> list[tuple[Point, Point]]:
 
 
 def _l_shape_cells(
-    a: Point, b: Point, *, horizontal_first: bool,
+    a: Point,
+    b: Point,
+    *,
+    horizontal_first: bool,
 ) -> list[Point]:
     """Integer cells on the L-shape path from *a* to *b*, excluding endpoints.
 

@@ -7,6 +7,7 @@ Covers HBox, VBox, BoardGrid and atoms (PadAtom, StripAtom, GapAtom).
 import dataclasses
 
 import pytest
+
 from protoboard.domain.board.boxes import (
     BoardGrid,
     GapAtom,

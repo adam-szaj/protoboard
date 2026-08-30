@@ -16,6 +16,7 @@ handler is Qt-free (only touches ``self._session``), driven with a bare
 ``MainWindow`` ends with ``session.mark_clean()`` so teardown's
 ``closeEvent`` doesn't pop a blocking "unsaved changes" dialog.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,21 +55,26 @@ def _perfboard(rows: int = 8, cols: int = 8) -> Board:
     return Board(root=grid)
 
 
-def _place(session: EditorSession, x: float, y: float, refdes: str) -> "object":
+def _place(session: EditorSession, x: float, y: float, refdes: str) -> object:
     """Place a 2-pin "R": pin 1 at (x, y), pin 2 at (x, y+1)."""
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
 
 
-def _session_with_two_components() -> "tuple[EditorSession, object, object]":
+def _session_with_two_components() -> tuple[EditorSession, object, object]:
     library = load_library([_LIBRARY_DIR])
     session = EditorSession(board=_perfboard(), library=library)
     c1 = _place(session, 1.0, 1.0, "R1")

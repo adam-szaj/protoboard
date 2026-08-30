@@ -31,8 +31,9 @@ class TestTwoPinGeometry:
     def test_matches_single_row_n2_geometry(self) -> None:
         """A two-pin footprint must equal SIL(n=2) of the same pitch so
         existing renderers and snapshot tests stay valid."""
-        assert SIL(n=2, pitch=1.5).pin_positions() == \
-            SIL(n=2, pitch=1.5).pin_positions()
+        assert (
+            SIL(n=2, pitch=1.5).pin_positions() == SIL(n=2, pitch=1.5).pin_positions()
+        )
         assert SIL(n=2, pitch=1.5).pin_count() == 2
 
     # NOTE (footprint refactor): removed ``test_invalid_pitch_raises`` and
@@ -51,78 +52,86 @@ class TestYamlGeometryDeclarations:
         f.write_text(content, encoding="utf-8")
         return f
 
-    def test_removed_footprint_field_skips_part_with_hint(
-        self, tmp_path: Path
-    ) -> None:
+    def test_removed_footprint_field_skips_part_with_hint(self, tmp_path: Path) -> None:
         from structlog.testing import capture_logs
 
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: OLD_R
     component_class: resistor
     footprint: {type: TwoPin}
-    pin_names: {}
   - name: NEW_R
     component_class: resistor
-    pins: {count: 2}
+    meta_pins: [P1, P2]
     package: {kind: sil}
-    pin_names: {}
-""")
+""",
+        )
         with capture_logs() as logs:
             lib = load_library([tmp_path], package_families={})
         # The legacy part is skipped (not a whole-library failure); the log
         # carries the migration hint.
         assert "OLD_R" not in lib
         assert "NEW_R" in lib
-        assert any(e["event"] == "library.package_skipped"
-                   and "'footprint:' field was removed" in str(e.get("error"))
-                   for e in logs)
+        assert any(
+            e["event"] == "library.package_skipped"
+            and "'footprint:' field was removed" in str(e.get("error"))
+            for e in logs
+        )
 
     def test_kind_sil_pins_2_geometry(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: R
     description: "Resistor"
     component_class: resistor
-    pins: {count: 2}
+    meta_pins: [P1, P2]
     package: {kind: sil}
-    pin_names: {}
-""")
+""",
+        )
         lib = load_library([tmp_path], package_families={})
         defn = lib.get("R")
-        assert defn.default_footprint().pin_count() == 2
-        assert defn.default_footprint().pin_positions() == [
-            Point(0.0, 0.0), Point(0.0, 1.0)
-        ]
+        package = defn.default_footprint(lib.package_families)
+        assert package.pin_count() == 2
+        assert package.pin_positions() == [Point(0.0, 0.0), Point(0.0, 1.0)]
 
     def test_kind_sil_pins_3_geometry(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: HDR3
     description: "3-pin SIL header"
     component_class: connector
-    pins: {count: 3}
+    meta_pins: [P1, P2, P3]
     package: {kind: sil}
-    pin_names: {}
-""")
+""",
+        )
         lib = load_library([tmp_path], package_families={})
-        assert lib.get("HDR3").default_footprint().pin_count() == 3
+        assert lib.get("HDR3").default_footprint(lib.package_families).pin_count() == 3
 
-    def test_explicit_prism_declares_non_raster_pitch(
-        self, tmp_path: Path
-    ) -> None:
+    def test_explicit_prism_declares_non_raster_pitch(self, tmp_path: Path) -> None:
         # The old ``footprint: {type: TwoPin, pitch: 3.0}`` becomes an explicit
         # prism whose body_offset spells the 3-hole pitch out.
         from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
+
+        self._write(
+            tmp_path,
+            """\
 components:
   - name: R_wide
     description: "Wide resistor"
     component_class: resistor
-    pins: {count: 2}
+    meta_pins: [P1, P2]
     package:
       shape: prism
       margin: 1.25
@@ -131,12 +140,13 @@ components:
         body_offset: {unit: 2.5, value: [[0, 3]]}
         board_offset: default
       bend: 0
-    pin_names: {}
-""")
+""",
+        )
         lib = load_library([tmp_path], package_families={})
         defn = lib.get("R_wide")
-        assert defn.default_footprint().pin_positions() == [
-            Point(0.0, 0.0), Point(0.0, 3.0)
+        assert defn.default_footprint(lib.package_families).pin_positions() == [
+            Point(0.0, 0.0),
+            Point(0.0, 3.0),
         ]
 
 

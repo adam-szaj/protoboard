@@ -37,7 +37,10 @@ def test_three_fragments_chain() -> None:
     b = _frag((1, 0), (1, 1), side="bottom")
     c = _frag((1, 1), (2, 1), side="top")
     assert flatten_fragments([a, b, c]) == [
-        Point(0, 0), Point(1, 0), Point(1, 1), Point(2, 1),
+        Point(0, 0),
+        Point(1, 0),
+        Point(1, 1),
+        Point(2, 1),
     ]
 
 

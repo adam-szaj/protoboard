@@ -65,7 +65,9 @@ class GroupTargetDialog(QDialog):
         form_existing.setContentsMargins(24, 0, 0, 0)
         self._group_combo = QComboBox()
         for g in existing_groups:
-            self._group_combo.addItem(g.name or f"(unnamed {str(g.id)[:8]})", userData=g.id)
+            self._group_combo.addItem(
+                g.name or f"(unnamed {str(g.id)[:8]})", userData=g.id
+            )
         if not existing_groups:
             self._group_combo.setEnabled(False)
             self._radio_existing.setEnabled(False)
@@ -73,9 +75,7 @@ class GroupTargetDialog(QDialog):
         layout.addLayout(form_existing)
 
         # --- Auto-export checkbox ---
-        self._auto_export = QCheckBox(
-            "Auto-export pins connected to external nets"
-        )
+        self._auto_export = QCheckBox("Auto-export pins connected to external nets")
         self._auto_export.setChecked(True)
         self._auto_export.setToolTip(
             "Mark every pin whose net leaves the group (or is a global net "
@@ -103,7 +103,9 @@ class GroupTargetDialog(QDialog):
     def _on_accept(self) -> None:
         if self._radio_new.isChecked():
             self.mode = "new"
-            self.new_name = self._name_edit.text().strip() or self._name_edit.placeholderText()
+            self.new_name = (
+                self._name_edit.text().strip() or self._name_edit.placeholderText()
+            )
         else:
             self.mode = "existing"
             self.target_group_id = self._group_combo.currentData()

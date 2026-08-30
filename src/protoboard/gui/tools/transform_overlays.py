@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor
 
 if TYPE_CHECKING:
-    from protoboard.gui.board_view_tool import AbstractBoardView
     from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.gui.board_view_tool import AbstractBoardView
 
 
 class TransformOverlays:

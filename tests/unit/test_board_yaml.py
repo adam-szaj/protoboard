@@ -4,6 +4,7 @@
 from pathlib import Path
 
 import pytest
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import (
     BoardGrid,

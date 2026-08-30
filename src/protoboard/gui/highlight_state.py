@@ -35,8 +35,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-from protoboard.controller.highlight_stack import HighlightStackBase
-
 # HighlightEntry + the pre-defined profiles are pure data (Qt-free) and live
 # in controller/highlight_entry.py; re-exported here for existing GUI
 # importers (single source of truth per that module's docstring).
@@ -52,7 +50,7 @@ from protoboard.controller.highlight_entry import (
 from protoboard.controller.highlight_entry import (
     HighlightEntry as HighlightEntry,
 )
-
+from protoboard.controller.highlight_stack import HighlightStackBase
 
 # ---------------------------------------------------------------------------
 # HighlightStack

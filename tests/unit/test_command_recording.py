@@ -39,12 +39,21 @@ from protoboard.services.recording import (
 
 
 def _empty_board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                     layers=PadLayers()),
-        rows=4, cols=4, row_gap=0.0, col_gap=0.0,
-    ))
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(),
+            ),
+            rows=4,
+            cols=4,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 class _State:
@@ -56,6 +65,7 @@ class _State:
         self.schematic = Schematic(nets={})
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         from protoboard.domain.components.definition import ComponentDefinition
+
         self.components: dict[str, ComponentDefinition] = {}
 
 
@@ -68,14 +78,21 @@ class TestSerializationRoundtrip:
     def test_place_component(self) -> None:
         comp_id = uuid.uuid4()
         pl = ComponentPlacement(
-            component_id=comp_id, position=Point(1.0, 2.0),
-            rotation=90, side="top",
+            component_id=comp_id,
+            position=Point(1.0, 2.0),
+            rotation=90,
+            side="top",
         )
         inst = ComponentInstance(
-            id=comp_id, definition_ref="R", refdes="R1", value="10k",
+            id=comp_id,
+            definition_ref="R",
+            refdes="R1",
+            value="10k",
         )
         cmd = PlaceComponentCommand(
-            component_id=comp_id, placement=pl, instance=inst,
+            component_id=comp_id,
+            placement=pl,
+            instance=inst,
         )
         d = serialize_command(cmd)
         assert d["type"] == "place_component"
@@ -88,10 +105,16 @@ class TestSerializationRoundtrip:
 
     def test_move_component(self) -> None:
         comp_id = uuid.uuid4()
-        old = ComponentPlacement(component_id=comp_id, position=Point(0, 0), rotation=0, side="top")
-        new = ComponentPlacement(component_id=comp_id, position=Point(2, 1), rotation=0, side="top")
+        old = ComponentPlacement(
+            component_id=comp_id, position=Point(0, 0), rotation=0, side="top"
+        )
+        new = ComponentPlacement(
+            component_id=comp_id, position=Point(2, 1), rotation=0, side="top"
+        )
         cmd = MoveComponentCommand(
-            component_id=comp_id, new_placement=new, old_placement=old,
+            component_id=comp_id,
+            new_placement=new,
+            old_placement=old,
             skip_conflict_check=True,
         )
         d = serialize_command(cmd)
@@ -105,7 +128,8 @@ class TestSerializationRoundtrip:
         # registered serializer the recorder skipped it (recorder.skip_unknown).
         comp_id = uuid.uuid4()
         cmd = SetComponentPackageVariantCommand(
-            component_id=comp_id, new_variant="SMD-0603/typ",
+            component_id=comp_id,
+            new_variant="SMD-0603/typ",
         )
         d = serialize_command(cmd)
         assert d["type"] == "set_package_variant"
@@ -117,7 +141,8 @@ class TestSerializationRoundtrip:
     def test_set_package_variant_none_clears(self) -> None:
         comp_id = uuid.uuid4()
         cmd = SetComponentPackageVariantCommand(
-            component_id=comp_id, new_variant=None,
+            component_id=comp_id,
+            new_variant=None,
         )
         restored = deserialize_command(serialize_command(cmd))
         assert isinstance(restored, SetComponentPackageVariantCommand)
@@ -127,7 +152,8 @@ class TestSerializationRoundtrip:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 0), Point(1, 1)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         cmd = AddWireCommand(wire=wire)
         d = serialize_command(cmd)
@@ -140,7 +166,8 @@ class TestSerializationRoundtrip:
         wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 1)],
-            insulated=False, side="bottom",
+            insulated=False,
+            side="bottom",
         )
         cmd = AddWireWithNetsCommand(wire=wire)
         d = serialize_command(cmd)
@@ -151,12 +178,16 @@ class TestSerializationRoundtrip:
 
     def test_macro(self) -> None:
         wire1 = Wire(
-            id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)],
-            insulated=True, side="top",
+            id=uuid.uuid4(),
+            path=[Point(0, 0), Point(1, 0)],
+            insulated=True,
+            side="top",
         )
         wire2 = Wire(
-            id=uuid.uuid4(), path=[Point(1, 0), Point(1, 1)],
-            insulated=False, side="bottom",
+            id=uuid.uuid4(),
+            path=[Point(1, 0), Point(1, 1)],
+            insulated=False,
+            side="bottom",
         )
         macro = MacroCommand(
             [AddWireCommand(wire=wire1), AddWireCommand(wire=wire2)],
@@ -292,7 +323,9 @@ class TestNewlyRegisteredRoundtrip:
 
         wid, nid = uuid.uuid4(), uuid.uuid4()
         cmd = ConvertEndpointToWirePinCommand(
-            wire_id=wid, endpoint="b", net_id=nid,
+            wire_id=wid,
+            endpoint="b",
+            net_id=nid,
         )
         d = serialize_command(cmd)
         assert d["type"] == "convert_endpoint_to_wire_pin"
@@ -306,7 +339,9 @@ class TestNewlyRegisteredRoundtrip:
         )
 
         cmd = ConvertEndpointToWirePinCommand(
-            wire_id=uuid.uuid4(), endpoint="a", net_id=None,
+            wire_id=uuid.uuid4(),
+            endpoint="a",
+            net_id=None,
         )
         r = deserialize_command(serialize_command(cmd))
         assert isinstance(r, ConvertEndpointToWirePinCommand)
@@ -328,9 +363,7 @@ class TestNewlyRegisteredRoundtrip:
         from protoboard.domain.commands.component_cmds import DropWiresCommand
 
         ids = frozenset({uuid.uuid4(), uuid.uuid4()})
-        r = deserialize_command(
-            serialize_command(DropWiresCommand(wire_ids=ids))
-        )
+        r = deserialize_command(serialize_command(DropWiresCommand(wire_ids=ids)))
         assert isinstance(r, DropWiresCommand)
         assert r.wire_ids == ids
 
@@ -379,8 +412,7 @@ class TestNewlyRegisteredRoundtrip:
         from protoboard.domain.components.appearance import Appearance
 
         cid = uuid.uuid4()
-        app = Appearance(color="#1a1a1a80",
-                         corner_radius_mm=(0.5, 0.0, 0.5, 0.0))
+        app = Appearance(color="#1a1a1a80", corner_radius_mm=(0.5, 0.0, 0.5, 0.0))
         cmd = SetComponentAppearanceCommand(component_id=cid, new_appearance=app)
         d = serialize_command(cmd)
         assert d["type"] == "set_appearance"
@@ -396,11 +428,14 @@ class TestNewlyRegisteredRoundtrip:
             SetComponentAppearanceCommand,
         )
 
-        r = deserialize_command(serialize_command(
-            SetComponentAppearanceCommand(
-                component_id=uuid.uuid4(), new_appearance=None,
+        r = deserialize_command(
+            serialize_command(
+                SetComponentAppearanceCommand(
+                    component_id=uuid.uuid4(),
+                    new_appearance=None,
+                )
             )
-        ))
+        )
         assert isinstance(r, SetComponentAppearanceCommand)
         assert r.new_appearance is None
 
@@ -410,10 +445,16 @@ class TestNewlyRegisteredRoundtrip:
 
         cid = uuid.uuid4()
         old = ComponentPlacement(
-            component_id=cid, position=Point(0, 0), rotation=0, side="top",
+            component_id=cid,
+            position=Point(0, 0),
+            rotation=0,
+            side="top",
         )
         new = ComponentPlacement(
-            component_id=cid, position=Point(2, 3), rotation=0, side="top",
+            component_id=cid,
+            position=Point(2, 3),
+            rotation=0,
+            side="top",
         )
         wid = uuid.uuid4()
         cmd = MoveDragSetCommand(
@@ -437,19 +478,26 @@ class TestNewlyRegisteredRoundtrip:
 
         cid, wid, kid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         old = ComponentPlacement(
-            component_id=cid, position=Point(0, 0), rotation=0, side="top",
+            component_id=cid,
+            position=Point(0, 0),
+            rotation=0,
+            side="top",
         )
         new = ComponentPlacement(
-            component_id=cid, position=Point(0, 0), rotation=90, side="top",
+            component_id=cid,
+            position=Point(0, 0),
+            rotation=90,
+            side="top",
         )
         cmd = TransformDragSetCommand(
             members={cid: (old, new)},
-            wire_paths={wid: ([Point(0, 0), Point(1, 0)],
-                              [Point(0, 0), Point(0, 1)])},
-            wire_fragments={wid: (
-                [Fragment(path=[Point(0, 0), Point(1, 0)], side="top")],
-                [Fragment(path=[Point(0, 0), Point(0, 1)], side="top")],
-            )},
+            wire_paths={wid: ([Point(0, 0), Point(1, 0)], [Point(0, 0), Point(0, 1)])},
+            wire_fragments={
+                wid: (
+                    [Fragment(path=[Point(0, 0), Point(1, 0)], side="top")],
+                    [Fragment(path=[Point(0, 0), Point(0, 1)], side="top")],
+                )
+            },
             knot_positions={kid: (Point(1, 0), Point(0, 1))},
         )
         d = serialize_command(cmd)
@@ -556,11 +604,20 @@ class TestReplay:
 
         # Place a component, add a wire, rename a net.
         comp_id = uuid.uuid4()
-        pl = ComponentPlacement(component_id=comp_id, position=Point(1, 1), rotation=0, side="top")
-        inst = ComponentInstance(id=comp_id, definition_ref="R", refdes="R1", value="10k")
-        stack.execute(PlaceComponentCommand(component_id=comp_id, placement=pl, instance=inst), live)
+        pl = ComponentPlacement(
+            component_id=comp_id, position=Point(1, 1), rotation=0, side="top"
+        )
+        inst = ComponentInstance(
+            id=comp_id, definition_ref="R", refdes="R1", value="10k"
+        )
+        stack.execute(
+            PlaceComponentCommand(component_id=comp_id, placement=pl, instance=inst),
+            live,
+        )
 
-        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(
+            id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top"
+        )
         stack.execute(AddWireCommand(wire=wire), live)
 
         net_id = uuid.uuid4()
@@ -590,7 +647,9 @@ class TestReplay:
         stack: CommandStack = CommandStack()
         stack.set_recorder(rec)
 
-        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(
+            id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top"
+        )
         stack.execute(AddWireCommand(wire=wire), live)
         stack.undo(live)  # remove
         # No redo — final state should have zero wires.
@@ -610,7 +669,9 @@ class TestReplay:
         stack: CommandStack = CommandStack()
         stack.set_recorder(rec)
 
-        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(
+            id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top"
+        )
         stack.execute(AddWireCommand(wire=wire), live)
         stack.execute(SetWireSideCommand(wire_id=wire.id, side="bottom"), live)
         rec.stop()
@@ -627,7 +688,9 @@ class TestReplay:
         stack: CommandStack = CommandStack()
         stack.set_recorder(rec)
 
-        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(
+            id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top"
+        )
         stack.execute(AddWireCommand(wire=wire), live)
         stack.execute(RemoveWireCommand(wire_id=wire.id), live)
         rec.stop()

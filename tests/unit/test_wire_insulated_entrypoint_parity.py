@@ -24,6 +24,7 @@ and hangs the test process waiting for a click that never comes. Every test
 that drives a ``MainWindow`` therefore ends with ``session.mark_clean()`` so
 teardown's ``closeEvent`` short-circuits.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,10 +65,14 @@ def _session_with_two_wires() -> EditorSession:
     library = load_library([_LIBRARY_DIR])
     session = EditorSession(board=_perfboard(), library=library)
     w1 = session.edit_controller.add_wire(
-        [Point(1.0, 1.0), Point(3.0, 1.0)], insulated=True, side="top",
+        [Point(1.0, 1.0), Point(3.0, 1.0)],
+        insulated=True,
+        side="top",
     )
     w2 = session.edit_controller.add_wire(
-        [Point(1.0, 3.0), Point(3.0, 3.0)], insulated=True, side="top",
+        [Point(1.0, 3.0), Point(3.0, 3.0)],
+        insulated=True,
+        side="top",
     )
     assert w1 is not None and w2 is not None
     session._test_wire_ids = (w1, w2)  # type: ignore[attr-defined]
@@ -138,9 +143,7 @@ def test_menu_and_ctx_call_verb_with_same_args(
         calls.append((frozenset(wire_ids), insulated))  # type: ignore[arg-type]
         original(wire_ids, insulated=insulated)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(
-        session.edit_controller, "set_wires_insulated", _recording
-    )
+    monkeypatch.setattr(session.edit_controller, "set_wires_insulated", _recording)
 
     ctx_tool = SelectTool()
     ctx_tool._session = session  # type: ignore[assignment]

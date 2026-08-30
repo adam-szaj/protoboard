@@ -56,19 +56,23 @@ def expand_offsets(raw: RawOffsetList | Sequence[float]) -> list[Vector]:
     """
     # Single-vector sugar: ``[x, y]`` (both elements numbers) is one pair —
     # the 2-pin shorthand the spec allows alongside the scalar form.
-    if (isinstance(raw, Sequence) and not isinstance(raw, (str, bytes))
-            and len(raw) == 2 and all(_is_number(p) for p in raw)):
+    if (
+        isinstance(raw, Sequence)
+        and not isinstance(raw, (str, bytes))
+        and len(raw) == 2
+        and all(_is_number(p) for p in raw)
+    ):
         return [_as_vector(raw)]
     out: list[Vector] = []
     for element in raw:
-        if not isinstance(element, Sequence) or isinstance(
-                element, (str, bytes)):
+        if not isinstance(element, Sequence) or isinstance(element, (str, bytes)):
             raise ValueError(f"offset element must be a list, got {element!r}")
         parts = list(element)
         if len(parts) != 2:
             raise ValueError(
                 f"offset element must have 2 items ([x,y] or [count,[x,y]]), "
-                f"got {element!r}")
+                f"got {element!r}"
+            )
         second = parts[1]
         if _is_number(second):
             # Bare vector [x, y].
@@ -76,10 +80,8 @@ def expand_offsets(raw: RawOffsetList | Sequence[float]) -> list[Vector]:
         else:
             # Run-length [count, [x, y]].
             count = parts[0]
-            if not isinstance(count, int) or isinstance(count,
-                                                        bool) or count < 1:
-                raise ValueError(
-                    f"run-length count must be int >= 1, got {count!r}")
+            if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+                raise ValueError(f"run-length count must be int >= 1, got {count!r}")
             vec = _as_vector(second)
             out.extend([vec] * count)
     return out
@@ -90,8 +92,7 @@ def _as_vector3d(value: object) -> Vector3D:
         raise ValueError(f"expected [x, y, z] direction, got {value!r}")
     parts = list(value)
     if len(parts) != 3 or not all(_is_number(p) for p in parts):
-        raise ValueError(
-            f"direction must be [x, y, z] of numbers, got {value!r}")
+        raise ValueError(f"direction must be [x, y, z] of numbers, got {value!r}")
     return Vector3D(float(parts[0]), float(parts[1]), float(parts[2]))
 
 
@@ -112,9 +113,13 @@ def expand_direction(raw: object, pin_count: int) -> list[Vector3D]:
 
     # Form 3: grouped — every element is [indices_list, vector_list].
     def _is_grouped_element(el: object) -> bool:
-        return (isinstance(el, Sequence) and not isinstance(el, (str, bytes))
-                and len(list(el)) == 2 and isinstance(list(el)[0], Sequence)
-                and isinstance(list(el)[1], Sequence))
+        return (
+            isinstance(el, Sequence)
+            and not isinstance(el, (str, bytes))
+            and len(list(el)) == 2
+            and isinstance(list(el)[0], Sequence)
+            and isinstance(list(el)[1], Sequence)
+        )
 
     if items and all(_is_grouped_element(el) for el in items):
         result: list[Vector3D | None] = [None] * pin_count
@@ -125,8 +130,7 @@ def expand_direction(raw: object, pin_count: int) -> list[Vector3D]:
                 if not isinstance(idx, int) or isinstance(idx, bool):
                     raise ValueError(f"pin index must be int, got {idx!r}")
                 if not 1 <= idx <= pin_count:
-                    raise ValueError(
-                        f"pin index {idx} out of range 1..{pin_count}")
+                    raise ValueError(f"pin index {idx} out of range 1..{pin_count}")
                 result[idx - 1] = v
         missing = [i + 1 for i, r in enumerate(result) if r is None]
         if missing:
@@ -136,8 +140,7 @@ def expand_direction(raw: object, pin_count: int) -> list[Vector3D]:
     # Form 2: list of N per-pin vectors.
     vectors = [_as_vector3d(el) for el in items]
     if len(vectors) != pin_count:
-        raise ValueError(
-            f"direction has {len(vectors)} vectors but {pin_count} pins")
+        raise ValueError(f"direction has {len(vectors)} vectors but {pin_count} pins")
     return vectors
 
 

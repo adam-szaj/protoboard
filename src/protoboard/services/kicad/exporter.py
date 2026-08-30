@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import structlog
+
 from protoboard.domain.schematic.schematic import Schematic
 
 _log = structlog.get_logger(__name__)
@@ -118,8 +119,8 @@ class KiCadNetlistExporter:
         lines.append("(export (version D)")
         lines.append("  (design")
         lines.append("    (source protoboard-designer)")
-        lines.append("    (date \"\")")
-        lines.append("    (tool \"protoboard-designer\"))")
+        lines.append('    (date "")')
+        lines.append('    (tool "protoboard-designer"))')
 
         # (components ...)
         comp_ids: set[uuid.UUID] = set()
@@ -132,7 +133,7 @@ class KiCadNetlistExporter:
             ref = _sexp_str(refdes.get(cid, str(cid)))
             lines.append(f"    (comp (ref {ref})")
             lines.append(f"      (value {ref})")
-            lines.append("      (footprint \"\"))")
+            lines.append('      (footprint ""))')
         lines.append("  )")
 
         # (nets ...)

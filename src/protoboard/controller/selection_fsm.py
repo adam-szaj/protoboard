@@ -208,7 +208,9 @@ SameRelationPredicate = Callable[[Hit, Hit, RelationClass], bool]
 
 
 def _trivial_same_relation(
-    hit: Hit, relative_to: Hit, relation: RelationClass,
+    hit: Hit,
+    relative_to: Hit,
+    relation: RelationClass,
 ) -> bool:
     """Default predicate for tests / no-graph environments: two hits are
     in the same relation iff they are the same object."""
@@ -251,16 +253,15 @@ class SelectionFSM:
         self._state = SelectionState()
         self._same_relation = same_relation or DEFAULT_SAME_RELATION_PREDICATE
         self._default_relation = initial_relation
-        self._listeners: list[
-            Callable[[SelectionState, SelectionState], None]
-        ] = []
+        self._listeners: list[Callable[[SelectionState, SelectionState], None]] = []
 
     # ------------------------------------------------------------------
     # Observer wiring
     # ------------------------------------------------------------------
 
     def subscribe(
-        self, listener: Callable[[SelectionState, SelectionState], None],
+        self,
+        listener: Callable[[SelectionState, SelectionState], None],
     ) -> None:
         """Register a listener called as ``listener(old, new)`` after
         every transition (including no-op transitions, so observers can
@@ -346,100 +347,120 @@ class SelectionFSM:
         """Pop one stack layer.  No-op at ``NORMAL``."""
         st = self._state
         if st.depth == StackLayer.NORMAL:
-            self._emit(st)            # still emit so observers can resync
+            self._emit(st)  # still emit so observers can resync
             return
         if st.depth == StackLayer.MULTI_SELECTION:
-            self._set(replace(
-                st,
-                depth=StackLayer.SELECTION,
-                multi=frozenset(),
-            ))
+            self._set(
+                replace(
+                    st,
+                    depth=StackLayer.SELECTION,
+                    multi=frozenset(),
+                )
+            )
             return
         if st.depth == StackLayer.SELECTION:
-            self._set(replace(
-                st,
-                depth=StackLayer.HIGHLIGHT,
-                primary=None,
-            ))
+            self._set(
+                replace(
+                    st,
+                    depth=StackLayer.HIGHLIGHT,
+                    primary=None,
+                )
+            )
             return
         # depth == HIGHLIGHT
-        self._set(SelectionState())   # back to all defaults
+        self._set(SelectionState())  # back to all defaults
 
     # ------------------------------------------------------------------
     # Transition helpers — all of these end with ``self._set(...)``
     # ------------------------------------------------------------------
 
     def _enter_selection(self, hit: Hit) -> None:
-        self._set(SelectionState(
-            depth=StackLayer.SELECTION,
-            primary=hit,
-            highlight_source=hit,
-            relation=self._default_relation,
-        ))
+        self._set(
+            SelectionState(
+                depth=StackLayer.SELECTION,
+                primary=hit,
+                highlight_source=hit,
+                relation=self._default_relation,
+            )
+        )
 
     def _enter_multi(self, hit: Hit) -> None:
-        self._set(SelectionState(
-            depth=StackLayer.MULTI_SELECTION,
-            primary=hit,
-            multi=frozenset({hit}),
-            highlight_source=hit,
-            relation=self._default_relation,
-        ))
+        self._set(
+            SelectionState(
+                depth=StackLayer.MULTI_SELECTION,
+                primary=hit,
+                multi=frozenset({hit}),
+                highlight_source=hit,
+                relation=self._default_relation,
+            )
+        )
 
     def _switch_primary(self, hit: Hit) -> None:
         # SELECTION → SELECTION: replace primary; reseat the highlight
         # source so the relation set updates to the new object.
-        self._set(SelectionState(
-            depth=StackLayer.SELECTION,
-            primary=hit,
-            highlight_source=hit,
-            relation=self._default_relation,
-        ))
+        self._set(
+            SelectionState(
+                depth=StackLayer.SELECTION,
+                primary=hit,
+                highlight_source=hit,
+                relation=self._default_relation,
+            )
+        )
 
     def _pop_to_highlight(self) -> None:
         st = self._state
-        self._set(replace(
-            st,
-            depth=StackLayer.HIGHLIGHT,
-            primary=None,
-        ))
+        self._set(
+            replace(
+                st,
+                depth=StackLayer.HIGHLIGHT,
+                primary=None,
+            )
+        )
 
     def _collapse_to_highlight(self) -> None:
         # MULTI_SELECTION → HIGHLIGHT: drop both multi and primary.
         st = self._state
-        self._set(replace(
-            st,
-            depth=StackLayer.HIGHLIGHT,
-            primary=None,
-            multi=frozenset(),
-        ))
+        self._set(
+            replace(
+                st,
+                depth=StackLayer.HIGHLIGHT,
+                primary=None,
+                multi=frozenset(),
+            )
+        )
 
     def _collapse_to_selection(self, hit: Hit) -> None:
         # MULTI_SELECTION → SELECTION on a different object.  The FSM
         # spec for ``lmb-click{other}`` at MULTI is "drop multi, switch
         # primary to other".
-        self._set(SelectionState(
-            depth=StackLayer.SELECTION,
-            primary=hit,
-            highlight_source=hit,
-            relation=self._default_relation,
-        ))
+        self._set(
+            SelectionState(
+                depth=StackLayer.SELECTION,
+                primary=hit,
+                highlight_source=hit,
+                relation=self._default_relation,
+            )
+        )
 
     def _extend_to_multi(self, hit: Hit) -> None:
         st = self._state
         if st.depth == StackLayer.SELECTION:
             new_multi = frozenset({st.primary, hit}) if st.primary else frozenset({hit})
-            self._set(replace(
-                st,
-                depth=StackLayer.MULTI_SELECTION,
-                multi=new_multi,
-            ))
+            self._set(
+                replace(
+                    st,
+                    depth=StackLayer.MULTI_SELECTION,
+                    multi=new_multi,
+                )
+            )
             return
         # already in MULTI_SELECTION — just grow the multi set
-        self._set(replace(
-            st,
-            multi=st.multi | {hit},
-        ))
+        self._set(
+            replace(
+                st,
+                multi=st.multi | {hit},
+            )
+        )
 
     # ------------------------------------------------------------------
     # Internal: emit ``changed`` callbacks atomically around state swap

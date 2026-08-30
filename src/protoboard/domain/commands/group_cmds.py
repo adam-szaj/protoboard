@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from protoboard.domain.commands.base import Command, ComponentState
-from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
+from protoboard.domain.layout.group import (
+    ComponentGroup,
+    all_component_ids,
+    would_create_cycle,
+)
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.wire import transform_wire_geometry
 from protoboard.domain.schematic.net import PinRef
@@ -53,11 +57,7 @@ def _reflection_about(pivot: Point, axis: FlipAxis) -> Transform2D:
         if axis == "v"
         else Transform2D(1.0, 0.0, 0.0, -1.0, 0.0, 0.0)  # negate y
     )
-    return (
-        Transform2D.translation(p)
-        .compose(m)
-        .compose(Transform2D.translation(-p))
-    )
+    return Transform2D.translation(p).compose(m).compose(Transform2D.translation(-p))
 
 
 @dataclass
@@ -130,9 +130,7 @@ def rotate_components_around(
                 continue
             k = state.layout.knots.get(ref.id)
             if isinstance(k, (JointKnot, WirePinKnot)):
-                state.layout.knots[ref.id] = k.moved_to(
-                    rotate.apply(k.position)
-                )
+                state.layout.knots[ref.id] = k.moved_to(rotate.apply(k.position))
 
     return RotateSnapshot(
         origin=origin,
@@ -167,13 +165,12 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
                 continue
             k = state.layout.knots.get(ref.id)
             if isinstance(k, (JointKnot, WirePinKnot)):
-                state.layout.knots[ref.id] = k.moved_to(
-                    unrotate.apply(k.position)
-                )
+                state.layout.knots[ref.id] = k.moved_to(unrotate.apply(k.position))
 
 
 def _group_rotate_pivot(
-    state: ComponentState, group_id: uuid.UUID,
+    state: ComponentState,
+    group_id: uuid.UUID,
 ) -> Point | None:
     """The rotate pivot derived from the group transform's fixed point.
 
@@ -198,7 +195,10 @@ def _group_rotate_pivot(
     tg = GroupTree(state.layout.groups).group_world_transform(group_id)
     inv = tg.inverse()
     pins = GroupTree.pin_world_positions(
-        comp_ids, state.layout.placements, state.instances, state.components,
+        comp_ids,
+        state.layout.placements,
+        state.instances,
+        state.components,
     )
     if not pins:
         # No resolvable pin (unbound instances / minimal test states): fall
@@ -230,9 +230,7 @@ class CreateGroupCommand(Command[ComponentState]):
     # the same object the caller built — second apply gets origin sync'd
     # in-place but revert restores the pre-sync form.  Marginal but keeps
     # undo bit-identical.
-    _orig_group: "ComponentGroup | None" = field(
-        default=None, init=False, repr=False
-    )
+    _orig_group: ComponentGroup | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -252,13 +250,9 @@ class DisbandGroupCommand(Command[ComponentState]):
     """Remove a group (components remain placed, child groups become top-level)."""
 
     group_id: uuid.UUID
-    _saved_group: ComponentGroup | None = field(
-        default=None, init=False, repr=False
-    )
+    _saved_group: ComponentGroup | None = field(default=None, init=False, repr=False)
     # Parent group that contained this group (if any), saved for undo.
-    _saved_parent_id: uuid.UUID | None = field(
-        default=None, init=False, repr=False
-    )
+    _saved_parent_id: uuid.UUID | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -306,9 +300,7 @@ class GroupMembershipCommand(Command[ComponentState]):
     group_id: uuid.UUID
     component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     child_group_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
-    _old_group: ComponentGroup | None = field(
-        default=None, init=False, repr=False
-    )
+    _old_group: ComponentGroup | None = field(default=None, init=False, repr=False)
 
     def _new_membership(
         self, group: ComponentGroup
@@ -433,16 +425,12 @@ class SetExportedPinsCommand(Command[ComponentState]):
 
 @dataclass
 class RotateGroupCommand(Command[ComponentState]):
-    """Rotate an entire group as a rigid body around its origin (pad closest to top-left)."""
+    """Rotate an entire group as a rigid body around its origin (pad closest to top-left)."""  # noqa: E501
 
     group_id: uuid.UUID
     delta: int  # 90 or 270 (= -90)
-    _snapshot: RotateSnapshot | None = field(
-        default=None, init=False, repr=False
-    )
-    _old_group: ComponentGroup | None = field(
-        default=None, init=False, repr=False
-    )
+    _snapshot: RotateSnapshot | None = field(default=None, init=False, repr=False)
+    _old_group: ComponentGroup | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -467,7 +455,7 @@ class RotateGroupCommand(Command[ComponentState]):
         from protoboard.domain.layout.group_ownership import find_owned_wires
 
         schematic_obj = getattr(state, "schematic", None)
-        sch: "Schematic | None" = (
+        sch: Schematic | None = (
             schematic_obj if isinstance(schematic_obj, Schematic) else None
         )
         internal_wire_ids = find_owned_wires(
@@ -502,7 +490,10 @@ class RotateGroupCommand(Command[ComponentState]):
         # that point the seam still returns the pre-rotation world positions,
         # matching the pre-rotation wire paths.
         snapshot = rotate_components_around(
-            state, frozenset(), origin, self.delta,
+            state,
+            frozenset(),
+            origin,
+            self.delta,
             wire_ids=frozenset(internal_wire_ids),
         )
         self._snapshot = snapshot
@@ -513,12 +504,8 @@ class RotateGroupCommand(Command[ComponentState]):
         # ``_group_rotate_pivot`` (a transform fixed point, so consecutive
         # rotations keep orbiting the same pad — the old sticky-origin
         # behaviour).
-        new_transform = _rotation_about(origin, self.delta).compose(
-            group.transform
-        )
-        state.layout.groups[self.group_id] = group.replace(
-            transform=new_transform
-        )
+        new_transform = _rotation_about(origin, self.delta).compose(group.transform)
+        state.layout.groups[self.group_id] = group.replace(transform=new_transform)
 
     def revert(self, state: ComponentState) -> None:
         if self._snapshot is not None:
@@ -529,7 +516,7 @@ class RotateGroupCommand(Command[ComponentState]):
 
 def _group_pin_centroid(
     state: ComponentState, comp_ids: frozenset[uuid.UUID]
-) -> "Point | None":
+) -> Point | None:
     """Arithmetic mean of every resolvable pin world position in *comp_ids*.
 
     The default flip axis passes through this centroid (the user's "środek
@@ -537,7 +524,10 @@ def _group_pin_centroid(
     unbound instances) — the caller then has no axis and no-ops.
     """
     pins = GroupTree.pin_world_positions(
-        comp_ids, state.layout.placements, state.instances, state.components,
+        comp_ids,
+        state.layout.placements,
+        state.instances,
+        state.components,
     )
     if not pins:
         return None
@@ -596,10 +586,8 @@ class FlipGroupCommand(Command[ComponentState]):
 
     group_id: uuid.UUID
     axis: FlipAxis
-    pivot: "Point | None" = None
-    _old_group: ComponentGroup | None = field(
-        default=None, init=False, repr=False
-    )
+    pivot: Point | None = None
+    _old_group: ComponentGroup | None = field(default=None, init=False, repr=False)
     _reflect: Transform2D | None = field(default=None, init=False, repr=False)
     _wire_ids: frozenset[uuid.UUID] = field(
         default_factory=frozenset, init=False, repr=False
@@ -628,20 +616,22 @@ class FlipGroupCommand(Command[ComponentState]):
         from protoboard.domain.layout.group_ownership import find_owned_wires
 
         schematic_obj = getattr(state, "schematic", None)
-        sch: "Schematic | None" = (
+        sch: Schematic | None = (
             schematic_obj if isinstance(schematic_obj, Schematic) else None
         )
-        self._wire_ids = frozenset(find_owned_wires(
-            list(state.layout.wires),
-            group,
-            wire_net_map={},
-            knots=state.layout.knots,
-            group_comp_ids=comp_ids,
-            schematic=sch,
-            placements=state.layout.placements,
-            instances=state.instances,
-            definitions=state.components,
-        ))
+        self._wire_ids = frozenset(
+            find_owned_wires(
+                list(state.layout.wires),
+                group,
+                wire_net_map={},
+                knots=state.layout.knots,
+                group_comp_ids=comp_ids,
+                schematic=sch,
+                placements=state.layout.placements,
+                instances=state.instances,
+                definitions=state.components,
+            )
+        )
 
         # Physically flip the owned wires (they are absolute — they do not
         # compose through the seam), then fold the reflection into the group
@@ -689,10 +679,15 @@ class RotateComponentsCommand(Command[ComponentState]):
             pl = state.layout.placements.get(cid)
             if pl is None:
                 continue
-            snapshots.append(rotate_components_around(
-                state, frozenset({cid}), pl.position, self.delta,
-                wire_ids=frozenset(),
-            ))
+            snapshots.append(
+                rotate_components_around(
+                    state,
+                    frozenset({cid}),
+                    pl.position,
+                    self.delta,
+                    wire_ids=frozenset(),
+                )
+            )
         self._snapshots = snapshots
 
     def revert(self, state: ComponentState) -> None:
@@ -717,9 +712,7 @@ class RotateAroundPointCommand(Command[ComponentState]):
     comp_ids: frozenset[uuid.UUID]
     origin: Point
     delta: int
-    _snapshot: RotateSnapshot | None = field(
-        default=None, init=False, repr=False
-    )
+    _snapshot: RotateSnapshot | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -737,7 +730,7 @@ class RotateAroundPointCommand(Command[ComponentState]):
         from protoboard.domain.layout.group_ownership import find_owned_wires
 
         schematic_obj = getattr(state, "schematic", None)
-        sch: "Schematic | None" = (
+        sch: Schematic | None = (
             schematic_obj if isinstance(schematic_obj, Schematic) else None
         )
         synthetic_group = ComponentGroup(
@@ -757,7 +750,10 @@ class RotateAroundPointCommand(Command[ComponentState]):
             definitions=state.components,
         )
         snapshot = rotate_components_around(
-            state, self.comp_ids, self.origin, self.delta,
+            state,
+            self.comp_ids,
+            self.origin,
+            self.delta,
             wire_ids=frozenset(owned_wire_ids),
         )
         self._snapshot = snapshot

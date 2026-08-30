@@ -77,6 +77,7 @@ def _route_top_to_top(
 # 1. Disabled knob → exactly the baseline behaviour.
 # ---------------------------------------------------------------------------
 
+
 class TestDisabledKnob:
     def test_knob_default_zero(self) -> None:
         cm = RoutingCostModel()
@@ -91,13 +92,15 @@ class TestDisabledKnob:
         assert res, "Baseline path should be found"
         # With no obstacles, deferred-via must not introduce any via.
         sides = _path_sides(res[0])
-        assert all(s == "top" for s in sides), \
-            f"Expected straight-line top path, got {sides}"
+        assert all(
+            s == "top" for s in sides
+        ), f"Expected straight-line top path, got {sides}"
 
 
 # ---------------------------------------------------------------------------
 # 2. Rollback: A* would have taken a via unnecessarily, mechanism undoes it.
 # ---------------------------------------------------------------------------
+
 
 class TestRollback:
     def test_no_unnecessary_via_when_top_is_clear(self) -> None:
@@ -115,13 +118,15 @@ class TestRollback:
         assert res
         sides = _path_sides(res[0])
         # No via → all steps stay on top.
-        assert all(s == "top" for s in sides), \
-            f"Deferred-via should have rolled back unnecessary via, got {sides}"
+        assert all(
+            s == "top" for s in sides
+        ), f"Deferred-via should have rolled back unnecessary via, got {sides}"
 
 
 # ---------------------------------------------------------------------------
 # 3. Commit: real obstacle forces a via, mechanism keeps it.
 # ---------------------------------------------------------------------------
+
 
 class TestCommit:
     def test_routing_succeeds_with_deferred_via_enabled(self) -> None:
@@ -138,6 +143,7 @@ class TestCommit:
 # ---------------------------------------------------------------------------
 # 4. Don't change lanes on the obstacle — at-pad penalty applied to via cell
 # ---------------------------------------------------------------------------
+
 
 class TestViaOnObstacleCost:
     def test_via_cost_includes_atp_on_both_sides(self) -> None:
@@ -176,6 +182,7 @@ class TestViaOnObstacleCost:
 # 5. Same-net at-pad bypass — own wire's vertex doesn't trigger via penalty
 # ---------------------------------------------------------------------------
 
+
 class TestSameNetBypass:
     def test_via_through_foreign_bare_pad_is_short(self) -> None:
         """A foreign BARE wire on a pad makes via through that pad a
@@ -204,8 +211,9 @@ class TestSameNetBypass:
         for i in range(len(path) - 1):
             (p1, s1), (p2, s2) = path[i], path[i + 1]
             if p1.x == p2.x == 3.5 and p1.y == p2.y == 0.5:
-                assert s1 == s2, \
-                    f"Via at (3.5, 0.5) through bare pad would short, got {s1}→{s2}"
+                assert (
+                    s1 == s2
+                ), f"Via at (3.5, 0.5) through bare pad would short, got {s1}→{s2}"
 
     def test_via_on_own_net_vertex_not_penalised_twice(self) -> None:
         """When the via cell hosts a vertex of the active net, the at-pad

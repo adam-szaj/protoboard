@@ -7,82 +7,97 @@ components:
   # Lead bending at placement time was removed (it required confirming each
   # of the three pin positions separately); the default spread comes from the
   # footprint/package. A different spread can be arranged afterwards.
-  - name: _NPN_TO92
-    component_class: transistor_npn
-    symbol: Q
-    footprints:
-      - {name: TO92, ref: "TO-92"}
-    pin_names: {}
+- name: _NPN_TO92
+  component_class: transistor_npn
+  symbol: Q
+  package_options:
+  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
+  meta_pins: [P1, P2, P3]
 
-  - name: _PNP_TO92
-    component_class: transistor_pnp
-    symbol: Q
-    footprints:
-      - {name: TO92, ref: "TO-92"}
-    pin_names: {}
+- name: _PNP_TO92
+  component_class: transistor_pnp
+  symbol: Q
+  package_options:
+  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
+  meta_pins: [P1, P2, P3]
 
   # Pinouts per part family.  Layout-critical: same TO-92 shell, three
   # different pin orders.
-  - name: _NPN_TO92_CBE
-    extends: _NPN_TO92
-    pin_names: {1: C, 2: B, 3: E}
+- name: _NPN_TO92_CBE
+  extends: _NPN_TO92
+  meta_pins:
+  - C
+  - B
+  - E
 
-  - name: _NPN_TO92_BCE
-    extends: _NPN_TO92
-    pin_names: {1: B, 2: C, 3: E}
+- name: _NPN_TO92_BCE
+  extends: _NPN_TO92
+  meta_pins:
+  - B
+  - C
+  - E
 
-  - name: _NPN_TO92_EBC
-    extends: _NPN_TO92
-    pin_names: {1: E, 2: B, 3: C}
+- name: _NPN_TO92_EBC
+  extends: _NPN_TO92
+  meta_pins:
+  - E
+  - B
+  - C
 
-  - name: _PNP_TO92_CBE
-    extends: _PNP_TO92
-    pin_names: {1: C, 2: B, 3: E}
+- name: _PNP_TO92_CBE
+  extends: _PNP_TO92
+  meta_pins:
+  - C
+  - B
+  - E
 
-  - name: _PNP_TO92_EBC
-    extends: _PNP_TO92
-    pin_names: {1: E, 2: B, 3: C}
+- name: _PNP_TO92_EBC
+  extends: _PNP_TO92
+  meta_pins:
+  - E
+  - B
+  - C
 
   # -----------------------------------------------------------------------
   # NPN BJT
   # -----------------------------------------------------------------------
 
-  - name: BC547
-    extends: _NPN_TO92_CBE
-    description: "NPN 45V 0.1A general purpose"
+- name: BC547
+  extends: _NPN_TO92_CBE
+  description: "NPN 45V 0.1A general purpose"
 
-  - name: BC548
-    extends: _NPN_TO92_CBE
-    description: "NPN 30V 0.1A general purpose"
+- name: BC548
+  extends: _NPN_TO92_CBE
+  description: "NPN 30V 0.1A general purpose"
 
-  - name: BC549
-    extends: _NPN_TO92_CBE
-    description: "NPN 30V 0.1A low noise"
+- name: BC549
+  extends: _NPN_TO92_CBE
+  description: "NPN 30V 0.1A low noise"
 
-  - name: 2N2222
-    extends: _NPN_TO92_CBE
-    description: "NPN 40V 0.6A switching"
+- name: 2N2222
+  extends: _NPN_TO92_CBE
+  description: "NPN 40V 0.6A switching"
 
-  - name: 2N3904
-    extends: _NPN_TO92_EBC
-    description: "NPN 40V 0.2A general purpose"
+- name: 2N3904
+  extends: _NPN_TO92_EBC
+  description: "NPN 40V 0.2A general purpose"
 
-  - name: BC337
-    extends: _NPN_TO92_BCE
-    description: "NPN 45V 0.8A medium power"
+- name: BC337
+  extends: _NPN_TO92_BCE
+  description: "NPN 45V 0.8A medium power"
 
   # -----------------------------------------------------------------------
   # PNP BJT
   # -----------------------------------------------------------------------
 
-  - name: BC557
-    extends: _PNP_TO92_CBE
-    description: "PNP 45V 0.1A general purpose"
+- name: BC557
+  extends: _PNP_TO92_CBE
+  description: "PNP 45V 0.1A general purpose"
 
-  - name: BC558
-    extends: _PNP_TO92_CBE
-    description: "PNP 30V 0.1A general purpose"
+- name: BC558
+  extends: _PNP_TO92_CBE
+  description: "PNP 30V 0.1A general purpose"
 
-  - name: 2N3906
-    extends: _PNP_TO92_EBC
-    description: "PNP 40V 0.2A general purpose"
+- name: 2N3906
+  extends: _PNP_TO92_EBC
+  description: "PNP 40V 0.2A general purpose"

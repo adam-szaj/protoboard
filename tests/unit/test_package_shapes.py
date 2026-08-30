@@ -7,6 +7,7 @@ Each test mirrors a worked example from ``docs/footprints/spec.md``: resistor
 """
 
 import pytest
+from geometry_utils import _pt
 
 from protoboard.domain.components.package.body import (
     DiscProfile,
@@ -28,9 +29,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Size3D, Insets, Point, Vector, Vector3D
-
-from geometry_utils import _pt
+from protoboard.geometry import Insets, Point, Size3D, Vector, Vector3D
 
 
 def _steps_mm(raw: list, unit: float) -> tuple[Vector, ...]:
@@ -81,7 +80,7 @@ class TestElectrolyticRadial:
     def _cyl(self) -> Cylinder:
         leads = Leads(
             direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
-            body_offset_mm=(Vector(2.5, 0),),   # 1 hole
+            body_offset_mm=(Vector(2.5, 0),),  # 1 hole
             board_offset=BOARD_DEFAULT,
         )
         return Cylinder(diameter_mm=6.3, length_mm=11.0, leads=leads, bend_holes=4.0)
@@ -112,8 +111,9 @@ class TestBoardOffsetDefaultMechanism:
             body_offset_mm=_steps_mm([[1, 0], [1, 0]], 1.25),  # 1.25mm steps
             board_offset=BOARD_DEFAULT,
         )
-        return Prism(leads=leads, size_mm=Size3D(4.5, 4.5, 5.2),
-                     bend_holes=1.4142 * 2.5 / 2.5)
+        return Prism(
+            leads=leads, size_mm=Size3D(4.5, 4.5, 5.2), bend_holes=1.4142 * 2.5 / 2.5
+        )
 
     def test_three_pins(self) -> None:
         assert self._prism().pin_count() == 3
@@ -122,7 +122,7 @@ class TestBoardOffsetDefaultMechanism:
         # body 1.25mm → board read in holes = 1.25/2.5 = 0.5 hole steps.
         pins = self._prism().pin_positions()
         assert pins[0] == _pt(0, 0)
-        assert pins[1] == _pt(0.5, 0)   # grid-domain reading of body vector
+        assert pins[1] == _pt(0.5, 0)  # grid-domain reading of body vector
         assert pins[2] == _pt(1.0, 0)
 
 
@@ -142,9 +142,9 @@ class TestDIP8:
         pins = self._prism().pin_positions()
         assert len(pins) == 8
         assert pins[0] == _pt(0, 0)
-        assert pins[3] == _pt(0, 3)   # bottom of left column
-        assert pins[4] == _pt(3, 3)   # column jump
-        assert pins[7] == _pt(3, 0)   # beside pin 1
+        assert pins[3] == _pt(0, 3)  # bottom of left column
+        assert pins[4] == _pt(3, 3)  # column jump
+        assert pins[7] == _pt(3, 0)  # beside pin 1
 
     def test_rigid_range_is_point(self) -> None:
         r = self._prism().board_offset_range()
@@ -166,10 +166,10 @@ class TestDevboardMargin:
     def test_bbox_from_pins_plus_margin(self) -> None:
         bb = self._prism().bbox()
         # pins span y 0..4 holes (height 4), x 0; margin top/bottom 0, l/r 1 hole.
-        assert bb.ly == pytest.approx(4.0)        # 0 margin vertical
+        assert bb.ly == pytest.approx(4.0)  # 0 margin vertical
         assert bb.lx == pytest.approx(0.0 + 1.0 + 1.0)  # l+r margin in holes
-        assert bb.x == pytest.approx(-1.0)            # shifted left by margin
-        assert bb.y == pytest.approx(0.0)             # 0 margin on pin side
+        assert bb.x == pytest.approx(-1.0)  # shifted left by margin
+        assert bb.y == pytest.approx(0.0)  # 0 margin on pin side
 
 
 def _radial_leads(*, lead_r: float | None = 0.25) -> Leads:
@@ -249,8 +249,11 @@ class TestMinPitch:
 class TestPresentation:
     def test_color_and_edge_carried(self) -> None:
         c = Cylinder(
-            diameter_mm=2.5, length_mm=6.3, leads=_radial_leads(),
-            color="#d6c08c", edge=EdgeStyle.SHARP,
+            diameter_mm=2.5,
+            length_mm=6.3,
+            leads=_radial_leads(),
+            color="#d6c08c",
+            edge=EdgeStyle.SHARP,
         )
         assert c.color == "#d6c08c"
         assert c.edge is EdgeStyle.SHARP
@@ -272,8 +275,11 @@ class TestFlatSidedCylinder:
         # TO-92: r = 1.175 mm from the axis to the flat face, normal pointing
         # towards the pin row (local frame).
         c = Cylinder(
-            diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-            flat_radius_mm=1.175, flat_normal=Vector(-1.0, 0.0),
+            diameter_mm=4.55,
+            length_mm=4.6,
+            leads=_radial_leads(),
+            flat_radius_mm=1.175,
+            flat_normal=Vector(-1.0, 0.0),
         )
         assert c.flat_radius_mm == 1.175
         assert c.flat_normal == Vector(-1.0, 0.0)
@@ -282,22 +288,31 @@ class TestFlatSidedCylinder:
         # r >= diameter/2 would not cut a chord at all.
         with pytest.raises(ValueError, match="0 < r < diameter/2"):
             Cylinder(
-                diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-                flat_radius_mm=2.5, flat_normal=Vector(-1.0, 0.0),
+                diameter_mm=4.55,
+                length_mm=4.6,
+                leads=_radial_leads(),
+                flat_radius_mm=2.5,
+                flat_normal=Vector(-1.0, 0.0),
             )
 
     def test_flat_radius_must_be_positive(self) -> None:
         with pytest.raises(ValueError, match="0 < r < diameter/2"):
             Cylinder(
-                diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-                flat_radius_mm=0.0, flat_normal=Vector(-1.0, 0.0),
+                diameter_mm=4.55,
+                length_mm=4.6,
+                leads=_radial_leads(),
+                flat_radius_mm=0.0,
+                flat_normal=Vector(-1.0, 0.0),
             )
 
     def test_flat_normal_must_be_non_zero(self) -> None:
         with pytest.raises(ValueError, match="flat_normal must be non-zero"):
             Cylinder(
-                diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-                flat_radius_mm=1.175, flat_normal=Vector(0.0, 0.0),
+                diameter_mm=4.55,
+                length_mm=4.6,
+                leads=_radial_leads(),
+                flat_radius_mm=1.175,
+                flat_normal=Vector(0.0, 0.0),
             )
 
     def test_full_circle_ignores_zero_normal(self) -> None:
@@ -324,8 +339,11 @@ class TestFlipTransform:
             lead_r_mm=0.25,
         )
         return Cylinder(
-            diameter_mm=4.55, length_mm=4.6, leads=leads,
-            flat_radius_mm=1.175, flat_normal=Vector(0.0, 1.0),
+            diameter_mm=4.55,
+            length_mm=4.6,
+            leads=leads,
+            flat_radius_mm=1.175,
+            flat_normal=Vector(0.0, 1.0),
         )
 
     def _dip8(self) -> Prism:

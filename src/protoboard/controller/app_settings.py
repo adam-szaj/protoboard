@@ -9,9 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from protoboard.paths import APP_SETTINGS_FILE as _CONFIG_PATH
-
-
 # Allowed values for drag soft-conflict resolution preferences.  Any
 # value outside this set in the YAML falls back to the dataclass
 # default — protects against typos cementing into a broken state.
@@ -20,6 +17,7 @@ from protoboard.paths import APP_SETTINGS_FILE as _CONFIG_PATH
 from protoboard.controller.editing.drag_preferences import (  # noqa: E402
     DRAG_CONFLICT_VALUES as _DRAG_CONFLICT_VALUES,
 )
+from protoboard.paths import APP_SETTINGS_FILE as _CONFIG_PATH
 
 
 @dataclass
@@ -148,8 +146,10 @@ def load_app_settings() -> AppSettings:
         if isinstance(drag, dict):
             for yaml_key, attr_name in (
                 ("free_wire_conflict", "drag_free_wire_conflict"),
-                ("stationary_group_wire_conflict",
-                 "drag_stationary_group_wire_conflict"),
+                (
+                    "stationary_group_wire_conflict",
+                    "drag_stationary_group_wire_conflict",
+                ),
                 ("cross_group_disconnect", "drag_cross_group_disconnect"),
             ):
                 v = drag.get(yaml_key)
@@ -161,6 +161,7 @@ def load_app_settings() -> AppSettings:
         cp = data.get("cost_presets")
         if isinstance(cp, dict):
             from protoboard.services.routing.cost_presets import builtin_preset_names
+
             builtins = builtin_preset_names()
             user_presets: dict[str, dict[str, float]] = {}
             for name, weights in cp.items():
@@ -189,7 +190,9 @@ def save_app_settings(settings: AppSettings) -> None:
         data: dict[str, object] = {}
         if settings.default_projects_dir is not None:
             data["default_projects_dir"] = str(settings.default_projects_dir)
-        data["component_library_dirs"] = [str(p) for p in settings.component_library_dirs]
+        data["component_library_dirs"] = [
+            str(p) for p in settings.component_library_dirs
+        ]
         data["module_dirs"] = [str(p) for p in settings.module_dirs]
         data["auto_accept_placement"] = settings.auto_accept_placement
         data["selection"] = {
@@ -212,11 +215,9 @@ def save_app_settings(settings: AppSettings) -> None:
         }
         data["drag"] = {
             "free_wire_conflict": settings.drag_free_wire_conflict,
-            "stationary_group_wire_conflict":
-                settings.drag_stationary_group_wire_conflict,
+            "stationary_group_wire_conflict": settings.drag_stationary_group_wire_conflict,  # noqa: E501
             "cross_group_disconnect": settings.drag_cross_group_disconnect,
-            "default_lock_internal_wires":
-                settings.drag_default_lock_internal_wires,
+            "default_lock_internal_wires": settings.drag_default_lock_internal_wires,
         }
         if settings.cost_presets:
             data["cost_presets"] = {

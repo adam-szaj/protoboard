@@ -497,12 +497,10 @@ packages:
 
 ### 4.5 Composition in a component (HAS-A)
 
-A component **points at** a package and closes the missing parameters. The
-package fixes the **count and geometry** of pins (the length of the lists in
-`leads`); `pin_names` belong to the **component** (names depend on the concrete
-part, not the body). `step` (the discrete-step spinner) is declared here, closer
-to the concrete part. The ways a component can point at a package (and their
-precedence) are described in [../data-model.md](../data-model.md) §4.
+A component offers packages through `PackageOption(ref, pin_map)`. The package
+fixes the count and geometry of physical pins; MetaPin labels belong to the
+component. The mapping belongs to the option because it changes with the
+physical variant.
 
 ```yaml
 components:
@@ -515,7 +513,8 @@ components:
         body_offset: {unit: 2.5, value: [[1,0]]}   # 1 × 2.5 = 2.5 mm
       bend: 4
       step: 1
-    pin_names: {1: "+", 2: "-"}
+    meta_pins: ["+", "-"]
+    pin_map: {1: [1], 2: [2]}
 ```
 
 ---
@@ -796,7 +795,7 @@ step must be parameter-complete (missing required parameters raise, never
 surface to the picker) and must not build a package; only the **final** step
 builds the body, so a residual it surfaces already carries every
 chain-computed value — the picker re-runs just that kind and reproduces the
-chain's result. Partial kinds work in `footprints:` option entries too: an
+chain's result. Partial kinds work in `package_options:` entries too: an
 option whose inline kind leaves required parameters unfilled loads as a
 per-option pending-kind placeholder, exactly like the component-level
 `package:` block.

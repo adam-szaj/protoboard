@@ -30,7 +30,6 @@ from protoboard.gui.action_builder import (
 )
 from protoboard.gui.actions import ActionSpec, ToolbarGroup, strip_mnemonic
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -39,6 +38,7 @@ from protoboard.gui.actions import ActionSpec, ToolbarGroup, strip_mnemonic
 @dataclass
 class _MwStub:
     """Records slot invocations without needing real QObject signals."""
+
     calls: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
 
     def _save(self) -> None:
@@ -135,6 +135,7 @@ class TestResolveSlot:
     def test_non_callable_attribute_raises(self) -> None:
         class Owner:
             x = 42
+
         with pytest.raises(ActionRegistrationError, match="no callable attribute"):
             resolve_slot({"mw": Owner()}, "x", ())
 
@@ -152,11 +153,14 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="save", label="&Save", slot_name="_save",
-                       menu_path=("File",)),
+            ActionSpec(
+                id="save", label="&Save", slot_name="_save", menu_path=("File",)
+            ),
         )
         reg = build_actions(
-            main_window, specs, kb_empty,
+            main_window,
+            specs,
+            kb_empty,
             slot_owners={"mw": mw},
         )
         assert "save" in reg.actions
@@ -171,8 +175,9 @@ class TestBuildActions:
         mw = _MwStub()
         kb = KB.KeyBindings(_bindings={"save": "Ctrl+S"})
         specs = (
-            ActionSpec(id="save", label="&Save", slot_name="_save",
-                       menu_path=("File",)),
+            ActionSpec(
+                id="save", label="&Save", slot_name="_save", menu_path=("File",)
+            ),
         )
         reg = build_actions(main_window, specs, kb, slot_owners={"mw": mw})
         assert reg.actions["save"].shortcut().toString() == "Ctrl+S"
@@ -183,9 +188,7 @@ class TestBuildActions:
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        specs = (
-            ActionSpec(id="x", label="X", slot_name="_save", menu_path=None),
-        )
+        specs = (ActionSpec(id="x", label="X", slot_name="_save", menu_path=None),)
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         assert reg.actions["x"].shortcut().isEmpty()
 
@@ -196,12 +199,21 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=("Edit", "Design", "Wire")),
-            ActionSpec(id="b", label="B", slot_name="_toggle_thing",
-                       menu_path=("Edit", "Design", "Wire")),
-            ActionSpec(id="c", label="C", slot_name="_save",
-                       menu_path=("Edit", "Design")),
+            ActionSpec(
+                id="a",
+                label="A",
+                slot_name="_save",
+                menu_path=("Edit", "Design", "Wire"),
+            ),
+            ActionSpec(
+                id="b",
+                label="B",
+                slot_name="_toggle_thing",
+                menu_path=("Edit", "Design", "Wire"),
+            ),
+            ActionSpec(
+                id="c", label="C", slot_name="_save", menu_path=("Edit", "Design")
+            ),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         wire_menu = reg.menus[("Edit", "Design", "Wire")]
@@ -220,10 +232,14 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=("File",)),
-            ActionSpec(id="b", label="B", slot_name="_save",
-                       menu_path=("File",), separator_before=True),
+            ActionSpec(id="a", label="A", slot_name="_save", menu_path=("File",)),
+            ActionSpec(
+                id="b",
+                label="B",
+                slot_name="_save",
+                menu_path=("File",),
+                separator_before=True,
+            ),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         file_menu = reg.menus[("File",)]
@@ -252,10 +268,22 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="t1", label="T1", slot_name="_save",
-                       menu_path=None, checkable=True, action_group="tool"),
-            ActionSpec(id="t2", label="T2", slot_name="_save",
-                       menu_path=None, checkable=True, action_group="tool"),
+            ActionSpec(
+                id="t1",
+                label="T1",
+                slot_name="_save",
+                menu_path=None,
+                checkable=True,
+                action_group="tool",
+            ),
+            ActionSpec(
+                id="t2",
+                label="T2",
+                slot_name="_save",
+                menu_path=None,
+                checkable=True,
+                action_group="tool",
+            ),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         group = reg.action_groups["tool"]
@@ -269,10 +297,20 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="top", label="Top", slot_name="_move_wire_to_side",
-                       menu_path=None, shortcut_args=("top",)),
-            ActionSpec(id="bot", label="Bot", slot_name="_move_wire_to_side",
-                       menu_path=None, shortcut_args=("bottom",)),
+            ActionSpec(
+                id="top",
+                label="Top",
+                slot_name="_move_wire_to_side",
+                menu_path=None,
+                shortcut_args=("top",),
+            ),
+            ActionSpec(
+                id="bot",
+                label="Bot",
+                slot_name="_move_wire_to_side",
+                menu_path=None,
+                shortcut_args=("bottom",),
+            ),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         reg.handlers["top"]()
@@ -302,7 +340,9 @@ class TestToolbarLayout:
         )
         layout: dict[ToolbarGroup, list[str]] = {"view": ["b", "a", "c"]}
         reg = build_actions(
-            main_window, specs, kb_empty,
+            main_window,
+            specs,
+            kb_empty,
             slot_owners={"mw": mw},
             toolbar_layout=layout,
         )
@@ -316,12 +356,12 @@ class TestToolbarLayout:
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        specs = (
-            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
-        )
+        specs = (ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),)
         layout: dict[ToolbarGroup, list[str]] = {"view": ["a", "ghost"]}
         reg = build_actions(
-            main_window, specs, kb_empty,
+            main_window,
+            specs,
+            kb_empty,
             slot_owners={"mw": mw},
             toolbar_layout=layout,
         )
@@ -334,12 +374,12 @@ class TestToolbarLayout:
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        specs = (
-            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
-        )
+        specs = (ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),)
         layout: dict[ToolbarGroup, list[str]] = {"view": []}
         reg = build_actions(
-            main_window, specs, kb_empty,
+            main_window,
+            specs,
+            kb_empty,
             slot_owners={"mw": mw},
             toolbar_layout=layout,
         )
@@ -352,11 +392,11 @@ class TestToolbarLayout:
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        specs = (
-            ActionSpec(id="a", label="A", slot_name="_save", menu_path=("File",)),
-        )
+        specs = (ActionSpec(id="a", label="A", slot_name="_save", menu_path=("File",)),)
         reg = build_actions(
-            main_window, specs, kb_empty,
+            main_window,
+            specs,
+            kb_empty,
             slot_owners={"mw": mw},
         )
         assert reg.toolbars == {}
@@ -367,12 +407,12 @@ class TestToolbarLayout:
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        specs = (
-            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
-        )
+        specs = (ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),)
         layout: dict[ToolbarGroup, list[str]] = {"view": ["a"]}
         reg = build_actions(
-            main_window, specs, kb_empty,
+            main_window,
+            specs,
+            kb_empty,
             slot_owners={"mw": mw},
             toolbar_layout=layout,
         )
@@ -406,9 +446,7 @@ class TestBuildActionsErrors:
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        specs = (
-            ActionSpec(id="x", label="X", slot_name="_nope", menu_path=None),
-        )
+        specs = (ActionSpec(id="x", label="X", slot_name="_nope", menu_path=None),)
         with pytest.raises(ActionRegistrationError):
             build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
 
@@ -419,7 +457,10 @@ class TestBuildActionsErrors:
     ) -> None:
         mw = _MwStub()
         spec = ActionSpec(
-            id="x", label="X", slot_name="_save", menu_path=(),
+            id="x",
+            label="X",
+            slot_name="_save",
+            menu_path=(),
         )
         with pytest.raises(ActionRegistrationError, match="non-empty"):
             build_actions(main_window, (spec,), kb_empty, slot_owners={"mw": mw})
@@ -438,8 +479,9 @@ class TestActionTrigger:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="save", label="&Save", slot_name="_save",
-                       menu_path=("File",)),
+            ActionSpec(
+                id="save", label="&Save", slot_name="_save", menu_path=("File",)
+            ),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         reg.actions["save"].trigger()
@@ -467,8 +509,9 @@ class TestActionRegistryShape:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=("Edit", "Design")),
+            ActionSpec(
+                id="a", label="A", slot_name="_save", menu_path=("Edit", "Design")
+            ),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         assert ("Edit",) in reg.menus

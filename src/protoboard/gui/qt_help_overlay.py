@@ -38,9 +38,7 @@ class QtHelpOverlay:
             self._label = label
         label.setText(html)
         label.adjustSize()
-        label.move(
-            self._view.viewport().width() - label.width() - _MARGIN, _MARGIN
-        )
+        label.move(self._view.viewport().width() - label.width() - _MARGIN, _MARGIN)
         label.show()
         label.raise_()
 

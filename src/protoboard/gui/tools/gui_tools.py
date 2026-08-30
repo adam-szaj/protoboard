@@ -13,15 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from protoboard.gui.board_view_tool import ViewToolMixin
-from protoboard.controller.tools.cut_tool import CutTool as _CutTool
-from protoboard.controller.tools.place_tool import PlaceTool as _PlaceTool
-from protoboard.controller.tools.route_tool import RouteTool as _RouteTool
 from protoboard.controller.tools.armed_transform_tool import (
     ArmedTransformTool as _ArmedTransformTool,
 )
-from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
-from protoboard.controller.tools.wire_edit_tool import WireEditTool as _WireEditTool
+from protoboard.controller.tools.cut_tool import CutTool as _CutTool
+from protoboard.controller.tools.place_tool import PlaceTool as _PlaceTool
+from protoboard.controller.tools.route_tool import RouteTool as _RouteTool
 from protoboard.controller.tools.select_tool import (
     _ACT_DELETE,
     _ACT_EDIT,
@@ -31,18 +28,21 @@ from protoboard.controller.tools.select_tool import (
     _ACT_RELATION_CYCLE_BACK,
     _ACT_ROTATE,
 )
+from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
 from protoboard.controller.tools.simplify_tool import SimplifyTool as _SimplifyTool
+from protoboard.controller.tools.wire_edit_tool import WireEditTool as _WireEditTool
+from protoboard.gui.board_view_tool import ViewToolMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.ports import KeyInput
+    from protoboard.controller.selection.mouse_input import Intent
     from protoboard.controller.theme import Theme
     from protoboard.controller.tools.select_prompts import (
         GroupTargetChoice,
         GroupTargetRequest,
     )
-    from protoboard.controller.selection.mouse_input import Intent
     from protoboard.gui.board_view_tool import AbstractBoardView
 
 
@@ -65,6 +65,7 @@ def _theme_fn(tool: ViewToolMixin) -> Callable[[], Theme]:
     precise return type for the Qt preview constructors that require it.
     """
     return cast("Callable[[], Theme]", tool._theme)
+
 
 __all__ = [
     "CutTool",
@@ -98,6 +99,7 @@ def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
             return bool(handler())
     return False
 
+
 # Composition order note: every class below lists the controller tool BEFORE
 # ViewToolMixin (``_XTool, ViewToolMixin`` — not the reverse).  Both
 # ControllerTool and ViewToolMixin define on_press/on_key/on_key_release
@@ -110,7 +112,9 @@ def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
 # explicitly re-pointed at ViewToolMixin's real implementation below.
 
 
-class CutTool(_CutTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class CutTool(
+    _CutTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """Cut tool — no ``on_key``; click-only, already fully generic."""
 
     make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
@@ -127,7 +131,9 @@ class CutTool(_CutTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMet
         ControllerTool.activate(self, session, view)  # type: ignore[arg-type]
 
 
-class PlaceTool(_PlaceTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class PlaceTool(
+    _PlaceTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """PlaceTool with the default ghost/reach Qt preview + Qt conflict prompts.
 
     ``on_key`` is the raw-key translation a GUI subclass owns: the controller
@@ -162,7 +168,9 @@ class PlaceTool(_PlaceTool, ViewToolMixin):  # pyright: ignore[reportIncompatibl
         return _dispatch_key_by_action_id(self, inp)
 
 
-class RouteTool(_RouteTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class RouteTool(
+    _RouteTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """RouteTool with the default segment/hint Qt preview + net-merge prompt.
 
     ``on_key`` is the one raw-key translation left for a GUI subclass to own:
@@ -189,7 +197,9 @@ class RouteTool(_RouteTool, ViewToolMixin):  # pyright: ignore[reportIncompatibl
         return _dispatch_key_by_action_id(self, inp)
 
 
-class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class ArmedTransformTool(
+    _ArmedTransformTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """ArmedTransformTool with the default pivot-marker preview + conflict overlay.
 
     ``on_key`` is the raw-key translation a GUI subclass owns: the controller
@@ -216,7 +226,9 @@ class ArmedTransformTool(_ArmedTransformTool, ViewToolMixin):  # pyright: ignore
         return _dispatch_key_by_action_id(self, inp)
 
 
-class WireEditTool(_WireEditTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class WireEditTool(
+    _WireEditTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """WireEditTool with the default Qt wire-edit / reroute preview.
 
     ``on_key`` is the raw-key translation a GUI subclass owns: the controller
@@ -246,8 +258,8 @@ class WireEditTool(_WireEditTool, ViewToolMixin):  # pyright: ignore[reportIncom
             "select-tool.action.flip_fragment": "F",
             "select-tool.action.simplify_fragment": "S",
             "select-tool.action.set_insulated_fragment": "I",
-            "select-tool.action.delete": None,   # global.action.delete (Del)
-            "select-tool.action.cancel": None,   # global.action.cancel (Esc)
+            "select-tool.action.delete": None,  # global.action.delete (Del)
+            "select-tool.action.cancel": None,  # global.action.cancel (Esc)
         }
 
     def key_claims(self):  # type: ignore[no-untyped-def]
@@ -296,7 +308,9 @@ class WireEditTool(_WireEditTool, ViewToolMixin):  # pyright: ignore[reportIncom
         return _dispatch_key_by_action_id(self, inp)
 
 
-class SelectTool(_SelectTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class SelectTool(
+    _SelectTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SelectTool with the default Qt preview, group-target prompt, overlays.
 
     ``on_key`` is the raw-key → command translation the controller tool can't
@@ -386,9 +400,8 @@ class SelectTool(_SelectTool, ViewToolMixin):  # pyright: ignore[reportIncompati
             self._cycle_relation(forward=True)
             return True
 
-        if (
-            self._key_matches(inp, _ACT_DELETE)
-            or (key == Qt.Key.Key_Backspace and not ctrl)
+        if self._key_matches(inp, _ACT_DELETE) or (
+            key == Qt.Key.Key_Backspace and not ctrl
         ):
             return self._delete_selection(force=shift)
 
@@ -429,7 +442,9 @@ class SelectTool(_SelectTool, ViewToolMixin):  # pyright: ignore[reportIncompati
         pass
 
 
-class SimplifyTool(_SimplifyTool, ViewToolMixin):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+class SimplifyTool(
+    _SimplifyTool, ViewToolMixin
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SimplifyTool with the default Qt draft-overlay preview.
 
     ``on_key`` is just the ``[Esc]`` clear-draft raw-key check ahead of

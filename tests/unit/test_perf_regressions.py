@@ -25,7 +25,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import find_owned_wires
@@ -40,19 +39,25 @@ from protoboard.domain.layout.wire_utils import (
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _board(rows: int = 20, cols: int = 20) -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows,
+            cols=cols,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +67,8 @@ def _board(rows: int = 20, cols: int = 20) -> Board:
 
 class TestBoardAtomsCached:
     def test_walk_runs_once_across_many_atoms_calls(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``board.atoms()`` should walk the box tree once and replay.
 
@@ -77,6 +83,7 @@ class TestBoardAtomsCached:
         follow-ups should add zero.
         """
         import protoboard.domain.board.board as board_mod
+
         original = board_mod._walk_atoms
         call_count = 0
 
@@ -107,13 +114,15 @@ class TestBoardAtomsCached:
 
 class TestPadBucketCached:
     def test_buckets_rebuilt_once_per_unique_pad_set(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """For a stable pad-set identity, the bucket dicts should be
         built once and reused across all subsequent ``insert_pad_nodes``
         calls.
         """
         import protoboard.domain.layout.wire_utils as wu
+
         clear_pad_bucket_cache()
         # Wrap to count cache misses (i.e. actual dict rebuilds).
         original = wu._get_pad_bucket_index
@@ -142,13 +151,15 @@ class TestPadBucketCached:
         )
 
     def test_different_pad_set_identities_rebuild(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Two distinct pad-set objects must each trigger a build —
         identity-cache must NOT alias across set instances even when
         the contents are equal.
         """
         import protoboard.domain.layout.wire_utils as wu
+
         clear_pad_bucket_cache()
         miss_count = 0
         original = wu._get_pad_bucket_index
@@ -203,31 +214,45 @@ class _Ctx:
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
     schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
+    package_families: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.package_families and "R" in self.components:
+            self.package_families = sil_families(self.components["R"])
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return make_sil("R", 2)
 
 
 def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
-    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k").bind(
+        ctx.components["R"], ctx.package_families
+    )
     ctx.instances[inst.id] = inst
     ctx.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     return inst.id
 
 
 def _pin_pos(ctx: _Ctx, cid: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
+
     return pin_world_position(
-        ctx.components["R"].default_footprint(), ctx.layout.placements[cid], pin,
+        ctx.components["R"].default_footprint(ctx.package_families),
+        ctx.layout.placements[cid],
+        pin,
     )
 
 
 class TestFindOwnedWiresMemoisesPinWorldPos:
     def test_pin_world_position_resolved_once_per_pin(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """With N wires fan-out from one pin, ``pin_world_position``
         should be called once for that pin, not N times.
@@ -237,13 +262,14 @@ class TestFindOwnedWiresMemoisesPinWorldPos:
         per wire endpoint.  Now the resolution is cached for the
         lifetime of ``find_owned_wires``.
         """
-        import protoboard.domain.layout.group_ownership as go_mod
+
         call_args: list[tuple[uuid.UUID, int]] = []
 
         # Patch the import target — group_ownership re-imports inside
         # _pin_endpoint_matches_path with a local-scope from-import.
         # That means we have to monkeypatch the source module.
         import protoboard.domain.layout.placement as plc_mod
+
         original = plc_mod.pin_world_position
 
         def counting(footprint, placement, pin_num):  # type: ignore[no-untyped-def]
@@ -266,21 +292,24 @@ class TestFindOwnedWiresMemoisesPinWorldPos:
                 id=uuid.uuid4(),
                 path=[_pin_pos(ctx, cid_a, 1), _pin_pos(ctx, peer, 1)],
                 side="top",
-                a=KnotRef(id=pka.id), b=KnotRef(id=pkp.id),
+                a=KnotRef(id=pka.id),
+                b=KnotRef(id=pkp.id),
             )
             ctx.layout.add_wire(w)
         # Net + group containing only the fan-out pin's component.
         net = Net(id=uuid.uuid4(), name="N1", pins={PinRef(cid_a, 1)})
         ctx.schematic.nets[net.id] = net
         group = ComponentGroup(
-            id=uuid.uuid4(), name="G",
+            id=uuid.uuid4(),
+            name="G",
             component_ids=frozenset({cid_a}),
         )
 
         # Reset counter so the test only measures the find_owned_wires call.
         call_args.clear()
         find_owned_wires(
-            list(ctx.layout.wires), group,
+            list(ctx.layout.wires),
+            group,
             wire_net_map={w.id: net.id for w in ctx.layout.wires},
             knots=ctx.layout.knots,
             group_comp_ids=frozenset({cid_a}),
@@ -318,6 +347,7 @@ class TestCachesProduceCorrectResults:
     def test_pad_bucket_cache_returns_same_dicts_for_same_input(self) -> None:
         clear_pad_bucket_cache()
         from protoboard.domain.layout.wire_utils import _get_pad_bucket_index
+
         b = _board(rows=4, cols=4)
         pads = board_pads_union(b)
         bx1, by1 = _get_pad_bucket_index(pads)

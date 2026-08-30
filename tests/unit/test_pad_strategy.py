@@ -241,13 +241,25 @@ class TestSimplifyStrict:
         ar = AutorouterPermissiveStrategy()
 
         d_drc = drc.can_solder_wire_to_pad(
-            pad, "top", n, "bare", is_endpoint=False,
+            pad,
+            "top",
+            n,
+            "bare",
+            is_endpoint=False,
         )
         d_ar = ar.can_solder_wire_to_pad(
-            pad, "top", n, "bare", is_endpoint=False,
+            pad,
+            "top",
+            n,
+            "bare",
+            is_endpoint=False,
         )
         d_sm = sm.can_solder_wire_to_pad(
-            pad, "top", n, "bare", is_endpoint=False,
+            pad,
+            "top",
+            n,
+            "bare",
+            is_endpoint=False,
         )
         assert d_drc.verdict is Verdict.ALLOW
         assert d_ar.verdict is Verdict.ALLOW
@@ -259,7 +271,11 @@ class TestSimplifyStrict:
         pad._add_item(InsulatedWireCrossing(id=uuid.uuid4(), net=a), "top")
         sm = SimplifyStrictStrategy(StrategyConfig.from_session(None, "simplify"))
         d = sm.can_solder_wire_to_pad(
-            pad, "top", b, "insulated", is_endpoint=False,
+            pad,
+            "top",
+            b,
+            "insulated",
+            is_endpoint=False,
         )
         assert d.verdict is Verdict.REJECT
 
@@ -292,7 +308,10 @@ class TestStrategyConfigFromSession:
 
     def test_overrides_win(self) -> None:
         cfg = StrategyConfig.from_session(
-            None, "autoroute", crossing_cost=10.0, via_cost=20.0,
+            None,
+            "autoroute",
+            crossing_cost=10.0,
+            via_cost=20.0,
         )
         assert cfg.crossing_cost == 10.0
         assert cfg.via_cost == 20.0

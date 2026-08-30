@@ -20,7 +20,6 @@ from protoboard.domain.commands.group_cmds import (
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.group import (
     ComponentGroup,
     all_component_ids,
@@ -32,7 +31,8 @@ from protoboard.domain.layout.group import (
     validate_exported_pins,
     would_create_cycle,
 )
-from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
+from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+from protoboard.domain.schematic.net import PinRef
 
 # ---------------------------------------------------------------------------
 # Minimal state stub
@@ -40,16 +40,21 @@ from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 
 
 def _board() -> Board:
-    return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG,
-        height_policy=SizePolicy.HUG,
-        cell=PadAtom(
+    return Board(
+        root=BoardGrid(
             width_policy=SizePolicy.HUG,
             height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=4, cols=4, row_gap=0.0, col_gap=0.0,
-    ))
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=4,
+            cols=4,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
 
 
 @dataclass
@@ -96,9 +101,7 @@ class TestAllComponentIds:
     def test_nested_group(self) -> None:
         c1, c2, c3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         child = _make_group(comp_ids=frozenset({c2, c3}))
-        parent = _make_group(
-            comp_ids=frozenset({c1}), child_ids=frozenset({child.id})
-        )
+        parent = _make_group(comp_ids=frozenset({c1}), child_ids=frozenset({child.id}))
         groups = {child.id: child, parent.id: parent}
         assert all_component_ids(groups, parent.id) == frozenset({c1, c2, c3})
 
@@ -250,9 +253,7 @@ class TestAddToGroupCommand:
         g = _make_group("G")
         state.layout.groups[g.id] = g
         c1 = uuid.uuid4()
-        cmd = AddToGroupCommand(
-            group_id=g.id, component_ids=frozenset({c1})
-        )
+        cmd = AddToGroupCommand(group_id=g.id, component_ids=frozenset({c1}))
         cmd.apply(state)
         assert c1 in state.layout.groups[g.id].component_ids
 
@@ -261,9 +262,7 @@ class TestAddToGroupCommand:
         g = _make_group("G")
         state.layout.groups[g.id] = g
         c1 = uuid.uuid4()
-        cmd = AddToGroupCommand(
-            group_id=g.id, component_ids=frozenset({c1})
-        )
+        cmd = AddToGroupCommand(group_id=g.id, component_ids=frozenset({c1}))
         cmd.apply(state)
         cmd.revert(state)
         assert c1 not in state.layout.groups[g.id].component_ids
@@ -273,9 +272,9 @@ class TestAddToGroupCommand:
         g = _make_group("G")
         state.layout.groups[g.id] = g
         with pytest.raises(ValueError, match="cycle"):
-            AddToGroupCommand(
-                group_id=g.id, child_group_ids=frozenset({g.id})
-            ).apply(state)
+            AddToGroupCommand(group_id=g.id, child_group_ids=frozenset({g.id})).apply(
+                state
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -398,19 +397,22 @@ class TestSelectionPromotion:
         """
         c1, c2, c3, f1 = (uuid.uuid4() for _ in range(4))
         b_id, c_id, a_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-        b = ComponentGroup(
-            id=b_id, name="B", component_ids=frozenset({c1, c2})
-        )
+        b = ComponentGroup(id=b_id, name="B", component_ids=frozenset({c1, c2}))
         c = ComponentGroup(id=c_id, name="C", component_ids=frozenset({c3}))
-        a = ComponentGroup(
-            id=a_id, name="A", child_group_ids=frozenset({b_id, c_id})
-        )
+        a = ComponentGroup(id=a_id, name="A", child_group_ids=frozenset({b_id, c_id}))
         root = ComponentGroup(
             id=ROOT_GROUP_ID, name="", child_group_ids=frozenset({a_id})
         )
         groups = {ROOT_GROUP_ID: root, a_id: a, b_id: b, c_id: c}
-        names = {"A": a_id, "B": b_id, "C": c_id, "c1": c1, "c2": c2,
-                 "c3": c3, "f1": f1}
+        names = {
+            "A": a_id,
+            "B": b_id,
+            "C": c_id,
+            "c1": c1,
+            "c2": c2,
+            "c3": c3,
+            "f1": f1,
+        }
         return groups, names
 
     def test_top_level_under_active_direct_child(self) -> None:
@@ -425,7 +427,8 @@ class TestSelectionPromotion:
         # Add a freelance component directly to A and query about it.
         free_in_a = uuid.uuid4()
         groups[n["A"]] = ComponentGroup(
-            id=n["A"], name="A",
+            id=n["A"],
+            name="A",
             component_ids=frozenset({free_in_a}),
             child_group_ids=groups[n["A"]].child_group_ids,
         )
@@ -516,7 +519,7 @@ class TestSelectionPromotion:
 
 class TestInternalNetIds:
     def _build(self) -> tuple[
-        "Schematic",  # type: ignore[name-defined]  # noqa: F821
+        Schematic,  # type: ignore[name-defined]  # noqa: F821
         dict[str, uuid.UUID],
     ]:
         from protoboard.domain.schematic.net import Net, PinRef
@@ -540,24 +543,31 @@ class TestInternalNetIds:
             global_net=True,
         )
         n_empty = Net(id=uuid.uuid4(), name="N_EMPTY", pins=set())
-        sch = Schematic(nets={
-            n_internal.id: n_internal,
-            n_external.id: n_external,
-            n_global.id: n_global,
-            n_empty.id: n_empty,
-        })
-        names = {"c1": c1, "c2": c2, "c3": c3, "c4": c4,
-                 "int": n_internal.id, "ext": n_external.id,
-                 "vcc": n_global.id, "empty": n_empty.id}
+        sch = Schematic(
+            nets={
+                n_internal.id: n_internal,
+                n_external.id: n_external,
+                n_global.id: n_global,
+                n_empty.id: n_empty,
+            }
+        )
+        names = {
+            "c1": c1,
+            "c2": c2,
+            "c3": c3,
+            "c4": c4,
+            "int": n_internal.id,
+            "ext": n_external.id,
+            "vcc": n_global.id,
+            "empty": n_empty.id,
+        }
         return sch, names
 
     def test_internal_net_collected(self) -> None:
         from protoboard.domain.layout.group import internal_net_ids_for_components
 
         sch, n = self._build()
-        result = internal_net_ids_for_components(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        result = internal_net_ids_for_components(frozenset({n["c1"], n["c2"]}), sch)
         assert result == frozenset({n["int"]})
 
     def test_external_net_excluded(self) -> None:
@@ -575,18 +585,14 @@ class TestInternalNetIds:
         sch, n = self._build()
         # VCC pins are on {c1, c2}; both in the group — but VCC is global
         # and must NOT be reported as internal.
-        result = internal_net_ids_for_components(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        result = internal_net_ids_for_components(frozenset({n["c1"], n["c2"]}), sch)
         assert n["vcc"] not in result
 
     def test_empty_net_excluded(self) -> None:
         from protoboard.domain.layout.group import internal_net_ids_for_components
 
         sch, n = self._build()
-        result = internal_net_ids_for_components(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        result = internal_net_ids_for_components(frozenset({n["c1"], n["c2"]}), sch)
         assert n["empty"] not in result
 
 
@@ -596,7 +602,7 @@ class TestSchematicProjectionForGroup:
     group, and nets with fewer than 2 internal pins are dropped."""
 
     def _build(self) -> tuple[
-        "Schematic",  # type: ignore[name-defined]  # noqa: F821
+        Schematic,  # type: ignore[name-defined]  # noqa: F821
         dict[str, uuid.UUID],
     ]:
         from protoboard.domain.schematic.net import Net, PinRef
@@ -627,23 +633,29 @@ class TestSchematicProjectionForGroup:
             pins={PinRef(c1, 4), PinRef(c2, 3), PinRef(c3, 3)},
             global_net=True,
         )
-        sch = Schematic(nets={
-            n_internal.id: n_internal,
-            n_ext.id: n_ext,
-            n_lonely.id: n_lonely,
-            n_global.id: n_global,
-        })
-        return sch, {"c1": c1, "c2": c2, "c3": c3,
-                     "int": n_internal.id, "ext": n_ext.id,
-                     "lonely": n_lonely.id, "vcc": n_global.id}
+        sch = Schematic(
+            nets={
+                n_internal.id: n_internal,
+                n_ext.id: n_ext,
+                n_lonely.id: n_lonely,
+                n_global.id: n_global,
+            }
+        )
+        return sch, {
+            "c1": c1,
+            "c2": c2,
+            "c3": c3,
+            "int": n_internal.id,
+            "ext": n_ext.id,
+            "lonely": n_lonely.id,
+            "vcc": n_global.id,
+        }
 
     def test_internal_net_preserved(self) -> None:
         from protoboard.domain.layout.group import schematic_projection_for_group
 
         sch, n = self._build()
-        proj = schematic_projection_for_group(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
         assert n["int"] in proj.nets
         assert len(proj.nets[n["int"]].pins) == 2
 
@@ -653,9 +665,7 @@ class TestSchematicProjectionForGroup:
         from protoboard.domain.layout.group import schematic_projection_for_group
 
         sch, n = self._build()
-        proj = schematic_projection_for_group(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
         assert n["ext"] in proj.nets
         projected_ext = proj.nets[n["ext"]]
         component_ids = {p.component_id for p in projected_ext.pins}
@@ -667,9 +677,7 @@ class TestSchematicProjectionForGroup:
         from protoboard.domain.layout.group import schematic_projection_for_group
 
         sch, n = self._build()
-        proj = schematic_projection_for_group(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
         assert n["lonely"] not in proj.nets
 
     def test_global_net_kept_when_at_least_two_internal_pins(self) -> None:
@@ -680,15 +688,11 @@ class TestSchematicProjectionForGroup:
         from protoboard.domain.layout.group import schematic_projection_for_group
 
         sch, n = self._build()
-        proj = schematic_projection_for_group(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
         assert n["vcc"] in proj.nets
         assert proj.nets[n["vcc"]].global_net is True
         # External c3 pin dropped.
-        assert {p.component_id for p in proj.nets[n["vcc"]].pins} == {
-            n["c1"], n["c2"]
-        }
+        assert {p.component_id for p in proj.nets[n["vcc"]].pins} == {n["c1"], n["c2"]}
 
     def test_projection_preserves_net_identity(self) -> None:
         """The projected nets keep the original id/name/color so wires
@@ -696,9 +700,7 @@ class TestSchematicProjectionForGroup:
         from protoboard.domain.layout.group import schematic_projection_for_group
 
         sch, n = self._build()
-        proj = schematic_projection_for_group(
-            frozenset({n["c1"], n["c2"]}), sch
-        )
+        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
         assert proj.nets[n["int"]].name == sch.nets[n["int"]].name
         assert proj.nets[n["ext"]].name == sch.nets[n["ext"]].name
 
@@ -710,13 +712,9 @@ class TestSchematicProjectionForGroup:
 
 
 def _make_defn(pin_count: int, name: str = "DUT") -> ComponentDefinition:
-    from protoboard.domain.components.footprints import SIL
+    from tests.unit._autoroute_invariants import make_sil
 
-    return ComponentDefinition.from_footprint(
-        name=name,
-        footprint=SIL(n=pin_count),
-        pin_names={i: f"P{i}" for i in range(1, pin_count + 1)},
-    )
+    return make_sil(name, pin_count)
 
 
 def _make_inst(defn_ref: str, refdes: str) -> ComponentInstance:
@@ -729,9 +727,7 @@ class TestExposableSurface:
         inst = _make_inst("DUT", "U1")
         g = _make_group(comp_ids=frozenset({inst.id}))
         groups = {g.id: g}
-        surface = exposable_surface(
-            groups, g.id, {inst.id: inst}, {"DUT": defn}
-        )
+        surface = exposable_surface(groups, g.id, {inst.id: inst}, {"DUT": defn})
         assert surface == frozenset(
             PinRef(component_id=inst.id, pin_number=p) for p in (1, 2, 3)
         )
@@ -741,18 +737,16 @@ class TestExposableSurface:
         defn = _make_defn(pin_count=3)
         u1 = _make_inst("DUT", "U1")
         ep = PinRef(component_id=u1.id, pin_number=2)
-        b = _make_group(
-            name="B", comp_ids=frozenset({u1.id})
-        )
+        b = _make_group(name="B", comp_ids=frozenset({u1.id}))
         b = ComponentGroup(
-            id=b.id, name=b.name, component_ids=b.component_ids,
+            id=b.id,
+            name=b.name,
+            component_ids=b.component_ids,
             exported_pins=frozenset({ep}),
         )
         a = _make_group(name="A", child_ids=frozenset({b.id}))
         groups = {a.id: a, b.id: b}
-        surface = exposable_surface(
-            groups, a.id, {u1.id: u1}, {"DUT": defn}
-        )
+        surface = exposable_surface(groups, a.id, {u1.id: u1}, {"DUT": defn})
         assert ep in surface
         # A has no direct members; only B's exports show up.
         assert surface == frozenset({ep})
@@ -764,16 +758,16 @@ class TestExposableSurface:
         ep = PinRef(component_id=c1.id, pin_number=1)
         c = _make_group(name="C", comp_ids=frozenset({c1.id}))
         c = ComponentGroup(
-            id=c.id, name=c.name, component_ids=c.component_ids,
+            id=c.id,
+            name=c.name,
+            component_ids=c.component_ids,
             exported_pins=frozenset({ep}),
         )
         b = _make_group(name="B", child_ids=frozenset({c.id}))
         # B has no direct components and no exports — empty surface to A.
         a = _make_group(name="A", child_ids=frozenset({b.id}))
         groups = {a.id: a, b.id: b, c.id: c}
-        surface = exposable_surface(
-            groups, a.id, {c1.id: c1}, {"DUT": defn}
-        )
+        surface = exposable_surface(groups, a.id, {c1.id: c1}, {"DUT": defn})
         assert surface == frozenset()  # B blocks the chain.
 
     def test_chain_propagates_when_child_reexports(self) -> None:
@@ -783,19 +777,21 @@ class TestExposableSurface:
         ep = PinRef(component_id=c1.id, pin_number=1)
         c = _make_group(name="C", comp_ids=frozenset({c1.id}))
         c = ComponentGroup(
-            id=c.id, name=c.name, component_ids=c.component_ids,
+            id=c.id,
+            name=c.name,
+            component_ids=c.component_ids,
             exported_pins=frozenset({ep}),
         )
         b = _make_group(name="B", child_ids=frozenset({c.id}))
         b = ComponentGroup(
-            id=b.id, name=b.name, child_group_ids=b.child_group_ids,
+            id=b.id,
+            name=b.name,
+            child_group_ids=b.child_group_ids,
             exported_pins=frozenset({ep}),
         )
         a = _make_group(name="A", child_ids=frozenset({b.id}))
         groups = {a.id: a, b.id: b, c.id: c}
-        surface = exposable_surface(
-            groups, a.id, {c1.id: c1}, {"DUT": defn}
-        )
+        surface = exposable_surface(groups, a.id, {c1.id: c1}, {"DUT": defn})
         assert ep in surface
 
     def test_unknown_group_returns_empty(self) -> None:
@@ -830,14 +826,20 @@ class TestValidatePinRefs:
         c_comp = uuid.uuid4()
         ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
-            id=uuid.uuid4(), name="C", component_ids=frozenset({c_comp}),
+            id=uuid.uuid4(),
+            name="C",
+            component_ids=frozenset({c_comp}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B", child_group_ids=frozenset({c.id}),
+            id=uuid.uuid4(),
+            name="B",
+            child_group_ids=frozenset({c.id}),
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+            id=uuid.uuid4(),
+            name="A",
+            child_group_ids=frozenset({b.id}),
             exported_pins=frozenset({ep}),
         )
         groups = {a.id: a, b.id: b, c.id: c}
@@ -848,15 +850,21 @@ class TestValidatePinRefs:
         c_comp = uuid.uuid4()
         ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
-            id=uuid.uuid4(), name="C", component_ids=frozenset({c_comp}),
+            id=uuid.uuid4(),
+            name="C",
+            component_ids=frozenset({c_comp}),
             exported_pins=frozenset({ep}),
         )
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B", child_group_ids=frozenset({c.id}),
+            id=uuid.uuid4(),
+            name="B",
+            child_group_ids=frozenset({c.id}),
             exported_pins=frozenset({ep}),
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+            id=uuid.uuid4(),
+            name="A",
+            child_group_ids=frozenset({b.id}),
             exported_pins=frozenset({ep}),
         )
         groups = {a.id: a, b.id: b, c.id: c}
@@ -871,15 +879,20 @@ class TestValidatePinRefs:
         ep_self = PinRef(component_id=c_self, pin_number=1)
         ep_grand = PinRef(component_id=c_grand, pin_number=1)
         c = ComponentGroup(
-            id=uuid.uuid4(), name="C", component_ids=frozenset({c_grand}),
+            id=uuid.uuid4(),
+            name="C",
+            component_ids=frozenset({c_grand}),
             exported_pins=frozenset({ep_grand}),
         )
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B", child_group_ids=frozenset({c.id}),
+            id=uuid.uuid4(),
+            name="B",
+            child_group_ids=frozenset({c.id}),
             # B doesn't re-export ep_grand.
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A",
+            id=uuid.uuid4(),
+            name="A",
             component_ids=frozenset({c_self}),
             child_group_ids=frozenset({b.id}),
             exported_pins=frozenset({ep_self, ep_grand}),
@@ -901,18 +914,20 @@ class TestValidatePinRefs:
 class TestExternalPinsForGroup:
     def _build_sch(
         self, names: dict[str, uuid.UUID]
-    ) -> "Schematic":  # type: ignore[name-defined]  # noqa: F821
+    ) -> Schematic:  # type: ignore[name-defined]  # noqa: F821
         """Build a schematic with one external net (c1 in G, c_out outside)
         and one internal net (c1↔c2 both in G)."""
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.domain.schematic.schematic import Schematic
 
         n_ext = Net(
-            id=uuid.uuid4(), name="N_EXT",
+            id=uuid.uuid4(),
+            name="N_EXT",
             pins={PinRef(names["c1"], 1), PinRef(names["c_out"], 1)},
         )
         n_int = Net(
-            id=uuid.uuid4(), name="N_INT",
+            id=uuid.uuid4(),
+            name="N_INT",
             pins={PinRef(names["c1"], 2), PinRef(names["c2"], 1)},
         )
         return Schematic(nets={n_ext.id: n_ext, n_int.id: n_int})
@@ -956,12 +971,15 @@ class TestExternalPinsForGroup:
 
         ep = PinRef(component_id=c1, pin_number=1)
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B",
+            id=uuid.uuid4(),
+            name="B",
             component_ids=frozenset({c1, c2}),
             exported_pins=frozenset({ep}),
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+            id=uuid.uuid4(),
+            name="A",
+            child_group_ids=frozenset({b.id}),
         )
         groups = {a.id: a, b.id: b}
         assert external_pins_for_group(groups, a.id, sch) == frozenset({ep})
@@ -975,7 +993,8 @@ class TestExternalPinsForGroup:
         # Global net fully inside the group's component set — still external
         # by virtue of being global (reaches the whole board).
         n_vcc = Net(
-            id=uuid.uuid4(), name="VCC",
+            id=uuid.uuid4(),
+            name="VCC",
             pins={PinRef(c1, 3), PinRef(c2, 3)},
             global_net=True,
         )
@@ -983,10 +1002,12 @@ class TestExternalPinsForGroup:
         g = _make_group(comp_ids=frozenset({c1, c2}))
         groups = {g.id: g}
         result = external_pins_for_group(groups, g.id, sch)
-        assert result == frozenset({
-            PinRef(component_id=c1, pin_number=3),
-            PinRef(component_id=c2, pin_number=3),
-        })
+        assert result == frozenset(
+            {
+                PinRef(component_id=c1, pin_number=3),
+                PinRef(component_id=c2, pin_number=3),
+            }
+        )
 
     def test_pure_internal_net_not_exported(self) -> None:
         # No outside pin, not global → must not produce any exports.
@@ -996,7 +1017,9 @@ class TestExternalPinsForGroup:
 
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         n_int = Net(
-            id=uuid.uuid4(), name="N", pins={PinRef(c1, 1), PinRef(c2, 1)},
+            id=uuid.uuid4(),
+            name="N",
+            pins={PinRef(c1, 1), PinRef(c2, 1)},
         )
         sch = Schematic(nets={n_int.id: n_int})
         g = _make_group(comp_ids=frozenset({c1, c2}))
@@ -1007,9 +1030,9 @@ class TestExternalPinsForGroup:
         from protoboard.domain.layout.group import external_pins_for_group
         from protoboard.domain.schematic.schematic import Schematic
 
-        assert external_pins_for_group(
-            {}, uuid.uuid4(), Schematic(nets={})
-        ) == frozenset()
+        assert (
+            external_pins_for_group({}, uuid.uuid4(), Schematic(nets={})) == frozenset()
+        )
 
     def test_child_reexport_not_on_outside_net_not_promoted(self) -> None:
         # B re-exports c2 pin 1, but that pin lies on a fully internal net.
@@ -1023,12 +1046,15 @@ class TestExternalPinsForGroup:
 
         ep_internal = PinRef(component_id=c2, pin_number=1)
         b = ComponentGroup(
-            id=uuid.uuid4(), name="B",
+            id=uuid.uuid4(),
+            name="B",
             component_ids=frozenset({c1, c2}),
             exported_pins=frozenset({ep_internal}),
         )
         a = ComponentGroup(
-            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+            id=uuid.uuid4(),
+            name="A",
+            child_group_ids=frozenset({b.id}),
         )
         groups = {a.id: a, b.id: b}
         # N_INT (c1.pin2 ↔ c2.pin1) is fully inside A's recursive set →

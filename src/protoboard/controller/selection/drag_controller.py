@@ -38,14 +38,16 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
-from protoboard.geometry import Point, Vector
 from protoboard.controller.editing.drag_set import DragSet
 from protoboard.controller.selection.mouse_input import Intent, Mods
 from protoboard.controller.tools.drag_commit_decision import DragSeverity
+from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from protoboard.controller.editing.drag_preferences import DragPreferences
+    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
@@ -56,8 +58,6 @@ if TYPE_CHECKING:
     )
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.controller.editing.drag_preferences import DragPreferences
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
 
 __all__ = ["DragContext", "DragController", "DragOutcome", "FloatingPhase"]
 
@@ -183,9 +183,7 @@ class DragController:
         self._auto_accept_clear = auto_accept_clear
 
         groups_map = getattr(ctx.layout, "groups", {})
-        self._member_ids: frozenset[uuid.UUID] = drag_set.all_component_ids(
-            groups_map
-        )
+        self._member_ids: frozenset[uuid.UUID] = drag_set.all_component_ids(groups_map)
         self._explicit_wire_ids = wire_ids
         # Snapshot placements + wire paths so update() can translate from a
         # stable origin (re-applying delta, never compounding).
@@ -448,9 +446,7 @@ class DragController:
         A FLOATING drag is NOT finished — it waits for a CONFIRM / CANCEL intent.
         """
         return (
-            self._phase is FloatingPhase.COMMITTED
-            or self._cancelled
-            or self._was_click
+            self._phase is FloatingPhase.COMMITTED or self._cancelled or self._was_click
         )
 
     @property
@@ -521,9 +517,7 @@ class DragController:
         """Assemble the atomic :class:`MoveDragSetCommand` for this drag."""
         from protoboard.domain.commands.drag_cmds import MoveDragSetCommand
 
-        members: dict[
-            uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]
-        ] = {}
+        members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]] = {}
         for cid in self._member_ids:
             new_pl = self._ctx.layout.placements.get(cid)
             old_pl = self._floating_orig.get(cid)

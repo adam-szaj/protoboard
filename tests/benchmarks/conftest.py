@@ -8,6 +8,7 @@ for any historical comparison, but the in-repo ``m4`` board flunks the
 autoroute precondition (SHORT on entry), so new benches should target the
 synthetic suite.
 """
+
 from __future__ import annotations
 
 import sys
@@ -28,6 +29,7 @@ def pytest_configure(config: pytest.Config) -> None:
 @pytest.fixture(scope="session")
 def qt_app():
     from PySide6.QtWidgets import QApplication
+
     app = QApplication.instance() or QApplication(sys.argv)
     yield app
 
@@ -52,6 +54,7 @@ def m4_session(qt_app, m4_project):
     """EditorSession pre-loaded with the m4 project."""
     board, layout, schematic, instances, routing, lib, _ = m4_project
     from protoboard.gui.session import EditorSession
+
     session = EditorSession(board=board, library=lib)
     session.layout = layout
     session.schematic = schematic
@@ -64,6 +67,7 @@ def m4_session(qt_app, m4_project):
 def m4_board_view(qt_app, m4_session):
     """BoardView with m4 project, warmed up (cold refresh done)."""
     from protoboard.gui.board_view import BoardView
+
     view = BoardView(m4_session)
     view.refresh()  # cold — builds all groups
     return view
@@ -97,6 +101,7 @@ def _bench_library():
     but ``EditorSession.__init__`` requires a ``ComponentLibrary`` object."""
     from protoboard.paths import BUILTIN_LIBRARY_DIR
     from protoboard.services.library.loader import load_library
+
     return load_library([BUILTIN_LIBRARY_DIR])
 
 
@@ -115,6 +120,7 @@ def _bundle_to_tuple(bundle, lib):
 @pytest.fixture(scope="session")
 def synthetic_small_project(_bench_library):
     from tests.fixtures.synthetic_bench.generator import SMALL, generate_project
+
     return _bundle_to_tuple(generate_project(SMALL), _bench_library)
 
 
@@ -122,6 +128,7 @@ def synthetic_small_project(_bench_library):
 def synthetic_medium_project(_bench_library):
     """50-component perfboard project — replaces m4 as the bench workhorse."""
     from tests.fixtures.synthetic_bench.generator import MEDIUM, generate_project
+
     return _bundle_to_tuple(generate_project(MEDIUM), _bench_library)
 
 
@@ -129,13 +136,17 @@ def synthetic_medium_project(_bench_library):
 def synthetic_large_project(_bench_library):
     """150-component perfboard project — stress test for autoroute."""
     from tests.fixtures.synthetic_bench.generator import LARGE, generate_project
+
     return _bundle_to_tuple(generate_project(LARGE), _bench_library)
 
 
 @pytest.fixture(scope="session")
 def synthetic_medium_session(qt_app, synthetic_medium_project):
-    board, layout, schematic, instances, routing, lib, _components = synthetic_medium_project
+    board, layout, schematic, instances, routing, lib, _components = (
+        synthetic_medium_project
+    )
     from protoboard.gui.session import EditorSession
+
     session = EditorSession(board=board, library=lib)
     session.layout = layout
     session.schematic = schematic
@@ -147,6 +158,7 @@ def synthetic_medium_session(qt_app, synthetic_medium_project):
 @pytest.fixture(scope="session")
 def synthetic_medium_board_view(qt_app, synthetic_medium_session):
     from protoboard.gui.board_view import BoardView
+
     view = BoardView(synthetic_medium_session)
     view.refresh()  # cold — builds all groups
     return view
@@ -158,6 +170,7 @@ def synthetic_medium_routed_session(qt_app, _bench_library):
     ``layout.wires`` for benches that exercise wire-aware hot paths
     (hit_test_wire, set_highlighted_net, etc.)."""
     import copy
+
     from protoboard.gui.session import EditorSession
     from protoboard.services.routing.autorouter import autoroute
     from tests.fixtures.synthetic_bench.generator import MEDIUM, generate_project
@@ -191,6 +204,7 @@ def synthetic_medium_routed_session(qt_app, _bench_library):
 @pytest.fixture(scope="session")
 def synthetic_medium_routed_board_view(qt_app, synthetic_medium_routed_session):
     from protoboard.gui.board_view import BoardView
+
     view = BoardView(synthetic_medium_routed_session)
     view.refresh()  # cold — builds all groups
     return view

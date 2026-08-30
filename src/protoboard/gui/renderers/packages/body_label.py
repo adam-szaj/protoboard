@@ -47,7 +47,7 @@ def make_body_label(
 
     for _label, coeff in zip(label, [1.0, 0.5]):
         pen_ink = QColor(ink)
-        pen_ink.setAlphaF(pen_ink.alphaF() * alpha*coeff)
+        pen_ink.setAlphaF(pen_ink.alphaF() * alpha * coeff)
         _label.setBrush(QBrush(pen_ink))
 
     br = label[0].boundingRect()
@@ -73,7 +73,7 @@ def make_body_label(
         _label.setTransform(t)
 
     label[0].setZValue(z)
-    label[1].setZValue(Z_PIN_MODIFIERS+0.9)
+    label[1].setZValue(Z_PIN_MODIFIERS + 0.9)
 
     out: list[QGraphicsItem] = list(label)
     return out

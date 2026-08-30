@@ -13,10 +13,10 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 from protoboard.services.routing.cost_analyzer import (
-    analyze_wires,
     _bend_kind,
     _segment_unit_steps,
     _step_kind,
+    analyze_wires,
 )
 from protoboard.services.routing.cost_model import RoutingCostModel
 
@@ -134,7 +134,10 @@ class TestAnalyzer:
         cm = RoutingCostModel(direction_change=2.0)
         w = _wire(Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5))
         result = analyze_wires(
-            [w], board=board, layout=Layout(wires=WireCollection([w])), cost_model=cm,
+            [w],
+            board=board,
+            layout=Layout(wires=WireCollection([w])),
+            cost_model=cm,
         )
         # 4 ortho steps + 1 bend_90 charged at direction_change (no explicit bend knob).
         # Expect: 4 × 1.0 + 1 × 2.0 = 6.0
@@ -150,7 +153,10 @@ class TestAnalyzer:
         cm = cm.with_overrides(bend_90=5.0)
         w = _wire(Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5))
         result = analyze_wires(
-            [w], board=board, layout=Layout(wires=WireCollection([w])), cost_model=cm,
+            [w],
+            board=board,
+            layout=Layout(wires=WireCollection([w])),
+            cost_model=cm,
         )
         # 4 × 1.0 + 1 × 5.0 = 9.0
         assert result.total == 9.0
@@ -159,7 +165,9 @@ class TestAnalyzer:
         board = _perfboard(5, 5)
         w = _wire(Point(0.5, 0.5), Point(3.5, 3.5))  # 3 diagonals
         result = analyze_wires(
-            [w], board=board, layout=Layout(wires=WireCollection([w])),
+            [w],
+            board=board,
+            layout=Layout(wires=WireCollection([w])),
             cost_model=RoutingCostModel(),
         )
         expected = 3 * 1.0 * math.sqrt(2)
@@ -173,7 +181,8 @@ class TestAnalyzer:
         w_bot = _wire(Point(1.5, 0.5), Point(2.5, 0.5), side="bottom")
         result = analyze_wires(
             [w_top, w_bot],
-            board=board, layout=Layout(wires=WireCollection([w_top, w_bot])),
+            board=board,
+            layout=Layout(wires=WireCollection([w_top, w_bot])),
             cost_model=cm,
         )
         d = result.as_dict()
@@ -188,7 +197,10 @@ class TestAnalyzer:
         cm = RoutingCostModel(direction_change=0.0)
         w = _wire(Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5))
         result = analyze_wires(
-            [w], board=board, layout=Layout(wires=WireCollection([w])), cost_model=cm,
+            [w],
+            board=board,
+            layout=Layout(wires=WireCollection([w])),
+            cost_model=cm,
         )
         d = result.as_dict()
         assert "bend_90" not in d  # zero unit cost → omitted
@@ -222,12 +234,16 @@ class TestCrossings:
         # Conclusion: with autorouter-shaped paths the crossing is always
         # at_pad.  Accept either knob in the assertion.
         wire_a = _wire(  # ortho top
-            Point(0.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=True,
+            Point(0.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(  # diagonal bottom
-            Point(0.5, 0.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 0.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         # Use whichever knob the intersection lands in — but for the
         # router/analyzer to reflect the *user's* knob, both must be set.
@@ -235,13 +251,15 @@ class TestCrossings:
         layout = Layout(wires=WireCollection([wire_a, wire_b]))
         result = analyze_wires(
             [wire_a, wire_b],
-            board=board, layout=layout, cost_model=cm,
+            board=board,
+            layout=layout,
+            cost_model=cm,
         )
         d = result.as_dict()
-        assert "crossing_ii_at_pad_opposite_side" in d or \
-               "crossing_ii_off_pad_opposite_side" in d, (
-            f"expected an opposite-side ii crossing row; got {list(d)}"
-        )
+        assert (
+            "crossing_ii_at_pad_opposite_side" in d
+            or "crossing_ii_off_pad_opposite_side" in d
+        ), f"expected an opposite-side ii crossing row; got {list(d)}"
 
     def test_crossing_counted_against_outside_wire(self) -> None:
         # Analyse only wire A, but wire B exists on the board.  The
@@ -254,16 +272,21 @@ class TestCrossings:
             crossing_ii_off_pad_opposite_side=4.0,
         )
         wire_a = _wire(
-            Point(0.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=True,
+            Point(0.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(
-            Point(0.5, 0.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 0.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         result = analyze_wires(
             [wire_a],  # only A
-            board=board, layout=Layout(wires=WireCollection([wire_a, wire_b])),
+            board=board,
+            layout=Layout(wires=WireCollection([wire_a, wire_b])),
             cost_model=cm,
         )
         d = result.as_dict()
@@ -282,24 +305,31 @@ class TestCrossings:
             crossing_ii_off_pad_opposite_side=99.0,  # would-be misuse
         )
         wire_a = _wire(
-            Point(0.5, 2.5), Point(2.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=True,
+            Point(0.5, 2.5),
+            Point(2.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(
-            Point(2.5, 0.5), Point(2.5, 2.5), Point(2.5, 4.5),
-            side="bottom", insulated=True,
+            Point(2.5, 0.5),
+            Point(2.5, 2.5),
+            Point(2.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         result = analyze_wires(
             [wire_a, wire_b],
-            board=board, layout=Layout(wires=WireCollection([wire_a, wire_b])),
+            board=board,
+            layout=Layout(wires=WireCollection([wire_a, wire_b])),
             cost_model=cm,
         )
         d = result.as_dict()
         # At-pad knob should have been picked.  off_pad row may also exist
         # if a tangential segment touches off-pad, but at_pad must be there.
-        assert d.get("crossing_ii_at_pad_opposite_side", 0.0) > 0.0, (
-            f"at_pad knob never charged: {list(d)}"
-        )
+        assert (
+            d.get("crossing_ii_at_pad_opposite_side", 0.0) > 0.0
+        ), f"at_pad knob never charged: {list(d)}"
 
     def test_bare_bare_crossing_marks_total_infinite(self) -> None:
         # Two bare wires crossing on the same side → legacy bare×bare ban.
@@ -307,16 +337,21 @@ class TestCrossings:
         board = _perfboard(5, 5)
         cm = RoutingCostModel()  # default crossing_bare_bare = inf
         wire_a = _wire(
-            Point(0.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=False,
+            Point(0.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=False,
         )
         wire_b = _wire(
-            Point(2.5, 0.5), Point(2.5, 4.5),
-            side="top", insulated=False,
+            Point(2.5, 0.5),
+            Point(2.5, 4.5),
+            side="top",
+            insulated=False,
         )
         result = analyze_wires(
             [wire_a, wire_b],
-            board=board, layout=Layout(wires=WireCollection([wire_a, wire_b])),
+            board=board,
+            layout=Layout(wires=WireCollection([wire_a, wire_b])),
             cost_model=cm,
         )
         assert math.isinf(result.total)
@@ -329,16 +364,21 @@ class TestCrossings:
             crossing_ii_off_pad_opposite_side=4.0,
         )
         wire_a = _wire(
-            Point(0.5, 0.5), Point(2.5, 0.5),
-            side="top", insulated=True,
+            Point(0.5, 0.5),
+            Point(2.5, 0.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(
-            Point(7.5, 7.5), Point(9.5, 9.5),
-            side="bottom", insulated=True,
+            Point(7.5, 7.5),
+            Point(9.5, 9.5),
+            side="bottom",
+            insulated=True,
         )
         result = analyze_wires(
             [wire_a, wire_b],
-            board=board, layout=Layout(wires=WireCollection([wire_a, wire_b])),
+            board=board,
+            layout=Layout(wires=WireCollection([wire_a, wire_b])),
             cost_model=cm,
         )
         # Nothing crosses → no crossing rows.
@@ -359,12 +399,16 @@ class TestCrossings:
             layer_change=0.0,
         )
         wire_a = _wire(
-            Point(0.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=True,
+            Point(0.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(
-            Point(0.5, 0.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 0.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         # No layout, no all_board_wires — analyzer has no list of board
         # wires to cross-check against, so crossings are silently
@@ -387,28 +431,41 @@ class TestCrossings:
 
         board = _perfboard(5, 5)
         wire_top = _wire(  # diagonal top through (2.5, 2.5)
-            Point(0.5, 0.5), Point(1.5, 1.5), Point(2.5, 2.5),
-            Point(3.5, 3.5), Point(4.5, 4.5),
-            side="top", insulated=True,
+            Point(0.5, 0.5),
+            Point(1.5, 1.5),
+            Point(2.5, 2.5),
+            Point(3.5, 3.5),
+            Point(4.5, 4.5),
+            side="top",
+            insulated=True,
         )
         wire_bot = _wire(  # bend on bottom at (2.5, 2.5)
-            Point(0.5, 2.5), Point(1.5, 2.5), Point(2.5, 2.5),
-            Point(3.5, 3.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 2.5),
+            Point(1.5, 2.5),
+            Point(2.5, 2.5),
+            Point(3.5, 3.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         lay = Layout(wires=WireCollection([wire_top, wire_bot]))
         pad_idx = PadIndex(
-            board=board, layout=lay,
+            board=board,
+            layout=lay,
             schematic=Schematic(nets={}),
-            components={}, instances={},
+            components={},
+            instances={},
         )
         cm = RoutingCostModel().with_overrides(
             crossing_ii_at_pad_opposite_side=5.0,
-            under_component_top=0.0, layer_change=0.0,
+            under_component_top=0.0,
+            layer_change=0.0,
         )
         result = analyze_wires(
             [wire_top, wire_bot],
-            board=board, layout=lay, cost_model=cm,
+            board=board,
+            layout=lay,
+            cost_model=cm,
             all_board_wires=[wire_top, wire_bot],
             pad_index=pad_idx,
         )
@@ -432,21 +489,31 @@ class TestCrossings:
         board = _perfboard(5, 5)
         cm = RoutingCostModel().with_overrides(
             crossing_ii_at_pad_opposite_side=4.0,
-            under_component_top=0.0, layer_change=0.0,
+            under_component_top=0.0,
+            layer_change=0.0,
         )
         wire_top = _wire(  # all-diagonal top, straight line through (2.5,2.5)
-            Point(0.5, 0.5), Point(1.5, 1.5), Point(2.5, 2.5),
-            Point(3.5, 3.5), Point(4.5, 4.5),
-            side="top", insulated=True,
+            Point(0.5, 0.5),
+            Point(1.5, 1.5),
+            Point(2.5, 2.5),
+            Point(3.5, 3.5),
+            Point(4.5, 4.5),
+            side="top",
+            insulated=True,
         )
         wire_bot = _wire(  # bottom: ortho then diag, BEND at (2.5,2.5)
-            Point(0.5, 2.5), Point(1.5, 2.5), Point(2.5, 2.5),
-            Point(3.5, 3.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 2.5),
+            Point(1.5, 2.5),
+            Point(2.5, 2.5),
+            Point(3.5, 3.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         result = analyze_wires(
             [wire_top, wire_bot],
-            board=board, layout=Layout(wires=WireCollection([wire_top, wire_bot])),
+            board=board,
+            layout=Layout(wires=WireCollection([wire_top, wire_bot])),
             cost_model=cm,
             all_board_wires=[wire_top, wire_bot],
         )
@@ -454,9 +521,9 @@ class TestCrossings:
         # The bend-point crossing must register exactly once (not twice,
         # which would happen if both adjacent segments of the bend
         # counted separately).
-        assert d.get("crossing_ii_at_pad_opposite_side") == 4.0, (
-            f"expected 1×4.0; got {d}"
-        )
+        assert (
+            d.get("crossing_ii_at_pad_opposite_side") == 4.0
+        ), f"expected 1×4.0; got {d}"
 
     def test_crossing_row_shown_when_knob_is_zero(self) -> None:
         # Tuning workflow: the user wants to see what crossings exist
@@ -465,15 +532,20 @@ class TestCrossings:
         # The default RoutingCostModel has all granular crossing knobs
         # at 0.0, so this is the typical fresh-project case.
         cm = RoutingCostModel().with_overrides(
-            under_component_top=0.0, layer_change=0.0,
+            under_component_top=0.0,
+            layer_change=0.0,
         )
         wire_a = _wire(
-            Point(0.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=True,
+            Point(0.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(
-            Point(0.5, 0.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 0.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         result = analyze_wires(
             [wire_a, wire_b],
@@ -500,12 +572,16 @@ class TestCrossings:
             layer_change=0.0,
         )
         wire_a = _wire(
-            Point(0.5, 2.5), Point(4.5, 2.5),
-            side="top", insulated=True,
+            Point(0.5, 2.5),
+            Point(4.5, 2.5),
+            side="top",
+            insulated=True,
         )
         wire_b = _wire(
-            Point(0.5, 0.5), Point(4.5, 4.5),
-            side="bottom", insulated=True,
+            Point(0.5, 0.5),
+            Point(4.5, 4.5),
+            side="bottom",
+            insulated=True,
         )
         result = analyze_wires(
             [wire_a],
@@ -524,16 +600,21 @@ class TestCrossings:
             crossing_bare_bare_diagonal=2.0,
         )
         wire_a = _wire(  # / passing through (2.0, 2.0)
-            Point(0.5, 3.5), Point(3.5, 0.5),
-            side="top", insulated=False,
+            Point(0.5, 3.5),
+            Point(3.5, 0.5),
+            side="top",
+            insulated=False,
         )
         wire_b = _wire(  # \ passing through (2.0, 2.0)
-            Point(0.5, 0.5), Point(3.5, 3.5),
-            side="top", insulated=False,
+            Point(0.5, 0.5),
+            Point(3.5, 3.5),
+            side="top",
+            insulated=False,
         )
         result = analyze_wires(
             [wire_a, wire_b],
-            board=board, layout=Layout(wires=WireCollection([wire_a, wire_b])),
+            board=board,
+            layout=Layout(wires=WireCollection([wire_a, wire_b])),
             cost_model=cm,
         )
         d = result.as_dict()

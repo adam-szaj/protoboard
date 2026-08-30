@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     pass
 
 from protoboard.types import NetId
+
 WireType = Literal["bare", "insulated"]
 
 
@@ -94,15 +95,15 @@ class Decision:
     net_to_assign: NetId | None = None
 
     @classmethod
-    def allow(cls, cost: float = 0.0) -> "Decision":
+    def allow(cls, cost: float = 0.0) -> Decision:
         return cls(Verdict.ALLOW, cost=cost)
 
     @classmethod
-    def reject(cls, reason: str) -> "Decision":
+    def reject(cls, reason: str) -> Decision:
         return cls(Verdict.REJECT, reason=reason, cost=float("inf"))
 
     @classmethod
-    def assign(cls, net: NetId, reason: str | None = None) -> "Decision":
+    def assign(cls, net: NetId, reason: str | None = None) -> Decision:
         return cls(Verdict.ASSIGN_NET, reason=reason, net_to_assign=net)
 
 
@@ -177,10 +178,10 @@ class StrategyConfig:
     @classmethod
     def from_session(
         cls,
-        session: "object",
+        session: object,
         subsystem: SubsystemName,
         **overrides: float | bool | str,
-    ) -> "StrategyConfig":
+    ) -> StrategyConfig:
         """Compose a config from a session's project settings plus the
         subsystem's defaults.
 
@@ -201,9 +202,7 @@ class StrategyConfig:
         # Project-level — read defensively so EditorSession with no
         # ``settings`` attribute (legacy / unit-test sessions) works.
         proj_settings = getattr(session, "settings", None) if session else None
-        strict_tape = bool(
-            getattr(proj_settings, "strict_tape_joints", False)
-        )
+        strict_tape = bool(getattr(proj_settings, "strict_tape_joints", False))
 
         if subsystem == "drc":
             defaults: dict[str, float | bool | str] = dict(
@@ -370,8 +369,7 @@ class _BaseStrategy:
 
     def _is_pad_blocked_by_body(self, pad: Pad, layer: LayerId) -> bool:
         return any(
-            isinstance(it, ComponentBody)
-            for it in pad.physically_blocked_on(layer)
+            isinstance(it, ComponentBody) for it in pad.physically_blocked_on(layer)
         )
 
     def _insulated_conflict(
@@ -405,8 +403,7 @@ class DRCEnforcingStrategy(_BaseStrategy):
     ) -> Decision:
         if self._is_pad_blocked_by_body(pad, layer):
             return Decision.reject(
-                f"pad at {pad.position} on {layer} is blocked by a "
-                f"component body"
+                f"pad at {pad.position} on {layer} is blocked by a " f"component body"
             )
         net = self._pad_net(pad, layer)
         if net is SHORT_CIRCUIT:
@@ -423,8 +420,12 @@ class DRCEnforcingStrategy(_BaseStrategy):
             # Insulated endpoint = solder contact (treated as bare for
             # net conflicts). Insulated interior is a physical-only
             # blocker, no net conflict.
-            if is_endpoint and net is not None and our_net is not None \
-                    and net != our_net:
+            if (
+                is_endpoint
+                and net is not None
+                and our_net is not None
+                and net != our_net
+            ):
                 return Decision.reject(
                     f"insulated wire endpoint of net {our_net} would "
                     f"short with net {net} at {pad.position} ({layer})"
@@ -447,7 +448,11 @@ class DRCEnforcingStrategy(_BaseStrategy):
         # "Route through" = interior segment crossing. Endpoint
         # semantics flow through can_solder_wire_to_pad instead.
         return self.can_solder_wire_to_pad(
-            pad, layer, our_net, wire_type, is_endpoint=False,
+            pad,
+            layer,
+            our_net,
+            wire_type,
+            is_endpoint=False,
         )
 
     def can_form_t_junction(
@@ -502,14 +507,18 @@ class DRCEnforcingStrategy(_BaseStrategy):
             InsulatedWireCrossing,
             InsulatedWireItem,
         )
+
         for layer in pad.layers.layer_ids():
             for it in pad.physically_blocked_on(layer):
-                if isinstance(it, (
-                    BareWireItem,
-                    BareWireCrossing,
-                    InsulatedWireItem,
-                    InsulatedWireCrossing,
-                )):
+                if isinstance(
+                    it,
+                    (
+                        BareWireItem,
+                        BareWireCrossing,
+                        InsulatedWireItem,
+                        InsulatedWireCrossing,
+                    ),
+                ):
                     return Decision.reject(
                         f"pin at {pad.position} cannot share its pad "
                         f"with a wire (any net, any layer) — re-route "
@@ -593,20 +602,15 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
                 # historical behaviour.
                 return Decision.reject("unknown wire net on netted pad")
             if net != our_net:
-                return Decision.reject(
-                    f"bare wire would short {our_net} and {net}"
-                )
+                return Decision.reject(f"bare wire would short {our_net} and {net}")
             return Decision.allow(cost=0.0)  # same-net overlap is free
         # Insulated
-        if is_endpoint and net is not None and our_net is not None \
-                and net != our_net:
+        if is_endpoint and net is not None and our_net is not None and net != our_net:
             return Decision.reject(
                 f"insulated endpoint would short {our_net} and {net}"
             )
         if self._insulated_conflict(pad, layer, our_net):
-            return Decision.reject(
-                "insulated tangle with another insulated wire"
-            )
+            return Decision.reject("insulated tangle with another insulated wire")
         return Decision.allow(cost=self.config.crossing_cost)
 
     def can_route_through(
@@ -617,7 +621,11 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
         wire_type: WireType,
     ) -> Decision:
         return self.can_solder_wire_to_pad(
-            pad, layer, our_net, wire_type, is_endpoint=False,
+            pad,
+            layer,
+            our_net,
+            wire_type,
+            is_endpoint=False,
         )
 
     def can_form_t_junction(
@@ -630,7 +638,11 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
     ) -> Decision:
         # Same hard rules as DRC — net conflicts are never legal.
         return DRCEnforcingStrategy(self.config).can_form_t_junction(
-            pad, layer, through_wire_net, incoming_wire_net, cross_layer,
+            pad,
+            layer,
+            through_wire_net,
+            incoming_wire_net,
+            cross_layer,
         )
 
     def can_place_pin(
@@ -691,7 +703,11 @@ class SimplifyStrictStrategy(_BaseStrategy):
         is_endpoint: bool,
     ) -> Decision:
         base = self._drc().can_solder_wire_to_pad(
-            pad, layer, our_net, wire_type, is_endpoint,
+            pad,
+            layer,
+            our_net,
+            wire_type,
+            is_endpoint,
         )
         if base.verdict is not Verdict.ALLOW:
             return base
@@ -707,13 +723,11 @@ class SimplifyStrictStrategy(_BaseStrategy):
                     return Decision.reject(
                         "simplify rejects bare-on-bare crossing at pad"
                     )
-        if wire_type == "insulated" \
-                and not self.config.allow_insulated_crossing_on_pad:
+        if wire_type == "insulated" and not self.config.allow_insulated_crossing_on_pad:
             for it in pad.physically_blocked_on(layer):
                 if isinstance(it, (InsulatedWireItem, InsulatedWireCrossing)):
                     return Decision.reject(
-                        "simplify rejects insulated-on-insulated "
-                        "crossing at pad"
+                        "simplify rejects insulated-on-insulated " "crossing at pad"
                     )
         return base
 
@@ -725,7 +739,11 @@ class SimplifyStrictStrategy(_BaseStrategy):
         wire_type: WireType,
     ) -> Decision:
         return self.can_solder_wire_to_pad(
-            pad, layer, our_net, wire_type, is_endpoint=False,
+            pad,
+            layer,
+            our_net,
+            wire_type,
+            is_endpoint=False,
         )
 
     def can_form_t_junction(
@@ -737,7 +755,11 @@ class SimplifyStrictStrategy(_BaseStrategy):
         cross_layer: bool,
     ) -> Decision:
         return self._drc().can_form_t_junction(
-            pad, layer, through_wire_net, incoming_wire_net, cross_layer,
+            pad,
+            layer,
+            through_wire_net,
+            incoming_wire_net,
+            cross_layer,
         )
 
     def can_place_pin(
@@ -789,8 +811,13 @@ def make_strategy(
     strategy can instantiate the concrete class directly with their
     own :class:`StrategyConfig`.
     """
-    cfg = config if config is not None else StrategyConfig.from_session(
-        None, subsystem,
+    cfg = (
+        config
+        if config is not None
+        else StrategyConfig.from_session(
+            None,
+            subsystem,
+        )
     )
     if subsystem == "drc":
         return DRCEnforcingStrategy(cfg)

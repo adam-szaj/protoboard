@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 """The wire-edit overlay draws a bright span polyline over the picked range."""
+
 from __future__ import annotations
 
 from protoboard.geometry import Point

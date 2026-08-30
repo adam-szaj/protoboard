@@ -3,43 +3,43 @@ nets:
   name: Net-(J2-1)
   pins:
   - component_id: d826a0d6-30ad-41d2-83b4-99d2bd83bbb7
-    pin_number: 1
+    meta_pin: 1
   - component_id: a1d13660-1a8b-4d19-a56a-278549f98dc5
-    pin_number: 2
+    meta_pin: 2
 - id: 3d002ce4-1205-45b5-abbe-13a70cc7d8d2
   name: Net-(J2-2)
   pins:
   - component_id: 5f0b9032-2f81-4328-a2e1-f559d2180e8f
-    pin_number: 1
+    meta_pin: 1
   - component_id: d826a0d6-30ad-41d2-83b4-99d2bd83bbb7
-    pin_number: 2
+    meta_pin: 2
   - component_id: a1d13660-1a8b-4d19-a56a-278549f98dc5
-    pin_number: 3
+    meta_pin: 3
 - id: f9acfde7-42a6-4d10-a28b-88551de6ac73
   name: Net-(J1-1)
   pins:
   - component_id: a1d13660-1a8b-4d19-a56a-278549f98dc5
-    pin_number: 1
+    meta_pin: 1
   - component_id: d826a0d6-30ad-41d2-83b4-99d2bd83bbb7
-    pin_number: 3
+    meta_pin: 3
 - id: 530246e3-2ac4-434d-b402-3287b8910d73
   name: Net-(J6-1)
   pins:
   - component_id: d7078cd5-f0ae-4603-9891-cedf89c2bf9f
-    pin_number: 2
+    meta_pin: 2
   - component_id: 90b1d120-16bc-4cb1-a383-7d31048b7023
-    pin_number: 1
+    meta_pin: 1
 - id: 2e9a1c0e-94de-4b0b-b442-e3fde494b367
   name: Net-(J6-2)
   pins:
   - component_id: d7078cd5-f0ae-4603-9891-cedf89c2bf9f
-    pin_number: 3
+    meta_pin: 3
   - component_id: 90b1d120-16bc-4cb1-a383-7d31048b7023
-    pin_number: 2
+    meta_pin: 2
 - id: b199845f-b050-4c3c-9092-a561595a2bef
   name: Net-(J6-3)
   pins:
   - component_id: 90b1d120-16bc-4cb1-a383-7d31048b7023
-    pin_number: 3
+    meta_pin: 3
   - component_id: d7078cd5-f0ae-4603-9891-cedf89c2bf9f
-    pin_number: 1
+    meta_pin: 1

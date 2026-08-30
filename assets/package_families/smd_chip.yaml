@@ -1,34 +1,21 @@
 # SPDX-License-Identifier: MIT
-# Package-family catalogue — SMD chip bodies (0805 / 0603 imperial).
-#
-# A chip resistor / capacitor is a flat two-terminal prism that lies on two
-# adjacent metallised pads WITHOUT covering a hole: it occupies space but not
-# an opening (body_blocks stays False — the default — so the collision model
-# treats it as a low body, not a hole blocker).  Both sizes can be laid out
-# ortho (along a row/column) or diag (45°) — that is a placement rotation, the
-# package geometry is the same.
-#
-# Local-frame dims: lx along the terminal axis, ly across it, lz off-board
-# elevation.  Terminals sit one hole apart
-# (the closest a protoboard allows); the body is rendered centred on the pad
-# pair.
 families:
-  - family: SMD-0805
+  - family: chip-smd/imperial
     extends: prism_smd
-    label: "0805 (2.0 x 1.25 mm SMD chip)"
+    label: "Imperial SMD chip"
     color: "#cdd2d6"
     edge: sharp
+    default: "0805"
     variants:
-      - id: typ
-        label: "Typical (2.0 x 1.25 x 0.55 mm)"
-        dims: {lx: 2.0, ly: 1.25, lz: 0.55, corner_radius: 0.0}
-
-  - family: SMD-0603
-    extends: prism_smd
-    label: "0603 (1.6 x 0.8 mm SMD chip)"
-    color: "#cdd2d6"
-    edge: sharp
-    variants:
-      - id: typ
-        label: "Typical (1.6 x 0.8 x 0.45 mm)"
+      - id: "0402"
+        label: "0402 (1.0 x 0.5 mm)"
+        dims: {lx: 1.0, ly: 0.5, lz: 0.35, corner_radius: 0.0}
+      - id: "0603"
+        label: "0603 (1.6 x 0.8 mm)"
         dims: {lx: 1.6, ly: 0.8, lz: 0.45, corner_radius: 0.0}
+      - id: "0805"
+        label: "0805 (2.0 x 1.25 mm)"
+        dims: {lx: 2.0, ly: 1.25, lz: 0.55, corner_radius: 0.0}
+      - id: "1206"
+        label: "1206 (3.2 x 1.6 mm)"
+        dims: {lx: 3.2, ly: 1.6, lz: 0.6, corner_radius: 0.0}

@@ -92,7 +92,9 @@ class TestDecoratorBasic:
         def fb() -> None: ...
 
         enable()
-        fa(); fa(); fa()
+        fa()
+        fa()
+        fa()
         fb()
         s = snapshot()
         assert s["a"] == 3
@@ -106,7 +108,9 @@ class TestDecoratorBasic:
         def f2() -> None: ...
 
         enable()
-        f1(); f2(); f1()
+        f1()
+        f2()
+        f1()
         assert snapshot()["shared"] == 3
 
 
@@ -118,7 +122,8 @@ class TestContextManager:
         disable()
         f()  # not counted
         with counters_enabled():
-            f(); f()
+            f()
+            f()
         f()  # not counted again
         assert snapshot()["ctx"] == 2
 
@@ -140,7 +145,9 @@ class TestContextManager:
 
         # Pre-populate.
         enable()
-        f(); f(); f()
+        f()
+        f()
+        f()
         assert snapshot()["fresh"] == 3
 
         with fresh_counters() as cnts:
@@ -159,7 +166,8 @@ class TestContextManager:
         with counters_enabled():
             f()
             with counters_enabled():
-                f(); f()
+                f()
+                f()
             f()
         assert snapshot()["nest"] == 4
 
@@ -214,6 +222,7 @@ class TestHierarchicalContext:
     def test_same_leaf_under_different_parents(self) -> None:
         """Calling the same leaf under two different parents records
         them as distinct paths."""
+
         @counted("leaf")
         def leaf() -> None: ...
 
@@ -279,6 +288,7 @@ class TestHierarchicalContext:
         """If the decorated body raises, the label stack must still be
         popped — otherwise subsequent calls would inherit a stale
         parent."""
+
         @counted("inner")
         def inner() -> None:
             pass
@@ -320,7 +330,8 @@ class TestRollup:
 
         @counted("refresh")
         def refresh() -> None:
-            walk(); walk()
+            walk()
+            walk()
 
         enable()
         refresh()
@@ -339,9 +350,12 @@ class TestDelta:
         def f2() -> None: ...
 
         enable()
-        f1(); f1()
+        f1()
+        f1()
         baseline = snapshot()
-        f1(); f1(); f2()
+        f1()
+        f1()
+        f2()
         d = delta(baseline)
         assert d == {"d1": 2, "d2": 1}
 
@@ -549,6 +563,7 @@ class TestPathFilter:
 
     def test_semicolon_alternatives(self) -> None:
         """Format from the user request: ``a.b.c.*;g.h.c.*``."""
+
         @counted("leaf")
         def leaf() -> None: ...
 
@@ -556,6 +571,7 @@ class TestPathFilter:
         def build_chain(*labels: str):
             def innermost():
                 leaf()
+
             fn = innermost
             for lab in reversed(labels):
                 fn = counted(lab)(fn)

@@ -30,21 +30,22 @@ from typing import cast
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
-from protoboard.domain.commands.base import ComponentState
-from protoboard.domain.layout.placement import ComponentPlacement, move_blocked
-from protoboard.domain.layout.wire import Wire
-from protoboard.geometry import Point
 from protoboard.controller.editing.drag_commit import classify_drag_commit
 from protoboard.controller.ports import Mods
 from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     WireSelectable,
 )
-from protoboard.gui.session import EditorSession
 from protoboard.controller.tools.drag_commit_decision import (
     DragCommitDecision,
     DragSeverity,
 )
+from protoboard.domain.commands.base import ComponentState
+from protoboard.domain.layout.placement import ComponentPlacement, move_blocked
+from protoboard.domain.layout.wire import Wire
+from protoboard.geometry import Point
+from protoboard.gui.session import EditorSession
+
 # Composed (ViewToolMixin + controller tool), not the bare controller class:
 # these tests drive on_press/on_move, which need the tool's real Qt preview
 # (HeadlessBoardView has a real QGraphicsScene — no QWidget/event loop, but
@@ -125,9 +126,7 @@ class TestSelectComponent:
         assert _selected_kinds(tool) == {"component"}
         assert inst.id in tool._selected_ids
 
-    def test_click_empty_space_selects_nothing(
-        self, session: EditorSession
-    ) -> None:
+    def test_click_empty_space_selects_nothing(self, session: EditorSession) -> None:
         view = _headless(session)
         _place(view, 0.5, 0.5)
         tool = _select_tool(view)
@@ -136,9 +135,7 @@ class TestSelectComponent:
         tool.on_release(pointer(4.5, 4.5))
         assert tool._selection.is_empty()
 
-    def test_component_hit_carries_pin_number(
-        self, session: EditorSession
-    ) -> None:
+    def test_component_hit_carries_pin_number(self, session: EditorSession) -> None:
         # Clicking a pad centre where a pin sits is a pin-scoped component hit
         # (a "pad" is not a distinct Hit.kind — it is a component + pin_number).
         view = _headless(session)
@@ -164,9 +161,7 @@ class TestSelectWire:
         session.layout_changed.emit()
         return w
 
-    def test_wire_selectable_reports_wire_kind(
-        self, session: EditorSession
-    ) -> None:
+    def test_wire_selectable_reports_wire_kind(self, session: EditorSession) -> None:
         # Pin beats wire in hit priority, so wires are selected through the
         # service (or a rubber band) rather than a click on a shared pad.
         view = _headless(session)
@@ -176,9 +171,7 @@ class TestSelectWire:
         assert _selected_kinds(tool) == {"wire"}
         assert wire.id in tool._selected_wire_ids
 
-    def test_wire_click_midspan_selects_wire(
-        self, session: EditorSession
-    ) -> None:
+    def test_wire_click_midspan_selects_wire(self, session: EditorSession) -> None:
         # A point on the wire body that is NOT a component pin resolves to the
         # wire (nothing else is there on the empty board).
         view = _headless(session)
@@ -202,17 +195,17 @@ class TestSelectPad:
 
 
 class TestMultiSelect:
-    def test_set_many_selects_all_components(
-        self, session: EditorSession
-    ) -> None:
+    def test_set_many_selects_all_components(self, session: EditorSession) -> None:
         view = _headless(session)
         _place(view, 0.5, 0.5)
         _place(view, 3.5, 0.5)
         tool = _select_tool(view)
-        tool._selection.set_many([
-            ComponentSelectable(component_id=cid, placement=pl)
-            for cid, pl in session.layout.placements.items()
-        ])
+        tool._selection.set_many(
+            [
+                ComponentSelectable(component_id=cid, placement=pl)
+                for cid, pl in session.layout.placements.items()
+            ]
+        )
         assert tool._selected_ids == set(session.layout.placements.keys())
         assert len(tool._selected_ids) == 2
 
@@ -275,12 +268,11 @@ class TestVerbParity:
         # Sub-commit 5: the RMB mouse chord dispatches to secondary_action,
         # which publishes the item context (parity with the old on_right_press).
         from protoboard.controller.ports import RIGHT_BUTTON
+
         view = _headless(session)
         inst = _place(view, 0.5, 0.5)
         tool = _select_tool(view)
-        consumed = tool._mouse_context_menu(
-            pointer(0.5, 0.5, button=RIGHT_BUTTON)
-        )
+        consumed = tool._mouse_context_menu(pointer(0.5, 0.5, button=RIGHT_BUTTON))
         assert consumed is True
         assert view.notifications.contexts[-1].hit == ("component", inst.id)
 
@@ -305,9 +297,7 @@ class TestVerbParity:
         ev = tool.empty_action(Point(4.5, 4.5), Mods())
         assert ev.objects == ()
 
-    def test_empty_action_is_a_pure_query(
-        self, session: EditorSession
-    ) -> None:
+    def test_empty_action_is_a_pure_query(self, session: EditorSession) -> None:
         # Hovering an object must not select it or change interaction state.
         view = _headless(session)
         _place(view, 0.5, 0.5)
@@ -324,9 +314,7 @@ class TestVerbParity:
 
 
 class TestHoverThrottle:
-    def test_fire_hover_publishes_reply(
-        self, session: EditorSession
-    ) -> None:
+    def test_fire_hover_publishes_reply(self, session: EditorSession) -> None:
         # Simulate the throttle's trailing fire: the host runs empty_action on
         # the active tool and publishes the enriched reply to notify_hover.
         # (The park-latest coalescing itself is covered in test_throttle.py.)
@@ -357,9 +345,7 @@ class TestControllerState:
         assert armed.state == "move.float.rotate"
         assert view.notifications.controller_states[-1] == "move.float.rotate"
 
-    def test_switch_to_move_transitions_state(
-        self, session: EditorSession
-    ) -> None:
+    def test_switch_to_move_transitions_state(self, session: EditorSession) -> None:
         view = _headless(session)
         _place(view, 0.5, 0.5)
         tool = _select_tool(view)
@@ -370,9 +356,7 @@ class TestControllerState:
         assert armed.state == "move.float.move"
         assert view.notifications.controller_states[-1] == "move.float.rotate"
 
-    def test_cancel_reverts_and_rearms(
-        self, session: EditorSession
-    ) -> None:
+    def test_cancel_reverts_and_rearms(self, session: EditorSession) -> None:
         # Task 4: cancel reverts the pending op but RE-ARMS instead of
         # returning to SelectTool — the tool stays active on the (unchanged)
         # selection.
@@ -387,9 +371,7 @@ class TestControllerState:
         assert view.active_tool is armed
         assert armed._armed is not None and not armed._armed.finished
 
-    def test_arm_without_selection_stays_idle(
-        self, session: EditorSession
-    ) -> None:
+    def test_arm_without_selection_stays_idle(self, session: EditorSession) -> None:
         # The negative case: arming rotate with nothing selected must NOT enter
         # an armed state — it stays select.idle and publishes no transition.
         view = _headless(session)
@@ -463,9 +445,7 @@ class TestMoveComponent:
 
 
 class TestRotateComponent:
-    def test_r_arms_then_steps_rotation(
-        self, session: EditorSession
-    ) -> None:
+    def test_r_arms_then_steps_rotation(self, session: EditorSession) -> None:
         view = _headless(session)
         inst = _place(view, 0.5, 0.5)
         tool = _select_tool(view)
@@ -526,9 +506,7 @@ class TestRotateComponent:
         assert session.layout.placements[inst.id].rotation == before
         assert len(session.stack._undo) == depth  # nothing committed
 
-    def test_rotation_undo_restores_orientation(
-        self, session: EditorSession
-    ) -> None:
+    def test_rotation_undo_restores_orientation(self, session: EditorSession) -> None:
         view = _headless(session)
         inst = _place(view, 0.5, 0.5)
         tool = _select_tool(view)
@@ -560,11 +538,14 @@ class TestMoveCollision:
         return r2
 
     def _move_blocked(
-        self, session: EditorSession, comp_id: uuid.UUID,
+        self,
+        session: EditorSession,
+        comp_id: uuid.UUID,
         placement: ComponentPlacement,
     ) -> bool:
         return move_blocked(
-            comp_id, placement,
+            comp_id,
+            placement,
             instances=dict(session.instances.items()),
             components={k: session.components[k] for k in session.components},
             layout=session.layout,
@@ -576,29 +557,21 @@ class TestMoveCollision:
         # R2 shifted half a cell onto R1's body: bodies overlap, no pad shared.
         view = _headless(session)
         r2 = self._place_two(view)
-        overlap = dc.replace(
-            session.layout.placements[r2.id], position=Point(0.5, 0.0)
-        )
+        overlap = dc.replace(session.layout.placements[r2.id], position=Point(0.5, 0.0))
         assert self._move_blocked(session, r2.id, overlap) is True
 
-    def test_shared_pad_is_not_blocked(
-        self, session: EditorSession
-    ) -> None:
+    def test_shared_pad_is_not_blocked(self, session: EditorSession) -> None:
         # Landing R2 exactly on R1 shares both pads — a legal soldering
         # scenario routed to the conflict resolver, never a hard block.
         view = _headless(session)
         r2 = self._place_two(view)
-        shared = dc.replace(
-            session.layout.placements[r2.id], position=Point(0.5, 0.5)
-        )
+        shared = dc.replace(session.layout.placements[r2.id], position=Point(0.5, 0.5))
         assert self._move_blocked(session, r2.id, shared) is False
 
     def test_far_move_is_not_blocked(self, session: EditorSession) -> None:
         view = _headless(session)
         r2 = self._place_two(view)
-        clear = dc.replace(
-            session.layout.placements[r2.id], position=Point(4.5, 4.5)
-        )
+        clear = dc.replace(session.layout.placements[r2.id], position=Point(4.5, 4.5))
         assert self._move_blocked(session, r2.id, clear) is False
 
     def test_classifier_reports_hard_for_body_overlap(
@@ -613,9 +586,7 @@ class TestMoveCollision:
         )
         session.invalidate_graph()
 
-        decision = classify_drag_commit(
-            session, {r2.id}, set(), frozenset({r2.id})
-        )
+        decision = classify_drag_commit(session, {r2.id}, set(), frozenset({r2.id}))
         assert decision.severity is DragSeverity.HARD
         assert decision.can_commit is False
         assert decision.blocking_pad_positions
@@ -630,9 +601,7 @@ class TestMoveCollision:
         )
         session.invalidate_graph()
 
-        decision = classify_drag_commit(
-            session, {r2.id}, set(), frozenset({r2.id})
-        )
+        decision = classify_drag_commit(session, {r2.id}, set(), frozenset({r2.id}))
         assert decision.severity is DragSeverity.CLEAR
         assert decision.can_commit is True
 
@@ -678,9 +647,7 @@ class TestPlaceConfirm:
         assert len(session.layout.placements) == 1
         assert session.stack.can_undo()
 
-    def test_place_undo_removes_component(
-        self, session: EditorSession
-    ) -> None:
+    def test_place_undo_removes_component(self, session: EditorSession) -> None:
         view = _headless(session)
         _place(view, 0.5, 0.5)
         session.stack.undo(cast(ComponentState, session))
@@ -796,8 +763,11 @@ class TestWireFragmentSimplify:
         w = Wire(
             id=uuid.uuid4(),
             path=[
-                Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
-                Point(3.5, 2.5), Point(3.5, 3.5),
+                Point(1.5, 1.5),
+                Point(2.5, 1.5),
+                Point(3.5, 1.5),
+                Point(3.5, 2.5),
+                Point(3.5, 3.5),
             ],
             insulated=True,
             side="top",
@@ -816,15 +786,14 @@ class TestWireFragmentSimplify:
         select = SelectTool()
         view.tools.set_tool(select)
         tool = WireEditTool(
-            wire_range, wire_id,  # type: ignore[arg-type]
+            wire_range,
+            wire_id,  # type: ignore[arg-type]
             return_to=lambda: view.tools.set_tool(select),
         )
         view.tools.set_tool(tool)
         return tool
 
-    def test_fragment_simplify_shortens_wire(
-        self, session: EditorSession
-    ) -> None:
+    def test_fragment_simplify_shortens_wire(self, session: EditorSession) -> None:
         from protoboard.controller.selection.wire_edit import WireRange
 
         view = _headless(session)
@@ -851,7 +820,8 @@ class TestWireFragmentSimplify:
         b = Wire(
             id=uuid.uuid4(),
             path=[Point(4.5, 1.5), Point(5.5, 1.5)],
-            insulated=True, side="top",
+            insulated=True,
+            side="top",
         )
         session.layout.wires.append(b)
         tool = self._arm_wire_edit(view, WireRange(a.id, 0, b.id, 1), a.id)
@@ -873,21 +843,23 @@ class TestWirePinConversionViaTool:
     @staticmethod
     def _half_orphan(session: EditorSession) -> Wire:
         from protoboard.domain.layout.wire import KnotRef
+
         pa, pb = Point(1.5, 1.5), Point(2.5, 1.5)
         ka = session.layout.create_joint_knot(pa)
         kb = session.layout.create_joint_knot(pb)
         w = Wire(
-            id=uuid.uuid4(), path=[pa, pb], side="top",
-            a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+            id=uuid.uuid4(),
+            path=[pa, pb],
+            side="top",
+            a=KnotRef(id=ka.id),
+            b=KnotRef(id=kb.id),
         )
         session.layout.add_wire(w)
         session.invalidate_graph()
         session.layout_changed.emit()
         return w
 
-    def test_convert_endpoint_then_back(
-        self, session: EditorSession
-    ) -> None:
+    def test_convert_endpoint_then_back(self, session: EditorSession) -> None:
         from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 
         view = _headless(session)
@@ -898,23 +870,19 @@ class TestWirePinConversionViaTool:
         # Endpoint → wire-pin: one endpoint becomes a WirePinKnot.
         tool.convert_endpoint_to_wire_pin()
         knots = [
-            session.layout.knots.get(r.id)
-            for r in (wire.a, wire.b) if r is not None
+            session.layout.knots.get(r.id) for r in (wire.a, wire.b) if r is not None
         ]
         assert any(isinstance(k, WirePinKnot) for k in knots)
 
         # Wire-pin → endpoint: it demotes back to a plain JointKnot.
         tool.convert_wire_pin_to_endpoint()
         knots = [
-            session.layout.knots.get(r.id)
-            for r in (wire.a, wire.b) if r is not None
+            session.layout.knots.get(r.id) for r in (wire.a, wire.b) if r is not None
         ]
         assert not any(isinstance(k, WirePinKnot) for k in knots)
         assert all(isinstance(k, JointKnot) for k in knots)
 
-    def test_context_menu_offers_conversion(
-        self, session: EditorSession
-    ) -> None:
+    def test_context_menu_offers_conversion(self, session: EditorSession) -> None:
         view = _headless(session)
         wire = self._half_orphan(session)
         tool = _select_tool(view)

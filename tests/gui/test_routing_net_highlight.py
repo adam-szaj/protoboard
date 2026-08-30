@@ -18,21 +18,27 @@ from protoboard.gui.session import EditorSession
 
 
 class TestEffectiveHighlightedNet:
-    def test_routing_net_wins_over_legacy(self, board_view: BoardView, session: EditorSession) -> None:
+    def test_routing_net_wins_over_legacy(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
         legacy = uuid.uuid4()
         routing = uuid.uuid4()
         board_view.highlight._highlighted_net_id = legacy
         session.set_routing_net(routing)
         assert board_view.highlight.effective_highlighted_net() == routing
 
-    def test_legacy_used_when_no_routing(self, board_view: BoardView, session: EditorSession) -> None:
+    def test_legacy_used_when_no_routing(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
         legacy = uuid.uuid4()
         board_view.highlight._highlighted_net_id = legacy
         # Sanity — no routing net set.
         assert session.routing_net_id is None
         assert board_view.highlight.effective_highlighted_net() == legacy
 
-    def test_none_when_neither_set(self, board_view: BoardView, session: EditorSession) -> None:
+    def test_none_when_neither_set(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
         assert session.routing_net_id is None
         assert board_view.highlight._highlighted_net_id is None
         assert board_view.highlight.effective_highlighted_net() is None

@@ -20,15 +20,15 @@ is headless-testable.
 Phase 3 lifts this verbatim out of ``SelectTool``'s inline band code so the
 tool routes both gestures through one uniform ``update`` / ``commit`` /
 ``cancel`` path.
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
 
-from protoboard.geometry import Point
 from protoboard.controller.selection.mouse_input import Intent, Mods
+from protoboard.geometry import Point
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -144,7 +144,8 @@ class RubberBandController:
         caught = self._catch(rx0, ry0, rx1, ry1, ltr)
         extras = (
             self._extra_catch(rx0, ry0, rx1, ry1, ltr)
-            if self._extra_catch is not None else []
+            if self._extra_catch is not None
+            else []
         )
         self._last_hit = BandHit(caught, ltr=ltr, extras=extras)
         if self._select is not None:

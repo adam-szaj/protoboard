@@ -8,7 +8,11 @@ from typing import cast
 
 from protoboard.domain.commands.base import Command, CommandStack
 from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import PlacementCollection
@@ -39,16 +43,21 @@ class _FakeSchematicState:
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
         from protoboard.domain.board.pads import PadLayers
 
-        self.board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG,
-            height_policy=SizePolicy.HUG,
-            cell=PadAtom(
+        self.board = Board(
+            root=BoardGrid(
                 width_policy=SizePolicy.HUG,
                 height_policy=SizePolicy.HUG,
-                layers=PadLayers(),
-            ),
-            rows=1, cols=1, row_gap=0.0, col_gap=0.0,
-        ))
+                cell=PadAtom(
+                    width_policy=SizePolicy.HUG,
+                    height_policy=SizePolicy.HUG,
+                    layers=PadLayers(),
+                ),
+                rows=1,
+                cols=1,
+                row_gap=0.0,
+                col_gap=0.0,
+            )
+        )
         self.layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
@@ -106,10 +115,10 @@ class TestAddWireWithNetsCreate:
         state.schematic.nets[net_id] = net
         cmd.record_net_change(net_id, before=None, after=net)
 
-        cmd.apply(state)   # apply (first time)
+        cmd.apply(state)  # apply (first time)
         cmd.revert(state)  # undo
         assert net_id not in state.schematic.nets
-        cmd.apply(state)   # redo
+        cmd.apply(state)  # redo
         assert wire in state.layout.wires
         assert net_id in state.schematic.nets
         assert state.schematic.nets[net_id].name == "Net-(R1-2)"
@@ -209,11 +218,11 @@ class TestAddWireWithNetsMerge:
         cmd.record_net_change(net_a.id, before=net_a, after=merged)
         cmd.record_net_change(net_b.id, before=net_b, after=None)
 
-        cmd.apply(state)   # apply
+        cmd.apply(state)  # apply
         cmd.revert(state)  # undo — net_b restored
         assert net_b.id in state.schematic.nets
 
-        cmd.apply(state)   # redo — net_b deleted again
+        cmd.apply(state)  # redo — net_b deleted again
         assert net_b.id not in state.schematic.nets
         assert state.schematic.nets[net_a.id].pins == merged.pins
 
@@ -223,26 +232,40 @@ class TestAddWireWithNetsMerge:
 # ---------------------------------------------------------------------------
 
 
-class TestWireDrawPropagatesSameName:
-    """Wiring one pin of a same-name group (via route tool → resolve_wire_nets)
-    pulls in the siblings — the path the user actually uses, not just the
-    explicit AssignPinToNetCommand."""
+class TestWireDrawUsesMetaPinIdentity:
+    """A multi-pad terminal is one logical MetaPin in schematic operations."""
 
     def _ic_two_gnd_state(self) -> tuple[_FakeSchematicState, uuid.UUID]:
-        from protoboard.domain.components.footprints import DIL
-
-        defn = ComponentDefinition.from_footprint(
-            name="IC", footprint=DIL(n=8),
-            pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
-                       5: "E", 6: "F", 7: "G", 8: "GND"},
+        defn = ComponentDefinition(
+            name="IC",
+            meta_pins=tuple(
+                MetaPin((label,)) for label in ("A", "B", "C", "GND", "E", "F", "G")
+            ),
+            package_options=(
+                PackageOption(
+                    name="DIP-8",
+                    ref="dip-8/std",
+                    pin_map={
+                        1: (1,),
+                        2: (2,),
+                        3: (3,),
+                        4: (4, 8),
+                        5: (5,),
+                        6: (6,),
+                        7: (7,),
+                    },
+                ),
+            ),
         )
-        inst = ComponentInstance.new("IC", "U1", "")  # empty identities — built on demand
+        inst = ComponentInstance.new(
+            "IC", "U1", ""
+        )  # empty identities — built on demand
         state = _FakeSchematicState()
         state.instances = {inst.id: inst}
         state.components = {"IC": defn}
         return state, inst.id
 
-    def test_extend_net_adds_sibling(self) -> None:
+    def test_extend_net_adds_one_logical_metapin(self) -> None:
         from protoboard.domain.schematic.wire_net_ops import (
             WireNetClassification,
             WireNetKind,
@@ -252,24 +275,29 @@ class TestWireDrawPropagatesSameName:
         state, comp_id = self._ic_two_gnd_state()
         # Pre-existing GND net (some other pin already on it).
         other = uuid.uuid4()
-        gnd = Net(id=uuid.uuid4(), name="GND",
-                  pins={PinRef(component_id=other, pin_number=1)})
+        gnd = Net(
+            id=uuid.uuid4(), name="GND", pins={PinRef(component_id=other, pin_number=1)}
+        )
         state.schematic.nets[gnd.id] = gnd
         cmd = AddWireWithNetsCommand(wire=_wire())
         # Wire connects net GND (pin_a side) to unconnected IC pin 4 (GND).
         cl = WireNetClassification(
             kind=WireNetKind.ONE_UNCONNECTED,
-            pin_a=None, pin_b=(comp_id, 4),
-            net_a=gnd, net_b=None,
+            pin_a=None,
+            pin_b=(comp_id, 4),
+            net_a=gnd,
+            net_b=None,
         )
         _extend_net(state, cmd, cl)  # type: ignore[arg-type]
-        pins = {(r.component_id, r.pin_number) for r in state.schematic.nets[gnd.id].pins}
-        # Both IC GND pins (4 and 8) joined, plus the pre-existing other pin.
+        pins = {
+            (r.component_id, r.pin_number) for r in state.schematic.nets[gnd.id].pins
+        }
+        # One GND MetaPin joins the net; its PackageOption maps to pads 4 and 8.
         assert (comp_id, 4) in pins
-        assert (comp_id, 8) in pins, "same-name sibling must come along"
+        assert (comp_id, 8) not in pins
         assert (other, 1) in pins
 
-    def test_create_new_net_adds_siblings_of_both_ends(self) -> None:
+    def test_create_new_net_uses_metapin_ordinals(self) -> None:
         from protoboard.domain.schematic.wire_net_ops import (
             WireNetClassification,
             WireNetKind,
@@ -281,14 +309,16 @@ class TestWireDrawPropagatesSameName:
         cmd = AddWireWithNetsCommand(wire=_wire())
         cl = WireNetClassification(
             kind=WireNetKind.BOTH_UNCONNECTED,
-            pin_a=(comp_id, 4), pin_b=(comp_id, 2),
-            net_a=None, net_b=None,
+            pin_a=(comp_id, 4),
+            pin_b=(comp_id, 2),
+            net_a=None,
+            net_b=None,
         )
         _create_new_net(state, cmd, cl)  # type: ignore[arg-type]
         new_net = next(iter(state.schematic.nets.values()))
         pins = {(r.component_id, r.pin_number) for r in new_net.pins}
         assert (comp_id, 4) in pins
-        assert (comp_id, 8) in pins, "GND sibling of pin 4 must join"
+        assert (comp_id, 8) not in pins
         assert (comp_id, 2) in pins  # the other end (ungrouped, only itself)
 
 
@@ -322,10 +352,16 @@ class TestNetMergePromptSeam:
 
     def _two_net_state(self) -> tuple[_FakeSchematicState, Net, Net]:
         state = _FakeSchematicState()
-        net_a = Net(id=uuid.uuid4(), name="A",
-                    pins={PinRef(component_id=uuid.uuid4(), pin_number=1)})
-        net_b = Net(id=uuid.uuid4(), name="B",
-                    pins={PinRef(component_id=uuid.uuid4(), pin_number=1)})
+        net_a = Net(
+            id=uuid.uuid4(),
+            name="A",
+            pins={PinRef(component_id=uuid.uuid4(), pin_number=1)},
+        )
+        net_b = Net(
+            id=uuid.uuid4(),
+            name="B",
+            pins={PinRef(component_id=uuid.uuid4(), pin_number=1)},
+        )
         state.schematic.nets = {net_a.id: net_a, net_b.id: net_b}
         return state, net_a, net_b
 

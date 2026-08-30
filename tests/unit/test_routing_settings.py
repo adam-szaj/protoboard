@@ -30,7 +30,9 @@ class TestRoutingSettingsModel:
         assert ROUTING_DEFAULTS == RoutingSettings()
 
     def test_cost_model_applies_overrides(self) -> None:
-        s = RoutingSettings(cost_overrides={"direction_change": 2.5, "layer_change": 4.0})
+        s = RoutingSettings(
+            cost_overrides={"direction_change": 2.5, "layer_change": 4.0}
+        )
         cm = s.cost_model()
         assert cm.direction_change == 2.5
         assert cm.layer_change == 4.0
@@ -40,6 +42,7 @@ class TestRoutingSettingsModel:
 
     def test_cost_model_preserves_fixed_fields(self) -> None:
         import math
+
         s = RoutingSettings()
         cm = s.cost_model()
         assert cm.free_pad == 1.0

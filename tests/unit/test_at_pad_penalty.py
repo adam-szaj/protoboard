@@ -20,7 +20,6 @@ from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _build_at_pad_wire_index
 from protoboard.services.routing.cost_model import RoutingCostModel
 
-
 # ---------------------------------------------------------------------------
 # _build_at_pad_wire_index — pure helper, no Qt / board needed
 # ---------------------------------------------------------------------------
@@ -144,7 +143,7 @@ def _tiny_graph_5x5():
         )
     )
     layout = Layout()
-    schematic = Schematic(nets={})  # noqa: F841 — kept for parity if helpers expand later
+    Schematic(nets={})  # noqa: F841 — kept for parity if helpers expand later
     graph = ConnectivityGraph(board, layout, {}, {})
     return board, graph
 
@@ -158,6 +157,7 @@ class TestHotLoopPenaltyFires:
     def test_penalty_zero_same_path_same_cost(self) -> None:
         """Defaults (penalty=0) → cost identical with or without index."""
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
         cm = RoutingCostModel()  # defaults
 
@@ -186,6 +186,7 @@ class TestHotLoopPenaltyFires:
     def test_penalty_positive_increases_cost(self) -> None:
         """With penalty > 0 and a flagged pad on the cheapest path, cost rises."""
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
 
         cm_pen = RoutingCostModel(at_pad_insulated_insulated_same_side=10.0)
@@ -231,6 +232,7 @@ class TestHotLoopPenaltyFires:
         a path when the only route runs through the flagged pad.
         """
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
 
         cm = RoutingCostModel(at_pad_insulated_bare_same_side=1.0)

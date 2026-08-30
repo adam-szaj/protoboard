@@ -149,8 +149,6 @@ class TestSessionAdapters:
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
         from protoboard.domain.board.pads import PadLayers
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.footprints import SIL
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.domain.schematic.net import Net, PinRef
@@ -159,27 +157,43 @@ class TestSessionAdapters:
         from protoboard.services.library.loader import load_library
 
         grid = BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
                 layers=PadLayers(top=True, bottom=True, plated_through=True),
             ),
-            rows=8, cols=8, row_gap=0.0, col_gap=0.0,
+            rows=8,
+            cols=8,
+            row_gap=0.0,
+            col_gap=0.0,
         )
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         sess = EditorSession(board=Board(root=grid), library=lib)
 
-        defn = ComponentDefinition.from_footprint(name="S1", footprint=SIL(1), pin_names={1: "P"})
+        from tests.unit._autoroute_invariants import make_sil, sil_families
+
+        defn = make_sil("S1", 1)
+        sess.package_families.update(sil_families(defn))
         sess.components["S1"] = defn
-        i1 = ComponentInstance.new(definition_ref="S1", refdes="X1", value="")
-        i2 = ComponentInstance.new(definition_ref="S1", refdes="X2", value="")
+        i1 = ComponentInstance.new(definition_ref="S1", refdes="X1", value="").bind(
+            defn, sess.package_families
+        )
+        i2 = ComponentInstance.new(definition_ref="S1", refdes="X2", value="").bind(
+            defn, sess.package_families
+        )
         for inst, x in ((i1, 1.5), (i2, 3.5)):
             sess.instances[inst.id] = inst
             sess.layout.placements[inst.id] = ComponentPlacement(
-                component_id=inst.id, position=Point(x, 1.5), rotation=0, side="top",
+                component_id=inst.id,
+                position=Point(x, 1.5),
+                rotation=0,
+                side="top",
             )
         net = Net(
-            id=uuid.uuid4(), name="N1",
+            id=uuid.uuid4(),
+            name="N1",
             pins={PinRef(i1.id, 1), PinRef(i2.id, 1)},
         )
         sess.schematic.nets[net.id] = net

@@ -38,10 +38,11 @@ class ReplayState:
         cls,
         project_dir: Path,
         library: ComponentLibrary,
-    ) -> "ReplayState":
+    ) -> ReplayState:
         """Load a project directory and bind it to a fresh ReplayState."""
         board, layout, schematic, instances, *_rest = load_project(project_dir)
         from protoboard.services.library.parametric import ComponentCatalog
+
         components = ComponentCatalog(
             ((name, library.get(name)) for name in library.names()),
             package_families=library.package_families,

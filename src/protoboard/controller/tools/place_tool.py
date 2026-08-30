@@ -30,12 +30,14 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import Footprint
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import resolve_package_variant_footprint
 from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.reach import effective_bend_specs
-from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     flip_component,
@@ -43,19 +45,16 @@ from protoboard.domain.layout.placement import (
     unrotate,
 )
 from protoboard.geometry import Point, Vector
-from protoboard.controller.tools.base import ControllerTool
-
-from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing import EditState
+    from protoboard.controller.editing.controller import ResolvedPlacement
+    from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.ports import PointerInput
     from protoboard.controller.theme import Theme
     from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.place_preview import PlacePreview
-    from protoboard.controller.editing.controller import ResolvedPlacement
 
 _log = structlog.get_logger(__name__)
 
@@ -216,7 +215,7 @@ class PlaceTool(ControllerTool):
         """Effective per-pin bend specs for the part being placed.
 
         The **chosen footprint variant** drives the specs: a part whose bodies
-        live in a ``footprints:`` list (e.g. ``R`` placed as ``SMD-0805``)
+        live in ``package_options:`` (e.g. ``R`` placed as ``SMD-0805``)
         resolves its rigid / SMD king-move spec, not another package's axial
         reach. During placement no real instance exists yet, so we
         pass the picker's ``package_variant`` address (a netlist-imported
@@ -560,7 +559,7 @@ class PlaceTool(ControllerTool):
     # ------------------------------------------------------------------
 
     @traced()
-    def _resolved_footprint(self, defn: ComponentDefinition) -> "Footprint":
+    def _resolved_footprint(self, defn: ComponentDefinition) -> Footprint:
         """The footprint of the *chosen* package variant, not the definition's.
 
         The ghost renders the picked ``package_variant``'s body and pin spacing
@@ -680,7 +679,7 @@ class PlaceTool(ControllerTool):
                 )
 
     @traced()
-    def _do_place(self, resolved: "ResolvedPlacement") -> None:
+    def _do_place(self, resolved: ResolvedPlacement) -> None:
         """Commit a resolved placement immediately via the controller."""
         self._session.edit_controller.place_component(resolved)
         _log.info(
@@ -691,7 +690,7 @@ class PlaceTool(ControllerTool):
         )
 
     @traced()
-    def _reset_pending(self, resolved: "ResolvedPlacement | None" = None) -> None:
+    def _reset_pending(self, resolved: ResolvedPlacement | None = None) -> None:
         self._pending = resolved
 
     @traced()

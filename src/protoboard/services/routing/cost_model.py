@@ -17,7 +17,6 @@ import math
 from dataclasses import FrozenInstanceError
 from typing import Any
 
-
 # Canonical documentation of every cost key recognised by any built-in router.
 # Used by PreferencesDialog to render labels/tooltips and by persistence to
 # validate user-supplied YAML. Routers declare which subset they actually
@@ -28,49 +27,41 @@ COST_KEY_DOCS: dict[str, str] = {
     "occupied_by_other_net": "Cost per step onto a pin of another net (usually inf).",
     "direction_change": "Penalty per turn (fallback when bend_45/90/135 are unset).",
     "diagonal_multiplier": "Cost multiplier for diagonal steps (default √2).",
-    "crossing_bare_bare": "Cost when a bare wire crosses another bare wire (usually inf).",
-    "crossing_bare_bare_diagonal": "Cost when two bare diagonals cross at a mesh-cell centre.",
+    "crossing_bare_bare": "Cost when a bare wire crosses another bare wire (usually inf).",  # noqa: E501
+    "crossing_bare_bare_diagonal": "Cost when two bare diagonals cross at a mesh-cell centre.",  # noqa: E501
     # Granular crossing classification:
     #   ib = insulated × bare,   ii = insulated × insulated
     #   at_pad / off_pad         where the crossing geometrically intersects
     #   same_side / opposite     relative to the new wire's side
     # All default to 0.0; the "clean_routing" preset (and any user
     # preset) sets sensible non-zero values.
-    "crossing_ib_at_pad_same_side":
-        "Insulated × bare crossing on the same side, intersection on a pad.",
-    "crossing_ib_at_pad_opposite_side":
-        "Insulated × bare crossing on opposite sides, intersection on a pad.",
-    "crossing_ib_off_pad_same_side":
-        "Insulated × bare crossing on the same side, intersection between pads.",
-    "crossing_ib_off_pad_opposite_side":
-        "Insulated × bare crossing on opposite sides, intersection between pads.",
-    "crossing_ii_at_pad_same_side":
-        "Insulated × insulated crossing on the same side, intersection on a pad.",
-    "crossing_ii_at_pad_opposite_side":
-        "Insulated × insulated crossing on opposite sides, intersection on a pad.",
-    "crossing_ii_off_pad_same_side":
-        "Insulated × insulated crossing on the same side, intersection between pads.",
-    "crossing_ii_off_pad_opposite_side":
-        "Insulated × insulated crossing on opposite sides, intersection between pads.",
+    "crossing_ib_at_pad_same_side": "Insulated × bare crossing on the same side, intersection on a pad.",  # noqa: E501
+    "crossing_ib_at_pad_opposite_side": "Insulated × bare crossing on opposite sides, intersection on a pad.",  # noqa: E501
+    "crossing_ib_off_pad_same_side": "Insulated × bare crossing on the same side, intersection between pads.",  # noqa: E501
+    "crossing_ib_off_pad_opposite_side": "Insulated × bare crossing on opposite sides, intersection between pads.",  # noqa: E501
+    "crossing_ii_at_pad_same_side": "Insulated × insulated crossing on the same side, intersection on a pad.",  # noqa: E501
+    "crossing_ii_at_pad_opposite_side": "Insulated × insulated crossing on opposite sides, intersection on a pad.",  # noqa: E501
+    "crossing_ii_off_pad_same_side": "Insulated × insulated crossing on the same side, intersection between pads.",  # noqa: E501
+    "crossing_ii_off_pad_opposite_side": "Insulated × insulated crossing on opposite sides, intersection between pads.",  # noqa: E501
     "layer_change": "Cost per via (top↔bottom transition on a plated-through pad).",
-    "under_component_top": "Extra cost per step on the top layer beneath a component body.",
-    "bare_diagonal_mode": "When non-zero, enables strict parity-filter for bare diagonals.",
-    "at_pad_insulated_insulated_same_side": "Cost when step lands on a pad with another insulated wire's vertex (same side).",
-    "at_pad_insulated_bare_same_side": "Cost when step lands on a pad with a bare wire's vertex (mixed-insulation, same side).",
-    "parallel_opposite_side": "Cost when the step overlaps an existing wire segment on the opposite side.",
-    "max_reroute_factor": "Push-and-shove reroute ceiling as a multiple of the original cost.",
-    "same_net_wire_reuse_cost": "Cost when touching an existing wire of the active net (0 = free same-net reuse).",
+    "under_component_top": "Extra cost per step on the top layer beneath a component body.",  # noqa: E501
+    "bare_diagonal_mode": "When non-zero, enables strict parity-filter for bare diagonals.",  # noqa: E501
+    "at_pad_insulated_insulated_same_side": "Cost when step lands on a pad with another insulated wire's vertex (same side).",  # noqa: E501
+    "at_pad_insulated_bare_same_side": "Cost when step lands on a pad with a bare wire's vertex (mixed-insulation, same side).",  # noqa: E501
+    "parallel_opposite_side": "Cost when the step overlaps an existing wire segment on the opposite side.",  # noqa: E501
+    "max_reroute_factor": "Push-and-shove reroute ceiling as a multiple of the original cost.",  # noqa: E501
+    "same_net_wire_reuse_cost": "Cost when touching an existing wire of the active net (0 = free same-net reuse).",  # noqa: E501
     # ------------------------------------------------------------------
     # New in the "clean routing" effort (defaults all 0.0 — opt-in via preset).
     # ------------------------------------------------------------------
     "bend_45": "Penalty per 45° bend in path (falls back to direction_change).",
     "bend_90": "Penalty per 90° bend in path (falls back to direction_change).",
     "bend_135": "Penalty per 135° bend in path (falls back to direction_change).",
-    "diagonal_preferred_family": "Bonus/cost per diagonal step in the preferred (parity,side)→family direction.",
-    "diagonal_dispreferred_family": "Cost per diagonal step in the dispreferred family.",
-    "wire_over_foreign_wire_pad": "Cost per step into a cell occupied by another net's wire vertex.",
+    "diagonal_preferred_family": "Bonus/cost per diagonal step in the preferred (parity,side)→family direction.",  # noqa: E501
+    "diagonal_dispreferred_family": "Cost per diagonal step in the dispreferred family.",  # noqa: E501
+    "wire_over_foreign_wire_pad": "Cost per step into a cell occupied by another net's wire vertex.",  # noqa: E501
     "via_on_foreign_pad": "Cost per via on a pad where another net already has a via.",
-    "redundant_layer_change": "Cost per via that could have been avoided (also drives zebra suppression).",
+    "redundant_layer_change": "Cost per via that could have been avoided (also drives zebra suppression).",  # noqa: E501
     "deferred_via_lookahead": (
         "Enables deferred-via commit mode in A*.  When non-zero, every via "
         "is held tentative; A* tracks shadow cost on the old side step-by-"
@@ -104,44 +95,47 @@ COST_KEY_DOCS: dict[str, str] = {
 # - hard electrical bans (crossing_bare_bare=inf, occupied_by_other_net=inf)
 # - implementation details (same_net_pad)
 # Modifying them rarely makes sense and showing them invites mistakes.
-USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset({
-    "direction_change",
-    "layer_change",
-    "under_component_top",
-    "crossing_bare_bare_diagonal",
-    "bare_diagonal_mode",
-    "at_pad_insulated_insulated_same_side",
-    "at_pad_insulated_bare_same_side",
-    "parallel_opposite_side",
-    "max_reroute_factor",
-    "same_net_wire_reuse_cost",
-    "bend_45",
-    "bend_90",
-    "bend_135",
-    "diagonal_preferred_family",
-    "diagonal_dispreferred_family",
-    "wire_over_foreign_wire_pad",
-    "via_on_foreign_pad",
-    "redundant_layer_change",
-    "deferred_via_lookahead",
-    "deferred_via_priority_mode",
-    "congestion_weight",
-    # 8 granular crossing knobs (insulated × {bare, insulated}) × {at_pad,
-    # off_pad} × {same_side, opposite_side}.
-    "crossing_ib_at_pad_same_side",
-    "crossing_ib_at_pad_opposite_side",
-    "crossing_ib_off_pad_same_side",
-    "crossing_ib_off_pad_opposite_side",
-    "crossing_ii_at_pad_same_side",
-    "crossing_ii_at_pad_opposite_side",
-    "crossing_ii_off_pad_same_side",
-    "crossing_ii_off_pad_opposite_side",
-})
+USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset(
+    {
+        "direction_change",
+        "layer_change",
+        "under_component_top",
+        "crossing_bare_bare_diagonal",
+        "bare_diagonal_mode",
+        "at_pad_insulated_insulated_same_side",
+        "at_pad_insulated_bare_same_side",
+        "parallel_opposite_side",
+        "max_reroute_factor",
+        "same_net_wire_reuse_cost",
+        "bend_45",
+        "bend_90",
+        "bend_135",
+        "diagonal_preferred_family",
+        "diagonal_dispreferred_family",
+        "wire_over_foreign_wire_pad",
+        "via_on_foreign_pad",
+        "redundant_layer_change",
+        "deferred_via_lookahead",
+        "deferred_via_priority_mode",
+        "congestion_weight",
+        # 8 granular crossing knobs (insulated × {bare, insulated}) × {at_pad,
+        # off_pad} × {same_side, opposite_side}.
+        "crossing_ib_at_pad_same_side",
+        "crossing_ib_at_pad_opposite_side",
+        "crossing_ib_off_pad_same_side",
+        "crossing_ib_off_pad_opposite_side",
+        "crossing_ii_at_pad_same_side",
+        "crossing_ii_at_pad_opposite_side",
+        "crossing_ii_off_pad_same_side",
+        "crossing_ii_off_pad_opposite_side",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # Plugin-aware UI helpers
 # ---------------------------------------------------------------------------
+
 
 def merged_cost_key_docs() -> dict[str, str]:
     """Built-in COST_KEY_DOCS ∪ every registered router's cost_key_docs().
@@ -152,6 +146,7 @@ def merged_cost_key_docs() -> dict[str, str]:
     on key collisions.
     """
     from protoboard.services.routing.protocol import registry
+
     merged: dict[str, str] = {}
     for name in registry.list_available():
         try:
@@ -176,6 +171,7 @@ def merged_user_tunable_cost_keys() -> frozenset[str]:
     UI controls.  Built-in tunables are always included.
     """
     from protoboard.services.routing.protocol import registry
+
     keys: set[str] = set(USER_TUNABLE_COST_KEYS)
     for name in registry.list_available():
         try:
@@ -280,12 +276,12 @@ class RoutingCostModel:
     def get(self, key: str, default: float = 0.0) -> float:
         return self.weights.get(key, default)
 
-    def with_overrides(self, **overrides: float) -> "RoutingCostModel":
+    def with_overrides(self, **overrides: float) -> RoutingCostModel:
         """Return a new instance with selected weights overridden."""
         return RoutingCostModel(weights={**self.weights, **overrides})
 
     @classmethod
-    def from_legacy(cls, **kwargs: Any) -> "RoutingCostModel":
+    def from_legacy(cls, **kwargs: Any) -> RoutingCostModel:
         """Build a cost model from legacy keyword args (backward-compat shim)."""
         # Normalise bool → float for bare_diagonal_mode
         normalised: dict[str, float] = {}
@@ -301,34 +297,65 @@ class RoutingCostModel:
     # reading from ``weights``.  Preserves existing call-sites verbatim.
     # ------------------------------------------------------------------
     @property
-    def free_pad(self) -> float: return self.weights["free_pad"]
+    def free_pad(self) -> float:
+        return self.weights["free_pad"]
+
     @property
-    def same_net_pad(self) -> float: return self.weights["same_net_pad"]
+    def same_net_pad(self) -> float:
+        return self.weights["same_net_pad"]
+
     @property
-    def occupied_by_other_net(self) -> float: return self.weights["occupied_by_other_net"]
+    def occupied_by_other_net(self) -> float:
+        return self.weights["occupied_by_other_net"]
+
     @property
-    def direction_change(self) -> float: return self.weights["direction_change"]
+    def direction_change(self) -> float:
+        return self.weights["direction_change"]
+
     @property
-    def diagonal_multiplier(self) -> float: return self.weights["diagonal_multiplier"]
+    def diagonal_multiplier(self) -> float:
+        return self.weights["diagonal_multiplier"]
+
     @property
-    def crossing_bare_bare(self) -> float: return self.weights["crossing_bare_bare"]
+    def crossing_bare_bare(self) -> float:
+        return self.weights["crossing_bare_bare"]
+
     @property
-    def crossing_bare_bare_diagonal(self) -> float: return self.weights["crossing_bare_bare_diagonal"]
+    def crossing_bare_bare_diagonal(self) -> float:
+        return self.weights["crossing_bare_bare_diagonal"]
+
     @property
-    def layer_change(self) -> float: return self.weights["layer_change"]
+    def layer_change(self) -> float:
+        return self.weights["layer_change"]
+
     @property
-    def under_component_top(self) -> float: return self.weights["under_component_top"]
+    def under_component_top(self) -> float:
+        return self.weights["under_component_top"]
+
     @property
-    def bare_diagonal_mode(self) -> bool: return bool(self.weights["bare_diagonal_mode"])
+    def bare_diagonal_mode(self) -> bool:
+        return bool(self.weights["bare_diagonal_mode"])
+
     @property
-    def at_pad_insulated_insulated_same_side(self) -> float: return self.weights["at_pad_insulated_insulated_same_side"]
+    def at_pad_insulated_insulated_same_side(self) -> float:
+        return self.weights["at_pad_insulated_insulated_same_side"]
+
     @property
-    def at_pad_insulated_bare_same_side(self) -> float: return self.weights["at_pad_insulated_bare_same_side"]
+    def at_pad_insulated_bare_same_side(self) -> float:
+        return self.weights["at_pad_insulated_bare_same_side"]
+
     @property
-    def parallel_opposite_side(self) -> float: return self.weights["parallel_opposite_side"]
+    def parallel_opposite_side(self) -> float:
+        return self.weights["parallel_opposite_side"]
+
     @property
-    def max_reroute_factor(self) -> float: return self.weights["max_reroute_factor"]
+    def max_reroute_factor(self) -> float:
+        return self.weights["max_reroute_factor"]
+
     @property
-    def same_net_wire_reuse_cost(self) -> float: return self.weights["same_net_wire_reuse_cost"]
+    def same_net_wire_reuse_cost(self) -> float:
+        return self.weights["same_net_wire_reuse_cost"]
+
     @property
-    def congestion_weight(self) -> float: return self.weights["congestion_weight"]
+    def congestion_weight(self) -> float:
+        return self.weights["congestion_weight"]

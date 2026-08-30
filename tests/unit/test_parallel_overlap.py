@@ -54,18 +54,29 @@ class TestHotLoopPenaltyFires:
     def test_disabled_when_zero(self) -> None:
         """Penalty=0 → cost identical with or without all_segments."""
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
         cm = RoutingCostModel()
         opp_segs = [
             (Point(0.5, 0.5), Point(4.5, 0.5), "bottom", True),
         ]
         baseline = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=cm, k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=cm,
+            k=1,
+            insulated=True,
         )
         with_segs = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=cm, k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=cm,
+            k=1,
+            insulated=True,
             all_segments=opp_segs,
         )
         assert baseline and with_segs
@@ -76,6 +87,7 @@ class TestHotLoopPenaltyFires:
         row → penalty fires per overlapping step.
         """
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
         cm_pen = RoutingCostModel(parallel_opposite_side=2.0)
         # Existing insulated wire on the BOTTOM, full row at y=0.5.
@@ -83,12 +95,22 @@ class TestHotLoopPenaltyFires:
             (Point(0.5, 0.5), Point(4.5, 0.5), "bottom", True),
         ]
         baseline = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=RoutingCostModel(), k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=RoutingCostModel(),
+            k=1,
+            insulated=True,
         )
         with_pen = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=cm_pen, k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=cm_pen,
+            k=1,
+            insulated=True,
             all_segments=opp_segs,
         )
         assert baseline and with_pen
@@ -99,18 +121,29 @@ class TestHotLoopPenaltyFires:
     def test_bare_over_bare_opposite_side_no_penalty(self) -> None:
         """Bare×bare opposite-side incurs no penalty by spec."""
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
         cm_pen = RoutingCostModel(parallel_opposite_side=2.0)
         opp_segs = [
             (Point(0.5, 0.5), Point(4.5, 0.5), "bottom", False),
         ]
         baseline = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=RoutingCostModel(), k=1, insulated=False,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=RoutingCostModel(),
+            k=1,
+            insulated=False,
         )
         with_pen = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=cm_pen, k=1, insulated=False,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=cm_pen,
+            k=1,
+            insulated=False,
             all_segments=opp_segs,
         )
         assert baseline and with_pen
@@ -123,6 +156,7 @@ class TestHotLoopPenaltyFires:
         with the bare-wire crossing model).
         """
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
         cm_pen = RoutingCostModel(parallel_opposite_side=2.0)
         # Existing insulated wire on the SAME (top) side at y=0.5.
@@ -130,12 +164,22 @@ class TestHotLoopPenaltyFires:
             (Point(0.5, 0.5), Point(4.5, 0.5), "top", True),
         ]
         baseline = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=RoutingCostModel(), k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=RoutingCostModel(),
+            k=1,
+            insulated=True,
         )
         with_pen = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=cm_pen, k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=cm_pen,
+            k=1,
+            insulated=True,
             all_segments=same_side_segs,
         )
         assert baseline and with_pen
@@ -145,6 +189,7 @@ class TestHotLoopPenaltyFires:
         """An opposite-side segment that does NOT overlap the step must
         not contribute to the penalty."""
         from protoboard.services.routing.astar import find_paths
+
         _, graph = _tiny_graph_5x5()
         cm_pen = RoutingCostModel(parallel_opposite_side=2.0)
         # Bottom segment on a DIFFERENT row (y=2.5).
@@ -152,12 +197,22 @@ class TestHotLoopPenaltyFires:
             (Point(0.5, 2.5), Point(4.5, 2.5), "bottom", True),
         ]
         baseline = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=RoutingCostModel(), k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=RoutingCostModel(),
+            k=1,
+            insulated=True,
         )
         with_pen = find_paths(
-            graph=graph, source=Point(0.5, 0.5), targets=[Point(4.5, 0.5)],
-            side="top", cost_model=cm_pen, k=1, insulated=True,
+            graph=graph,
+            source=Point(0.5, 0.5),
+            targets=[Point(4.5, 0.5)],
+            side="top",
+            cost_model=cm_pen,
+            k=1,
+            insulated=True,
             all_segments=opp_segs,
         )
         assert baseline and with_pen

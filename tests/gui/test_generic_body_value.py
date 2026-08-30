@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import resolved_footprint
 from protoboard.domain.layout.placement import (
@@ -19,7 +20,6 @@ from protoboard.domain.layout.placement import (
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.renderers.packages import load_renderer_plugins
-from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.paths import BUILTIN_LIBRARY_DIR
 
 _RED = QColor("#cc4444")
@@ -34,10 +34,9 @@ def library():
     from protoboard.services.library.package_family_loader import (
         load_full_package_catalogue,
     )
+
     load_renderer_plugins([BUILTIN_LIBRARY_DIR])
-    return load_library(
-        [BUILTIN_LIBRARY_DIR], load_full_package_catalogue()
-    )
+    return load_library([BUILTIN_LIBRARY_DIR], load_full_package_catalogue())
 
 
 @pytest.fixture(scope="module")
@@ -45,6 +44,7 @@ def families(library):
     from protoboard.services.library.package_family_loader import (
         load_full_package_catalogue,
     )
+
     return {
         **library.package_families,
         **load_full_package_catalogue(),
@@ -55,12 +55,20 @@ def _draw(library, families, value: str):
     defn = library.get("BC547")
     assert defn is not None
     inst = ComponentInstance(
-        id=uuid.uuid4(), definition_ref="BC547", refdes="Q1", value=value,
+        id=uuid.uuid4(),
+        definition_ref="BC547",
+        refdes="Q1",
+        value=value,
     ).bind(defn, families)
     shape = body_shape_for(defn, instance=inst, package_families=families)
     # draw() returns (body_items, label_items); flatten for item inspection.
     body_items, label_items = shape.draw(
-        [Point(*p) for p in _TO92_PADS], _RED, _DARK, 1.0, _Z, DEFAULT_THEME,
+        [Point(*p) for p in _TO92_PADS],
+        _RED,
+        _DARK,
+        1.0,
+        _Z,
+        DEFAULT_THEME,
     )
     return body_items + label_items
 
@@ -99,19 +107,29 @@ def _draw_rotated(library, families, rotation: int):
     defn = library.get("BC547")
     assert defn is not None
     inst = ComponentInstance(
-        id=uuid.uuid4(), definition_ref="BC547", refdes="Q1", value="2N2222",
+        id=uuid.uuid4(),
+        definition_ref="BC547",
+        refdes="Q1",
+        value="2N2222",
     ).bind(defn, families)
     fp = resolved_footprint(defn, inst, families)
     placement = ComponentPlacement(
-        component_id=uuid.uuid4(), position=Point(20.0, 20.0),
-        rotation=rotation, side="top",
+        component_id=uuid.uuid4(),
+        position=Point(20.0, 20.0),
+        rotation=rotation,
+        side="top",
     )
     positions = [
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
     ]
     shape = body_shape_for(defn, placement, inst, package_families=families)
     body_items, label_items = shape.draw(
-        positions, _RED, _DARK, 1.0, _Z, DEFAULT_THEME,
+        positions,
+        _RED,
+        _DARK,
+        1.0,
+        _Z,
+        DEFAULT_THEME,
     )
     return body_items + label_items
 
@@ -122,13 +140,16 @@ def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> Non
     (along) extent from ``local_size_holes`` — NOT the axis-aligned
     ``box.lx`` (the short extent for a DIP). Regression test for the
     transposed avail_len/avail_w bug."""
-    from protoboard.domain.components.package.shapes import local_size_holes
     import protoboard.gui.renderers.packages.base as base_mod
+    from protoboard.domain.components.package.shapes import local_size_holes
 
     defn = library.get("NE555")
     assert defn is not None
     inst = ComponentInstance(
-        id=uuid.uuid4(), definition_ref="NE555", refdes="U1", value="NE555",
+        id=uuid.uuid4(),
+        definition_ref="NE555",
+        refdes="U1",
+        value="NE555",
     ).bind(defn, families)
     fp = resolved_footprint(defn, inst, families)
     pkg = inst.resolved_package()

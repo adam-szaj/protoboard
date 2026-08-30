@@ -29,7 +29,10 @@ class DiscRenderer(PackageRenderer):
 
     def _radial_silhouette(
         self,
-        mid: Point, p1: Point, p2: Point, neg_pin: Point,
+        mid: Point,
+        p1: Point,
+        p2: Point,
+        neg_pin: Point,
     ) -> list[QGraphicsItem]:
         pkg = self._pkg
         if not isinstance(pkg, _PkgDisc):
@@ -39,10 +42,15 @@ class DiscRenderer(PackageRenderer):
         # thickness across).
         mm = self.paint.theme.raster_pitch_mm
         axis_angle = (p2 - p1).angle_deg()
-        return [self._radial_disc_side(
-            mid, pkg.diameter_mm / mm, pkg.thickness_mm / mm, axis_angle,
-            pkg.profile,
-        )]
+        return [
+            self._radial_disc_side(
+                mid,
+                pkg.diameter_mm / mm,
+                pkg.thickness_mm / mm,
+                axis_angle,
+                pkg.profile,
+            )
+        ]
 
     def _radial_body_radius(self, mm: float) -> float:
         pkg = self._pkg
@@ -53,8 +61,8 @@ class DiscRenderer(PackageRenderer):
     def _radial_disc_side(
         self,
         centre: Point,
-        length: float,   # the disc diameter, along the lead axis
-        width: float,    # the disc thickness, across the lead axis
+        length: float,  # the disc diameter, along the lead axis
+        width: float,  # the disc thickness, across the lead axis
         axis_angle_deg: float,
         profile: DiscProfile,
     ) -> QGraphicsItem:

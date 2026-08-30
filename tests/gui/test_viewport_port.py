@@ -9,9 +9,9 @@ each other on a set of transforms including mirrors, so they cannot drift
 
 from __future__ import annotations
 
+from protoboard.controller.ports.viewport_details import CameraMath
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
 from protoboard.gui.board_view import BoardView
-from protoboard.controller.ports.viewport_details import CameraMath
 from protoboard.gui.qt_viewport import QtViewport
 
 
@@ -24,8 +24,9 @@ class TestCameraMathMapping:
         assert abs(back.x - p.x) < 1e-12 and abs(back.y - p.y) < 1e-12
 
     def test_pan_shifts_visible_rect(self) -> None:
-        cam = CameraMath(Transform2D(10.0, 0.0, 0.0, 10.0), Vector(0.0, 0.0),
-                         Size(100.0, 100.0))
+        cam = CameraMath(
+            Transform2D(10.0, 0.0, 0.0, 10.0), Vector(0.0, 0.0), Size(100.0, 100.0)
+        )
         before = cam.visible_scene_rect()
         cam.pan_by(Vector(50.0, 0.0))
         after = cam.visible_scene_rect()
@@ -33,16 +34,20 @@ class TestCameraMathMapping:
         assert after.lx == before.lx
 
     def test_center_on_puts_point_at_centre(self) -> None:
-        cam = CameraMath(Transform2D(20.0, 0.0, 0.0, -20.0), Vector(0.0, 0.0),
-                         Size(200.0, 100.0))
+        cam = CameraMath(
+            Transform2D(20.0, 0.0, 0.0, -20.0), Vector(0.0, 0.0), Size(200.0, 100.0)
+        )
         cam.center_on(Point(7.0, 3.0))
         centre_scene = cam.map_view_to_scene(Point(100.0, 50.0))
         assert abs(centre_scene.x - 7.0) < 1e-12
         assert abs(centre_scene.y - 3.0) < 1e-12
 
     def test_fit_in_view_frames_rect(self) -> None:
-        cam = CameraMath(Transform2D(-5.0, 0.0, 0.0, 5.0),  # mirrored-h
-                         Vector(0.0, 0.0), Size(400.0, 200.0))
+        cam = CameraMath(
+            Transform2D(-5.0, 0.0, 0.0, 5.0),  # mirrored-h
+            Vector(0.0, 0.0),
+            Size(400.0, 200.0),
+        )
         cam.fit_in_view(Rect.of(0.0, 0.0, 10.0, 10.0))
         # Constrained axis: height (200 px / 10 units = 20 px/unit).
         assert abs(cam.view_scale() - 20.0) < 1e-12
@@ -53,8 +58,9 @@ class TestCameraMathMapping:
     def test_zoom_at_cursor_keeps_point_under_cursor(self) -> None:
         # The full deterministic camera model: zoom-at-pivot leaves the scene
         # point under the pivot unmoved (ViewCamera's correction math).
-        cam = CameraMath(Transform2D(10.0, 0.0, 0.0, 10.0), Vector(30.0, 40.0),
-                         Size(300.0, 300.0))
+        cam = CameraMath(
+            Transform2D(10.0, 0.0, 0.0, 10.0), Vector(30.0, 40.0), Size(300.0, 300.0)
+        )
         pivot = Point(120.0, 80.0)
         before = cam.map_view_to_scene(pivot)
         factor = 1.331
@@ -64,8 +70,7 @@ class TestCameraMathMapping:
         )
         after = cam.map_view_to_scene(pivot)
         scale = cam.transform.a
-        cam.pan_by(Vector(-(after.x - before.x) * scale,
-                          -(after.y - before.y) * scale))
+        cam.pan_by(Vector(-(after.x - before.x) * scale, -(after.y - before.y) * scale))
         final = cam.map_view_to_scene(pivot)
         assert abs(final.x - before.x) < 1e-9
         assert abs(final.y - before.y) < 1e-9
@@ -76,15 +81,13 @@ class TestQtVsFakeProperty:
 
     _TRANSFORMS = [
         Transform2D(60.0, 0.0, 0.0, 60.0),
-        Transform2D(-45.0, 0.0, 0.0, 45.0),    # mirror_h
-        Transform2D(30.0, 0.0, 0.0, -30.0),    # mirror_v
-        Transform2D(-12.5, 0.0, 0.0, -12.5),   # mirror_hv
+        Transform2D(-45.0, 0.0, 0.0, 45.0),  # mirror_h
+        Transform2D(30.0, 0.0, 0.0, -30.0),  # mirror_v
+        Transform2D(-12.5, 0.0, 0.0, -12.5),  # mirror_hv
         Transform2D(7.0, 0.0, 0.0, 7.0),
     ]
     # Deterministic pseudo-random view points (Date-free, seed-free).
-    _POINTS = [
-        Point(float((i * 73) % 311), float((i * 137) % 229)) for i in range(12)
-    ]
+    _POINTS = [Point(float((i * 73) % 311), float((i * 137) % 229)) for i in range(12)]
 
     def test_mapping_matches_camera_math(self, board_view: BoardView) -> None:
         port = QtViewport(board_view)
@@ -95,9 +98,7 @@ class TestQtVsFakeProperty:
             # scene-rect-based scrollbar offset convention).
             fake = CameraMath(
                 transform=port.view_transform(),
-                viewport_size=Size(
-                    port.viewport_rect().lx, port.viewport_rect().ly
-                ),
+                viewport_size=Size(port.viewport_rect().lx, port.viewport_rect().ly),
             )
             scene0 = port.map_view_to_scene(Point(0.0, 0.0))
             mapped0 = fake.transform.apply(scene0)

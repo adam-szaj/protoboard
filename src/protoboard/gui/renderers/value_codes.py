@@ -44,7 +44,7 @@ def _scaled_number(text: str, scales: dict[str, float]) -> float | None:
     m = re.fullmatch(r"(\d+)([A-Za-zµΩ])(\d*)", s)
     if m and m.group(2) in scales:
         frac = m.group(3) or "0"
-        num = float(m.group(1)) + float(frac) / 10.0**len(frac)
+        num = float(m.group(1)) + float(frac) / 10.0 ** len(frac)
         return num * scales[m.group(2)]
     m = re.fullmatch(r"(\d+(?:[.,]\d+)?)\s*([A-Za-zµΩ]?)", s)
     if not m:
@@ -59,15 +59,18 @@ def parse_resistance(text: str) -> float | None:
     """A resistor ``value`` string → ohms (``None`` when it doesn't parse)."""
     s = text.strip()
     s = s.removesuffix("Ω").removesuffix("ohm").strip()
-    return _scaled_number(s, {
-        "m": 1e-3,
-        "": 1.0,
-        "R": 1.0,
-        "r": 1.0,
-        "k": 1e3,
-        "M": 1e6,
-        "G": 1e9,
-    })
+    return _scaled_number(
+        s,
+        {
+            "m": 1e-3,
+            "": 1.0,
+            "R": 1.0,
+            "r": 1.0,
+            "k": 1e3,
+            "M": 1e6,
+            "G": 1e9,
+        },
+    )
 
 
 def parse_inductance(text: str) -> float | None:
@@ -94,13 +97,16 @@ def parse_capacitance(text: str) -> float | None:
     """
     s = text.strip()
     s = s.removesuffix("F").removesuffix("f").strip()
-    return _scaled_number(s, {
-        "p": 1.0,
-        "n": 1e3,
-        "u": 1e6,
-        "m": 1e9,
-        "": 1e12,
-    })
+    return _scaled_number(
+        s,
+        {
+            "p": 1.0,
+            "n": 1e3,
+            "u": 1e6,
+            "m": 1e9,
+            "": 1e12,
+        },
+    )
 
 
 def parse_tolerance(text: str) -> float | None:
@@ -125,8 +131,8 @@ def parse_value(component_class: str, text: str) -> float | None:
     if component_class == ComponentClass.INDUCTOR:
         return parse_inductance(text)
     if component_class in (
-            ComponentClass.CAPACITOR_POLAR,
-            ComponentClass.CAPACITOR_NONPOLAR,
+        ComponentClass.CAPACITOR_POLAR,
+        ComponentClass.CAPACITOR_NONPOLAR,
     ):
         return parse_capacitance(text)
     return None

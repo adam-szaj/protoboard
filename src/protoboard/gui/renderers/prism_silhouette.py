@@ -29,9 +29,9 @@ from dataclasses import dataclass
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainterPath
 
+from protoboard.controller.theme import Theme
 from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
-from protoboard.controller.theme import Theme
 from protoboard.gui.qt_geometry import to_qrectf
 
 # Pins within this many holes of one another share a column.  DIP rows sit
@@ -77,9 +77,9 @@ class PrismDrawing:
 CornerRadii = float | tuple[float, float, float, float] | None
 
 
-def _expand_corner_r(corner_r: CornerRadii, theme: Theme) -> tuple[
-    float, float, float, float
-]:
+def _expand_corner_r(
+    corner_r: CornerRadii, theme: Theme
+) -> tuple[float, float, float, float]:
     """Normalise a ``corner_r`` argument to per-corner radii (holes)."""
     if corner_r is None:
         r = theme.body_corner_radius
@@ -138,8 +138,13 @@ class PrismSilhouette(ABC):
 
 
 def _notched_rect_path(
-    x0: float, y0: float, x1: float, y1: float, *,
-    radii: tuple[float, float, float, float], notch_r: float,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    *,
+    radii: tuple[float, float, float, float],
+    notch_r: float,
     notch_cx: float,
 ) -> QPainterPath:
     """Rounded rectangle [x0,y0]-[x1,y1] with a semicircular notch cut into its
@@ -197,7 +202,10 @@ class DipSilhouette(PrismSilhouette):
     ) -> PrismDrawing:
         box = prism.bbox()
         body = _notched_rect_path(
-            box.x, box.y, box.x + box.lx, box.y + box.ly,
+            box.x,
+            box.y,
+            box.x + box.lx,
+            box.y + box.ly,
             radii=_expand_corner_r(corner_r, theme),
             notch_r=theme.dip_notch_radius,
             notch_cx=self.notch_cx,

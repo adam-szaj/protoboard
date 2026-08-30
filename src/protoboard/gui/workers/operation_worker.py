@@ -33,11 +33,11 @@ or ``None`` on cancellation / error.
 from __future__ import annotations
 
 import traceback
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from PySide6.QtCore import QEventLoop, QThread, Signal
 from PySide6.QtWidgets import QProgressDialog, QWidget
-
 
 # ---------------------------------------------------------------------------
 # Worker thread
@@ -52,9 +52,9 @@ class _OperationWorker(QThread):
     cross-thread.
     """
 
-    succeeded: Signal = Signal(object)      # result value
-    failed: Signal = Signal(str)            # traceback string
-    progress: Signal = Signal(int, int)     # current, total
+    succeeded: Signal = Signal(object)  # result value
+    failed: Signal = Signal(str)  # traceback string
+    progress: Signal = Signal(int, int)  # current, total
 
     def __init__(
         self,
@@ -164,6 +164,7 @@ def run_with_progress(
 
     if error_holder:
         import structlog
+
         structlog.get_logger(__name__).error(
             "operation_worker.error", title=title, tb=error_holder[0]
         )

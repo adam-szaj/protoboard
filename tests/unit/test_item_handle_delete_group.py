@@ -14,6 +14,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+from protoboard.controller.editing import HeadlessSession
+from protoboard.controller.editing.item_handle import ComponentHandle, ItemId
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -22,8 +24,6 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.controller.editing import HeadlessSession
-from protoboard.controller.editing.item_handle import ComponentHandle, ItemId
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
@@ -53,11 +53,16 @@ def _session() -> HeadlessSession:
 def _place(session: HeadlessSession, x: float, y: float, refdes: str) -> uuid.UUID:
     defn = session.components["R"]
     inst = ComponentInstance.new(
-        definition_ref="R", refdes=refdes, value="",
+        definition_ref="R",
+        refdes=refdes,
+        value="",
     ).bind(defn, session.package_families)
     session.instances[inst.id] = inst
     session.layout.placements[inst.id] = ComponentPlacement(
-        component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+        component_id=inst.id,
+        position=Point(x, y),
+        rotation=0,
+        side="top",
     )
     session.invalidate_graph()
     return inst.id
@@ -73,14 +78,16 @@ def _wire(session: HeadlessSession, a: Point, b: Point) -> uuid.UUID:
 def _make_group(session: HeadlessSession, member_ids: list[uuid.UUID]) -> uuid.UUID:
     grp_id = uuid.uuid4()
     session.layout.groups[grp_id] = ComponentGroup(
-        id=grp_id, name="G1",
+        id=grp_id,
+        name="G1",
         component_ids=frozenset(member_ids),
         child_group_ids=frozenset(),
         exported_pins=frozenset(),
     )
     root = session.layout.groups[ROOT_GROUP_ID]
     session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-        id=ROOT_GROUP_ID, name=root.name,
+        id=ROOT_GROUP_ID,
+        name=root.name,
         component_ids=root.component_ids - frozenset(member_ids),
         child_group_ids=root.child_group_ids | {grp_id},
         exported_pins=root.exported_pins,
@@ -116,8 +123,8 @@ def test_group_handle_delete_disbands_keeping_members() -> None:
 
     session.edit_controller.get_group(gid).delete()
 
-    assert gid not in session.layout.groups          # group dissolved
-    assert cid in session.layout.placements          # member kept
+    assert gid not in session.layout.groups  # group dissolved
+    assert cid in session.layout.placements  # member kept
 
 
 def test_selection_delete_mixed_is_one_undo_step() -> None:
@@ -133,10 +140,10 @@ def test_selection_delete_mixed_is_one_undo_step() -> None:
         active_group_id=ROOT_GROUP_ID,
     )
 
-    assert c_free not in session.layout.placements          # free comp deleted
+    assert c_free not in session.layout.placements  # free comp deleted
     assert wid not in {w.id for w in session.layout.wires}  # wire deleted
-    assert gid not in session.layout.groups                 # group disbanded
-    assert c_grouped in session.layout.placements           # its member kept
+    assert gid not in session.layout.groups  # group disbanded
+    assert c_grouped in session.layout.placements  # its member kept
 
     session.stack.undo(session)  # one step restores everything
     assert c_free in session.layout.placements
@@ -199,7 +206,8 @@ def test_create_group_takes_item_ids() -> None:
 
     gid = session.edit_controller.create_group(
         [ItemId.component(c1), ItemId.component(c2)],
-        active_group_id=ROOT_GROUP_ID, name="Amp",
+        active_group_id=ROOT_GROUP_ID,
+        name="Amp",
     )
     assert gid is not None
     grp = session.layout.groups[gid]
@@ -212,11 +220,15 @@ def test_add_to_group_takes_item_ids() -> None:
     c1 = _place(session, 0.5, 0.5, "R1")
     c2 = _place(session, 1.5, 0.5, "R2")
     gid = session.edit_controller.create_group(
-        [ItemId.component(c1)], active_group_id=ROOT_GROUP_ID, name="Amp",
+        [ItemId.component(c1)],
+        active_group_id=ROOT_GROUP_ID,
+        name="Amp",
     )
     assert gid is not None
 
     session.edit_controller.add_to_group(
-        gid, [ItemId.component(c2)], active_group_id=ROOT_GROUP_ID,
+        gid,
+        [ItemId.component(c2)],
+        active_group_id=ROOT_GROUP_ID,
     )
     assert c2 in session.layout.groups[gid].component_ids

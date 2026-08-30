@@ -6,12 +6,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from pytestqt.qtbot import QtBot
-
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsScene
+from pytestqt.qtbot import QtBot
 
+from protoboard.controller.theme import DEFAULT_THEME
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
@@ -40,7 +40,6 @@ from protoboard.gui.renderers.pin_pad_renderer import (
     render_pin_modifiers,
     render_pin_pads,
 )
-from protoboard.controller.theme import DEFAULT_THEME
 
 
 @pytest.fixture
@@ -52,14 +51,21 @@ def scene(qtbot: QtBot) -> QGraphicsScene:
 def _resistor_setup(
     *, exported_pin_numbers: tuple[int, ...] = ()
 ) -> tuple[PadIndex, Layout, uuid.UUID]:
-    board = Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-        cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            layers=PadLayers(top=True, bottom=True, plated_through=True),
-        ),
-        rows=2, cols=3, row_gap=0, col_gap=0,
-    ))
+    board = Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=2,
+            cols=3,
+            row_gap=0,
+            col_gap=0,
+        )
+    )
     family = sil_family(2)
     assert family is not None
     defn = ComponentDefinition(
@@ -73,12 +79,14 @@ def _resistor_setup(
             ),
         ),
     )
-    inst = ComponentInstance.new(
-        definition_ref="R", refdes="R1", value=""
-    ).bind(defn, {family.family_id: family})
+    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(
+        defn, {family.family_id: family}
+    )
     pl = ComponentPlacement(
-        component_id=inst.id, position=Point(0.5, 0.5),
-        rotation=90, side="top",
+        component_id=inst.id,
+        position=Point(0.5, 0.5),
+        rotation=90,
+        side="top",
     )
     lay = Layout()
     lay.ensure_root_group()
@@ -86,26 +94,33 @@ def _resistor_setup(
     if exported_pin_numbers:
         gid = uuid.uuid4()
         lay.groups[gid] = ComponentGroup(
-            id=gid, name="G",
+            id=gid,
+            name="G",
             component_ids=frozenset({inst.id}),
             exported_pins=frozenset(
-                PinRef(component_id=inst.id, pin_number=n)
-                for n in exported_pin_numbers
+                PinRef(component_id=inst.id, pin_number=n) for n in exported_pin_numbers
             ),
         )
         root = lay.groups[ROOT_GROUP_ID]
         lay.groups[ROOT_GROUP_ID] = ComponentGroup(
-            id=root.id, name=root.name,
+            id=root.id,
+            name=root.name,
             component_ids=root.component_ids,
             child_group_ids=root.child_group_ids | {gid},
             exported_pins=root.exported_pins,
         )
     n1 = uuid.uuid4()
     n2 = uuid.uuid4()
-    sch = Schematic(nets={
-        n1: Net(id=n1, name="N1", pins={PinRef(component_id=inst.id, pin_number=1)}),
-        n2: Net(id=n2, name="N2", pins={PinRef(component_id=inst.id, pin_number=2)}),
-    })
+    sch = Schematic(
+        nets={
+            n1: Net(
+                id=n1, name="N1", pins={PinRef(component_id=inst.id, pin_number=1)}
+            ),
+            n2: Net(
+                id=n2, name="N2", pins={PinRef(component_id=inst.id, pin_number=2)}
+            ),
+        }
+    )
     idx = PadIndex(board, lay, sch, {"R": defn}, {inst.id: inst})
     return idx, lay, n1
 
@@ -116,11 +131,16 @@ def _resistor_setup(
 
 
 class TestRenderPinPads:
-    def test_pin_pad_yields_disc_plus_carve_for_pin1(self, scene: QGraphicsScene) -> None:
+    def test_pin_pad_yields_disc_plus_carve_for_pin1(
+        self, scene: QGraphicsScene
+    ) -> None:
         idx, lay, _ = _resistor_setup()
         records = classify_pin_pads(idx, lay)
         items = render_pin_pads(
-            scene, records, theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         # Each PIN_PAD record produces 2 items: filled disc + carved
         # modifier (CIRCLE for the default, square/diamond/star for
@@ -138,7 +158,10 @@ class TestRenderPinPads:
         ov = LayerOverrides()
         ov.pin_pads = LayerVisibility.HIDDEN
         items = render_pin_pads(
-            scene, records, theme=DEFAULT_THEME, layers=LayerState(overrides=ov),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(overrides=ov),
         )
         assert items == []
 
@@ -146,13 +169,17 @@ class TestRenderPinPads:
         # FREE (pin present, no net) → neutral outline ring + modifier glyph
         # in pin_free_color, NOT a net-coloured filled disc.
         synthetic = PinPadInfo(
-            position=Point(0.5, 0.5), side="top",
+            position=Point(0.5, 0.5),
+            side="top",
             net_id=None,
             klass=PinPadClass.FREE,
             modifier=ModifierShape.SQUARE,  # pin1 marker still drawn
         )
         items = render_pin_pads(
-            scene, [synthetic], theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            [synthetic],
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         # Ring (ellipse) + glyph (path), both outline-only, neutral colour.
         rings = [it for it in items if isinstance(it, QGraphicsEllipseItem)]
@@ -163,7 +190,9 @@ class TestRenderPinPads:
         free = QColor(DEFAULT_THEME.pin_free_color)
         pen_c = ring.pen().color()
         assert (pen_c.red(), pen_c.green(), pen_c.blue()) == (
-            free.red(), free.green(), free.blue()
+            free.red(),
+            free.green(),
+            free.blue(),
         )
         # No fill — transparent centre so the board pad stays visible.
         assert ring.brush().style() == Qt.BrushStyle.NoBrush
@@ -172,8 +201,10 @@ class TestRenderPinPads:
         idx, lay, n1 = _resistor_setup()
         records = classify_pin_pads(idx, lay)
         items = render_pin_pads(
-            scene, records,
-            theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
             routing_target_net_id=n1,
         )
         # Find disc items belonging to net n1 (pin 1's pad — by position).
@@ -210,7 +241,10 @@ class TestRenderPinModifiers:
         idx, lay, _ = _resistor_setup()
         records = classify_pin_pads(idx, lay)
         items = render_pin_modifiers(
-            scene, records, theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         # Every PIN_PAD emits a top overlay — including the default CIRCLE
         # (pin markers stay visible even when the body covers the pads).
@@ -223,14 +257,17 @@ class TestRenderPinModifiers:
         # The default CIRCLE modifier now also gets a top glyph so plain
         # pins are marked consistently with the special ones.
         synthetic = PinPadInfo(
-            position=Point(0.5, 0.5), side="top",
+            position=Point(0.5, 0.5),
+            side="top",
             net_id=uuid.uuid4(),
             klass=PinPadClass.PIN_PAD,
             modifier=ModifierShape.CIRCLE,
         )
         items = render_pin_modifiers(
-            scene, [synthetic],
-            theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            [synthetic],
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         assert len(items) == 1
         assert isinstance(items[0], QGraphicsPathItem)
@@ -239,20 +276,25 @@ class TestRenderPinModifiers:
         # Two synthetic records — one diamond, one star — verify items emit.
         records = [
             PinPadInfo(
-                position=Point(0.5, 0.5), side="top",
+                position=Point(0.5, 0.5),
+                side="top",
                 net_id=uuid.uuid4(),
                 klass=PinPadClass.PIN_PAD,
                 modifier=ModifierShape.DIAMOND,
             ),
             PinPadInfo(
-                position=Point(1.5, 0.5), side="top",
+                position=Point(1.5, 0.5),
+                side="top",
                 net_id=uuid.uuid4(),
                 klass=PinPadClass.PIN_PAD,
                 modifier=ModifierShape.STAR,
             ),
         ]
         items = render_pin_modifiers(
-            scene, records, theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         assert len(items) == 2
 
@@ -261,14 +303,18 @@ class TestRenderPinModifiers:
         # modifier overlay (which is net-coloured) — so no top glyph here.
         records = [
             PinPadInfo(
-                position=Point(0.5, 0.5), side="top",
+                position=Point(0.5, 0.5),
+                side="top",
                 net_id=None,
                 klass=PinPadClass.FREE,
                 modifier=ModifierShape.SQUARE,
             ),
         ]
         items = render_pin_modifiers(
-            scene, records, theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         assert items == []
 
@@ -276,13 +322,17 @@ class TestRenderPinModifiers:
         # CONTACT_ONLY classifications never emit a top modifier glyph.
         records = [
             PinPadInfo(
-                position=Point(0.5, 0.5), side="top",
+                position=Point(0.5, 0.5),
+                side="top",
                 net_id=uuid.uuid4(),
                 klass=PinPadClass.CONTACT_ONLY,
                 modifier=ModifierShape.CIRCLE,
             ),
         ]
         items = render_pin_modifiers(
-            scene, records, theme=DEFAULT_THEME, layers=LayerState(),
+            scene,
+            records,
+            theme=DEFAULT_THEME,
+            layers=LayerState(),
         )
         assert items == []

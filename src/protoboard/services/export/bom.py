@@ -30,7 +30,7 @@ def export_bom_csv(
         if inst is None:
             continue
         defn = components.get(inst.definition_ref)
-        # Prefer the placed variant's address ("DO-35/typ"), then the
+        # Prefer the placed variant's address ("d-tht/DO/35"), then the
         # definition's default package ref.
         fp_name = ""
         if defn is not None:

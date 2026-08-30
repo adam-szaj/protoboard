@@ -3,12 +3,12 @@
 # Ported from assets/body_types/radial_led.yaml.  The legacy "led_lens" material
 # becomes a bright base colour; the class-flavour tint stays the renderer's job.
 families:
-  - family: LED
+  - family: led-tht/round
     extends: cylinder_radial
     label: "LED Plastic Dome"
     color: "#7f7f7f"
     variants:
-      - id: led25
+      - id: "2.5"
         label: "Typical (2.5 mm dia)"
         dims:
           diameter: 2.50
@@ -21,7 +21,7 @@ families:
               value: [1, 0]
           board_offset: [1, 0]
           lead_r: 0.25
-      - id: led30
+      - id: "3"
         label: "Typical (3 mm dia)"
         dims:
           diameter: 3.0
@@ -34,7 +34,7 @@ families:
               value: [[1, 0]]
           board_offset: default
           lead_r: 0.25
-      - id: led50
+      - id: "5"
         label: "Typical (5 mm dia)"
         dims:
           diameter: 5.0
@@ -47,4 +47,3 @@ families:
               value: [[1, 0]]
           board_offset: default
           lead_r: 0.25
-

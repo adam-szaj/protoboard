@@ -9,6 +9,7 @@ hand-tuned numbers from physics.
 import math
 
 import pytest
+from geometry_utils import _pt, _ve
 
 from protoboard.domain.components.package.offsets import (
     cumulative_positions,
@@ -23,9 +24,6 @@ from protoboard.domain.components.package.solver import (
 )
 from protoboard.geometry import Vector
 
-from geometry_utils import _pt, _ve
-
-
 
 class TestExpandOffsets:
     def test_bare_vectors(self) -> None:
@@ -39,9 +37,13 @@ class TestExpandOffsets:
         raw = [[3, [0, 1]], [3, 0], [3, [0, -1]]]
         expanded = expand_offsets(raw)
         assert expanded == [
-            _ve(0, 1), _ve(0, 1), _ve(0, 1),
+            _ve(0, 1),
+            _ve(0, 1),
+            _ve(0, 1),
             _ve(3, 0),
-            _ve(0, -1), _ve(0, -1), _ve(0, -1),
+            _ve(0, -1),
+            _ve(0, -1),
+            _ve(0, -1),
         ]
         assert len(expanded) == 7  # N-1 for 8 pins
 
@@ -80,10 +82,10 @@ class TestScaleAndCumulative:
         steps = expand_offsets([[3, [0, 1]], [3, 0], [3, [0, -1]]])
         pos = cumulative_positions(steps)
         assert len(pos) == 8
-        assert pos[0] == _pt(0, 0)   # pin 1
-        assert pos[3] == _pt(0, 3)   # pin 4 (bottom of left column)
-        assert pos[4] == _pt(3, 3)   # pin 5 (after column jump)
-        assert pos[7] == _pt(3, 0)   # pin 8 (top of right column, beside pin 1)
+        assert pos[0] == _pt(0, 0)  # pin 1
+        assert pos[3] == _pt(0, 3)  # pin 4 (bottom of left column)
+        assert pos[4] == _pt(3, 3)  # pin 5 (after column jump)
+        assert pos[7] == _pt(3, 0)  # pin 8 (top of right column, beside pin 1)
 
 
 class TestAxialSolver:
@@ -124,8 +126,11 @@ class TestAxialSolver:
         # Eccentricity is a 2D vector; its x (lead-axis) projection reduces r_min.
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
-            length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Vector(0.5, 0.0),
+            length_mm=self.L,
+            r_body_mm=self.R_BODY,
+            lead_r_mm=self.LEAD_R,
+            lead_length_mm=self.LEAD_LEN,
+            body_eccentricity_mm=Vector(0.5, 0.0),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm - 0.5)
@@ -134,8 +139,11 @@ class TestAxialSolver:
         # The y component (perpendicular to the lead axis) does not change r_min.
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
-            length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Vector(0.0, 0.9),
+            length_mm=self.L,
+            r_body_mm=self.R_BODY,
+            lead_r_mm=self.LEAD_R,
+            lead_length_mm=self.LEAD_LEN,
+            body_eccentricity_mm=Vector(0.0, 0.9),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm)

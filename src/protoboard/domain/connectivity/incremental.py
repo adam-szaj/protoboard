@@ -27,11 +27,20 @@ from __future__ import annotations
 import itertools
 import uuid
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Iterator
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
+
+# Quantisation helpers live in pad_geometry — shared with PadIndex so both
+# indexes agree on "is this the same pad" tolerance.
+from protoboard.domain.board.pad_geometry import (
+    NodeKey as _NodeKey,
+)
+from protoboard.domain.board.pad_geometry import (
+    qkey as _qkey,
+)
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.pin_mapping import (
@@ -43,15 +52,6 @@ from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
-
-# Quantisation helpers live in pad_geometry — shared with PadIndex so both
-# indexes agree on "is this the same pad" tolerance.
-from protoboard.domain.board.pad_geometry import (
-    SNAP_TOL as _SNAP_TOL,
-    NodeKey as _NodeKey,
-    q as _q,
-    qkey as _qkey,
-)
 
 # ---------------------------------------------------------------------------
 # Core data structures
@@ -75,7 +75,7 @@ class ElectricSet:
             self.canonical_key = (float("inf"), float("inf"), "z")
 
     def __repr__(self) -> str:
-        return f"ElectricSet(id={self.id}, size={len(self._items)}, canonical={self.canonical_key})"
+        return f"ElectricSet(id={self.id}, size={len(self._items)}, canonical={self.canonical_key})"  # noqa: E501
 
 
 class NodeEntry:
@@ -147,10 +147,10 @@ class ConnectivityGraph:
         # Free-form per-ElectricSet data for external use (e.g. GUI item refs).
         self.user_data_map: dict[int, object] = {}
         # Cache for valid_nodes_by_side() — None means stale, rebuilt lazily.
-        self._valid_nodes_cache: dict[str, set["Point"]] | None = None
+        self._valid_nodes_cache: dict[str, set[Point]] | None = None
         # Cache for board pad positions per side — lazy, immutable after build
         # (board geometry does not change during a graph's lifetime).
-        self._board_pads_cache: dict[str, set["Point"]] = {}
+        self._board_pads_cache: dict[str, set[Point]] = {}
 
         self._components = components
         self._instances = instances or {}
@@ -166,19 +166,19 @@ class ConnectivityGraph:
     # purpose so the rest of the codebase doesn't start mutating internals
     # through them.
     @property
-    def board(self) -> "Board":
+    def board(self) -> Board:
         return self._board
 
     @property
-    def layout(self) -> "Layout":
+    def layout(self) -> Layout:
         return self._layout
 
     @property
-    def components(self) -> dict[str, "ComponentDefinition"]:
+    def components(self) -> dict[str, ComponentDefinition]:
         return self._components
 
     @property
-    def instances(self) -> dict[uuid.UUID, "ComponentInstance"]:
+    def instances(self) -> dict[uuid.UUID, ComponentInstance]:
         return self._instances
 
     # ------------------------------------------------------------------
@@ -255,7 +255,7 @@ class ConnectivityGraph:
     # Incremental operations
     # ------------------------------------------------------------------
 
-    def _board_pads_for_side(self, side: str) -> set["Point"]:
+    def _board_pads_for_side(self, side: str) -> set[Point]:
         """Return cached set of pad positions on *side* (lazy, immutable)."""
         cached = self._board_pads_cache.get(side)
         if cached is not None:
@@ -266,7 +266,7 @@ class ConnectivityGraph:
         self._board_pads_cache[side] = pads
         return pads
 
-    def _enrich_bare_path(self, path: list["Point"], side: str) -> list["Point"]:
+    def _enrich_bare_path(self, path: list[Point], side: str) -> list[Point]:
         """Insert board-pad positions that lie on segments of *path*.
 
         Returned for bare wires only — they physically contact every pad they

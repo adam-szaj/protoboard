@@ -81,7 +81,8 @@ class TestJumperGating:
 class TestWireModeGating:
     def test_insulated_mode_blocks_bare_conversions(self) -> None:
         caps = OptimizerCapabilities(
-            insulated_to_bare=True, bare_to_insulated=True,
+            insulated_to_bare=True,
+            bare_to_insulated=True,
         )
         rs = RoutingSettings(wire_mode="insulated")
         reasons = incompatibility_reasons(caps, rs)

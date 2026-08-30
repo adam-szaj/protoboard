@@ -1,49 +1,30 @@
 # SPDX-License-Identifier: MIT
-# Package-family catalogue — radial brick / can bodies (HC-49 crystal, ceramic
-# bricks).  Ported from assets/body_types/radial_brick.yaml.  Prisms map their
-# Local-frame dims: lx along the lead axis, ly across it, lz off-board
-# elevation (the Prism bbox orients lx/ly by the pin-row axis).
 families:
-  - family: HC-49
+  - family: y-tht/HC-49
     extends: prism_radial
     label: "HC-49/U metal-can crystal"
     color: "#b8b8c0"
     edge: rounded
     variants:
-      - id: typ
-        label: "Typical (11 x 4.5 x 3.5 mm)"
+      - id: std
+        label: "11 x 4.5 x 3.5 mm"
         dims: {lx: 11.0, ly: 4.5, lz: 3.5}
         leads: {lead_r: 0.25}
-
-  - family: Ceramic-Brick-Small
+  - family: c-tht/ceramic-brick
     extends: prism_radial
-    label: "Ceramic brick (~22 x 10 x 9 mm)"
+    label: "Ceramic brick"
     color: "#d6c08c"
     edge: sharp
     variants:
-      - id: typ
-        label: "Typical"
+      - id: small
+        label: "22 x 9.5 x 9 mm"
         dims: {lx: 22.0, ly: 9.5, lz: 9.0}
         leads: {lead_r: 0.4}
-
-  - family: Ceramic-Brick-Medium
-    extends: prism_radial
-    label: "Ceramic brick (~25 x 10 x 10 mm)"
-    color: "#d6c08c"
-    edge: sharp
-    variants:
-      - id: typ
-        label: "Typical"
+      - id: medium
+        label: "25 x 10 x 10 mm"
         dims: {lx: 25.0, ly: 10.0, lz: 10.0}
         leads: {lead_r: 0.4}
-
-  - family: Ceramic-Brick-Large
-    extends: prism_radial
-    label: "Ceramic brick (~48 x 13 x 13 mm)"
-    color: "#d6c08c"
-    edge: sharp
-    variants:
-      - id: typ
-        label: "Typical"
+      - id: large
+        label: "48 x 13 x 13 mm"
         dims: {lx: 48.0, ly: 13.0, lz: 13.0}
         leads: {lead_r: 0.5}

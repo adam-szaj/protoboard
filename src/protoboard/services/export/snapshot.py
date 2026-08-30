@@ -21,9 +21,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.gui.layer_state import LayerOverrides, LayerState
-from protoboard.controller.theme import DEFAULT_THEME, Theme
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -50,13 +50,13 @@ class BoardSnapshot:
     exporter.
     """
 
-    board: "Board"
-    layout: "Layout"
-    components: dict[str, "ComponentDefinition"]
-    instances: dict[uuid.UUID, "ComponentInstance"]
-    schematic: "Schematic"
-    pad_index: "PadIndex"
-    package_families: dict[str, "PackageFamily"]
+    board: Board
+    layout: Layout
+    components: dict[str, ComponentDefinition]
+    instances: dict[uuid.UUID, ComponentInstance]
+    schematic: Schematic
+    pad_index: PadIndex
+    package_families: dict[str, PackageFamily]
     theme: Theme = field(default_factory=lambda: DEFAULT_THEME)
     camera_side: CameraSide = "top"
     view_transform: ViewTransform = "normal"
@@ -70,11 +70,11 @@ class BoardSnapshot:
     @classmethod
     def from_session(
         cls,
-        session: "EditorSession",
+        session: EditorSession,
         *,
         canonical: bool = True,
         theme: Theme | None = None,
-    ) -> "BoardSnapshot":
+    ) -> BoardSnapshot:
         """Capture session state into a snapshot.
 
         ``canonical=True`` (default) produces a layout-independent view:
@@ -126,7 +126,7 @@ class BoardSnapshot:
         *,
         camera_side: CameraSide | None = None,
         view_transform: ViewTransform | None = None,
-    ) -> "BoardSnapshot":
+    ) -> BoardSnapshot:
         """Return a copy with the camera / view transform overridden.
 
         Used by the multi-panel template exporter to render top, bottom,
@@ -134,6 +134,7 @@ class BoardSnapshot:
         instances, theme) is shared — these are read-only inputs.
         """
         from dataclasses import replace as _replace
+
         kwargs: dict[str, object] = {}
         if camera_side is not None:
             kwargs["camera_side"] = camera_side
@@ -144,6 +145,7 @@ class BoardSnapshot:
     def layer_state(self) -> LayerState:
         """Derive a :class:`LayerState` from the snapshot's stored bits."""
         from dataclasses import replace as _replace
+
         s = LayerState(
             camera_side=self.camera_side,
             view_transform=self.view_transform,

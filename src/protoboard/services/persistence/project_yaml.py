@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import io
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
-    Iterable,
     Protocol,
     cast,
     runtime_checkable,
@@ -29,6 +29,10 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.package import PackageFamily
 
+from protoboard.domain.axis_labels_settings import (
+    AxisLabelFormat,
+    AxisLabelSettings,
+)
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.instance import ComponentInstance
@@ -39,16 +43,12 @@ from protoboard.domain.layout.normalize import (
 )
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire, transform_wire_geometry
-from protoboard.domain.axis_labels_settings import (
-    AxisLabelFormat,
-    AxisLabelSettings,
-)
 from protoboard.domain.routing_settings import RoutingSettings
-from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point, Transform2D, Vector
+from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 
 # Identity transform sentinel — a group with this transform is a no-op in the
 # scene-graph model, so it is not written to disk (keeps files clean).
@@ -64,8 +64,14 @@ def _transform_from_raw(raw: object) -> Transform2D:
         return _IDENTITY_TRANSFORM
     a, b, c, d, tx, ty = (float(v) for v in raw)
     return Transform2D(a, b, c, d, tx, ty)
-import structlog
-from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
+
+
+import structlog  # noqa: E402
+
+from protoboard.services.persistence.board_yaml import (  # noqa: E402
+    board_from_yaml,
+    board_to_yaml,
+)
 
 _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
@@ -118,6 +124,7 @@ def save_project(
         merge_endpoint_wires,
         split_wires_at_endpoint_collisions,
     )
+
     _splits_on_save = 0
     _fused_on_save = 0
     # Components dict from the migration-registered library — needed so
@@ -126,9 +133,10 @@ def save_project(
     # different net must stay a crossing, not collapse into a shared
     # hub).  Falls back to None when no library is registered (legacy
     # tests); the split pass then behaves geometry-only as before.
-    _components_for_split: "dict[str, object] | None" = None
+    _components_for_split: dict[str, object] | None = None
     if _library_for_migration is not None and hasattr(
-        _library_for_migration, "names",
+        _library_for_migration,
+        "names",
     ):
         _components_for_split = {
             _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
@@ -143,7 +151,8 @@ def save_project(
             board=board,
         )
         _f = merge_endpoint_wires(
-            layout, board,
+            layout,
+            board,
             schematic=schematic,
             instances=instances,
             components=_components_for_split,  # type: ignore[arg-type]
@@ -173,8 +182,7 @@ def save_project(
     # the defaults stay on disk without an extra file, and reload still
     # yields the same defaults via load_project()'s fallback.
     axis_path = directory / "axis_labels.yaml"
-    if (axis_label_settings is not None
-            and axis_label_settings != AxisLabelSettings()):
+    if axis_label_settings is not None and axis_label_settings != AxisLabelSettings():
         _write(axis_path, _axis_labels_to_yaml(axis_label_settings))
     elif axis_path.exists():
         axis_path.unlink()
@@ -214,7 +222,8 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                 **({"tolerance": inst.tolerance} if inst.tolerance else {}),
                 **(
                     {"package_variant": inst.package_variant}
-                    if inst.package_variant else {}
+                    if inst.package_variant
+                    else {}
                 ),
                 **_appearance_to_style_field(inst.appearance),
             }
@@ -235,6 +244,7 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
     from protoboard.domain.layout.knot import JointKnot as _Joint
     from protoboard.domain.layout.knot import PinKnot as _Pin
     from protoboard.domain.layout.knot import WirePinKnot as _WirePin
+
     if isinstance(knot, _Pin):
         return {
             "id": str(knot.id),
@@ -262,6 +272,7 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
 
 def _wire_to_yaml_dict(wire: object) -> dict[str, Any]:
     from protoboard.domain.layout.wire import Wire as _Wire
+
     if not isinstance(wire, _Wire):
         raise SerializationError(f"expected Wire, got {type(wire).__name__}")
     if wire.a is None or wire.b is None:
@@ -318,18 +329,16 @@ def _layout_to_yaml(layout: Layout) -> str:
                     else {}
                 ),
                 **(
-                    {"pin_offsets": {
-                        str(pin): {"x": off.dx, "y": off.dy}
-                        for pin, off in pl.pin_offsets.items()
-                    }}
+                    {
+                        "pin_offsets": {
+                            str(pin): {"x": off.dx, "y": off.dy}
+                            for pin, off in pl.pin_offsets.items()
+                        }
+                    }
                     if pl.pin_offsets
                     else {}
                 ),
-                **(
-                    {"shared_pins": sorted(pl.shared_pins)}
-                    if pl.shared_pins
-                    else {}
-                ),
+                **({"shared_pins": sorted(pl.shared_pins)} if pl.shared_pins else {}),
                 **({"vertical_flipped": True} if pl.vertical_flipped else {}),
                 **({"locked": True} if pl.locked else {}),
             }
@@ -345,34 +354,53 @@ def _layout_to_yaml(layout: Layout) -> str:
                         "name": g.name,
                         **(
                             {"component_ids": [str(c) for c in sorted(g.component_ids)]}
-                            if g.component_ids else {}
+                            if g.component_ids
+                            else {}
                         ),
                         **(
-                            {"child_group_ids": [
-                                str(c) for c in sorted(g.child_group_ids)
-                            ]}
-                            if g.child_group_ids else {}
+                            {
+                                "child_group_ids": [
+                                    str(c) for c in sorted(g.child_group_ids)
+                                ]
+                            }
+                            if g.child_group_ids
+                            else {}
                         ),
                         **(
-                            {"exported_pins": [
-                                {"component_id": str(ep.component_id), "meta_pin": ep.meta_pin_index}
-                                for ep in sorted(g.exported_pins, key=lambda e: (str(e.component_id), e.meta_pin_index))
-                            ]}
-                            if g.exported_pins else {}
+                            {
+                                "exported_pins": [
+                                    {
+                                        "component_id": str(ep.component_id),
+                                        "meta_pin": ep.meta_pin_index,
+                                    }
+                                    for ep in sorted(
+                                        g.exported_pins,
+                                        key=lambda e: (
+                                            str(e.component_id),
+                                            e.meta_pin_index,
+                                        ),
+                                    )
+                                ]
+                            }
+                            if g.exported_pins
+                            else {}
                         ),
                         **(
                             {"transform": list(g.transform.coeffs())}
-                            if g.transform != _IDENTITY_TRANSFORM else {}
+                            if g.transform != _IDENTITY_TRANSFORM
+                            else {}
                         ),
                         **(
                             {"lock_internal_wires": True}
-                            if g.lock_internal_wires else {}
+                            if g.lock_internal_wires
+                            else {}
                         ),
                     }
                     for g in layout.groups.values()
                 ]
             }
-            if layout.groups else {}
+            if layout.groups
+            else {}
         ),
     }
     buf = io.StringIO()
@@ -428,9 +456,7 @@ def _drop_dangling_instances(
         return
     lib = cast(_MigrationLibrary, library)
     dangling = {
-        cid
-        for cid, inst in instances.items()
-        if lib.get(inst.definition_ref) is None
+        cid for cid, inst in instances.items() if lib.get(inst.definition_ref) is None
     }
     if not dangling:
         return
@@ -498,8 +524,7 @@ def _migrate_groups_v2_to_v3(
     to_migrate = {
         gid: pair
         for gid, pair in legacy_baked.items()
-        if gid in layout.groups
-        and layout.groups[gid].transform == _IDENTITY_TRANSFORM
+        if gid in layout.groups and layout.groups[gid].transform == _IDENTITY_TRANSFORM
     }
     if not to_migrate:
         return
@@ -538,8 +563,13 @@ def _migrate_groups_v2_to_v3(
 def load_project(
     directory: Path,
 ) -> tuple[
-    Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance],
-    RoutingSettings, LayerOverrides, AxisLabelSettings,
+    Board,
+    Layout,
+    Schematic,
+    dict[uuid.UUID, ComponentInstance],
+    RoutingSettings,
+    LayerOverrides,
+    AxisLabelSettings,
 ]:
     _log.info("project.loading", path=str(directory))
     try:
@@ -587,15 +617,20 @@ def load_project(
     # legacy/test handles) are left unbound; the migration passes already guard
     # for a missing defn before resolving geometry.
     if _library_for_migration is not None and hasattr(
-        _library_for_migration, "get",
+        _library_for_migration,
+        "get",
     ):
         _mig_lib = cast(_MigrationLibrary, _library_for_migration)
         _mig_families = cast(
-            "dict[str, PackageFamily] | None", _families_for_migration,
+            "dict[str, PackageFamily] | None",
+            _families_for_migration,
         )
         for _cid, _inst in list(instances.items()):
             _defn = _mig_lib.get(_inst.definition_ref)
             if _defn is not None:
+                _contributed = getattr(_mig_lib, "package_families", None)
+                if _mig_families is not None and isinstance(_contributed, dict):
+                    _mig_families.update(_contributed)
                 instances[_cid] = _inst.bind(_defn, _mig_families)
 
     # Convert v2 groups (baked rotation flattened into member placements) to the
@@ -616,10 +651,8 @@ def load_project(
         board_pads_for_side,
         insert_pad_nodes,
     )
-    _all_pads = (
-        board_pads_for_side(board, "top")
-        | board_pads_for_side(board, "bottom")
-    )
+
+    _all_pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
     for _idx, _w in enumerate(layout.wires):
         if not _w.insulated:
             continue
@@ -649,6 +682,7 @@ def load_project(
         from protoboard.domain.layout.placement import (
             pin_world_position as _pwp,
         )
+
         pin_index: dict[Point, PinRef] = {}
         library = _library_for_migration
         if library is not None:
@@ -664,7 +698,8 @@ def load_project(
                 if defn is None:
                     continue
                 fp = _resolved_footprint(
-                    defn, inst, _families_for_migration)  # type: ignore[arg-type]
+                    defn, inst, _families_for_migration
+                )  # type: ignore[arg-type]
                 n_pins = fp.pin_count()
                 for pin_num in range(1, n_pins + 1):
                     try:
@@ -688,7 +723,8 @@ def load_project(
                     return None
                 try:
                     fp = _resolved_footprint(
-                        defn, inst, _families_for_migration)  # type: ignore[arg-type]
+                        defn, inst, _families_for_migration
+                    )  # type: ignore[arg-type]
                     return _pwp(fp, pl, pin_num)
                 except (IndexError, ValueError):
                     return None
@@ -747,15 +783,17 @@ def load_project(
         merge_endpoint_wires,
         split_wires_at_endpoint_collisions,
     )
+
     _total_splits = 0
     _total_fused = 0
     # Same net-conflict gate as save_project (see note there).  Build the
     # components dict from the registered library so cross-net insulated
     # crossings stay as crossings instead of getting spliced into shared
     # hubs.  No-op when no library was registered (legacy tests).
-    _components_for_split: "dict[str, object] | None" = None
+    _components_for_split: dict[str, object] | None = None
     if _library_for_migration is not None and hasattr(
-        _library_for_migration, "names",
+        _library_for_migration,
+        "names",
     ):
         _components_for_split = {
             _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
@@ -782,7 +820,8 @@ def load_project(
             break
         try:
             _f = merge_endpoint_wires(
-                layout, board,
+                layout,
+                board,
                 schematic=schematic,
                 instances=instances,
                 components=_components_for_split,  # type: ignore[arg-type]
@@ -821,6 +860,7 @@ def load_project(
     # uuid, but no electrical content.
     if layout.wires:
         from protoboard.domain.layout.wire import Wire as _W
+
         seen_connection_sigs: set[tuple[object, ...]] = set()
         kept_wires: list[_W] = []
         dropped: list[tuple[str, tuple[object, ...]]] = []
@@ -843,24 +883,34 @@ def load_project(
                     # take wire_ids as kwarg.
                     from protoboard.domain.layout.knot import (
                         JointKnot as _JK,
+                    )
+                    from protoboard.domain.layout.knot import (
                         PinKnot as _PK,
+                    )
+                    from protoboard.domain.layout.knot import (
                         WirePinKnot as _WK,
                     )
+
                     if isinstance(k, _PK):
                         layout.knots[ref.id] = _PK(
-                            id=k.id, pin=k.pin, wire_ids=new_ids,
+                            id=k.id,
+                            pin=k.pin,
+                            wire_ids=new_ids,
                         )
                     elif isinstance(k, _WK):
                         layout.knots[ref.id] = _WK(
-                            id=k.id, position=k.position,
-                            net_id=k.net_id, wire_ids=new_ids,
+                            id=k.id,
+                            position=k.position,
+                            net_id=k.net_id,
+                            wire_ids=new_ids,
                         )
                     elif isinstance(k, _JK):
                         # Sole-owner free joint with the dead wire as
                         # its only incident → drop the knot.
                         if new_ids:
                             layout.knots[ref.id] = _JK(
-                                id=k.id, position=k.position,
+                                id=k.id,
+                                position=k.position,
                                 wire_ids=new_ids,
                             )
                         else:
@@ -876,9 +926,7 @@ def load_project(
                 n_dropped=len(dropped),
                 n_kept=len(kept_wires),
                 n_total_before=len(dropped) + len(kept_wires),
-                first_examples=[
-                    {"dropped_id": d[0][:8]} for d in dropped[:10]
-                ],
+                first_examples=[{"dropped_id": d[0][:8]} for d in dropped[:10]],
             )
 
     # Snap stale PinKnot-anchored wire endpoints back to their pin's
@@ -896,12 +944,14 @@ def load_project(
         )
         from protoboard.domain.layout.knot import PinKnot as _PK
         from protoboard.domain.layout.placement import pin_world_position as _pwp
+
         snapped_endpoints: list[dict[str, object]] = []
         for w in layout.wires:
             if w.a is None or w.b is None:
                 continue
             for endpoint_label, ref, path_idx in (
-                ("a", w.a, 0), ("b", w.b, -1),
+                ("a", w.a, 0),
+                ("b", w.b, -1),
             ):
                 k = layout.knots.get(ref.id)
                 if not isinstance(k, _PK):
@@ -913,7 +963,8 @@ def load_project(
                     continue
                 defn = (
                     _library_for_migration.get(inst.definition_ref)  # type: ignore[attr-defined]
-                    if hasattr(_library_for_migration, "get") else None
+                    if hasattr(_library_for_migration, "get")
+                    else None
                 )
                 if defn is None:
                     continue
@@ -924,7 +975,8 @@ def load_project(
                     # (3.2-hole pitch) and every pin "moves", snapping the whole
                     # wire and dragging neighbours.
                     fp = _resolved_footprint(
-                        defn, inst, _families_for_migration)  # type: ignore[arg-type]
+                        defn, inst, _families_for_migration
+                    )  # type: ignore[arg-type]
                     pin_pos = _pwp(fp, pl, k.pin.pin_number)
                 except (IndexError, ValueError):
                     continue
@@ -945,13 +997,15 @@ def load_project(
                 # doesn't need snapping, the per-endpoint delta will be
                 # (0, 0) and the wire stops drifting.
                 transform_wire_geometry(w, lambda p: p + dv)  # Point + Vector → Point
-                snapped_endpoints.append({
-                    "wire_id": str(w.id)[:8],
-                    "endpoint": endpoint_label,
-                    "comp": str(comp_id)[:8],
-                    "pin": k.pin.pin_number,
-                    "delta": (round(dv.dx, 3), round(dv.dy, 3)),
-                })
+                snapped_endpoints.append(
+                    {
+                        "wire_id": str(w.id)[:8],
+                        "endpoint": endpoint_label,
+                        "comp": str(comp_id)[:8],
+                        "pin": k.pin.pin_number,
+                        "delta": (round(dv.dx, 3), round(dv.dy, 3)),
+                    }
+                )
         if snapped_endpoints:
             _log.info(
                 "project.stale_wire_paths_snapped",
@@ -972,8 +1026,13 @@ def load_project(
     # can pick it up and show a toast without changing the return signature.
     _last_load_report[directory] = report
     return (
-        board, layout, schematic, instances,
-        routing_settings, layer_overrides, axis_label_settings,
+        board,
+        layout,
+        schematic,
+        instances,
+        routing_settings,
+        layer_overrides,
+        axis_label_settings,
     )
 
 
@@ -982,17 +1041,17 @@ def load_project(
 # can resolve pin world positions.  ``None`` means "no library available";
 # the load falls back to JointKnot-only knot backfill (acceptable for tests
 # that don't exercise PinKnot persistence).
-_library_for_migration: "object | None" = None
-_families_for_migration: "object | None" = None
+_library_for_migration: object | None = None
+_families_for_migration: object | None = None
 
 
-def set_migration_library(library: "object | None") -> None:
+def set_migration_library(library: object | None) -> None:
     """Register the ComponentLibrary used during legacy v1→v2 wire migration."""
     global _library_for_migration
     _library_for_migration = library
 
 
-def set_migration_families(families: "object | None") -> None:
+def set_migration_families(families: object | None) -> None:
     """Register the package-family catalogue used at load to resolve each
     component's chosen variant footprint (so stale-path snapping measures pin
     positions against the variant, not the definition default)."""
@@ -1002,10 +1061,10 @@ def set_migration_families(families: "object | None") -> None:
 
 # Per-directory record of the last normalize report so the GUI can pick it up
 # after load_project returns.  Cleared when consumed.
-_last_load_report: "dict[Path, NormalizeReport]" = {}
+_last_load_report: dict[Path, NormalizeReport] = {}
 
 
-def pop_last_normalize_report(directory: Path) -> "NormalizeReport | None":
+def pop_last_normalize_report(directory: Path) -> NormalizeReport | None:
     """Return and clear the normalize report attached to the last load of
     *directory*.  Used by MainWindow to toast the user after open_project.
     """
@@ -1072,8 +1131,7 @@ def _layout_from_yaml(
         )
         raw_po = raw.get("pin_offsets") or {}
         pin_offsets = {
-            int(k): Vector(float(v["x"]), float(v["y"]))
-            for k, v in raw_po.items()
+            int(k): Vector(float(v["x"]), float(v["y"])) for k, v in raw_po.items()
         }
         shared_pins = frozenset(int(p) for p in (raw.get("shared_pins") or []))
         pl = ComponentPlacement(
@@ -1101,7 +1159,11 @@ def _layout_from_yaml(
     if raw_wires_v2_block:
         knot_aware_wires_block = raw_wires_v2_block
         knot_aware = True
-    elif raw_wires_block and isinstance(raw_wires_block[0], dict) and "a_knot_id" in raw_wires_block[0]:
+    elif (
+        raw_wires_block
+        and isinstance(raw_wires_block[0], dict)
+        and "a_knot_id" in raw_wires_block[0]
+    ):
         knot_aware_wires_block = raw_wires_block
         knot_aware = True
     else:
@@ -1184,7 +1246,7 @@ def _layout_from_yaml(
 
 
 def _migrate_encapsulated_exports(
-    groups: "dict[uuid.UUID, Any]",
+    groups: dict[uuid.UUID, Any],
 ) -> None:
     """Strip exports that violate the encapsulated re-export chain.
 
@@ -1202,7 +1264,6 @@ def _migrate_encapsulated_exports(
     *groups* in place (frozen dataclass replacement).
     """
     from protoboard.domain.layout.group import (
-        ComponentGroup,
         validate_exported_pins,
     )
 
@@ -1260,9 +1321,13 @@ def _decode_knots_and_wires(
     raw_wires: list[dict[str, Any]] | None = None,
 ) -> None:
     from protoboard.domain.layout.knot import (
-        JointKnot, Knot, PinKnot, WirePinKnot,
+        JointKnot,
+        Knot,
+        PinKnot,
+        WirePinKnot,
     )
     from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
+
     raw_knots = data.get("knots") or []
     for raw in raw_knots:
         kid = uuid.UUID(raw["id"])
@@ -1303,18 +1368,14 @@ def _decode_knots_and_wires(
         b_id = uuid.UUID(raw["b_knot_id"])
         if a_id not in layout.knots or b_id not in layout.knots:
             raise SerializationError(
-                f"wire {wid} references unknown knot id "
-                f"({a_id} or {b_id} missing)"
+                f"wire {wid} references unknown knot id " f"({a_id} or {b_id} missing)"
             )
         fragments_raw = raw.get("fragments") or []
         if not fragments_raw:
             raise SerializationError(f"wire {wid} has no fragments")
         fragments = [
             Fragment(
-                path=[
-                    Point(float(p["x"]), float(p["y"]))
-                    for p in f["path"]
-                ],
+                path=[Point(float(p["x"]), float(p["y"])) for p in f["path"]],
                 side=f["side"],
             )
             for f in fragments_raw
@@ -1404,6 +1465,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
     if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
         wire_mode = "auto"
     from protoboard.services.routing.postprocess import SimplifyMode
+
     simplify_mode_raw = data.get("simplify_mode", SimplifyMode.BARE_PARITY.value)
     try:
         simplify_mode = SimplifyMode(simplify_mode_raw)
@@ -1456,7 +1518,9 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         hierarchical=bool(data.get("hierarchical", False)),
         enable_simplify_pass=bool(data.get("enable_simplify_pass", True)),
         simplify_after_each_wire=bool(data.get("simplify_after_each_wire", False)),
-        simplify_all_after_autoroute=bool(data.get("simplify_all_after_autoroute", True)),
+        simplify_all_after_autoroute=bool(
+            data.get("simplify_all_after_autoroute", True)
+        ),
         simplify_all_max_iterations=int(data.get("simplify_all_max_iterations", 50)),
         visual_unweave_side_flip=bool(data.get("visual_unweave_side_flip", False)),
         simplify_mode=simplify_mode,
@@ -1468,8 +1532,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
 
 def _layer_overrides_to_yaml(overrides: LayerOverrides) -> str:
     data: dict[str, str] = {
-        f: getattr(overrides, f).value
-        for f in overrides.__dataclass_fields__
+        f: getattr(overrides, f).value for f in overrides.__dataclass_fields__
     }
     buf = io.StringIO()
     _yaml.dump(data, buf)

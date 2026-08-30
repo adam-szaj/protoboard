@@ -41,9 +41,7 @@ class _State:
 
     board: Board = field(default_factory=_empty_board)
     layout: Layout = field(default_factory=Layout)
-    schematic: Schematic = field(
-        default_factory=lambda: Schematic(nets={})
-    )
+    schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
     # DisconnectPinCommand expands the pin to its same-name siblings (shared
     # PinIdentity); these tests use bare PinRefs with no instance, so the
     # expansion falls back to the single clicked pin.

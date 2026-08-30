@@ -38,9 +38,7 @@ def configure_logging(
             structlog.processors.TimeStamper(fmt="%H:%M:%S", utc=False),
             structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.StackInfoRenderer(),
-            structlog.dev.ConsoleRenderer(
-                colors=sys.stderr.isatty(), sort_keys=False
-            ),
+            structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), sort_keys=False),
         ],
         wrapper_class=structlog.stdlib.BoundLogger,
         logger_factory=structlog.stdlib.LoggerFactory(),

@@ -12,18 +12,26 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog
 from pytestqt.qtbot import QtBot
 
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
+from protoboard.domain.components.package.family import PackageFamily, PackageVariant
+from protoboard.domain.components.package.generated_families import sil_family
+from protoboard.domain.components.package.shapes import Prism
 from protoboard.gui.dialogs.footprint_picker_dialog import FootprintPickerDialog
 from protoboard.gui.dialogs.kind_variant_dialog import KindVariantDialog
 from protoboard.gui.footprint_choice import (
     DefaultFootprintChoiceProvider,
-    FootprintOptionView,
     KindVariantView,
+    PackageOptionView,
     ParamSpec,
 )
-from protoboard.domain.components.package.shapes import Prism
 from protoboard.services.library.loader import load_library
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
@@ -32,6 +40,7 @@ from protoboard.services.library.package_family_loader import (
 # --------------------------------------------------------------------------- #
 # Stub provider — exercises the kind pop-up without the parameter model
 # --------------------------------------------------------------------------- #
+
 
 class _StubProvider:
     def __init__(self, *, params=(), variants=(), built="built/addr"):
@@ -55,49 +64,85 @@ class _StubProvider:
         return self._built
 
 
-def _opt(label: str, address: str, is_kind: bool = False) -> FootprintOptionView:
-    return FootprintOptionView(label=label, address=address, is_kind=is_kind)
+def _opt(label: str, address: str, is_kind: bool = False) -> PackageOptionView:
+    return PackageOptionView(label=label, address=address, is_kind=is_kind)
 
 
 # --------------------------------------------------------------------------- #
 # Pop-up 1 — FootprintPickerDialog
 # --------------------------------------------------------------------------- #
 
+
 class TestFootprintPickerDialog:
     def _dialog(self, qtbot: QtBot, recent, options, provider=None):
-        dlg = FootprintPickerDialog(
-            provider or _StubProvider(), recent, options
-        )
+        dlg = FootprintPickerDialog(provider or _StubProvider(), recent, options)
         qtbot.addWidget(dlg)
         return dlg
 
     def test_first_row_preselected(self, qtbot: QtBot) -> None:
-        dlg = self._dialog(
-            qtbot, [], [_opt("A", "a/1"), _opt("B", "b/1")]
+        dlg = self._dialog(qtbot, [], [_opt("A", "a/1"), _opt("B", "b/1")])
+        assert dlg._tree.currentItem().data(0, 256).address == "a/1"
+
+    def test_namespace_segments_create_nonselectable_nested_groups(
+        self, qtbot: QtBot
+    ) -> None:
+        option = PackageOptionView(
+            label="Straight",
+            address="connectors/header/straight",
+            namespace=("connectors", "header"),
         )
-        assert dlg._list.currentRow() == 0
+
+        dlg = self._dialog(qtbot, [], [option])
+
+        root = dlg._tree.topLevelItem(0)
+        assert root.text(0) == "connectors"
+        assert not root.isSelected()
+        family = root.child(0)
+        assert family.text(0) == "header"
+        leaf = family.child(0)
+        assert leaf.text(0) == "Straight"
+        assert leaf.data(0, 256).address == "connectors/header/straight"
 
     def test_recent_rows_listed_first(self, qtbot: QtBot) -> None:
-        dlg = self._dialog(
-            qtbot, [_opt("R1", "r/1")], [_opt("A", "a/1")]
-        )
-        assert dlg._list.item(0).text().startswith("★ ")
-        assert dlg._list.item(1).text() == "A"
+        dlg = self._dialog(qtbot, [_opt("R1", "r/1")], [_opt("A", "a/1")])
+        recent = dlg._tree.topLevelItem(0)
+        assert recent.text(0) == "Recently used"
+        assert recent.child(0).text(0).startswith("★ ")
+        assert dlg._tree.topLevelItem(1).text(0) == "A"
 
     def test_double_click_package_returns_address(self, qtbot: QtBot) -> None:
         dlg = self._dialog(qtbot, [], [_opt("A", "a/1"), _opt("B", "b/1")])
-        dlg._confirm_item(dlg._list.item(1))
+        dlg._confirm_item(dlg._tree.topLevelItem(1))
         assert dlg.chosen_address == "b/1"
         assert dlg.result() == QDialog.DialogCode.Accepted
 
     def test_search_filters_and_reselects(self, qtbot: QtBot) -> None:
-        dlg = self._dialog(
-            qtbot, [], [_opt("DIP-8", "dip-8"), _opt("SIL-4", "sil-4")]
-        )
+        dlg = self._dialog(qtbot, [], [_opt("DIP-8", "dip-8"), _opt("SIL-4", "sil-4")])
         dlg._search.setText("sil")
-        assert dlg._list.item(0).isHidden()        # DIP-8 hidden
-        assert not dlg._list.item(1).isHidden()    # SIL-4 visible
-        assert dlg._list.currentRow() == 1         # selection follows
+        assert dlg._tree.topLevelItem(0).isHidden()  # DIP-8 hidden
+        assert not dlg._tree.topLevelItem(1).isHidden()  # SIL-4 visible
+        assert dlg._tree.currentItem() is dlg._tree.topLevelItem(1)
+
+    def test_search_filters_siblings_inside_namespace(self, qtbot: QtBot) -> None:
+        options = [
+            PackageOptionView("Straight", "c/h/straight", namespace=("c", "h")),
+            PackageOptionView("Angled", "c/h/angled", namespace=("c", "h")),
+        ]
+        dlg = self._dialog(qtbot, [], options)
+
+        dlg._search.setText("straight")
+
+        family = dlg._tree.topLevelItem(0).child(0)
+        assert not family.child(0).isHidden()
+        assert family.child(1).isHidden()
+
+    def test_space_confirms_current_leaf(self, qtbot: QtBot) -> None:
+        dlg = self._dialog(qtbot, [], [_opt("A", "a/1")])
+
+        qtbot.keyClick(dlg, Qt.Key.Key_Space)
+
+        assert dlg.chosen_address == "a/1"
+        assert dlg.result() == QDialog.DialogCode.Accepted
 
     def test_kind_row_opens_variant_dialog(
         self, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
@@ -110,11 +155,9 @@ class TestFootprintPickerDialog:
             opened.append(address)
             return "kind/built"
 
-        monkeypatch.setattr(
-            FootprintPickerDialog, "_run_variant_dialog", _fake_run
-        )
+        monkeypatch.setattr(FootprintPickerDialog, "_run_variant_dialog", _fake_run)
         dlg = self._dialog(qtbot, [], [_opt("PinHeader", "ph", is_kind=True)])
-        dlg._confirm_item(dlg._list.item(0))
+        dlg._confirm_item(dlg._tree.topLevelItem(0))
         assert opened == ["ph"]
         assert dlg.chosen_address == "kind/built"
 
@@ -127,7 +170,7 @@ class TestFootprintPickerDialog:
             lambda self_, address: None,  # user cancelled stage 2
         )
         dlg = self._dialog(qtbot, [], [_opt("PinHeader", "ph", is_kind=True)])
-        dlg._confirm_item(dlg._list.item(0))
+        dlg._confirm_item(dlg._tree.topLevelItem(0))
         assert dlg.chosen_address is None
         assert dlg.result() != QDialog.DialogCode.Accepted
 
@@ -136,21 +179,18 @@ class TestFootprintPickerDialog:
 # Pop-up 2 — KindVariantDialog
 # --------------------------------------------------------------------------- #
 
+
 class TestKindVariantDialog:
     def test_recent_variant_one_confirm(self, qtbot: QtBot) -> None:
-        provider = _StubProvider(
-            variants=[KindVariantView("5x2 header", "ph/5x2")]
-        )
+        provider = _StubProvider(variants=[KindVariantView("5x2 header", "ph/5x2")])
         dlg = KindVariantDialog(provider, "ph")
         qtbot.addWidget(dlg)
-        assert dlg._recent_list.currentRow() == 0   # top pre-selected
+        assert dlg._recent_list.currentRow() == 0  # top pre-selected
         dlg._confirm_recent(dlg._recent_list.item(0))
         assert dlg.chosen_address == "ph/5x2"
 
     def test_new_params_build_variant(self, qtbot: QtBot) -> None:
-        provider = _StubProvider(
-            params=[ParamSpec("rows", "int")], built="ph/rows3"
-        )
+        provider = _StubProvider(params=[ParamSpec("rows", "int")], built="ph/rows3")
         dlg = KindVariantDialog(provider, "ph")
         qtbot.addWidget(dlg)
         dlg._inputs["rows"].setText("3")
@@ -163,7 +203,7 @@ class TestKindVariantDialog:
         qtbot.addWidget(dlg)
         dlg._inputs["rows"].setText("not-an-int")
         dlg._on_ok()
-        assert dlg.chosen_address is None           # rejected, stays open
+        assert dlg.chosen_address is None  # rejected, stays open
         assert dlg.result() != QDialog.DialogCode.Accepted
 
     def test_no_params_no_variants_builds_directly(self, qtbot: QtBot) -> None:
@@ -179,14 +219,49 @@ class TestKindVariantDialog:
 # DefaultFootprintChoiceProvider — the shipped seam (no parameter model yet)
 # --------------------------------------------------------------------------- #
 
+
 @pytest.fixture(scope="module")
 def lib_and_cat():
     cat = load_full_package_catalogue()
     lib = load_library([Path("library")], cat)
-    return lib, lib.package_families
+    return lib, {**cat, **lib.package_families}
 
 
 class TestDefaultProvider:
+    def test_family_option_expands_only_its_declared_variants(self) -> None:
+        base = sil_family(2)
+        unrelated = sil_family(3)
+        assert base is not None and unrelated is not None
+        package = base.variants[0].package
+        families = {
+            "connectors/header": PackageFamily(
+                family_id="connectors/header",
+                variants=(
+                    PackageVariant("straight", "Straight", package),
+                    PackageVariant("angled", "Angled", package),
+                ),
+            ),
+            "unrelated": unrelated,
+        }
+        defn = ComponentDefinition(
+            name="J",
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=(
+                PackageOption(
+                    name="Header",
+                    ref="connectors/header",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
+            ),
+        )
+
+        options = DefaultFootprintChoiceProvider(families).options(defn)
+
+        assert [option.address for option in options] == [
+            "connectors/header/straight",
+            "connectors/header/angled",
+        ]
+
     def test_package_footprints_not_kind(self, lib_and_cat) -> None:
         lib, cat = lib_and_cat
         provider = DefaultFootprintChoiceProvider(cat)
@@ -203,7 +278,7 @@ class TestDefaultProvider:
     def test_connector_reports_kind(self, lib_and_cat) -> None:
         lib, cat = lib_and_cat
         provider = DefaultFootprintChoiceProvider(cat)
-        for name in ("PinHeader_1x04", "JST_PH_3pin"):
+        for name in ("PinHeader", "JST_PH"):
             opts = provider.options(lib.get(name))
             assert len(opts) == 1 and opts[0].is_kind, name
 
@@ -216,9 +291,7 @@ class TestDefaultProvider:
         assert provider.build_variant("addr", {}) == "addr"
         assert provider.build_variant("addr", {"x": "1"}) is None
 
-    def test_fully_parameterised_kind_offers_no_params(
-        self, lib_and_cat
-    ) -> None:
+    def test_fully_parameterised_kind_offers_no_params(self, lib_and_cat) -> None:
         # PinHeader_1x04 fixes rows=1 in YAML — nothing left to ask; the
         # picker's one-confirm path applies.
         lib, cat = lib_and_cat
@@ -232,11 +305,12 @@ class TestProviderKindParams:
 
     def _defn_with_hole(self, tmp_path):
         from protoboard.services.library.loader import load_library
+
         (tmp_path / "lib.yaml").write_text(
             "components:\n"
             "  - name: HDR_ASK\n"
             "    component_class: connector\n"
-            "    pins: {count: 6}\n"
+            "    meta_pins: [P1, P2, P3, P4, P5, P6]\n"
             "    package: {kind: pin_header, rows: null}\n"
         )
         lib = load_library([tmp_path])
@@ -255,6 +329,7 @@ class TestProviderKindParams:
         from protoboard.domain.components.package.family import (
             resolve_variant,
         )
+
         defn, families = self._defn_with_hole(tmp_path)
         assert defn is not None
         provider = DefaultFootprintChoiceProvider(families)
@@ -284,22 +359,22 @@ class TestRecentVariants:
 
     def _defn_with_hole(self, tmp_path, name="HDR_ASK", pins=6):
         from protoboard.services.library.loader import load_library
+
         (tmp_path / f"{name}.yaml").write_text(
             f"components:\n"
             f"  - name: {name}\n"
             f"    component_class: connector\n"
-            f"    pins: {{count: {pins}}}\n"
+            f"    meta_pins: [{', '.join(f'P{i}' for i in range(1, pins + 1))}]\n"
             f"    package: {{kind: pin_header, rows: null}}\n"
         )
         lib = load_library([tmp_path])
         return lib.get(name), lib.package_families
 
-    def test_build_variant_is_reoffered_in_a_fresh_session(
-        self, tmp_path
-    ) -> None:
+    def test_build_variant_is_reoffered_in_a_fresh_session(self, tmp_path) -> None:
         from protoboard.domain.components.package.family import (
             resolve_variant,
         )
+
         defn, families = self._defn_with_hole(tmp_path)
         fresh_families = dict(families)
         provider = DefaultFootprintChoiceProvider(families)
@@ -317,22 +392,18 @@ class TestRecentVariants:
         assert variant is not None and isinstance(variant.package, Prism)
         assert variant.package.kind == "pin_header"
 
-    def test_remembered_parameters_follow_the_pin_count(
-        self, tmp_path
-    ) -> None:
+    def test_remembered_parameters_follow_the_pin_count(self, tmp_path) -> None:
         # The history stores the PARAMETER SET, not a geometry: rows=2 built
         # on a 6-pin part re-offers as a 2×5 on a 10-pin part.
-        defn6, families6 = self._defn_with_hole(
-            tmp_path, name="HDR6", pins=6
-        )
+        defn6, families6 = self._defn_with_hole(tmp_path, name="HDR6", pins=6)
         provider = DefaultFootprintChoiceProvider(families6)
         provider.options(defn6)
-        assert provider.build_variant(
-            provider.options(defn6)[0].address, {"rows": "2"}) is not None
-
-        defn10, families10 = self._defn_with_hole(
-            tmp_path, name="HDR10", pins=10
+        assert (
+            provider.build_variant(provider.options(defn6)[0].address, {"rows": "2"})
+            is not None
         )
+
+        defn10, families10 = self._defn_with_hole(tmp_path, name="HDR10", pins=10)
         fresh = DefaultFootprintChoiceProvider(families10)
         addr = fresh.options(defn10)[0].address
         views = fresh.recent_variants(addr)
@@ -341,6 +412,7 @@ class TestRecentVariants:
 
     def test_unbuildable_history_entry_is_skipped(self, tmp_path) -> None:
         from protoboard.gui import recent_kind_variants
+
         recent_kind_variants.add("no_such_kind", {"x": 1}, "ghost")
         defn, families = self._defn_with_hole(tmp_path)
         provider = DefaultFootprintChoiceProvider(families)
@@ -363,9 +435,7 @@ class TestRecentVariants:
         assert len(views) == 2
         assert views[0].address.endswith("-rows2/std")
 
-    def test_dialog_one_confirm_uses_the_history(
-        self, qtbot: QtBot, tmp_path
-    ) -> None:
+    def test_dialog_one_confirm_uses_the_history(self, qtbot: QtBot, tmp_path) -> None:
         # End-to-end: a previously-built variant shows in the pop-up's
         # "Recently used" list and OK confirms it with no input.
         defn, families = self._defn_with_hole(tmp_path)
@@ -380,6 +450,6 @@ class TestRecentVariants:
         dlg = KindVariantDialog(fresh, fresh_addr)
         qtbot.addWidget(dlg)
         assert dlg._recent_list.count() == 1
-        assert dlg._recent_list.currentRow() == 0   # top pre-selected
+        assert dlg._recent_list.currentRow() == 0  # top pre-selected
         dlg._confirm_recent(dlg._recent_list.item(0))  # the one-confirm path
         assert dlg.chosen_address == built

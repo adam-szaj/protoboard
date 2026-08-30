@@ -15,7 +15,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -33,8 +32,8 @@ from protoboard.services.routing.optimizer import (
 from protoboard.services.routing.postprocess import SimplifyMode
 from protoboard.services.routing.protocol import ProgressSink
 from protoboard.services.routing.snapshot import RouteRequest
-
 from tests.instance_utils import bind
+from tests.unit._autoroute_invariants import make_sil, sil_families
 
 
 def _perfboard(rows: int = 5, cols: int = 5) -> Board:
@@ -56,12 +55,12 @@ def _perfboard(rows: int = 5, cols: int = 5) -> Board:
 
 
 def _sil2() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
-    )
+    return make_sil("COMP", 2)
 
 
-def _place(cid: uuid.UUID, x: float, y: float, rotation: int = 90) -> ComponentPlacement:
+def _place(
+    cid: uuid.UUID, x: float, y: float, rotation: int = 90
+) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=cid, position=Point(x, y), rotation=rotation, side="top"
     )
@@ -71,13 +70,26 @@ def _two_pin_diag_project() -> tuple[Board, Layout, Schematic, dict, dict]:
     """A 5×5 board with two SIL2 parts placed diagonally — bare_diagonal route."""
     board = _perfboard()
     defn = _sil2()
+    families = sil_families(defn)
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-    inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
-    inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
-    layout = Layout(placements=PlacementCollection({
-        cid_a: _place(cid_a, 0.5, 0.5),
-        cid_b: _place(cid_b, 3.5, 3.5),
-    }))
+    inst_a = bind(
+        ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""),
+        defn,
+        families,
+    )
+    inst_b = bind(
+        ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""),
+        defn,
+        families,
+    )
+    layout = Layout(
+        placements=PlacementCollection(
+            {
+                cid_a: _place(cid_a, 0.5, 0.5),
+                cid_b: _place(cid_b, 3.5, 3.5),
+            }
+        )
+    )
     ref_a2 = PinRef(component_id=cid_a, pin_number=2)
     ref_b1 = PinRef(component_id=cid_b, pin_number=1)
     net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
@@ -91,6 +103,7 @@ class TestProtocolConformance:
 
     def test_registered_at_import(self) -> None:
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
+
         assert "simplify" in registry.list_available()
 
     def test_capabilities_advertise_shortens_paths(self) -> None:
@@ -104,9 +117,11 @@ class TestEmptyInputs:
     def test_empty_wires_return_unchanged(self) -> None:
         opt = SimplifyOptimizer()
         req = RouteRequest.from_session(
-            board=_perfboard(), layout=Layout(),
+            board=_perfboard(),
+            layout=Layout(),
             schematic=Schematic(nets={}),
-            components={}, instances={},
+            components={},
+            instances={},
             routing_settings=RoutingSettings(),
         )
         result = AutorouteResult(wires=[], unrouted_nets=[], pass_stats=[])
@@ -115,10 +130,15 @@ class TestEmptyInputs:
     def test_cancelled_returns_input_unchanged(self) -> None:
         """If the sink reports cancellation, the optimizer is a no-op."""
         import threading
+
         board, layout, sch, comps, insts = _two_pin_diag_project()
         rs = RoutingSettings(wire_mode="bare_diagonal", enable_simplify_pass=False)
         autoroute_result = autoroute(
-            board, layout, sch, comps, insts,
+            board,
+            layout,
+            sch,
+            comps,
+            insts,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
             enable_simplify_pass=False,
@@ -126,11 +146,15 @@ class TestEmptyInputs:
         assert autoroute_result.wires  # routed something
 
         req = RouteRequest.from_session(
-            board=board, layout=layout, schematic=sch,
-            components=comps, instances=insts,
+            board=board,
+            layout=layout,
+            schematic=sch,
+            components=comps,
+            instances=insts,
             routing_settings=rs,
         )
-        ev = threading.Event(); ev.set()
+        ev = threading.Event()
+        ev.set()
         sink = ProgressSink(cancel_flag=ev)
         result_in = AutorouteResult(
             wires=list(autoroute_result.wires),
@@ -150,7 +174,11 @@ class TestParityWithLegacyInlinePass:
 
         # Path A: rely on autoroute()'s embedded simplify pass.
         legacy_result = autoroute(
-            board, layout, sch, comps, insts,
+            board,
+            layout,
+            sch,
+            comps,
+            insts,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
             enable_simplify_pass=True,
@@ -159,14 +187,21 @@ class TestParityWithLegacyInlinePass:
 
         # Path B: autoroute without simplify, then run the optimizer.
         unsimplified = autoroute(
-            board, layout, sch, comps, insts,
+            board,
+            layout,
+            sch,
+            comps,
+            insts,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
             enable_simplify_pass=False,
         )
         req = RouteRequest.from_session(
-            board=board, layout=layout, schematic=sch,
-            components=comps, instances=insts,
+            board=board,
+            layout=layout,
+            schematic=sch,
+            components=comps,
+            instances=insts,
             routing_settings=rs,
         )
         optimized = SimplifyOptimizer(mode=SimplifyMode.BARE_PARITY).optimize(
@@ -181,10 +216,7 @@ class TestParityWithLegacyInlinePass:
 
         # Same set of paths regardless of wire IDs and direction.
         def _canon(wires):
-            return sorted(
-                tuple(sorted((p.x, p.y) for p in w.path))
-                for w in wires
-            )
+            return sorted(tuple(sorted((p.x, p.y) for p in w.path)) for w in wires)
 
         assert _canon(optimized.wires) == _canon(legacy_result.wires)
 
@@ -194,14 +226,21 @@ class TestNonMutation:
         board, layout, sch, comps, insts = _two_pin_diag_project()
         rs = RoutingSettings(wire_mode="bare_diagonal", enable_simplify_pass=False)
         routed = autoroute(
-            board, layout, sch, comps, insts,
+            board,
+            layout,
+            sch,
+            comps,
+            insts,
             cost_model=rs.cost_model(),
             wire_mode=rs.wire_mode,
             enable_simplify_pass=False,
         )
         req = RouteRequest.from_session(
-            board=board, layout=layout, schematic=sch,
-            components=comps, instances=insts,
+            board=board,
+            layout=layout,
+            schematic=sch,
+            components=comps,
+            instances=insts,
             routing_settings=rs,
         )
         in_wires = list(routed.wires)
@@ -214,7 +253,9 @@ class TestNonMutation:
             pass_stats=list(routed.pass_stats),
         )
         out = SimplifyOptimizer(mode=SimplifyMode.BARE_PARITY).optimize(
-            req, result_in, ProgressSink(),
+            req,
+            result_in,
+            ProgressSink(),
         )
 
         # The optimizer must return a fresh AutorouteResult, not in-place.

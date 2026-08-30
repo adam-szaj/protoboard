@@ -33,22 +33,22 @@ _log = structlog.get_logger(__name__)
 # diagnose "uparty wire" reports where simplify is expected to shorten
 # a path but produces no change.
 _SIMPLIFY_TRACE = os.environ.get("SIMPLIFY_TRACE", "").lower() in ("1", "true", "yes")
-from enum import Enum
-from typing import cast, Literal, TYPE_CHECKING
+from enum import StrEnum  # noqa: E402
+from typing import TYPE_CHECKING, cast  # noqa: E402
 
-from protoboard.domain.layout.wire import Wire
-from protoboard.types import Side
-from protoboard.geometry import Point, Vector
-from protoboard.services.routing.astar import (
+from protoboard.domain.layout.wire import Wire  # noqa: E402
+from protoboard.geometry import Point, Vector  # noqa: E402
+from protoboard.services.routing.astar import (  # noqa: E402
     _build_bare_seg_index,
     _segs_cross,
 )
+from protoboard.types import Side  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import Pad
 
 
-class SimplifyMode(str, Enum):
+class SimplifyMode(StrEnum):
     """How aggressively to shorten a wire path.
 
     CHEBYSHEV:   replace any subpath with the shortest grid-aligned path
@@ -71,6 +71,7 @@ class SimplifyMode(str, Enum):
 # Straighten — merge collinear segments
 # ---------------------------------------------------------------------------
 
+
 def _collinear(a: Point, b: Point, c: Point) -> bool:
     """True if b lies on segment a→c (strict interior or endpoint match)."""
     ab = b - a
@@ -81,9 +82,7 @@ def _collinear(a: Point, b: Point, c: Point) -> bool:
     return ab.dot(bc) >= 0.0
 
 
-def straighten_wire(
-    wire: Wire, board_pads: set[Point] | None = None
-) -> Wire:
+def straighten_wire(wire: Wire, board_pads: set[Point] | None = None) -> Wire:
     """Return a copy of *wire* with internal collinear vertices removed.
 
     For a *bare* wire, any internal point that is also a board pad must be
@@ -119,8 +118,10 @@ def straighten_wire(
 # Corner-cut — replace ortho-ortho 90° with diagonal
 # ---------------------------------------------------------------------------
 
+
 def _parity_of(p: Point) -> int:
     import math as _math
+
     return (int(_math.floor(p.x)) + int(_math.floor(p.y))) % 2
 
 
@@ -191,9 +192,7 @@ def corner_cut_wire(
                 if slope_sign * allowed_sign > 0.0:
                     # Collision check against all *other* bare segments.
                     safe = True
-                    for _seg in (
-                        s for cells in bare_idx.values() for s in cells
-                    ):
+                    for _seg in (s for cells in bare_idx.values() for s in cells):
                         if _segs_cross(a, c, _seg[0], _seg[1]):
                             safe = False
                             break
@@ -231,6 +230,7 @@ def corner_cut_wire(
 # ---------------------------------------------------------------------------
 # Top-level driver
 # ---------------------------------------------------------------------------
+
 
 def simplify_wires(
     wires: list[Wire],
@@ -336,7 +336,9 @@ def _count_90_corners(path: list[Point]) -> int:
 
 
 def _fast_pads_on_segment(
-    a: Point, b: Point, board_pads: set[Point],
+    a: Point,
+    b: Point,
+    board_pads: set[Point],
 ) -> list[Point]:
     """Return pads from *board_pads* strictly interior to segment a→b.
 
@@ -385,12 +387,14 @@ def _fast_pads_on_segment(
         return out
     # Skewed — should not happen for canonical output.  Slow generic path.
     from protoboard.domain.layout.wire_utils import insert_pad_nodes
+
     enriched = insert_pad_nodes([a, b], board_pads)
     return enriched[1:-1]
 
 
 def _canonical_subpath(
-    a: Point, b: Point,
+    a: Point,
+    b: Point,
     *,
     allow_l_shape: bool = True,
     board_pads: set[Point] | None = None,
@@ -443,7 +447,10 @@ def _wire_to_segs(wire: Wire) -> list[tuple[Point, Point]]:
 
 
 def _point_on_segment_interior(
-    p: Point, a: Point, b: Point, eps: float = _EPS,
+    p: Point,
+    a: Point,
+    b: Point,
+    eps: float = _EPS,
 ) -> bool:
     """True if *p* lies on segment a→b strictly between the endpoints.
 
@@ -467,7 +474,10 @@ def _point_on_segment_interior(
 
 
 def _segs_cross_or_touch(
-    a1: Point, a2: Point, b1: Point, b2: Point,
+    a1: Point,
+    a2: Point,
+    b1: Point,
+    b2: Point,
 ) -> bool:
     """Like ``_segs_cross`` but also reports T-junctions and vertex-on-edge.
 
@@ -491,7 +501,10 @@ def _segs_cross_or_touch(
 
 
 def _segs_overlap_collinear(
-    a1: Point, a2: Point, b1: Point, b2: Point,
+    a1: Point,
+    a2: Point,
+    b1: Point,
+    b2: Point,
     eps: float = _EPS,
 ) -> bool:
     """Return True if segments a1→a2 and b1→b2 are collinear and share more
@@ -548,6 +561,7 @@ def _count_crossings_with_other(
 
     Returns the contact count.
     """
+
     def _same_pt(a: Point, b: Point) -> bool:
         return abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
 
@@ -561,12 +575,14 @@ def _count_crossings_with_other(
     # Per-segment bbox precompute (avoid recomputing min/max in the hot loop).
     ow_seg_bbox: list[tuple[float, float, float, float]] = []
     for o_src, o_dst in ow_segs:
-        ow_seg_bbox.append((
-            o_src.x if o_src.x < o_dst.x else o_dst.x,
-            o_src.y if o_src.y < o_dst.y else o_dst.y,
-            o_src.x if o_src.x > o_dst.x else o_dst.x,
-            o_src.y if o_src.y > o_dst.y else o_dst.y,
-        ))
+        ow_seg_bbox.append(
+            (
+                o_src.x if o_src.x < o_dst.x else o_dst.x,
+                o_src.y if o_src.y < o_dst.y else o_dst.y,
+                o_src.x if o_src.x > o_dst.x else o_dst.x,
+                o_src.y if o_src.y > o_dst.y else o_dst.y,
+            )
+        )
     for c_src, c_dst in subpath_segs:
         c_lo_x = c_src.x if c_src.x < c_dst.x else c_dst.x
         c_hi_x = c_src.x if c_src.x > c_dst.x else c_dst.x
@@ -623,8 +639,10 @@ def _count_crossings_with_other(
             c_hi_y = c_src.y if c_src.y > c_dst.y else c_dst.y
             for ep in endpoints:
                 if (
-                    ep.x < c_lo_x - _EPS or ep.x > c_hi_x + _EPS
-                    or ep.y < c_lo_y - _EPS or ep.y > c_hi_y + _EPS
+                    ep.x < c_lo_x - _EPS
+                    or ep.x > c_hi_x + _EPS
+                    or ep.y < c_lo_y - _EPS
+                    or ep.y > c_hi_y + _EPS
                 ):
                     continue
                 if _point_on_segment_interior(ep, c_src, c_dst):
@@ -687,8 +705,10 @@ def _count_insulated_pad_contacts(
             if (ax, ay) in skip_pts or (ax, ay) in counted:
                 continue
             if (
-                ax < c_lo_x - _EPS or ax > c_hi_x + _EPS
-                or ay < c_lo_y - _EPS or ay > c_hi_y + _EPS
+                ax < c_lo_x - _EPS
+                or ax > c_hi_x + _EPS
+                or ay < c_lo_y - _EPS
+                or ay > c_hi_y + _EPS
             ):
                 continue
             if _point_on_segment_interior(Point(ax, ay), c_src, c_dst):
@@ -702,10 +722,10 @@ def _candidate_safe_against_others(
     wire_id: uuid.UUID,
     *,
     wire_side: str | None = None,
-    wire_net_id: "uuid.UUID | None" = None,
-    other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
-    original_endpoints: "tuple[Point, Point] | None" = None,
-    original_subpath_segs: "list[tuple[Point, Point]] | None" = None,
+    wire_net_id: uuid.UUID | None = None,
+    other_wire_nets: dict[uuid.UUID, uuid.UUID | None] | None = None,
+    original_endpoints: tuple[Point, Point] | None = None,
+    original_subpath_segs: list[tuple[Point, Point]] | None = None,
 ) -> bool:
     """Return True iff *candidate_segs* does not introduce *new* crossings
     with any other wire compared to the original subpath being replaced.
@@ -809,9 +829,7 @@ def _candidate_safe_against_others(
             continue
         ow_net = other_nets.get(ow.id)
         same_net = (
-            wire_net_id is not None
-            and ow_net is not None
-            and ow_net == wire_net_id
+            wire_net_id is not None and ow_net is not None and ow_net == wire_net_id
         )
         if same_net:
             continue
@@ -829,7 +847,10 @@ def _candidate_safe_against_others(
             for o_src_inner, o_dst_inner in orig_segs:
                 for o_src, o_dst in zip(ow.path, ow.path[1:]):
                     if _segs_overlap_collinear(
-                        o_src_inner, o_dst_inner, o_src, o_dst,
+                        o_src_inner,
+                        o_dst_inner,
+                        o_src,
+                        o_dst,
                     ):
                         orig_overlap += 1
             if cand_overlap > orig_overlap:
@@ -839,7 +860,8 @@ def _candidate_safe_against_others(
                         wire_id=str(wire_id),
                         ow_id=str(ow.id),
                         ow_side=ow.side,
-                        baseline=orig_overlap, candidate=cand_overlap,
+                        baseline=orig_overlap,
+                        candidate=cand_overlap,
                     )
                 return False
             # Cross-side shared-pad check.  Even on different copper
@@ -855,13 +877,19 @@ def _candidate_safe_against_others(
             if not ow.insulated:
                 baseline = (
                     _count_crossings_with_other(
-                        orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+                        orig_segs,
+                        orig_vertices,
+                        ow,
+                        skip_pts=skip_pts,
                     )
                     if original_subpath_segs is not None
                     else 0
                 )
                 candidate = _count_crossings_with_other(
-                    candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+                    candidate_segs,
+                    cand_vertices,
+                    ow,
+                    skip_pts=skip_pts,
                 )
                 if candidate > baseline:
                     if _SIMPLIFY_TRACE:
@@ -870,19 +898,26 @@ def _candidate_safe_against_others(
                             wire_id=str(wire_id),
                             ow_id=str(ow.id),
                             ow_side=ow.side,
-                            baseline=baseline, candidate=candidate,
+                            baseline=baseline,
+                            candidate=candidate,
                         )
                     return False
                 continue
             baseline_ins = (
                 _count_insulated_pad_contacts(
-                    orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+                    orig_segs,
+                    orig_vertices,
+                    ow,
+                    skip_pts=skip_pts,
                 )
                 if original_subpath_segs is not None
                 else 0
             )
             candidate_ins = _count_insulated_pad_contacts(
-                candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+                candidate_segs,
+                cand_vertices,
+                ow,
+                skip_pts=skip_pts,
             )
             if _SIMPLIFY_TRACE and (baseline_ins > 0 or candidate_ins > 0):
                 _log.info(
@@ -890,7 +925,8 @@ def _candidate_safe_against_others(
                     wire_id=str(wire_id),
                     ow_id=str(ow.id),
                     ow_side=ow.side,
-                    baseline=baseline_ins, candidate=candidate_ins,
+                    baseline=baseline_ins,
+                    candidate=candidate_ins,
                 )
             baseline_ins_total += baseline_ins
             candidate_ins_total += candidate_ins
@@ -918,13 +954,19 @@ def _candidate_safe_against_others(
         if not ow.insulated:
             baseline = (
                 _count_crossings_with_other(
-                    orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+                    orig_segs,
+                    orig_vertices,
+                    ow,
+                    skip_pts=skip_pts,
                 )
                 if original_subpath_segs is not None
                 else 0
             )
             candidate = _count_crossings_with_other(
-                candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+                candidate_segs,
+                cand_vertices,
+                ow,
+                skip_pts=skip_pts,
             )
             if candidate > baseline:
                 if _SIMPLIFY_TRACE:
@@ -934,7 +976,8 @@ def _candidate_safe_against_others(
                         ow_id=str(ow.id),
                         ow_net=str(ow_net) if ow_net is not None else None,
                         ow_side=ow.side,
-                        baseline=baseline, candidate=candidate,
+                        baseline=baseline,
+                        candidate=candidate,
                         ow_path=[(p.x, p.y) for p in ow.path],
                     )
                 return False
@@ -946,13 +989,19 @@ def _candidate_safe_against_others(
         # NOT share a pad are transparent (air gap, no physical contact).
         baseline_ins = (
             _count_insulated_pad_contacts(
-                orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+                orig_segs,
+                orig_vertices,
+                ow,
+                skip_pts=skip_pts,
             )
             if original_subpath_segs is not None
             else 0
         )
         candidate_ins = _count_insulated_pad_contacts(
-            candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+            candidate_segs,
+            cand_vertices,
+            ow,
+            skip_pts=skip_pts,
         )
         if _SIMPLIFY_TRACE and (baseline_ins > 0 or candidate_ins > 0):
             _log.info(
@@ -961,7 +1010,8 @@ def _candidate_safe_against_others(
                 ow_id=str(ow.id),
                 ow_net=str(ow_net) if ow_net is not None else None,
                 ow_side=ow.side,
-                baseline=baseline_ins, candidate=candidate_ins,
+                baseline=baseline_ins,
+                candidate=candidate_ins,
                 ow_path=[(p.x, p.y) for p in ow.path],
             )
         baseline_ins_total += baseline_ins
@@ -983,8 +1033,8 @@ def _candidate_safe_against_others(
 def _candidate_pins_alien(
     candidate_segs: list[tuple[Point, Point]],
     candidate_vertices: list[Point],
-    pin_net_map: "dict[Point, uuid.UUID] | None",
-    wire_net_id: "uuid.UUID | None",
+    pin_net_map: dict[Point, uuid.UUID] | None,
+    wire_net_id: uuid.UUID | None,
     original_path: list[Point],
 ) -> bool:
     """True if the candidate path passes through (or terminates at) a pin
@@ -1009,10 +1059,7 @@ def _candidate_pins_alien(
                 return True
         # Vertex coincidence at a candidate interior vertex.
         for v in candidate_vertices[1:-1]:
-            if (
-                abs(v.x - pad.x) < _EPS
-                and abs(v.y - pad.y) < _EPS
-            ):
+            if abs(v.x - pad.x) < _EPS and abs(v.y - pad.y) < _EPS:
                 return True
     return False
 
@@ -1055,7 +1102,7 @@ def _new_alien_pad_contact(
     candidate_segs: list[tuple[Point, Point]],
     wire: Wire,
     pad_to_net: dict[Point, uuid.UUID] | None,
-    wire_net_id: "uuid.UUID | None" = None,
+    wire_net_id: uuid.UUID | None = None,
 ) -> bool:
     """Return True if the candidate creates an unintended bare contact with
     a pad belonging to *another* electric net than the wire's own.
@@ -1105,7 +1152,7 @@ def _candidate_no_new_pin_contact(
     original_path: list[Point],
     pad_index: object,
     wire_side: str,
-    wire_net_id: "uuid.UUID | None",
+    wire_net_id: uuid.UUID | None,
     wire_is_insulated: bool,
 ) -> bool:
     """Return True if the candidate path introduces no new HARD contact
@@ -1151,7 +1198,7 @@ def _candidate_no_new_pin_contact(
     orig_keys = {(round(p.x, 6), round(p.y, 6)) for p in original_path}
     wire_type = "insulated" if wire_is_insulated else "bare"
 
-    def _is_hard_blocker(pad: "Pad") -> bool:
+    def _is_hard_blocker(pad: Pad) -> bool:
         """Hard-block contacts that the candidate must NOT introduce, even
         if it just shifts them from an existing position.  Reject reasons:
         SHORT_CIRCUIT, alien same-side bare conductor, hard-blocking body,
@@ -1163,7 +1210,10 @@ def _candidate_no_new_pin_contact(
         # want to count softly, not absolutely.  So we strip those from
         # the verdict by re-checking the pad ourselves.
         if not pad_index.can_route_through(  # type: ignore[attr-defined]
-            pad.position, wire_side, wire_net_id, wire_type,
+            pad.position,
+            wire_side,
+            wire_net_id,
+            wire_type,
         ):
             # Was the rejection caused by alien insulated wire only?  If
             # yes, it's a SOFT contact (counted elsewhere).  Otherwise
@@ -1188,18 +1238,19 @@ def _candidate_no_new_pin_contact(
                 if _SIMPLIFY_TRACE:
                     items_dump = []
                     for it in pad.iter_items(side=None):
-                        items_dump.append({
-                            "type": type(it).__name__,
-                            "id": str(getattr(it, "id", None)),
-                            "net": str(getattr(it, "net", None)),
-                        })
+                        items_dump.append(
+                            {
+                                "type": type(it).__name__,
+                                "id": str(getattr(it, "id", None)),
+                                "net": str(getattr(it, "net", None)),
+                            }
+                        )
                     _log.info(
                         "simplify.pad_blocks.hard",
                         pad_pos=(pad.position.x, pad.position.y),
                         wire_side=wire_side,
                         wire_net_id=(
-                            str(wire_net_id)
-                            if wire_net_id is not None else None
+                            str(wire_net_id) if wire_net_id is not None else None
                         ),
                         wire_type=wire_type,
                         items_on_pad=items_dump,
@@ -1216,9 +1267,7 @@ def _candidate_no_new_pin_contact(
                     "simplify.pad_blocks.alien_pin",
                     pad_pos=(pad.position.x, pad.position.y),
                     wire_side=wire_side,
-                    wire_net_id=(
-                        str(wire_net_id) if wire_net_id is not None else None
-                    ),
+                    wire_net_id=(str(wire_net_id) if wire_net_id is not None else None),
                     pin_id=str(getattr(it, "id", None)),
                     pin_number=getattr(it, "pin_number", None),
                     pin_net=str(getattr(it, "net", None)),
@@ -1226,7 +1275,7 @@ def _candidate_no_new_pin_contact(
             return True
         return False
 
-    def _has_soft_insulated_contact(pad: "Pad") -> bool:
+    def _has_soft_insulated_contact(pad: Pad) -> bool:
         """Pad hosts an alien InsulatedWireItem/Crossing on the wire's side.
         Such contacts are counted (shift-able) rather than absolutely
         rejected — two insulated wires sharing a pad is mechanical but
@@ -1239,7 +1288,7 @@ def _candidate_no_new_pin_contact(
             return True
         return False
 
-    def _iter_pads_along(path: list[Point]) -> "list[Pad]":
+    def _iter_pads_along(path: list[Point]) -> list[Pad]:
         """Every pad touched by *path* (vertices + mid-segment pads).
         De-duplicates by pad position so each pad counts at most once."""
         seen: set[tuple[float, float]] = set()
@@ -1259,7 +1308,10 @@ def _candidate_no_new_pin_contact(
             b = path[i + 1]
             try:
                 pads_near = pad_index.pads_near_segment(  # type: ignore[attr-defined]
-                    a.x, a.y, b.x, b.y,
+                    a.x,
+                    a.y,
+                    b.x,
+                    b.y,
                 )
             except AttributeError:
                 return out  # caller passed a non-PadIndex object
@@ -1282,11 +1334,11 @@ def _candidate_no_new_pin_contact(
     # insulated wires sharing a pad with our wire are tolerated as long
     # as the simplification does not multiply them.
     baseline_soft = sum(
-        1 for pad in _iter_pads_along(original_path)
-        if _has_soft_insulated_contact(pad)
+        1 for pad in _iter_pads_along(original_path) if _has_soft_insulated_contact(pad)
     )
     candidate_soft = sum(
-        1 for pad in _iter_pads_along(candidate_vertices)
+        1
+        for pad in _iter_pads_along(candidate_vertices)
         if _has_soft_insulated_contact(pad)
     )
     if candidate_soft > baseline_soft:
@@ -1294,9 +1346,7 @@ def _candidate_no_new_pin_contact(
             _log.info(
                 "simplify.pad_blocks.soft_grew",
                 wire_side=wire_side,
-                wire_net_id=(
-                    str(wire_net_id) if wire_net_id is not None else None
-                ),
+                wire_net_id=(str(wire_net_id) if wire_net_id is not None else None),
                 baseline_soft=baseline_soft,
                 candidate_soft=candidate_soft,
             )
@@ -1306,10 +1356,10 @@ def _candidate_no_new_pin_contact(
 
 def _candidate_safe_via_pad_index(
     candidate_vertices: list[Point],
-    original_endpoints: "tuple[Point, Point]",
+    original_endpoints: tuple[Point, Point],
     pad_index: object,
     wire_side: str,
-    wire_net_id: "uuid.UUID | None",
+    wire_net_id: uuid.UUID | None,
     wire_is_insulated: bool,
 ) -> bool:
     """Pad-state check for every pad the candidate path touches.
@@ -1337,9 +1387,8 @@ def _candidate_safe_via_pad_index(
     ep1_x, ep1_y = original_endpoints[1].x, original_endpoints[1].y
 
     def _is_endpoint(px: float, py: float) -> bool:
-        return (
-            (abs(px - ep0_x) < _EPS and abs(py - ep0_y) < _EPS)
-            or (abs(px - ep1_x) < _EPS and abs(py - ep1_y) < _EPS)
+        return (abs(px - ep0_x) < _EPS and abs(py - ep0_y) < _EPS) or (
+            abs(px - ep1_x) < _EPS and abs(py - ep1_y) < _EPS
         )
 
     if wire_is_insulated:
@@ -1352,11 +1401,14 @@ def _candidate_safe_via_pad_index(
         except ImportError:
             return True
 
-        def _pad_is_hard_block_insulated(pad: "Pad") -> bool:
+        def _pad_is_hard_block_insulated(pad: Pad) -> bool:
             """For insulated wires only: hard-reject SHORT, body, alien
             bare.  Alien insulated same-side is soft."""
             if pad_index.can_route_through(  # type: ignore[attr-defined]
-                pad.position, wire_side, wire_net_id, wire_type,
+                pad.position,
+                wire_side,
+                wire_net_id,
+                wire_type,
             ):
                 return False
             blocked_by = pad.physically_blocked_on(wire_side)
@@ -1389,7 +1441,10 @@ def _candidate_safe_via_pad_index(
         if _is_endpoint(v.x, v.y):
             continue
         if not pad_index.can_route_through(  # type: ignore[attr-defined]
-            v, wire_side, wire_net_id, wire_type,
+            v,
+            wire_side,
+            wire_net_id,
+            wire_type,
         ):
             return False
     vertex_keys = {(round(v.x, 4), round(v.y, 4)) for v in candidate_vertices}
@@ -1398,7 +1453,10 @@ def _candidate_safe_via_pad_index(
         b = candidate_vertices[i + 1]
         try:
             pads_near = pad_index.pads_near_segment(  # type: ignore[attr-defined]
-                a.x, a.y, b.x, b.y,
+                a.x,
+                a.y,
+                b.x,
+                b.y,
             )
         except AttributeError:
             return True
@@ -1409,7 +1467,10 @@ def _candidate_safe_via_pad_index(
             if _is_endpoint(pad.position.x, pad.position.y):
                 continue
             if not pad_index.can_route_through(  # type: ignore[attr-defined]
-                pad.position, wire_side, wire_net_id, wire_type,
+                pad.position,
+                wire_side,
+                wire_net_id,
+                wire_type,
             ):
                 return False
     return True
@@ -1423,9 +1484,9 @@ def generic_simplify_wire(
     *,
     mode: SimplifyMode = SimplifyMode.BARE_PARITY,
     board_pads: set[Point] | None = None,
-    wire_net_id: "uuid.UUID | None" = None,
-    other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
-    pin_net_map: "dict[Point, uuid.UUID] | None" = None,
+    wire_net_id: uuid.UUID | None = None,
+    other_wire_nets: dict[uuid.UUID, uuid.UUID | None] | None = None,
+    pin_net_map: dict[Point, uuid.UUID] | None = None,
     pad_index: object = None,
 ) -> Wire:
     """Shorten *wire* by replacing any subpath ``path[i..j]`` with the
@@ -1457,9 +1518,7 @@ def generic_simplify_wire(
     # operate on whatever it gave us.
     src_parity = _parity_of(wire.path[0]) if wire.path else 0
     allow_l_shape = True
-    use_parity = (
-        mode == SimplifyMode.BARE_PARITY and not wire.insulated
-    )
+    use_parity = mode == SimplifyMode.BARE_PARITY and not wire.insulated
 
     # Pre-filter other_wires by full-path bbox: any other wire whose bbox
     # cannot overlap our wire's full bbox can never contact any subpath of
@@ -1499,6 +1558,7 @@ def generic_simplify_wire(
     # production silent on dense boards.  Helper captures wire identity once
     # so per-call sites stay compact.
     if _SIMPLIFY_TRACE:
+
         def _trace_reject(reason: str, i: int, j: int, /, **extra: object) -> None:
             _log.info(
                 "simplify.reject",
@@ -1506,12 +1566,14 @@ def generic_simplify_wire(
                 insulated=wire.insulated,
                 side=wire.side,
                 wire_net_id=str(wire_net_id) if wire_net_id is not None else None,
-                i=i, j=j,
+                i=i,
+                j=j,
                 p_i=(path[i].x, path[i].y) if i < len(path) else None,
                 p_j=(path[j].x, path[j].y) if j < len(path) else None,
                 reason=reason,
                 **extra,
             )
+
         _log.info(
             "simplify.wire_begin",
             wire_id=str(wire.id),
@@ -1525,7 +1587,10 @@ def generic_simplify_wire(
             n_pins=len(pins),
         )
     else:
-        def _trace_reject(reason: str, i: int, j: int, /, **extra: object) -> None:  # noqa: ARG001
+
+        def _trace_reject(
+            reason: str, i: int, j: int, /, **extra: object
+        ) -> None:  # noqa: ARG001
             return None
 
     path = list(wire.path)
@@ -1548,10 +1613,11 @@ def generic_simplify_wire(
                 # subpath that already is canonical).
                 if len(canon) == j - i + 1 and all(
                     abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
-                    for a, b in zip(canon, path[i:j + 1])
+                    for a, b in zip(canon, path[i : j + 1])
                 ):
-                    _trace_reject("canonical_is_noop", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "canonical_is_noop", i, j, canon=[(p.x, p.y) for p in canon]
+                    )
                     continue
                 # Accept the canonical if either:
                 #   (a) it's geometrically shorter, OR
@@ -1563,44 +1629,53 @@ def generic_simplify_wire(
                 #       canonical has fewer 90° corners — soldering preference:
                 #       2×45° rounds better than 1×90°, so a same-cost
                 #       replacement that smooths sharp bends is worth taking.
-                cur_len = _path_length(path[i:j + 1])
+                cur_len = _path_length(path[i : j + 1])
                 cand_len = _path_length(canon)
                 shorter = cand_len < cur_len - _EPS
-                fewer_verts = (
-                    abs(cand_len - cur_len) < _EPS
-                    and len(canon) < (j - i + 1)
+                fewer_verts = abs(cand_len - cur_len) < _EPS and len(canon) < (
+                    j - i + 1
                 )
                 fewer_90s = (
                     abs(cand_len - cur_len) < _EPS
                     and len(canon) <= (j - i + 1)
-                    and _count_90_corners(canon)
-                        < _count_90_corners(path[i:j + 1])
+                    and _count_90_corners(canon) < _count_90_corners(path[i : j + 1])
                 )
                 if not shorter and not fewer_verts and not fewer_90s:
-                    _trace_reject("not_shorter_not_fewer", i, j,
-                                  cur_len=cur_len, cand_len=cand_len,
-                                  cur_verts=j - i + 1, cand_verts=len(canon),
-                                  cur_90s=_count_90_corners(path[i:j + 1]),
-                                  cand_90s=_count_90_corners(canon))
+                    _trace_reject(
+                        "not_shorter_not_fewer",
+                        i,
+                        j,
+                        cur_len=cur_len,
+                        cand_len=cand_len,
+                        cur_verts=j - i + 1,
+                        cand_verts=len(canon),
+                        cur_90s=_count_90_corners(path[i : j + 1]),
+                        cand_90s=_count_90_corners(canon),
+                    )
                     continue
 
                 # Preserve internal pad-pins (Steiner points the router put
                 # there on purpose).
-                internal = path[i + 1:j]
+                internal = path[i + 1 : j]
                 internal_pins = {p for p in internal if p in pins}
                 if internal_pins and not internal_pins.issubset(set(canon)):
-                    _trace_reject("would_drop_internal_pin", i, j,
-                                  dropped=[(p.x, p.y) for p in
-                                           internal_pins - set(canon)])
+                    _trace_reject(
+                        "would_drop_internal_pin",
+                        i,
+                        j,
+                        dropped=[(p.x, p.y) for p in internal_pins - set(canon)],
+                    )
                     continue
 
                 candidate_segs = list(zip(canon, canon[1:]))
-                if use_parity and not _parity_ok_for_bare(
-                    candidate_segs, src_parity
-                ):
-                    _trace_reject("parity_violation", i, j,
-                                  src_parity=src_parity,
-                                  canon=[(p.x, p.y) for p in canon])
+                if use_parity and not _parity_ok_for_bare(candidate_segs, src_parity):
+                    _trace_reject(
+                        "parity_violation",
+                        i,
+                        j,
+                        src_parity=src_parity,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
                 # Pad-state authoritative check (preferred path when caller
                 # supplied a PadIndex).  Catches: shared-pad shorts, alien
@@ -1614,8 +1689,12 @@ def generic_simplify_wire(
                     wire_net_id,
                     wire.insulated,
                 ):
-                    _trace_reject("pad_index_blocks_via_can_route_through", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "pad_index_blocks_via_can_route_through",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
                 # Stricter pad rule: simplify must not introduce a NEW pin
                 # contact (alien-net pins, including floating pins of other
@@ -1629,17 +1708,19 @@ def generic_simplify_wire(
                     wire_net_id,
                     wire.insulated,
                 ):
-                    _trace_reject("new_pin_contact_or_alien_pad", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "new_pin_contact_or_alien_pad",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
                 # Geometric mid-air crossings — PadIndex doesn't know about
                 # segments BETWEEN pads, so this stays.  Rule: M ≤ N — the
                 # candidate may keep (or shift) existing crossings of the
                 # replaced subpath but must not introduce new ones.  Pass
                 # the original subpath segs so the count is per-W2 local.
-                original_subpath_segs = list(
-                    zip(path[i:j + 1], path[i + 1:j + 1])
-                )
+                original_subpath_segs = list(zip(path[i : j + 1], path[i + 1 : j + 1]))
                 if not _candidate_safe_against_others(
                     candidate_segs,
                     other_wires,
@@ -1650,13 +1731,21 @@ def generic_simplify_wire(
                     original_endpoints=(path[i], path[j]),
                     original_subpath_segs=original_subpath_segs,
                 ):
-                    _trace_reject("crosses_other_wire_or_grows_crossings", i, j,
-                                  canon=[(p.x, p.y) for p in canon],
-                                  n_other_wires=len(other_wires))
+                    _trace_reject(
+                        "crosses_other_wire_or_grows_crossings",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                        n_other_wires=len(other_wires),
+                    )
                     continue
                 if not _candidate_safe_against_own(candidate_segs, wire, i, j):
-                    _trace_reject("crosses_own_wire_unchanged_segments", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "crosses_own_wire_unchanged_segments",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
                 # Legacy alien-pad-contact check — kept as a fallback when
                 # caller hasn't migrated to PadIndex yet.  When PadIndex is
@@ -1665,17 +1754,31 @@ def generic_simplify_wire(
                 if pad_index is None and _new_alien_pad_contact(
                     candidate_segs, wire, pad_to_net, wire_net_id
                 ):
-                    _trace_reject("legacy_new_alien_pad_contact", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "legacy_new_alien_pad_contact",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
                 # Legacy alien-pin pass-through — same story.
-                if pad_index is None and not wire.insulated \
-                        and _candidate_pins_alien(
-                    candidate_segs, list(canon), pin_net_map,
-                    wire_net_id, list(wire.path),
+                if (
+                    pad_index is None
+                    and not wire.insulated
+                    and _candidate_pins_alien(
+                        candidate_segs,
+                        list(canon),
+                        pin_net_map,
+                        wire_net_id,
+                        list(wire.path),
+                    )
                 ):
-                    _trace_reject("legacy_alien_pin_passthrough", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "legacy_alien_pin_passthrough",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
 
                 # Accept: splice canon into path in place of [i..j].
@@ -1688,18 +1791,26 @@ def generic_simplify_wire(
                 if board_pads and len(canon) >= 2:
                     enriched: list[Point] = [canon[0]]
                     for k in range(len(canon) - 1):
-                        enriched.extend(_fast_pads_on_segment(
-                            canon[k], canon[k + 1], board_pads,
-                        ))
+                        enriched.extend(
+                            _fast_pads_on_segment(
+                                canon[k],
+                                canon[k + 1],
+                                board_pads,
+                            )
+                        )
                         enriched.append(canon[k + 1])
                     canon = enriched
-                new_path = path[:i + 1] + canon[1:-1] + path[j:]
+                new_path = path[: i + 1] + canon[1:-1] + path[j:]
                 # Detect no-op after pad re-insertion (the enriched canon may
                 # exactly reproduce the slice it would replace).  Without this
                 # guard the greedy loop would never reach a fixed point.
                 if new_path == path:
-                    _trace_reject("new_path_equals_old_after_enrichment", i, j,
-                                  canon=[(p.x, p.y) for p in canon])
+                    _trace_reject(
+                        "new_path_equals_old_after_enrichment",
+                        i,
+                        j,
+                        canon=[(p.x, p.y) for p in canon],
+                    )
                     continue
                 # User rule "nie tworzyć nowych zagięć": never accept a
                 # replacement that increases the total bend count of the
@@ -1711,19 +1822,26 @@ def generic_simplify_wire(
                 in_total = _count_total_corners(path)
                 out_total = _count_total_corners(new_path)
                 if out_total > in_total:
-                    _trace_reject("would_grow_total_corners", i, j,
-                                  in_total_corners=in_total,
-                                  out_total_corners=out_total,
-                                  canon=[(p.x, p.y) for p in canon],
-                                  new_path=[(p.x, p.y) for p in new_path])
+                    _trace_reject(
+                        "would_grow_total_corners",
+                        i,
+                        j,
+                        in_total_corners=in_total,
+                        out_total_corners=out_total,
+                        canon=[(p.x, p.y) for p in canon],
+                        new_path=[(p.x, p.y) for p in new_path],
+                    )
                     continue
                 if _SIMPLIFY_TRACE:
                     _log.info(
                         "simplify.accept",
                         wire_id=str(wire.id),
-                        i=i, j=j,
-                        cur_len=cur_len, cand_len=cand_len,
-                        in_corners=in_total, out_corners=out_total,
+                        i=i,
+                        j=j,
+                        cur_len=cur_len,
+                        cand_len=cand_len,
+                        in_corners=in_total,
+                        out_corners=out_total,
                         canon=[(p.x, p.y) for p in canon],
                     )
                 path = new_path
@@ -1780,8 +1898,8 @@ def simplify_wires_generic(
     *,
     mode: SimplifyMode = SimplifyMode.BARE_PARITY,
     board_pads: set[Point] | None = None,
-    wire_to_net: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
-    pin_net_map: "dict[Point, uuid.UUID] | None" = None,
+    wire_to_net: dict[uuid.UUID, uuid.UUID | None] | None = None,
+    pin_net_map: dict[Point, uuid.UUID] | None = None,
     pad_index: object = None,
 ) -> list[Wire]:
     """Run generic_simplify_wire over *wires*, propagating each rewrite back

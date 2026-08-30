@@ -8,226 +8,501 @@ components:
   # Logic gates
   # -----------------------------------------------------------------------
 
-  - name: CD4001
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Quad 2-input NOR gate"
-    pin_names:
-      1: A1
-      2: B1
-      3: Y1
-      4: Y2
-      5: A2
-      6: B2
-      7: VSS
-      8: Y3
-      9: A3
-      10: B3
-      11: B4
-      12: A4
-      13: Y4
-      14: VDD
-
-  - name: CD4011
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Quad 2-input NAND gate"
-    pin_names:
-      1: A1
-      2: B1
-      3: Y1
-      4: Y2
-      5: A2
-      6: B2
-      7: VSS
-      8: Y3
-      9: A3
-      10: B3
-      11: B4
-      12: A4
-      13: Y4
-      14: VDD
-
-  - name: CD4069
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Hex inverter (NOT gate)"
-    pin_names:
-      1: A1
-      2: Y1
-      3: A2
-      4: Y2
-      5: A3
-      6: Y3
-      7: VSS
-      8: Y4
-      9: A4
-      10: Y5
-      11: A5
-      12: Y6
-      13: A6
-      14: VDD
-
-  - name: CD4081
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Quad 2-input AND gate"
-    pin_names:
-      1: A1
-      2: B1
-      3: Y1
-      4: Y2
-      5: A2
-      6: B2
-      7: VSS
-      8: Y3
-      9: A3
-      10: B3
-      11: B4
-      12: A4
-      13: Y4
-      14: VDD
-
-  - name: CD4071
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Quad 2-input OR gate"
-    pin_names:
-      1: A1
-      2: B1
-      3: Y1
-      4: Y2
-      5: A2
-      6: B2
-      7: VSS
-      8: Y3
-      9: A3
-      10: B3
-      11: B4
-      12: A4
-      13: Y4
-      14: VDD
-
-  # -----------------------------------------------------------------------
-  # Flip-flops / latches
-  # -----------------------------------------------------------------------
-
-  - name: CD4013
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Dual D flip-flop"
-    pin_names:
-      1: Q1
-      2: NQ1
-      3: CLK1
-      4: R1
-      5: D1
-      6: S1
-      7: VSS
-      8: S2
-      9: D2
-      10: R2
-      11: CLK2
-      12: NQ2
-      13: Q2
-      14: VDD
-
-  - name: CD4017
-    component_class: ic
-    pins: {count: 16}
-    package: {kind: dip_ic}
-    description: "Johnson decade counter / divider"
-    pin_names:
-      1: Q5
-      2: Q1
-      3: Q0
-      4: Q2
-      5: Q6
-      6: Q7
-      7: Q3
-      8: VSS
-      9: Q8
-      10: Q4
-      11: Q9
-      12: CARRY
-      13: CLK_EN
-      14: CLK
-      15: RST
-      16: VDD
-
-  - name: CD4040
-    component_class: ic
-    pins: {count: 16}
-    package: {kind: dip_ic}
-    description: "12-bit binary ripple counter"
-    pin_names:
-      1: Q12
-      2: Q6
-      3: Q5
-      4: Q7
-      5: Q4
-      6: Q3
-      7: Q2
-      8: VSS
-      9: Q1
-      10: RST
-      11: CLK
-      12: Q11
-      13: Q10
-      14: Q8
-      15: Q9
-      16: VDD
-
-  # -----------------------------------------------------------------------
-  # Analog / mixed
-  # -----------------------------------------------------------------------
-
-  - name: CD4016
-    component_class: ic
-    pins: {count: 14}
-    package: {kind: dip_ic}
-    description: "Quad bilateral switch"
-    pin_names:
-      1: IN_A
-      2: OUT_A
-      3: CTRL_A
-      4: CTRL_B
-      5: OUT_B
-      6: IN_B
-      7: VSS
-      8: IN_C
-      9: OUT_C
-      10: CTRL_C
-      11: CTRL_D
-      12: OUT_D
-      13: IN_D
-      14: VDD
-
-  - name: CD4051
-    component_class: ic
-    pins: {count: 16}
-    package: {kind: dip_ic}
-    description: "Single 8-channel analog multiplexer"
-    pin_names:
-      1: Y
-      2: Z
-      3: Y4
-      4: Y6
-      5: Y2
-      6: Y1
-      7: Y5
-      8: VSS
-      9: INH
-      10: VEE
-      11: A
-      12: B
-      13: C
-      14: Y3
-      15: Y0
-      16: VDD
+- name: CD4001
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Quad 2-input NOR gate"
+  meta_pins:
+  - A1
+  - B1
+  - Y1
+  - Y2
+  - A2
+  - B2
+  - VSS
+  - Y3
+  - A3
+  - B3
+  - B4
+  - A4
+  - Y4
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4011
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Quad 2-input NAND gate"
+  meta_pins:
+  - A1
+  - B1
+  - Y1
+  - Y2
+  - A2
+  - B2
+  - VSS
+  - Y3
+  - A3
+  - B3
+  - B4
+  - A4
+  - Y4
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4069
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Hex inverter (NOT gate)"
+  meta_pins:
+  - A1
+  - Y1
+  - A2
+  - Y2
+  - A3
+  - Y3
+  - VSS
+  - Y4
+  - A4
+  - Y5
+  - A5
+  - Y6
+  - A6
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4081
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Quad 2-input AND gate"
+  meta_pins:
+  - A1
+  - B1
+  - Y1
+  - Y2
+  - A2
+  - B2
+  - VSS
+  - Y3
+  - A3
+  - B3
+  - B4
+  - A4
+  - Y4
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4071
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Quad 2-input OR gate"
+  meta_pins:
+  - A1
+  - B1
+  - Y1
+  - Y2
+  - A2
+  - B2
+  - VSS
+  - Y3
+  - A3
+  - B3
+  - B4
+  - A4
+  - Y4
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4013
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Dual D flip-flop"
+  meta_pins:
+  - Q1
+  - NQ1
+  - CLK1
+  - R1
+  - D1
+  - S1
+  - VSS
+  - S2
+  - D2
+  - R2
+  - CLK2
+  - NQ2
+  - Q2
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4017
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Johnson decade counter / divider"
+  meta_pins:
+  - Q5
+  - Q1
+  - Q0
+  - Q2
+  - Q6
+  - Q7
+  - Q3
+  - VSS
+  - Q8
+  - Q4
+  - Q9
+  - CARRY
+  - CLK_EN
+  - CLK
+  - RST
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+- name: CD4040
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "12-bit binary ripple counter"
+  meta_pins:
+  - Q12
+  - Q6
+  - Q5
+  - Q7
+  - Q4
+  - Q3
+  - Q2
+  - VSS
+  - Q1
+  - RST
+  - CLK
+  - Q11
+  - Q10
+  - Q8
+  - Q9
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16
+- name: CD4016
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Quad bilateral switch"
+  meta_pins:
+  - IN_A
+  - OUT_A
+  - CTRL_A
+  - CTRL_B
+  - OUT_B
+  - IN_B
+  - VSS
+  - IN_C
+  - OUT_C
+  - CTRL_C
+  - CTRL_D
+  - OUT_D
+  - IN_D
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+- name: CD4051
+  component_class: ic
+  package: {kind: dip_ic}
+  description: "Single 8-channel analog multiplexer"
+  meta_pins:
+  - Y
+  - Z
+  - Y4
+  - Y6
+  - Y2
+  - Y1
+  - Y5
+  - VSS
+  - INH
+  - VEE
+  - A
+  - B
+  - C
+  - Y3
+  - Y0
+  - VDD
+  pin_map:
+    1:
+    - 1
+    2:
+    - 2
+    3:
+    - 3
+    4:
+    - 4
+    5:
+    - 5
+    6:
+    - 6
+    7:
+    - 7
+    8:
+    - 8
+    9:
+    - 9
+    10:
+    - 10
+    11:
+    - 11
+    12:
+    - 12
+    13:
+    - 13
+    14:
+    - 14
+    15:
+    - 15
+    16:
+    - 16

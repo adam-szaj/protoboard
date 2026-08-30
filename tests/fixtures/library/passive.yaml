@@ -2,20 +2,20 @@ components:
   - name: R
     description: "Resistor (axial through-hole)"
     component_class: resistor
-    pins: {count: 2}
     package: {kind: generic}
-    pin_names: {}
+    meta_pins: [P1, P2]
+    pin_map: {1: [1], 2: [2]}
 
   - name: C
     description: "Capacitor (radial)"
     component_class: capacitor_nonpolar
-    pins: {count: 2}
     package: {kind: generic}
-    pin_names: {}
+    meta_pins: [P1, P2]
+    pin_map: {1: [1], 2: [2]}
 
   - name: SW_Push
     description: "Tactile push button (4-pin)"
     component_class: switch
-    pins: {count: 4}
     package: {kind: dip_switch}
-    pin_names: {1: A1, 2: A2, 3: B1, 4: B2}
+    meta_pins: [A1, A2, B1, B2]
+    pin_map: {1: [1], 2: [2], 3: [3], 4: [4]}

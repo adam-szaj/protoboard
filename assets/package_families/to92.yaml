@@ -12,7 +12,7 @@
 # vector in the holes domain (0.5-hole pins, between raster holes), so the board
 # pitch is given explicitly as 1 hole.
 families:
-  - family: TO-92
+  - family: q-tht/TO-92
     extends: cylinder_radial
     label: "TO-92 (plastic transistor, 3-lead inline)"
     color: "#2b2b2b"

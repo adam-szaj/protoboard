@@ -6,6 +6,7 @@ ArmedTransformTool, wire-edit (SelectTool sub-mode) and RouteTool, plus the
 directive acceptance test. Tasks 4/5/8 intentionally flip the assertions
 marked ``PARITY-FLIP`` from "exits after op" to "stays armed after op".
 """
+
 from __future__ import annotations
 
 import uuid
@@ -137,9 +138,15 @@ class TestWholeWireVsFragmentSimplifyParity:
         # through the controller so it carries real endpoint knots.
         view = _headless(session)
         wire_id = session.edit_controller.add_wire(
-            [Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
-             Point(3.5, 2.5), Point(3.5, 3.5)],
-            insulated=True, side="top",
+            [
+                Point(1.5, 1.5),
+                Point(2.5, 1.5),
+                Point(3.5, 1.5),
+                Point(3.5, 2.5),
+                Point(3.5, 3.5),
+            ],
+            insulated=True,
+            side="top",
         )
         assert wire_id is not None
         wire = session.layout.wires.get(wire_id)
@@ -150,9 +157,11 @@ class TestWholeWireVsFragmentSimplifyParity:
             session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
         )
         reference = build_simplify_range_command(
-            session.layout, list(session.layout.wires),
+            session.layout,
+            list(session.layout.wires),
             WireRange.full_span(wire),
-            build_simplify_inputs(session), mode,
+            build_simplify_inputs(session),
+            mode,
         )
         assert isinstance(reference, ReplaceWireFragmentsCommand)
 
@@ -164,8 +173,7 @@ class TestWholeWireVsFragmentSimplifyParity:
         assert enriched is not None
         last = len(enriched.path) - 1
         select._range_picked(
-            [WireVertexSelectable(wire_id, 0),
-             WireVertexSelectable(wire_id, last)]
+            [WireVertexSelectable(wire_id, 0), WireVertexSelectable(wire_id, last)]
         )
         tool = view.active_tool
         assert isinstance(tool, WireEditTool)
@@ -201,9 +209,7 @@ class TestArmedTransformExitParity:
         armed.on_key(key_inp(Qt.Key.Key_R))  # step +90
         return view, armed
 
-    def test_commit_stays_armed(
-        self, session: EditorSession
-    ) -> None:
+    def test_commit_stays_armed(self, session: EditorSession) -> None:
         # Task 4: confirm commits and RE-ARMS on the (possibly moved)
         # selection instead of returning to SelectTool.
         view, armed = self._armed_after_rotate_step(session)
@@ -211,9 +217,7 @@ class TestArmedTransformExitParity:
         assert view.active_tool is armed
         assert armed._armed is not None and not armed._armed.finished
 
-    def test_cancel_stays_armed(
-        self, session: EditorSession
-    ) -> None:
+    def test_cancel_stays_armed(self, session: EditorSession) -> None:
         # Task 4: cancel reverts the pending op and RE-ARMS — it does not
         # exit to SelectTool (only host [Esc]-when-clean does that).
         view, armed = self._armed_after_rotate_step(session)
@@ -273,18 +277,22 @@ class TestWireEditExitParity:
         # through the controller (not a raw layout.wires.append) so the wire
         # gets real endpoint knots -- required by FlipWireFragmentCommand.
         wire_id = session.edit_controller.add_wire(
-            [Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5),
-             Point(3.5, 2.5), Point(3.5, 3.5)],
-            insulated=True, side="top",
+            [
+                Point(1.5, 1.5),
+                Point(2.5, 1.5),
+                Point(3.5, 1.5),
+                Point(3.5, 2.5),
+                Point(3.5, 3.5),
+            ],
+            insulated=True,
+            side="top",
         )
         assert wire_id is not None
         wire = session.layout.wires.get(wire_id)
         assert wire is not None
         return wire
 
-    def _arm_via_entry(
-        self, view: HeadlessBoardView, wire: Wire
-    ) -> WireEditTool:
+    def _arm_via_entry(self, view: HeadlessBoardView, wire: Wire) -> WireEditTool:
         """Drive the REAL ``[E]`` entry: select the wire, arm wire-edit, then
         resolve the full-span fragment through ``_range_picked`` — which hands
         off to the WireEditTool (the swap under test).  Returns the now-active
@@ -305,9 +313,7 @@ class TestWireEditExitParity:
         assert isinstance(active, WireEditTool)  # handed off to wire-edit
         return active
 
-    def test_autoroute_op_stays_in_wire_edit(
-        self, session: EditorSession
-    ) -> None:
+    def test_autoroute_op_stays_in_wire_edit(self, session: EditorSession) -> None:
         view = _headless(session)
         wire = self._detour_wire(session)
         tool = self._arm_via_entry(view, wire)
@@ -317,9 +323,7 @@ class TestWireEditExitParity:
         assert tool._wire_edit is not None  # re-armed on the mutated wire
         assert view.active_tool is tool  # stayed in wire-edit
 
-    def test_flip_op_stays_in_wire_edit(
-        self, session: EditorSession
-    ) -> None:
+    def test_flip_op_stays_in_wire_edit(self, session: EditorSession) -> None:
         view = _headless(session)
         wire = self._detour_wire(session)
         tool = self._arm_via_entry(view, wire)
@@ -329,9 +333,7 @@ class TestWireEditExitParity:
         assert tool._wire_edit is not None
         assert view.active_tool is tool
 
-    def test_simplify_op_stays_in_wire_edit(
-        self, session: EditorSession
-    ) -> None:
+    def test_simplify_op_stays_in_wire_edit(self, session: EditorSession) -> None:
         view = _headless(session)
         wire = self._detour_wire(session)
         tool = self._arm_via_entry(view, wire)
@@ -341,9 +343,7 @@ class TestWireEditExitParity:
         assert tool._wire_edit is not None
         assert view.active_tool is tool
 
-    def test_delete_op_exits_to_plain_select(
-        self, session: EditorSession
-    ) -> None:
+    def test_delete_op_exits_to_plain_select(self, session: EditorSession) -> None:
         # The ONE op that exits: deleting the whole wire leaves nothing to
         # re-arm, so control returns to the plain SelectTool via return_to.
         view = _headless(session)
@@ -357,9 +357,7 @@ class TestWireEditExitParity:
         assert isinstance(view.active_tool, SelectTool)
         assert len(session.layout.wires) == n_before - 1
 
-    def test_two_consecutive_ops_without_rearm(
-        self, session: EditorSession
-    ) -> None:
+    def test_two_consecutive_ops_without_rearm(self, session: EditorSession) -> None:
         # Proof of the stays-armed model: [S] then [F] both land commands on
         # the stack without a re-entry round-trip through SelectTool.
         view = _headless(session)
@@ -409,9 +407,9 @@ class TestWireEditExitParity:
         assert fresh is not None
         last = len(fresh.path) - 1
         from protoboard.controller.selection.adapters import WireVertexSelectable
+
         select._range_picked(
-            [WireVertexSelectable(wire.id, 0),
-             WireVertexSelectable(wire.id, last)]
+            [WireVertexSelectable(wire.id, 0), WireVertexSelectable(wire.id, last)]
         )
         wire_edit = view.active_tool
         assert isinstance(wire_edit, WireEditTool)
@@ -426,8 +424,7 @@ class TestWireEditExitParity:
         assert [s.to_hit().id for s in selected] == [wire.id]
         current = session.layout.wires.get(wire.id)
         assert current is not None
-        assert any(s.wire is current for s in selected
-                   if isinstance(s, WireSelectable))
+        assert any(s.wire is current for s in selected if isinstance(s, WireSelectable))
         entry = session.highlight_stack.active()
         assert entry is not None
         assert wire.id in entry.wire_ids
@@ -646,4 +643,3 @@ class TestRouteConflictGate:
         tool.on_key(key_inp(Qt.Key.Key_Return))
 
         assert len(session.layout.wires) == added_before + 1
-

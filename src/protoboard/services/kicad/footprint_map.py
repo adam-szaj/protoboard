@@ -50,8 +50,8 @@ class FootprintEntry:
     """One row in the mapping table."""
 
     kicad_fp: str
-    definition_ref: str    # empty string = use generic SIL placeholder
-    pin_count: int         # number of pins; 0 = not yet determined
+    definition_ref: str  # empty string = use generic SIL placeholder
+    pin_count: int  # number of pins; 0 = not yet determined
 
 
 @dataclass
@@ -77,7 +77,11 @@ class FootprintMap:
 
     def unresolved(self) -> list[FootprintEntry]:
         """Entries where definition_ref is empty and pin_count is 0."""
-        return [e for e in self.entries.values() if not e.definition_ref and e.pin_count == 0]
+        return [
+            e
+            for e in self.entries.values()
+            if not e.definition_ref and e.pin_count == 0
+        ]
 
     def all_resolved(self) -> bool:
         return all(e.pin_count > 0 for e in self.entries.values())

@@ -3,68 +3,85 @@ components:
   # Templates (prefix _ → not placeable)
   # -----------------------------------------------------------------------
 
-  - name: _D
-    component_class: diode
-    pin_names: {1: A, 2: K}
+- name: _D
+  component_class: diode
+  meta_pins:
+  - A
+  - K
 
-  - name: _D_DO35
-    extends: _D
-    footprints:
-        - ref: "DO-35/typ"
-    bendable_pins:
+- name: _D_DO35
+  extends: _D
+  package_options:
+  - ref: "@d-tht/DO/35"
+    pin_map:
+      1:
+      - 1
       2:
-        min_reach: 1
-        max_reach: 11
-        default: {x: 0, y: 2}
+      - 2
+  bendable_pins:
+    2:
+      min_reach: 1
+      max_reach: 11
+      default: {x: 0, y: 2}
 
-  - name: _D_DO41
-    extends: _D
-    footprints:
-        - ref: "DO-41/typ"
-    bendable_pins:
+- name: _D_DO41
+  extends: _D
+  package_options:
+  - ref: "@d-tht/DO/41"
+    pin_map:
+      1:
+      - 1
       2:
-        min_reach: 1
-        max_reach: 17
-        default: {x: 0, y: 3}
+      - 2
+  bendable_pins:
+    2:
+      min_reach: 1
+      max_reach: 17
+      default: {x: 0, y: 3}
 
-  - name: _D_DO201
-    extends: _D
-    footprints:
-        - ref: "DO-201/typ"
-    bendable_pins:
+- name: _D_DO201
+  extends: _D
+  package_options:
+  - ref: "@d-tht/DO/201"
+    pin_map:
+      1:
+      - 1
       2:
-        min_reach: 2
-        max_reach: 17
-        default: {x: 0, y: 4}
+      - 2
+  bendable_pins:
+    2:
+      min_reach: 2
+      max_reach: 17
+      default: {x: 0, y: 4}
 
   # -----------------------------------------------------------------------
   # Rectifier / switching / Schottky diodes
   # -----------------------------------------------------------------------
 
-  - name: 1N4148
-    extends: _D_DO35
-    description: "Small signal switching diode, 100V 200mA"
+- name: 1N4148
+  extends: _D_DO35
+  description: "Small signal switching diode, 100V 200mA"
 
-  - name: 1N4001
-    extends: _D_DO41
-    description: "Rectifier diode, 50V 1A"
+- name: 1N4001
+  extends: _D_DO41
+  description: "Rectifier diode, 50V 1A"
 
-  - name: 1N4007
-    extends: _D_DO41
-    description: "Rectifier diode, 1000V 1A"
+- name: 1N4007
+  extends: _D_DO41
+  description: "Rectifier diode, 1000V 1A"
 
-  - name: 1N5408
-    extends: _D_DO201
-    description: "Rectifier diode, 1000V 3A"
+- name: 1N5408
+  extends: _D_DO201
+  description: "Rectifier diode, 1000V 3A"
 
-  - name: 1N5819
-    extends: _D_DO41
-    description: "Schottky diode, 40V 1A"
+- name: 1N5819
+  extends: _D_DO41
+  description: "Schottky diode, 40V 1A"
 
-  - name: BAT43
-    extends: _D_DO35
-    description: "Schottky signal diode, 30V 200mA"
+- name: BAT43
+  extends: _D_DO35
+  description: "Schottky signal diode, 30V 200mA"
 
-  - name: BAT85
-    extends: _D_DO35
-    description: "Schottky signal diode, 30V 200mA, low VF"
+- name: BAT85
+  extends: _D_DO35
+  description: "Schottky signal diode, 30V 200mA, low VF"

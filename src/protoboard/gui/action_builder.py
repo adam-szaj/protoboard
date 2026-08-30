@@ -39,7 +39,6 @@ from protoboard.errors import ActionRegistrationError
 from protoboard.gui import keybindings as KB
 from protoboard.gui.actions import ActionSpec, MenuPath, ToolbarGroup
 
-
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -152,9 +151,7 @@ def build_actions(
     seen_ids: set[str] = set()
     for spec in specs:
         if spec.id in seen_ids:
-            raise ActionRegistrationError(
-                f"duplicate ActionSpec id: {spec.id!r}"
-            )
+            raise ActionRegistrationError(f"duplicate ActionSpec id: {spec.id!r}")
         seen_ids.add(spec.id)
 
         slot = resolve_slot(slot_owners, spec.slot_name, spec.shortcut_args)

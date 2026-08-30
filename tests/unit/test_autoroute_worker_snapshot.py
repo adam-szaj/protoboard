@@ -69,7 +69,7 @@ class TestAutorouteWorkerSnapshot:
             instances={},
             routing_settings=RoutingSettings(),
         )
-        qtbot.addWidget  # ensure pytest-qt is active (no actual widget — worker is QThread)
+        qtbot.addWidget  # ensure pytest-qt is active (no actual widget — worker is QThread)  # noqa: E501
 
         # Mutate live state after construction — worker must not see it.
         layout.wires.clear()
@@ -98,6 +98,7 @@ class TestAutorouteWorkerSnapshot:
     def test_missing_inputs_raises(self, qtbot) -> None:
         qtbot.addWidget
         import pytest as _pt
+
         with _pt.raises(TypeError):
             AutorouteWorker(board=_perfboard())  # missing the rest
 
