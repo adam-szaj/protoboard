@@ -151,7 +151,7 @@ def merged_cost_key_docs() -> dict[str, str]:
     for name in registry.list_available():
         try:
             router = registry.get(name)
-            extra = getattr(router, "cost_key_docs", lambda: {})()
+            extra: object = getattr(router, "cost_key_docs", lambda: {})()
             if isinstance(extra, dict):
                 merged.update(
                     {str(k): str(v) for k, v in extra.items() if isinstance(k, str)}
@@ -176,7 +176,9 @@ def merged_user_tunable_cost_keys() -> frozenset[str]:
     for name in registry.list_available():
         try:
             router = registry.get(name)
-            extra = getattr(router, "user_tunable_cost_keys", lambda: frozenset())()
+            extra: object = getattr(
+                router, "user_tunable_cost_keys", lambda: frozenset()
+            )()
             if isinstance(extra, (set, frozenset)):
                 keys |= {str(k) for k in extra if isinstance(k, str)}
         except Exception:  # noqa: BLE001
@@ -233,6 +235,7 @@ class RoutingCostModel:
     """
 
     __slots__ = ("weights",)
+    weights: dict[str, float]
 
     def __init__(self, **kwargs: Any) -> None:
         # Two construction modes, both supported:
