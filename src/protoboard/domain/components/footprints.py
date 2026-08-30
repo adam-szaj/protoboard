@@ -39,7 +39,7 @@ class Footprint(ABC):
     def pin_count(self) -> int: ...
 
     @abstractmethod
-    def rotate(self, cw: int): ...
+    def rotate(self, cw: int) -> None: ...
 
     def is_rigid(self) -> bool | None:
         """Whether this footprint fixes its pin spacing, if it knows that."""
@@ -74,7 +74,7 @@ class GenericFootprint(Footprint):
         return len(self.offsets) + 1
 
     @override
-    def rotate(self, cw: int):
+    def rotate(self, cw: int) -> None:
         rotation = Rotate2D(cw)
         self.offsets = transform_vectors(rotation, self.offsets)
 
