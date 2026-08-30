@@ -449,8 +449,8 @@ class AddWireCommand(Command[ComponentState]):
             # Undo collapses in reverse order — ``_restore_collapse``
             # reinstates BOTH source wires (including ``self.wire`` in its
             # pre-collapse form, so we don't remove it again here).
-            for rec in reversed(self._collapses):
-                _restore_collapse(state.layout, rec)
+            for collapse_record in reversed(self._collapses):
+                _restore_collapse(state.layout, collapse_record)
             # Now drop just ``self.wire`` so the layout reaches the
             # pre-apply state (one wire = the other source = neighbour
             # that existed before this AddWireCommand fired).
@@ -462,8 +462,8 @@ class AddWireCommand(Command[ComponentState]):
         # Undo any T-junction splits we created so the wires we cut
         # are restored to their pre-split single-piece form.  Run after
         # we removed ``self.wire`` so the hub becomes orphan-eligible.
-        for rec in reversed(self._splits):
-            _restore_split(state.layout, self.wire, rec)
+        for split_record in reversed(self._splits):
+            _restore_split(state.layout, self.wire, split_record)
         # Joints we created may still hold back-refs to other wires (shared
         # joint).  ``remove_wire`` already prunes orphans; anything still
         # in layout.knots is a non-orphan we must leave alone.
@@ -597,12 +597,12 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                 schematic.nets[net_id] = net_after
 
     def revert(self, state: ComponentState) -> None:
-        for rec in reversed(self._collapses):
-            _restore_collapse(state.layout, rec)
+        for collapse_record in reversed(self._collapses):
+            _restore_collapse(state.layout, collapse_record)
         if self.wire.id in state.layout.wires:
             state.layout.remove_wire(self.wire.id)
-        for rec in reversed(self._splits):
-            _restore_split(state.layout, self.wire, rec)
+        for split_record in reversed(self._splits):
+            _restore_split(state.layout, self.wire, split_record)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:
