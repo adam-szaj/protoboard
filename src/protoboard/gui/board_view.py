@@ -169,7 +169,7 @@ class BoardView(QGraphicsView):
         # selection bbox) — extracted service; owns all highlight state.
         self.highlight = HighlightRenderer(self)
         # Subscribe to highlight stack changes.
-        session.highlight_stack.changed.connect(self.highlight.apply)
+        session.gui_highlight_stack.changed.connect(self.highlight.apply)
         # Subscribe to routing-net changes (RouteTool while-drawing union with
         # stack).  One slot with a matching (net_id) arity: it applies opacity
         # immediately for the live feedback while drawing, AND schedules a full

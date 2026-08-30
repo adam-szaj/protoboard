@@ -165,6 +165,13 @@ class EditorSession(HeadlessSession, QObject):
         # attribute; None until a SelectTool has activated at least once.
         self.selection_service: SelectionService | None = None
 
+    @property
+    def gui_highlight_stack(self) -> HighlightStack:
+        """Qt signal-emitting highlight stack owned by the GUI session."""
+        stack = self.highlight_stack
+        assert isinstance(stack, HighlightStack)
+        return stack
+
     def _record_build_time(self, kind: str, ms: float) -> None:
         """Feed lazy-cache (re)build times into the GUI ``PerfMetrics``.
 

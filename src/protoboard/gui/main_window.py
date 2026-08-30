@@ -324,7 +324,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
         session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
-        session.highlight_stack.changed.connect(self._update_highlight_action)
+        session.gui_highlight_stack.changed.connect(self._update_highlight_action)
         session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
