@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor
 
 from protoboard.controller.selection import Stop
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _Tool
@@ -682,6 +683,7 @@ def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
     family = session.package_families[family_id]
     variant = family.get_variant(variant_id)
     assert variant is not None
+    assert isinstance(variant.package, Prism)
     specs = dict(variant.package.bendable_pins)
     specs[pin] = PinBendSpec(
         min_reach=0.0, max_reach=5.0, default_offset=Vector(0.0, 0.0)
@@ -761,6 +763,7 @@ class TestRedrag:
         family = session.package_families[family_id]
         variant = family.get_variant(variant_id)
         assert variant is not None
+        assert isinstance(variant.package, Prism)
         changed_variant = replace(
             variant, package=replace(variant.package, bend_holes=0.0)
         )

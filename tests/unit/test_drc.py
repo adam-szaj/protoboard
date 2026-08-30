@@ -19,6 +19,8 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import Package, PackageFamily, PackageVariant
 from protoboard.domain.components.package.generated_families import sil_family
+from protoboard.domain.components.package.kind import synth_generic_package
+from protoboard.domain.components.package.shapes import Prism
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
@@ -48,10 +50,14 @@ def _perfboard(rows: int, cols: int) -> Board:
     return Board(root=grid)
 
 
-def _r_defn() -> ComponentDefinition:
-    from protoboard.domain.components.package.kind import synth_generic_package
+def _generic_sil_package() -> Prism:
+    package = synth_generic_package(SIL(2))
+    assert package is not None
+    return package
 
-    return _package_defn("R", synth_generic_package(SIL(2)), ("A", "B"))
+
+def _r_defn() -> ComponentDefinition:
+    return _package_defn("R", _generic_sil_package(), ("A", "B"))
 
 
 def _package_defn(
@@ -355,10 +361,8 @@ class TestDRCOverlap:
         board = _perfboard(1, 3)
         # Two component definitions where both pin 1 and pin 2 are bendable.
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
-        from protoboard.domain.components.package.kind import synth_generic_package
-
         package = replace(
-            synth_generic_package(SIL(2)),
+            _generic_sil_package(),
             bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
         )
         defn = _package_defn("R_bend", package, ("A", "B"))
@@ -457,10 +461,8 @@ class TestDRCOverlap:
         board = _perfboard(1, 3)
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
         # Only one of the two definitions declares bendable pins.
-        from protoboard.domain.components.package.kind import synth_generic_package
-
         bendy_package = replace(
-            synth_generic_package(SIL(2)),
+            _generic_sil_package(),
             bendable_pins=MappingProxyType({1: bend_spec, 2: bend_spec}),
         )
         bendy = _package_defn("R_bend", bendy_package, ("A", "B"))

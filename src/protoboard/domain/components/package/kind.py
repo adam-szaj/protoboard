@@ -92,7 +92,7 @@ def is_generic_package(package: object) -> bool:
 @cache
 def _synth_generic_by_pins(
     pins: tuple[tuple[float, float], ...], bend_holes: float
-) -> Package | None:
+) -> Prism | None:
     if len(pins) < 1:
         return None
     steps = [
@@ -114,16 +114,16 @@ def _synth_generic_by_pins(
         pkg = build_package(spec, "synth/generic")
     except PackageDefError:
         return None
-    if isinstance(pkg, Prism):
-        pkg = dataclasses.replace(
-            pkg,
-            kind=GENERIC_PACKAGE_KIND,
-            lineage=("prism", GENERIC_PACKAGE_KIND),
-        )
-    return pkg
+    if not isinstance(pkg, Prism):
+        return None
+    return dataclasses.replace(
+        pkg,
+        kind=GENERIC_PACKAGE_KIND,
+        lineage=("prism", GENERIC_PACKAGE_KIND),
+    )
 
 
-def synth_generic_package(fp: Footprint, *, bend_holes: float = 0.0) -> Package | None:
+def synth_generic_package(fp: Footprint, *, bend_holes: float = 0.0) -> Prism | None:
     """A NON-rigid generic bbox package whose pins follow *fp*.
 
     The fallback body for a library part that declares no real package, so
