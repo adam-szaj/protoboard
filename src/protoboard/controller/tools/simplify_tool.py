@@ -38,11 +38,12 @@ from protoboard.services.routing.postprocess import (
 )
 
 if TYPE_CHECKING:
+    from protoboard.controller.editing import EditState
     from protoboard.controller.tools.simplify_preview import SimplifyPreview
 
 
 def compute_simplified_wire(
-    session: object,
+    session: EditState,
     wire_id: uuid.UUID,
     *,
     mode: SimplifyMode | None = None,
@@ -53,29 +54,31 @@ def compute_simplified_wire(
     available, or ``None`` when ``generic_simplify_wire`` could not shorten
     the path further.  Callers wanting the raw path use ``result.path``.
     """
-    layout = session.layout  # type: ignore[attr-defined]
+    layout = session.layout
     wire = next((w for w in layout.wires if w.id == wire_id), None)
     if wire is None:
         return None
 
     if mode is None:
-        rs = session.routing_settings  # type: ignore[attr-defined]
+        rs = session.routing_settings
         mode = getattr(rs, "simplify_mode", SimplifyMode.BARE_PARITY)
     assert mode is not None
 
     # Pin positions across all components (Steiner-preservation set).
     pin_positions: set[Point] = set()
     for comp_id in layout.placements:
-        for _pn, pos in session.iter_pin_positions(comp_id):  # type: ignore[attr-defined]
-            pin_positions.add(pos)
+        for _pn, pin_position in session.iter_pin_positions(comp_id):
+            pin_positions.add(pin_position)
 
     # pad → net id for every pad whose pin is assigned to a schematic net.
     pad_to_net: dict[Point, uuid.UUID] = {}
-    for net_obj in session.schematic.nets.values():  # type: ignore[attr-defined]
+    for net_obj in session.schematic.nets.values():
         for ref in net_obj.pins:
-            pos = session.get_pin_position(ref.component_id, ref.pin_number)  # type: ignore[attr-defined]
-            if pos is not None:
-                pad_to_net.setdefault(pos, net_obj.id)
+            net_pin_position = session.get_pin_position(
+                ref.component_id, ref.pin_number
+            )
+            if net_pin_position is not None:
+                pad_to_net.setdefault(net_pin_position, net_obj.id)
 
     from protoboard.domain.layout.wire_utils import board_pads_for_side
 
@@ -93,7 +96,7 @@ def compute_simplified_wire(
                 break
         wire_to_net[w.id] = wnet
 
-    pad_index = session.pad_index()  # type: ignore[attr-defined]
+    pad_index = session.pad_index()
     others = [w for w in layout.wires if w.id != wire_id]
     new_wire = generic_simplify_wire(
         wire,
