@@ -38,7 +38,6 @@ from protoboard.domain.layout.drag_classification import (
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
     PadConflict,
-    _round,
     find_conflicts,
     find_wire_conflicts,
     find_wires_crossing_pads,
@@ -50,6 +49,7 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.wire_utils import find_skewed_wires
 from protoboard.geometry import Point
+from protoboard.geometry import round_coord as _round
 from protoboard.services.pad_strategy import PadStrategy, Verdict
 
 if TYPE_CHECKING:
