@@ -859,7 +859,7 @@ class WireEditTool(ControllerTool):
 
     def _snap(self, raw: Point) -> Point:
         assert self._view is not None
-        return cast("Point", self._view.snap(raw, exclude_ids=frozenset()))
+        return self._view.snap(raw, exclude_ids=frozenset())
 
     def _status(self, msg: str, timeout_ms: int = 3000) -> None:
         from protoboard.controller.ports import StatusEvent
