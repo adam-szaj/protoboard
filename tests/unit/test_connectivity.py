@@ -16,6 +16,7 @@ from protoboard.domain.components.definition import (
     PackageOption,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
@@ -47,7 +48,7 @@ def _sil_component(
     labels: tuple[str, ...],
     pin_map: dict[int, tuple[int, ...]],
     physical_pin_count: int,
-) -> tuple[ComponentDefinition, dict[str, object]]:
+) -> tuple[ComponentDefinition, dict[str, PackageFamily]]:
     family = sil_family(physical_pin_count)
     assert family is not None
     defn = ComponentDefinition(
@@ -172,7 +173,7 @@ class TestConnectivityGraphWithComponents:
         comp_defn, families = _sil_component("R", ("A", "B"), {1: (1,), 2: (2,)}, 2)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
             comp_defn, families
-        )  # type: ignore[arg-type]
+        )
         # Place pin1 on pad (0.5, 0.5), pin2 on pad (0.5, 1.5).
         pl = ComponentPlacement(
             component_id=inst.id,
@@ -201,7 +202,7 @@ class TestConnectivityGraphWithComponents:
         comp_defn, families = _sil_component("R", ("P1", "P2"), {1: (1,), 2: (2,)}, 2)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(
             comp_defn, families
-        )  # type: ignore[arg-type]
+        )
         # SIL(2) rotation=90: pin2=(0,1)→rot(1,0)→world(1.5, 0.5).
         pl = ComponentPlacement(
             component_id=inst.id,
@@ -235,7 +236,7 @@ class TestPackagePinMapping:
 
     def _ic_4pin(
         self,
-    ) -> tuple[ComponentDefinition, dict[str, object]]:
+    ) -> tuple[ComponentDefinition, dict[str, PackageFamily]]:
         return _sil_component(
             "IC",
             ("GND", "A", "B"),
@@ -250,7 +251,7 @@ class TestPackagePinMapping:
         defn, families = self._ic_4pin()
         inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
             defn, families
-        )  # type: ignore[arg-type]
+        )
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
@@ -273,7 +274,7 @@ class TestPackagePinMapping:
         defn, families = self._ic_4pin()
         inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
             defn, families
-        )  # type: ignore[arg-type]
+        )
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
@@ -300,7 +301,7 @@ class TestPackagePinMapping:
         defn, families = self._ic_4pin()
         inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
             defn, families
-        )  # type: ignore[arg-type]
+        )
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
@@ -336,7 +337,7 @@ class TestPackagePinMapping:
         )
         inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(
             defn, families
-        )  # type: ignore[arg-type]
+        )
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
