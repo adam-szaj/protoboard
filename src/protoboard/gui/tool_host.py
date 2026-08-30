@@ -173,12 +173,8 @@ class ToolHost:
         the GUI.
         """
         tool = self._active_tool
-        # _Tool types make_key_map loosely (-> object); the runtime impl
-        # (ViewToolMixin.make_key_map) returns a KeyMap.
         self._tool_keymap = (
-            cast("KeyMap", tool.make_key_map(self._base_keymap))
-            if tool is not None
-            else None
+            tool.make_key_map(self._base_keymap) if tool is not None else None
         )
 
     @traced()
