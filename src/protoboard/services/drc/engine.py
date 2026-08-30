@@ -1125,11 +1125,12 @@ def _check_group_exports(
         # MISSING: external net with zero exported coverage.
         for net_id, member_pins in external_pins_by_net.items():
             if not any(p in exported_set for p in member_pins):
-                net = schematic.nets[net_id]
+                external_net = schematic.nets[net_id]
                 group_label = group.name or f"<{str(gid)[:8]}>"
                 msg = (
                     f"Group {group_label!r} connects to external net "
-                    f"{net.name!r} via {_format_pin_list(member_pins, instances)} "
+                    f"{external_net.name!r} via "
+                    f"{_format_pin_list(member_pins, instances)} "
                     f"but exports no pin on that net. Add at least one pin to "
                     f"the group's exported interface."
                 )
@@ -1151,15 +1152,15 @@ def _check_group_exports(
             if ep in invalid:
                 continue
             ref = PinRef(component_id=ep.component_id, pin_number=ep.pin_number)
-            net = schematic.net_for_pin(ref)
-            if net is None:
+            pin_net = schematic.net_for_pin(ref)
+            if pin_net is None:
                 continue  # orphan — user opted to ignore
-            if net.id in external_net_ids:
+            if pin_net.id in external_net_ids:
                 continue
             group_label = group.name or f"<{str(gid)[:8]}>"
             msg = (
                 f"Group {group_label!r} exports pin {_format_pin(ref, instances)} "
-                f"but its net {net.name!r} stays inside the group. Either "
+                f"but its net {pin_net.name!r} stays inside the group. Either "
                 f"unexport the pin or connect the net to something outside "
                 f"the group."
             )
@@ -1169,7 +1170,7 @@ def _check_group_exports(
                     code="GROUP_BOGUS_EXPORT",
                     message=msg,
                     locations=[],
-                    affected_nets=[net.id],
+                    affected_nets=[pin_net.id],
                     affected_pins=[ref],
                     affected_components=[ref.component_id],
                 )
