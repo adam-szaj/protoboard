@@ -34,7 +34,7 @@ _log = structlog.get_logger(__name__)
 # a path but produces no change.
 _SIMPLIFY_TRACE = os.environ.get("SIMPLIFY_TRACE", "").lower() in ("1", "true", "yes")
 from enum import StrEnum  # noqa: E402
-from typing import TYPE_CHECKING, cast  # noqa: E402
+from typing import TYPE_CHECKING  # noqa: E402
 
 from protoboard.domain.layout.wire import Wire  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
@@ -42,7 +42,6 @@ from protoboard.services.routing.astar import (  # noqa: E402
     _build_bare_seg_index,
     _segs_cross,
 )
-from protoboard.types import Side  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import Pad
@@ -222,7 +221,7 @@ def corner_cut_wire(
         id=wire.id,
         path=cur_path,
         insulated=wire.insulated,
-        side=cast(Side, wire.side),
+        side=wire.side,
         color=wire.color,
     )
 
@@ -1886,7 +1885,7 @@ def generic_simplify_wire(
         id=wire.id,
         path=path,
         insulated=wire.insulated,
-        side=cast(Side, wire.side),
+        side=wire.side,
         color=wire.color,
     )
 

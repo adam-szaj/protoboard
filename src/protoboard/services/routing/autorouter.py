@@ -2778,15 +2778,12 @@ def _nudge_wire(
         if (pt, wire.side) in other_wire_occupied:
             return None
 
-    from typing import Literal as _Lit
-    from typing import cast
-
     # Preserve wire id — nudge is a translation of the same logical wire.
     return Wire(
         id=wire.id,
         path=new_path,
         insulated=wire.insulated,
-        side=cast(_Lit["top", "bottom"], wire.side),
+        side=wire.side,
         color=wire.color,
     )
 
