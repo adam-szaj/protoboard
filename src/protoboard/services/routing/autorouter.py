@@ -47,7 +47,7 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
@@ -123,7 +123,7 @@ def _check_no_net_fusion(
     """
     from collections import defaultdict as _dd
 
-    key_to_nets: dict[object, set[str]] = _dd(set)
+    key_to_nets: dict[tuple[float, float, str], set[str]] = _dd(set)
     for net in schematic.nets.values():
         for ref in net.pins:
             ck = graph.node_for_pin(ref)
@@ -178,7 +178,7 @@ def _log_preexisting_fusions(
     """
     from collections import defaultdict as _dd
 
-    key_to_nets: dict[object, set[str]] = _dd(set)
+    key_to_nets: dict[tuple[float, float, str], set[str]] = _dd(set)
     for net in schematic.nets.values():
         for ref in net.pins:
             ck = graph.node_for_pin(ref)
@@ -2545,7 +2545,7 @@ def _layout_with_wires(layout: Layout, wires: list[Wire]) -> Layout:
     """Return a Layout view that uses *wires* instead of layout.wires."""
     from dataclasses import replace
 
-    return replace(layout, wires=wires)
+    return replace(layout, wires=WireCollection(wires))
 
 
 def _build_wire_occupied(
@@ -2737,8 +2737,8 @@ def _build_at_pad_wire_index(
             if nid is not None:
                 bucket = nets_accum.setdefault(key, set())
                 bucket.add(nid)
-    for key, nids in nets_accum.items():
-        net_index[key] = frozenset(nids)
+    for pad_key, nids in nets_accum.items():
+        net_index[pad_key] = frozenset(nids)
     return bm_index, net_index
 
 
