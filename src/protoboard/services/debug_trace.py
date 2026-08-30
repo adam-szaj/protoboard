@@ -31,11 +31,12 @@ log readable; override the cap with ``PROTOBOARD_TRACE_MAXLEN``.
 from __future__ import annotations
 
 import functools
+import json
 import os
 import reprlib
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import structlog
 
@@ -66,51 +67,24 @@ def _abbr(value: object) -> str:
         return f"<unreprable {type(value).__name__}>"
 
 
-from json import JSONEncoder  # noqa: E402
+@runtime_checkable
+class _JSONRepresentable(Protocol):
+    def __json_repr__(self) -> object: ...
 
 
-class TraceJSONEncoder(JSONEncoder):
-    def default(self, o):
-
+class TraceJSONEncoder(json.JSONEncoder):
+    def default(self, o: object) -> object:
         try:
-            if hasattr(o, "__json_repr__"):
+            if isinstance(o, _JSONRepresentable):
                 return o.__json_repr__()
         except Exception as e:
             _log.error(f"Failed to jsonize type: {type(o)} -> '{e}'")
         return super().default(o)
 
-    def __call__(self, o):
-        return self.default(o)
-
-
-# Step: 1
-# Deliberate runtime monkeypatch of the stdlib JSONEncoder: we stash the
-# original default on both the function object and the class, then swap in a
-# __json_repr__-aware default. These dynamic attribute assignments are not
-# something a static checker can model (function objects / class have no such
-# declared members), so they are suppressed rather than restructured.
-def wrapped_default(self, obj):
-    return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(
-        obj
-    )  # pyright: ignore[reportFunctionMemberAccess]
-
-
-wrapped_default.default = (
-    JSONEncoder().default
-)  # pyright: ignore[reportFunctionMemberAccess]
-# apply the patch
-
-JSONEncoder.original_default = (
-    JSONEncoder.default
-)  # pyright: ignore[reportAttributeAccessIssue]
-JSONEncoder.default = wrapped_default  # pyright: ignore[reportAttributeAccessIssue]
-
 
 def _json(value: object) -> str:
-    import json
-
     try:
-        return json.dumps(value, default=TraceJSONEncoder())
+        return json.dumps(value, cls=TraceJSONEncoder)
     except Exception:
         return repr(value)
 

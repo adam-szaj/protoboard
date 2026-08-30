@@ -1,14 +1,32 @@
 # SPDX-License-Identifier: MIT
 """Tests for the @traced debug decorator."""
 
+import json
+
+import pytest
 import structlog
 
 from protoboard.services.debug_trace import (
+    _json,
     is_enabled,
     set_enabled,
     traced,
     tracing_enabled,
 )
+
+
+class _JSONRepresentable:
+    def __json_repr__(self) -> dict[str, str]:
+        return {"value": "represented"}
+
+
+def test_trace_json_uses_json_repr() -> None:
+    assert json.loads(_json(_JSONRepresentable())) == {"value": "represented"}
+
+
+def test_debug_trace_does_not_patch_global_json_encoder() -> None:
+    with pytest.raises(TypeError):
+        json.dumps(_JSONRepresentable())
 
 
 @traced()
