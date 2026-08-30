@@ -81,11 +81,11 @@ class AutorouteDialog(QDialog):
         for name in _router_registry.list_available():
             r = _router_registry.get(name)
             self._combo_router.addItem(getattr(r, "display_name", name), name)
-            caps = r.capabilities()
-            if caps.notes:
+            router_caps = r.capabilities()
+            if router_caps.notes:
                 self._combo_router.setItemData(
                     self._combo_router.count() - 1,
-                    caps.notes,
+                    router_caps.notes,
                     3,  # Qt.ToolTipRole
                 )
         # Default selection: load user's last choice from settings, with
@@ -279,13 +279,13 @@ class AutorouteDialog(QDialog):
                 opt = _opt_registry.get(opt_name)
                 item = QListWidgetItem(getattr(opt, "display_name", opt_name))
                 item.setData(Qt.ItemDataRole.UserRole, opt_name)
-                caps = opt.capabilities()
+                optimizer_caps = opt.capabilities()
                 # Capability-vs-settings gating: if the current routing
                 # settings make every declared capability a no-op, grey
                 # the row out and force-uncheck it.  The tooltip combines
                 # the optimizer's notes with each blocking reason so the
                 # user understands why.
-                reasons = incompatibility_reasons(caps, rs)
+                reasons = incompatibility_reasons(optimizer_caps, rs)
                 compatible = not reasons
 
                 base_flags = item.flags() | Qt.ItemFlag.ItemIsDragEnabled
@@ -309,8 +309,8 @@ class AutorouteDialog(QDialog):
                     item.setCheckState(Qt.CheckState.Unchecked)
 
                 tooltip_parts: list[str] = []
-                if caps.notes:
-                    tooltip_parts.append(caps.notes)
+                if optimizer_caps.notes:
+                    tooltip_parts.append(optimizer_caps.notes)
                 tooltip_parts.extend(reasons)
                 if tooltip_parts:
                     item.setToolTip("\n\n".join(tooltip_parts))
