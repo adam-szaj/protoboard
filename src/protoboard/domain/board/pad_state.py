@@ -36,6 +36,7 @@ union:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, TypeAlias
 
@@ -377,7 +378,7 @@ class Pad:
     # Iteration & misc.
     # ------------------------------------------------------------------
 
-    def iter_items(self, side: LayerId | None = None):
+    def iter_items(self, side: LayerId | None = None) -> Iterator[Item]:
         """Iterate Items on *side* (or every layer if None)."""
         if side is None:
             seen: set[uuid.UUID] = set()
@@ -438,7 +439,6 @@ class ConnectedDoubleSidedBoardPad(Pad):
 
 import math  # noqa: E402
 from collections import defaultdict  # noqa: E402
-from collections.abc import Iterator  # noqa: E402
 from typing import TYPE_CHECKING  # noqa: E402
 
 from protoboard.domain.board.pad_geometry import qpair  # noqa: E402

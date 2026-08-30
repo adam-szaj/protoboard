@@ -3204,11 +3204,12 @@ class MainWindow(QMainWindow):
         project directory used to leave the app un-quittable.  Each step is
         therefore best-effort.
         """
-        for label, step in (
+        shutdown_steps: tuple[tuple[str, Callable[[], object]], ...] = (
             ("save_window_state", lambda: save_window_state(self)),
             ("stop_recording", self._session.stop_recording),
             ("wait_for_drc_workers", self._wait_for_drc_workers),
-        ):
+        )
+        for label, step in shutdown_steps:
             try:
                 step()
             except Exception as exc:

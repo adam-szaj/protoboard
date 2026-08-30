@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from typing import TYPE_CHECKING
 
 import structlog
 from PySide6.QtCore import Qt
@@ -33,6 +34,9 @@ from protoboard.services.routing.cost_analyzer import (  # noqa: E402
     CostBreakdown,
     analyze_wires,
 )
+
+if TYPE_CHECKING:
+    from protoboard.domain.layout.wire import Wire
 
 
 class _Sparkline(QWidget):
@@ -273,7 +277,7 @@ class PerformancePanel(QWidget):
             self._cost_refresh_pending = False
             self._cost_refresh_timer.arm()
 
-    def _wires_for_current_scope(self):  # type: ignore[no-untyped-def]
+    def _wires_for_current_scope(self) -> tuple[list[Wire], str]:
         """Return the Wire list matching the active scope radio."""
         layout = self._session.layout
         all_wires = list(layout.wires)

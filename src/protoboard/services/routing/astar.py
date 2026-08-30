@@ -52,7 +52,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path as _Path
 from queue import Empty, Queue
-from typing import cast
+from typing import IO, cast
 
 import structlog
 
@@ -88,7 +88,7 @@ if _TRACE_DIR is not None:
 _TRACE_COUNTER = _it.count()
 
 
-def _open_trace():  # type: ignore[no-untyped-def]
+def _open_trace() -> IO[str] | None:
     """Open a new trace file for this universe; None when tracing is off."""
     if _TRACE_DIR is None:
         return None
