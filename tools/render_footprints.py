@@ -34,9 +34,12 @@ from PySide6.QtWidgets import (  # noqa: E402
     QGraphicsSimpleTextItem,
 )
 
+from protoboard.controller.theme import DEFAULT_THEME, Theme  # noqa: E402
 from protoboard.domain.components.definition import (  # noqa: E402
     ComponentClass,
     ComponentDefinition,
+    MetaPin,
+    PackageOption,
 )
 from protoboard.domain.components.footprints import (  # noqa: E402
     DIL,
@@ -45,10 +48,16 @@ from protoboard.domain.components.footprints import (  # noqa: E402
     GenericFootprint,
 )
 from protoboard.domain.components.instance import ComponentInstance  # noqa: E402
+from protoboard.domain.components.package.family import (  # noqa: E402
+    PackageFamily,
+    PackageVariant,
+)
+from protoboard.domain.components.package.kind import (  # noqa: E402
+    synth_generic_package,
+)
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
 from protoboard.gui.renderers.body_shapes import body_shape_for  # noqa: E402
-from protoboard.controller.theme import DEFAULT_THEME, Theme  # noqa: E402
 from protoboard.services.library.package_family_loader import (  # noqa: E402
     load_full_package_catalogue,
 )
@@ -342,15 +351,33 @@ INVENTORY: list[Spec] = [
 # ---------------------------------------------------------------------------
 
 
-def _make_definition(spec: Spec) -> ComponentDefinition:
-    # ComponentDefinition no longer stores a bare footprint; from_footprint
-    # synthesizes a generic bbox package over the footprint's pin cloud.
-    return ComponentDefinition.from_footprint(
+def _make_definition(
+    spec: Spec, families: dict[str, PackageFamily]
+) -> ComponentDefinition:
+    package = synth_generic_package(spec.footprint)
+    if package is None:
+        raise ValueError(f"{spec.slug}: footprint has no pins")
+    family_id = f"@gallery/{spec.slug}"
+    families[family_id] = PackageFamily(
+        family_id=family_id,
+        variants=(PackageVariant("default", spec.title, package),),
+    )
+    meta_pins = tuple(
+        MetaPin((spec.pin_names.get(index, str(index)),))
+        for index in range(1, spec.footprint.pin_count() + 1)
+    )
+    return ComponentDefinition(
         name=spec.title,
-        footprint=spec.footprint,
-        pin_names=dict(spec.pin_names),
+        meta_pins=meta_pins,
         description=spec.description,
         component_class=spec.component_class,
+        package_options=(
+            PackageOption(
+                name="default",
+                ref=f"{family_id}/default",
+                pin_map={index: (index,) for index in range(1, len(meta_pins) + 1)},
+            ),
+        ),
     )
 
 
@@ -524,14 +551,17 @@ def _render_panel(
     theme: Theme,
 ) -> tuple[float, float, float, float]:
     """Render one footprint panel; return (x0, y0, x1, y1) world bbox."""
-    defn = _make_definition(spec)
+    families = theme.package_families
+    if families is None:
+        raise ValueError("gallery theme requires a package catalogue")
+    defn = _make_definition(spec, families)
     placement = _make_placement(pin_offsets_override)
     inst = ComponentInstance(
         id=placement.component_id,
         definition_ref=spec.title,
         refdes="?",
         value="",
-    )
+    ).bind(defn, families)
     positions = _pin_world_positions(spec.footprint, placement)
 
     # Compute panel bbox so we can position multiple panels side by side.
