@@ -17,6 +17,7 @@ GUI integration (future Preferences dialog) only needs to call
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Action IDs
@@ -408,6 +409,12 @@ from protoboard.paths import (  # noqa: E402
 from protoboard.paths import (  # noqa: E402
     KEYBINDINGS_FILE as _KEYBINDINGS_PATH,
 )
+
+
+def config_path() -> Path:
+    """Return the active shortcut configuration path."""
+    return _KEYBINDINGS_PATH
+
 
 # ---------------------------------------------------------------------------
 # KeyBindings class

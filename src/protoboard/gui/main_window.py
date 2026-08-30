@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from protoboard.controller.highlight_entry import HighlightEntry
     from protoboard.controller.ports import InteractionContext, StatusEvent
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.gui.workers.drc_worker import DRCWorker
     from protoboard.services.drc.engine import DRCIssue
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, Signal
@@ -281,11 +282,11 @@ class MainWindow(QMainWindow):
         # kicks off a background run; cleared in ``_on_drc_finished``.
         # Subsequent layout edits cancel the previous worker so its
         # result is dropped before it can overwrite the panel.
-        self._drc_worker: object | None = None
+        self._drc_worker: DRCWorker | None = None
         # Cancelled DRC workers we still need to keep alive until their
         # QThread.run() returns naturally — otherwise Python may GC them
         # mid-flight and Qt aborts with "QThread destroyed while running".
-        self._drc_workers_draining: list[object] = []
+        self._drc_workers_draining: list[DRCWorker] = []
 
         # Panel-refresh timer — debounces sidebar rebuilds to avoid blocking UI
         # on every drag-commit.  100 ms is fast enough to feel instant after a
@@ -897,9 +898,12 @@ class MainWindow(QMainWindow):
         """Auto-place a list of component instances using net-gravity heuristic."""
         from typing import cast
 
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import (
+        from protoboard.domain.commands.base import (
+            Command,
             ComponentState,
+            MacroCommand,
+        )
+        from protoboard.domain.commands.component_cmds import (
             PlaceComponentCommand,
         )
         from protoboard.gui.workers.operation_worker import run_with_progress
@@ -1006,9 +1010,12 @@ class MainWindow(QMainWindow):
         """Spread placed components more evenly using force-directed relaxation."""
         from typing import cast
 
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import (
+        from protoboard.domain.commands.base import (
+            Command,
             ComponentState,
+            MacroCommand,
+        )
+        from protoboard.domain.commands.component_cmds import (
             MoveComponentCommand,
         )
         from protoboard.gui.workers.operation_worker import run_with_progress
@@ -2024,9 +2031,8 @@ class MainWindow(QMainWindow):
 
         from typing import cast
 
-        from protoboard.domain.commands.base import Command
+        from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import (
-            ComponentState,
             DisconnectPinCommand,
         )
 
@@ -2452,8 +2458,8 @@ class MainWindow(QMainWindow):
         )
 
         prev = self._drc_worker
-        if prev is not None and prev.isRunning():  # type: ignore[attr-defined]
-            prev.cancel()  # type: ignore[attr-defined]
+        if prev is not None and prev.isRunning():
+            prev.cancel()
             # Keep a strong ref to the cancelled worker until its QThread
             # run() returns naturally — otherwise Python may GC it while
             # the C++ QThread is still finishing, and Qt aborts.  Worker
@@ -2481,14 +2487,15 @@ class MainWindow(QMainWindow):
         whose cancel flag is set typically don't fire this signal, but
         guard defensively in case the cancel arrived too late."""
         sender = self.sender()
-        if sender is not self._drc_worker:
+        worker = self._drc_worker
+        if sender is not worker or worker is None:
             return
         # Don't drop the ref yet — finished is emitted from run() BEFORE
         # the QThread has fully unwound.  Releasing here would let Python
         # GC the QThread mid-flight and Qt aborts.  Hand the worker over
         # to the draining list; ``exited`` (from run()'s finally) calls
         # _drain_drc_worker, which releases the strong ref safely.
-        self._park_for_drain(sender)
+        self._park_for_drain(worker)
         self._drc_worker = None
         self._session.set_drc_issues(issues)
         n = len(issues)
@@ -2500,14 +2507,15 @@ class MainWindow(QMainWindow):
 
     def _on_drc_error(self, msg: str) -> None:
         sender = self.sender()
-        if sender is not self._drc_worker:
+        worker = self._drc_worker
+        if sender is not worker or worker is None:
             return
-        self._park_for_drain(sender)
+        self._park_for_drain(worker)
         self._drc_worker = None
         _log.error("drc.worker_error", msg=msg)
         self._status.showMessage(f"DRC failed: {msg}", 4000)
 
-    def _park_for_drain(self, worker: object) -> None:
+    def _park_for_drain(self, worker: DRCWorker) -> None:
         """Move *worker* to the draining list and wire ``exited`` cleanup.
 
         Used both by the cancel path and the normal finished/error
@@ -2518,11 +2526,9 @@ class MainWindow(QMainWindow):
         if worker is None or worker in self._drc_workers_draining:
             return
         self._drc_workers_draining.append(worker)
-        worker.exited.connect(  # type: ignore[attr-defined]
-            lambda *_a, w=worker: self._drain_drc_worker(w)
-        )
+        worker.exited.connect(lambda *_a, w=worker: self._drain_drc_worker(w))
 
-    def _drain_drc_worker(self, worker: object) -> None:
+    def _drain_drc_worker(self, worker: DRCWorker) -> None:
         """Release the strong ref on a cancelled DRC worker.
 
         Connected to ``DRCWorker.exited`` — fires once the QThread's
@@ -2627,8 +2633,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         from typing import cast
 
+        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.component_cmds import (
-            ComponentState,
             SetComponentPackageVariantCommand,
         )
 
@@ -2648,8 +2654,8 @@ class MainWindow(QMainWindow):
     ) -> None:
         from typing import cast
 
+        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.component_cmds import (
-            ComponentState,
             SetComponentAppearanceCommand,
         )
         from protoboard.domain.components.appearance import Appearance
@@ -2937,7 +2943,7 @@ class MainWindow(QMainWindow):
         """Write a full keybindings.yaml with all actions and their current shortcuts."""  # noqa: E501
         try:
             self._keybindings.generate_full_config()
-            path = str(KB._KEYBINDINGS_PATH)
+            path = str(KB.config_path())
             self._status.showMessage(f"Shortcut config written to {path}", 6000)
             QMessageBox.information(
                 self,
@@ -3249,7 +3255,7 @@ class MainWindow(QMainWindow):
             if w is None:
                 continue
             try:
-                w.cancel()  # type: ignore[attr-defined]
+                w.cancel()
             except Exception:
                 pass
         for w in workers:
