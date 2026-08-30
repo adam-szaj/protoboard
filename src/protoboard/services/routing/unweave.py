@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -54,7 +54,11 @@ from protoboard.types import NodeKey, Side
 _log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from protoboard.domain.board.board import Board
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.connectivity.graph import ConnectivityGraph
+    from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.schematic import Schematic
 
 _EPS = 1e-7
@@ -193,21 +197,21 @@ def _find_shared_pad_crossings(
     for i in range(1, len(p1) - 1):
         v = p1[i]
         key = (round(v.x, 6), round(v.y, 6))
-        j = interior_w2.get(key)
-        if j is None:
+        matched_j = interior_w2.get(key)
+        if matched_j is None:
             continue
         # Four direction vectors leaving the shared vertex.
         d1_prev = (p1[i - 1].x - v.x, p1[i - 1].y - v.y)
         d1_next = (p1[i + 1].x - v.x, p1[i + 1].y - v.y)
-        d2_prev = (p2[j - 1].x - v.x, p2[j - 1].y - v.y)
-        d2_next = (p2[j + 1].x - v.x, p2[j + 1].y - v.y)
+        d2_prev = (p2[matched_j - 1].x - v.x, p2[matched_j - 1].y - v.y)
+        d2_next = (p2[matched_j + 1].x - v.x, p2[matched_j + 1].y - v.y)
         if not _directions_interleave(d1_prev, d1_next, d2_prev, d2_next):
             continue
         out.append(
             Crossing(
                 point=v,
                 wire1_seg_idx=i - 1,
-                wire2_seg_idx=j - 1,
+                wire2_seg_idx=matched_j - 1,
                 wire1_param=1.0,
                 wire2_param=1.0,
             )
@@ -1650,10 +1654,10 @@ def _find_shared_pad_crossings_logical(
     for i in range(1, len(p1) - 1):
         v = p1[i]
         key = (round(v.x, 6), round(v.y, 6))
-        j = interior_p2.get(key)
-        if j is None:
+        matched_j = interior_p2.get(key)
+        if matched_j is None:
             continue
-        out.append((i, j))
+        out.append((i, matched_j))
     return out
 
 
@@ -2220,7 +2224,7 @@ def _make_pad_safety(
 
 
 def _count_bare_same_side_shorts(
-    wires: list[Wire],
+    wires: Iterable[Wire],
     graph: ConnectivityGraph,
 ) -> int:
     """Count strict-interior crossings between bare wires that share a side
@@ -2263,10 +2267,10 @@ def _count_bare_same_side_shorts(
 
 def _make_short_checker(
     schematic: Schematic,
-    base_board: object,
-    base_layout: object,
-    base_components: object,
-    base_instances: object,
+    base_board: Board,
+    base_layout: Layout,
+    base_components: dict[str, ComponentDefinition],
+    base_instances: dict[uuid.UUID, ComponentInstance],
     *,
     target_ids: set[uuid.UUID] | None = None,
     check_bare_same_side: bool = False,
@@ -2336,10 +2340,10 @@ def _make_short_checker(
 
     try:
         _baseline_graph = ConnectivityGraph(
-            board=base_board,  # type: ignore[arg-type]
-            layout=base_layout,  # type: ignore[arg-type]
-            components=base_components,  # type: ignore[arg-type]
-            instances=base_instances,  # type: ignore[arg-type]
+            board=base_board,
+            layout=base_layout,
+            components=base_components,
+            instances=base_instances,
         )
     except Exception:
         # If even the baseline graph can't be built, fall back to the legacy
@@ -2375,14 +2379,14 @@ def _make_short_checker(
 
     def _check(proposed: list[list[Wire]]) -> bool:
         new_layout = Layout()
-        new_layout.placements = base_layout.placements  # type: ignore[attr-defined]
-        new_layout.groups = base_layout.groups  # type: ignore[attr-defined]
+        new_layout.placements = base_layout.placements
+        new_layout.groups = base_layout.groups
         # Baseline = every wire from the original layout that is NOT being
         # replaced by `proposed`.  This keeps unrelated nets connected so
         # the checker doesn't fail on wires we never touched.
         new_wires: list[Wire] = []
         if target_ids is not None:
-            for w in base_layout.wires:  # type: ignore[attr-defined]
+            for w in base_layout.wires:
                 if w.id not in target_ids:
                     new_wires.append(w)
         for chain in proposed:
@@ -2390,10 +2394,10 @@ def _make_short_checker(
         new_layout.wires = WireCollection(new_wires)
         try:
             new_graph = ConnectivityGraph(
-                board=base_board,  # type: ignore[arg-type]
+                board=base_board,
                 layout=new_layout,
-                components=base_components,  # type: ignore[arg-type]
-                instances=base_instances,  # type: ignore[arg-type]
+                components=base_components,
+                instances=base_instances,
             )
         except Exception:
             return False
