@@ -217,10 +217,10 @@ class ArmedTransformTool(
 
         super().activate(session, view)  # type: ignore[arg-type]
         self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
-        self._overlays = TransformOverlays(view)  # type: ignore[attr-defined]
+        self._overlays = TransformOverlays(view)
         # The base activate() already drew pivot markers / published status
         # before this preview existed — redraw now that it does.
-        self._draw_pivot_markers()  # type: ignore[attr-defined]
+        self._draw_pivot_markers()
 
     def on_key(self, inp: KeyInput) -> bool:
         return _dispatch_key_by_action_id(self, inp)
@@ -303,7 +303,7 @@ class WireEditTool(
             if self.commit_op():
                 return True
         elif key == Qt.Key.Key_Backspace.value:
-            if self._dispatch_intent(Intent.UNDO):  # type: ignore[attr-defined]
+            if self._dispatch_intent(Intent.UNDO):
                 return True
         return _dispatch_key_by_action_id(self, inp)
 
@@ -324,22 +324,22 @@ class SelectTool(
     _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
-        if not self._preview_injected:  # type: ignore[attr-defined]
+        if not self._preview_injected:
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
             self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
-        if not self._group_prompt_injected:  # type: ignore[attr-defined]
-            self._group_prompt = qt_group_target_prompt(  # type: ignore[attr-defined]
+        if not self._group_prompt_injected:
+            self._group_prompt = qt_group_target_prompt(
                 lambda: view.window()  # type: ignore[attr-defined]
             )
-        if not self._armed_transform_factory_injected:  # type: ignore[attr-defined]
-            self._armed_transform_factory = ArmedTransformTool  # type: ignore[attr-defined]
-        if not self._wire_edit_factory_injected:  # type: ignore[attr-defined]
-            self._wire_edit_factory = WireEditTool  # type: ignore[attr-defined]
+        if not self._armed_transform_factory_injected:
+            self._armed_transform_factory = ArmedTransformTool
+        if not self._wire_edit_factory_injected:
+            self._wire_edit_factory = WireEditTool
         super().activate(session, view)  # type: ignore[arg-type]
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
-        self._overlays = TransformOverlays(view)  # type: ignore[attr-defined]
+        self._overlays = TransformOverlays(view)
 
     @staticmethod
     def _key_to_intent(key: int) -> Intent | None:
@@ -460,18 +460,18 @@ class SimplifyTool(
     _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
-        if not self._preview_injected:  # type: ignore[attr-defined]
+        if not self._preview_injected:
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
             self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
         super().activate(session, view)  # type: ignore[arg-type]
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
-        self._overlays = TransformOverlays(view)  # type: ignore[attr-defined]
-        if not self._draft_preview_injected:  # type: ignore[attr-defined]
+        self._overlays = TransformOverlays(view)
+        if not self._draft_preview_injected:
             from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
 
-            self._draft_preview = QtSimplifyPreview(  # type: ignore[attr-defined]
+            self._draft_preview = QtSimplifyPreview(
                 self._view.scene, self._theme  # type: ignore[attr-defined]
             )
 
@@ -479,7 +479,7 @@ class SimplifyTool(
         from PySide6.QtCore import Qt
 
         if inp.key == Qt.Key.Key_Escape:
-            self._clear_draft()  # type: ignore[attr-defined]
+            self._clear_draft()
         return super().on_key(inp)
 
 

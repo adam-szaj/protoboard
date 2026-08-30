@@ -79,11 +79,9 @@ def compute_simplified_wire(
 
     from protoboard.domain.layout.wire_utils import board_pads_for_side
 
-    all_board_pads = board_pads_for_side(
-        session.board, "top"
-    ) | board_pads_for_side(  # type: ignore[attr-defined]
+    all_board_pads = board_pads_for_side(session.board, "top") | board_pads_for_side(
         session.board, "bottom"
-    )  # type: ignore[attr-defined]
+    )
 
     # Map each wire id → its net id (first pad-pin hit on the wire's path).
     wire_to_net: dict[uuid.UUID, uuid.UUID | None] = {}

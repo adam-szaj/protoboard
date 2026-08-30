@@ -139,8 +139,8 @@ def save_project(
         "names",
     ):
         _components_for_split = {
-            _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
-            for _name in _library_for_migration.names()  # type: ignore[union-attr]
+            _name: _library_for_migration.get(_name)
+            for _name in _library_for_migration.names()
         }
     for _ in range(16):
         _s = split_wires_at_endpoint_collisions(
@@ -697,9 +697,7 @@ def load_project(
                 )
                 if defn is None:
                     continue
-                fp = _resolved_footprint(
-                    defn, inst, _families_for_migration
-                )  # type: ignore[arg-type]
+                fp = _resolved_footprint(defn, inst, _families_for_migration)
                 n_pins = fp.pin_count()
                 for pin_num in range(1, n_pins + 1):
                     try:
@@ -722,9 +720,7 @@ def load_project(
                 if defn is None:
                     return None
                 try:
-                    fp = _resolved_footprint(
-                        defn, inst, _families_for_migration
-                    )  # type: ignore[arg-type]
+                    fp = _resolved_footprint(defn, inst, _families_for_migration)
                     return _pwp(fp, pl, pin_num)
                 except (IndexError, ValueError):
                     return None
@@ -796,8 +792,8 @@ def load_project(
         "names",
     ):
         _components_for_split = {
-            _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
-            for _name in _library_for_migration.names()  # type: ignore[union-attr]
+            _name: _library_for_migration.get(_name)
+            for _name in _library_for_migration.names()
         }
     # Canonicalisation: split+merge wire endpoints until stable.  This
     # is a best-effort cleanup — if the saved layout violates internal
@@ -866,7 +862,7 @@ def load_project(
         dropped: list[tuple[str, tuple[object, ...]]] = []
         for w in list(layout.wires):
             if w.a is None or w.b is None:
-                kept_wires.append(w)  # type: ignore[arg-type]
+                kept_wires.append(w)
                 continue
             endpoint_xor = w.a.id.int ^ w.b.id.int
             sig = ("knots", endpoint_xor, w.side, w.insulated)
@@ -917,9 +913,9 @@ def load_project(
                             del layout.knots[ref.id]
                 continue
             seen_connection_sigs.add(sig)
-            kept_wires.append(w)  # type: ignore[arg-type]
+            kept_wires.append(w)
         if dropped:
-            layout.wires[:] = kept_wires  # type: ignore[assignment]
+            layout.wires[:] = kept_wires
             layout.invalidate_interior_vertex_index()
             _log.info(
                 "project.duplicate_wires_pruned",
@@ -962,7 +958,7 @@ def load_project(
                 if pl is None or inst is None:
                     continue
                 defn = (
-                    _library_for_migration.get(inst.definition_ref)  # type: ignore[attr-defined]
+                    _library_for_migration.get(inst.definition_ref)
                     if hasattr(_library_for_migration, "get")
                     else None
                 )
@@ -974,9 +970,7 @@ def load_project(
                     # pin pitch) is measured against its default axial body
                     # (3.2-hole pitch) and every pin "moves", snapping the whole
                     # wire and dragging neighbours.
-                    fp = _resolved_footprint(
-                        defn, inst, _families_for_migration
-                    )  # type: ignore[arg-type]
+                    fp = _resolved_footprint(defn, inst, _families_for_migration)
                     pin_pos = _pwp(fp, pl, k.pin.pin_number)
                 except (IndexError, ValueError):
                     continue

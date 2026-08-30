@@ -126,7 +126,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         self._board_view.set_highlighted_net(None)
         self._tree.clearSelection()
 
-    def showEvent(self, event: object) -> None:  # type: ignore[override]
+    def showEvent(self, event: object) -> None:
         super().showEvent(event)  # type: ignore[arg-type]
         if self._refresh_pending and self._session is not None:
             self._refresh_pending = False
@@ -173,7 +173,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         for wire in session.layout.wires:
             nid = wire_net_map.get(wire.id)
             if nid is not None:
-                net_wires.setdefault(nid, []).append(wire)  # type: ignore[arg-type]
+                net_wires.setdefault(nid, []).append(wire)
 
         cm = session.routing_settings.cost_model()
         # Snapshot the full wire list once so each per-net `analyze_wires`
@@ -319,7 +319,7 @@ def _compute_net_metrics(
     # Hull ratio.
     wire_pts: list[Point] = []
     for w in wires:
-        wire_pts.extend(w.path)  # type: ignore[arg-type]
+        wire_pts.extend(w.path)
     hull_w = _convex_hull_area(wire_pts)
     hull_p = _pin_hull_area(pin_pts)
     if hull_p > 0.0:

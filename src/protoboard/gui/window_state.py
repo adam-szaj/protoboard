@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 def save_window_state(window: QMainWindow) -> None:
     """Persist geometry and dock/toolbar layout of *window*."""
     try:
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+        from ruamel.yaml import YAML
 
         data = {
             "geometry": base64.b64encode(window.saveGeometry().data()).decode(),
@@ -40,7 +40,7 @@ def load_window_state(window: QMainWindow) -> None:
         return
     try:
         from PySide6.QtCore import QByteArray
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+        from ruamel.yaml import YAML
 
         data = YAML().load(_CONFIG_PATH)
         if not isinstance(data, dict):

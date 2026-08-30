@@ -76,7 +76,7 @@ class Board:
         cached = self._.get("_atoms_list")
         if cached is None:
             cached = self._build_atoms_list()
-        return iter(cached)  # type: ignore[arg-type]
+        return iter(cached)
 
     def pad_positions(self) -> list[Point]:
         """All pad centres (raster units), in atom-walk order.

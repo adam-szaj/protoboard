@@ -90,7 +90,7 @@ def load_app_settings() -> AppSettings:
     if not _CONFIG_PATH.exists():
         return AppSettings()
     try:
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+        from ruamel.yaml import YAML
 
         data = YAML().load(_CONFIG_PATH)
         if not isinstance(data, dict):
@@ -185,7 +185,7 @@ def load_app_settings() -> AppSettings:
 def save_app_settings(settings: AppSettings) -> None:
     """Persist AppSettings to YAML."""
     try:
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+        from ruamel.yaml import YAML
 
         data: dict[str, object] = {}
         if settings.default_projects_dir is not None:

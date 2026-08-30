@@ -108,7 +108,7 @@ class RoutingSettings:
     # both not worsen, and at least one must strictly improve.
     visual_unweave_side_flip: bool = False
     # Simplify pass strategy.  BARE_PARITY preserves anti-short invariant.
-    simplify_mode: SimplifyMode = field(  # type: ignore[name-defined]
+    simplify_mode: SimplifyMode = field(
         default_factory=lambda: _default_simplify_mode()
     )
     # Per-project WireOptimizer plugin chain.  Empty tuple = legacy

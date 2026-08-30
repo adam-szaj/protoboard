@@ -338,9 +338,7 @@ class Pad:
         # Electrical contribution
         if _item_contributes_electrically(item):
             for s in self._propagation(item, source_side):
-                self._net_sources.setdefault(s, {})[
-                    item.id
-                ] = item.net  # type: ignore[attr-defined]
+                self._net_sources.setdefault(s, {})[item.id] = item.net
             self._recompute_electrical()
 
     def _remove_item(self, item_id: uuid.UUID) -> None:

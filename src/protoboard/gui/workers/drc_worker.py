@@ -95,7 +95,7 @@ class DRCWorker(QThread):
         """
         self._cancel_flag.set()
 
-    def run(self) -> None:  # type: ignore[override]
+    def run(self) -> None:
         try:
             from protoboard.domain.connectivity.graph import ConnectivityGraph
             from protoboard.services.drc.engine import DRCEngine

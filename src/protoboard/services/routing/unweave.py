@@ -2339,7 +2339,7 @@ def _make_short_checker(
     except Exception:
         # If even the baseline graph can't be built, fall back to the legacy
         # absolute checker — nothing useful can be said monotonically.
-        _baseline_graph = None  # type: ignore[assignment]
+        _baseline_graph = None
 
     if _baseline_graph is not None:
         for net in schematic.nets.values():
@@ -2365,7 +2365,7 @@ def _make_short_checker(
         if check_bare_same_side:
             baseline_same_side_shorts = _count_bare_same_side_shorts(
                 base_layout.wires,
-                _baseline_graph,  # type: ignore[attr-defined]
+                _baseline_graph,
             )
 
     def _check(proposed: list[list[Wire]]) -> bool:

@@ -523,7 +523,7 @@ def _render_one(
     pass in update_component_groups still applies on top, so users keep
     control via group-level overrides.
     """
-    side = placement.side  # type: ignore[assignment]
+    side = placement.side
     if is_highlighted_comp:
         alpha = group_alpha  # skip ghost-component dimming for highlighted nets
     else:
@@ -948,7 +948,7 @@ def render_groups(
             # Bind the LOCAL render context directly (this is a renderer
             # given explicit dicts, not session state).
             owned_ids = OwnershipResolver(
-                knots=layout.knots,  # type: ignore[arg-type]
+                knots=layout.knots,
                 wire_net_map=wire_net_map or {},
                 schematic=sch_obj,
                 placements=placements,

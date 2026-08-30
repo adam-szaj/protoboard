@@ -653,7 +653,7 @@ def split_wire_at_vertex(
     if shared_hub is None and getattr(layout, "_pin_resolver", None) is not None:
         for pin_ref, knot_id in layout.pin_knots.items():
             try:
-                pin_pos = layout._pin_resolver(pin_ref)  # type: ignore[attr-defined]
+                pin_pos = layout._pin_resolver(pin_ref)
             except Exception:
                 continue
             if (
@@ -703,7 +703,7 @@ def split_wire_at_vertex(
         old_id=str(wire.id)[:8],
         new_a_id=str(wire_a.id)[:8],
         new_b_id=str(wire_b.id)[:8],
-        hub_id=str(shared_hub.id)[:8],  # type: ignore[union-attr]
+        hub_id=str(shared_hub.id)[:8],
         hub_kind=type(shared_hub).__name__,
         vertex_idx=vertex_idx,
         split_point=(round(split_point.x, 3), round(split_point.y, 3)),
@@ -894,7 +894,7 @@ def make_t_junction(
     # Step 1 — split w_through.  This produces the hub already at the
     # right position (PinKnot reuse / fresh JointKnot).
     w_a, w_b, hub = split_wire_at_vertex(layout, w_through, vertex_idx)
-    hub_id = hub.id  # type: ignore[union-attr]
+    hub_id = hub.id
 
     # Step 2 — re-anchor w_incoming's endpoint to the hub.  Decrement
     # the old knot's wire_ids in place; add w_incoming to the hub.
@@ -1034,7 +1034,7 @@ def _wire_net_id(
             net = pad_index.electrical_net_at(vertex, wire.side)
             if net is None or net is SHORT_CIRCUIT:
                 continue
-            return net  # type: ignore[no-any-return]
+            return net
         return None
     plated: frozenset[Point] | None = (
         frozenset(plated_through_pads(board)) if board is not None else None

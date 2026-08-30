@@ -168,7 +168,7 @@ class ComponentCatalog(dict[str, ComponentDefinition]):
         package_families: dict[str, PackageFamily],
         **kwargs: object,
     ) -> None:
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        super().__init__(*args, **kwargs)
         self.package_families = package_families
 
     def __missing__(self, name: str) -> ComponentDefinition:

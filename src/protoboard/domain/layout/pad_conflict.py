@@ -456,8 +456,8 @@ def _wire_hit_via_pad_index(
     opposite: str = "bottom" if own_side == "top" else "top"
     wire_item = None
     hit_side: str = own_side
-    items_own = pad.physically_blocked_on(own_side)  # type: ignore[arg-type]
-    items_opp = pad.physically_blocked_on(opposite)  # type: ignore[arg-type]
+    items_own = pad.physically_blocked_on(own_side)
+    items_opp = pad.physically_blocked_on(opposite)
     for it in items_own:
         if isinstance(
             it,
@@ -497,10 +497,10 @@ def _wire_hit_via_pad_index(
         )
     if wire_item is None:
         return None
-    net_id = pad.electrical_net_on(hit_side)  # type: ignore[arg-type]
+    net_id = pad.electrical_net_on(hit_side)
     if net_id is None or net_id is SHORT_CIRCUIT:
         return wire_item.id, None
-    name = net_name_by_id.get(net_id)  # type: ignore[arg-type]
+    name = net_name_by_id.get(net_id)
     if name is None:
         return wire_item.id, None
     return wire_item.id, (net_id, name)  # type: ignore[return-value]
@@ -1035,9 +1035,7 @@ def check_multi_group_move_conflicts(
         drag_set.all_component_ids(layout_groups)  # type: ignore[attr-defined]
     )
 
-    extra_groups: set[uuid.UUID] = set(drag_set.groups) - {
-        active_group_id
-    }  # type: ignore[attr-defined]
+    extra_groups: set[uuid.UUID] = set(drag_set.groups) - {active_group_id}
 
     _log.debug(
         "multi_group_move.check.start",

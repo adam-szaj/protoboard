@@ -42,7 +42,7 @@ from ruamel.yaml import YAML
 
 _yaml = YAML()
 _yaml.default_flow_style = False
-_yaml.width = 120  # type: ignore[assignment]
+_yaml.width = 120
 
 
 @dataclass

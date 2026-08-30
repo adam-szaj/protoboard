@@ -261,7 +261,7 @@ class SelectTool(ControllerTool):
         return self._preview
 
     @property
-    def _view(self) -> SelectToolView:  # type: ignore[override]
+    def _view(self) -> SelectToolView:
         """The bound view, typed as SelectTool's own view surface.
 
         The base stores ``_view`` as ``_ViewProto | None`` (None until

@@ -121,7 +121,7 @@ class WireEditTool(ControllerTool):
         svc = getattr(session, "selection_service", None)
         if not isinstance(svc, SelectionService):
             svc = SelectionService()
-            session.selection_service = svc  # type: ignore[attr-defined]
+            session.selection_service = svc
         self._selection = svc
         self._arm = WireEditArm(
             cast(

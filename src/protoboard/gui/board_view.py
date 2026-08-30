@@ -819,7 +819,7 @@ class BoardView(QGraphicsView):
                     ms=round((time.monotonic() - _t0) * 1000, 1),
                 )
 
-    def paintEvent(self, event: object) -> None:  # type: ignore[override]
+    def paintEvent(self, event: object) -> None:
         # Always measure paintEvent wall time — PerformancePanel reads it
         # via session.perf.paint_ms (recorded by the pipeline bracket).
         _t0 = time.monotonic()
@@ -846,7 +846,7 @@ class BoardView(QGraphicsView):
         """Mark only the back-side cache stale."""
         self.paint.invalidate_back_cache()
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         # Viewport changed size — cache pixmap no longer matches; just
         # mark dirty so the next paint rebuilds it.  Display list is
@@ -858,7 +858,7 @@ class BoardView(QGraphicsView):
         # The camera snaps zoom back inside the new limit window.
         self.camera.on_resize()
 
-    def scrollContentsBy(self, dx: int, dy: int) -> None:  # type: ignore[override]
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
         """Invalidate the bg cache on every pan, restart the pan-burst timer.
 
         The cached pixmap was rasterised at the previous scroll offset

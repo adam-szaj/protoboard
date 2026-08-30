@@ -502,8 +502,8 @@ def _fill_bare(
 
 
 # Keep old names as aliases so existing call-sites in tests/RouteTool still work.
-_draw_insulated = _fill_insulated  # type: ignore[assignment]
-_draw_bare = _fill_bare  # type: ignore[assignment]
+_draw_insulated = _fill_insulated
+_draw_bare = _fill_bare
 
 
 # ── Wire-pin glyph ───────────────────────────────────────────────────────────

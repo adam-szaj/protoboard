@@ -145,7 +145,7 @@ class PlaceTool(ControllerTool):
     @property
     def _view(  # pyright: ignore[reportIncompatibleVariableOverride]
         self,
-    ) -> _ViewProto:  # type: ignore[override]
+    ) -> _ViewProto:
         """The bound view, narrowed away from None for the post-activate
         event handlers (same idiom as :attr:`preview`)."""
         assert self.__view is not None  # set by activate()

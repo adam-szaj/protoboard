@@ -325,7 +325,7 @@ def save_theme(theme: Theme, path: Path | None = None) -> None:
     if path is None:
         path = THEME_FILE
     try:
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+        from ruamel.yaml import YAML
 
         defaults = Theme()
         data: dict[str, object] = {}
@@ -359,7 +359,7 @@ def load_theme(path: Path | None = None) -> Theme:
     if not path.exists():
         return DEFAULT_THEME
     try:
-        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+        from ruamel.yaml import YAML
 
         data = YAML().load(path)
         if not isinstance(data, dict):

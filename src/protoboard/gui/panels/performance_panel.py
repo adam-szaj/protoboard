@@ -48,7 +48,7 @@ class _Sparkline(QWidget):
         self._samples = list(samples)
         self.update()
 
-    def paintEvent(self, _event: object) -> None:  # type: ignore[override]
+    def paintEvent(self, _event: object) -> None:
         if not self._samples:
             return
         painter = QPainter(self)
@@ -248,9 +248,7 @@ class PerformancePanel(QWidget):
         wire_ids: object,
         net_id: object,
     ) -> None:
-        self._selected_wire_ids = (
-            frozenset(wire_ids) if wire_ids else frozenset()  # type: ignore[arg-type]
-        )
+        self._selected_wire_ids = frozenset(wire_ids) if wire_ids else frozenset()
         self._selected_net_id = net_id if isinstance(net_id, uuid.UUID) else None
         self._schedule_cost_refresh()
 
@@ -269,7 +267,7 @@ class PerformancePanel(QWidget):
         self._cost_refresh_pending = False
         self._cost_refresh_timer.arm()
 
-    def showEvent(self, event: object) -> None:  # type: ignore[override]
+    def showEvent(self, event: object) -> None:
         super().showEvent(event)  # type: ignore[arg-type]
         if self._cost_refresh_pending:
             self._cost_refresh_pending = False

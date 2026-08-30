@@ -160,7 +160,7 @@ class ViewCamera:
 
         tool = self._view.active_tool
         if isinstance(tool, RouteTool):
-            tool._side = side  # type: ignore[assignment]
+            tool._side = side
         win = self._view.window()
         updater = getattr(win, "_set_wire_side", None)
         if updater is not None:

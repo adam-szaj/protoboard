@@ -430,14 +430,14 @@ def _alpha_row(
         sp.setRange(0, 255)
         sp.setValue(int(initial))
         sp.setFixedWidth(80)
-        return _row(label, sp), sp  # type: ignore[return-value]
+        return _row(label, sp), sp
     spf = QDoubleSpinBox()
     spf.setRange(0.0, 1.0)
     spf.setSingleStep(0.05)
     spf.setDecimals(2)
     spf.setValue(float(initial))
     spf.setFixedWidth(80)
-    return _row(label, spf), spf  # type: ignore[return-value]
+    return _row(label, spf), spf
 
 
 def _float_row(
@@ -1248,7 +1248,7 @@ class _RoutingPage(QWidget):
             groups.setdefault(prefix, []).append(k)
 
         # Resolved current effective weights (preset + overrides).
-        rs = self._session.routing_settings  # type: ignore[attr-defined]
+        rs = self._session.routing_settings
         effective = rs.cost_model(self._app_settings.cost_presets).weights
 
         self._override_spinboxes: dict[str, QDoubleSpinBox] = {}
@@ -1514,7 +1514,7 @@ class _RoutingPage(QWidget):
     def apply(self) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
 
-        rs_old = self._session.routing_settings  # type: ignore[attr-defined]
+        rs_old = self._session.routing_settings
         new_settings = RoutingSettings(
             preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
             allow_layer_change=self._allow_layer_change.isChecked(),

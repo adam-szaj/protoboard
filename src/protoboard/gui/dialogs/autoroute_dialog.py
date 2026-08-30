@@ -346,7 +346,7 @@ class AutorouteDialog(QDialog):
         self._route_btn.setDefault(True)
         self._route_btn.setFocus()
 
-    def showEvent(self, event: object) -> None:  # type: ignore[override]
+    def showEvent(self, event: object) -> None:
         super().showEvent(event)  # type: ignore[arg-type]
         # Re-assert focus on the Route button after Qt's show-time focus
         # initialisation, so Space activates Route rather than opening the

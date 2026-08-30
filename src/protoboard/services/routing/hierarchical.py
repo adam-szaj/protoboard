@@ -176,7 +176,7 @@ def hierarchical_autoroute(
 
             stage_progress_cb = _wrapped_progress
         else:
-            stage_progress_cb = None  # type: ignore[assignment]
+            stage_progress_cb = None
 
         sub_result = autoroute(
             board=board,

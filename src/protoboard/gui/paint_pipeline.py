@@ -219,7 +219,7 @@ class PaintPipeline:
                 bridge = anchor_inv * cur_t
                 painter.save()
                 painter.setTransform(bridge)
-                painter.drawPixmap(0, 0, self._bg_cache_anchor)  # type: ignore[arg-type]
+                painter.drawPixmap(0, 0, self._bg_cache_anchor)
                 self._paint_counters["anchor_blit"] += 1
                 # The back-side cache was rasterised under the SAME
                 # anchor transform as the board pixmap, so the same
@@ -229,7 +229,7 @@ class PaintPipeline:
                 # scene rescales, which looks like they're "drawn late".
                 if self._back_cache is not None:
                     painter.setOpacity(1.0)
-                    painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
+                    painter.drawPixmap(0, 0, self._back_cache)
                     self._paint_counters["anchor_blit_back"] += 1
                 painter.restore()
                 # Back-side filter + mid pad blit — kept in the burst
@@ -265,7 +265,7 @@ class PaintPipeline:
                     painter.save()
                     painter.setTransform(bridge)
                     painter.setOpacity(burst_alpha_mid)
-                    painter.drawPixmap(0, 0, self._bg_cache_anchor)  # type: ignore[arg-type]
+                    painter.drawPixmap(0, 0, self._bg_cache_anchor)
                     self._paint_counters["blit_mid"] += 1
                     painter.restore()
                 painter.setOpacity(1.0)
@@ -313,13 +313,13 @@ class PaintPipeline:
         if self._bg_cache is not None and alpha_base > 0.0:
             _bt = time.monotonic()
             painter.setOpacity(alpha_base)
-            painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+            painter.drawPixmap(0, 0, self._bg_cache)
             self._paint_counters["blit_base"] += 1
             _blit_base_ms = (time.monotonic() - _bt) * 1000.0
         if self._back_cache is not None:
             _bt = time.monotonic()
             painter.setOpacity(1.0)
-            painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
+            painter.drawPixmap(0, 0, self._back_cache)
             self._paint_counters["blit_back"] += 1
             _blit_back_ms = (time.monotonic() - _bt) * 1000.0
         # Back-side filter — half-transparent black wash painted between
@@ -347,7 +347,7 @@ class PaintPipeline:
         if self._bg_cache is not None and alpha_mid > 0.0:
             _bt = time.monotonic()
             painter.setOpacity(alpha_mid)
-            painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+            painter.drawPixmap(0, 0, self._bg_cache)
             self._paint_counters["blit_mid"] += 1
             _blit_mid_ms = (time.monotonic() - _bt) * 1000.0
         painter.setOpacity(1.0)

@@ -108,7 +108,7 @@ try:
 
     _log.info("astar.rust_extension", status="loaded", cpu_count=_os.cpu_count())
 except ImportError:
-    _rs = None  # type: ignore[assignment]
+    _rs = None
     _RUST_AVAILABLE = False
     _log.info("astar.rust_extension", status="not_available_using_python_fallback")
 
@@ -197,9 +197,9 @@ def _build_bare_seg_index(
     idx: BareSegIndex = {}
     for entry in bare_segs:
         if len(entry) == 4:
-            p1, p2, side, net_idx = entry  # type: ignore[misc]
+            p1, p2, side, net_idx = entry
         else:
-            p1, p2, side = entry  # type: ignore[misc]
+            p1, p2, side = entry
             net_idx = -1
         x0 = int(math.floor(min(p1.x, p2.x)))
         x1 = int(math.floor(max(p1.x, p2.x)))
@@ -602,7 +602,7 @@ def _universe_worker(
             if len(_seg) == 5:
                 _p1, _p2, _osd, _oins, _onet = _seg
             else:
-                _p1, _p2, _osd, _oins = _seg  # type: ignore[misc]
+                _p1, _p2, _osd, _oins = _seg
                 _onet = -1
             entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins, _onet)
             if _osd == "top":
@@ -1715,9 +1715,9 @@ def find_paths(
     if bare_wire_segments:
         for _seg in bare_wire_segments:
             if len(_seg) == 4:
-                _p1, _p2, _sd, _nid = _seg  # type: ignore[misc]
+                _p1, _p2, _sd, _nid = _seg
             else:
-                _p1, _p2, _sd = _seg  # type: ignore[misc]
+                _p1, _p2, _sd = _seg
                 _nid = None
             bare_segs_canon.add((_p1, _p2, _sd, _ensure_idx(_nid)))
 
@@ -1725,7 +1725,7 @@ def find_paths(
     if all_segments:
         for _seg in all_segments:
             if len(_seg) == 5:
-                _p1, _p2, _sd, _oins, _nid = _seg  # type: ignore[misc]
+                _p1, _p2, _sd, _oins, _nid = _seg
             else:
                 _p1, _p2, _sd, _oins = _seg  # type: ignore[misc]
                 _nid = None

@@ -139,7 +139,7 @@ class ArmedTransformTool(ControllerTool):
         self._clear_overlays()
         self._armed = None
         self._session = None  # type: ignore[assignment]
-        self._view = None  # type: ignore[assignment]
+        self._view = None
 
     # -- controller access --------------------------------------------------
 

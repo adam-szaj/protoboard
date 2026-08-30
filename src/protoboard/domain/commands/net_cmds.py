@@ -178,7 +178,7 @@ class DeleteNetCommand(Command[NetState]):
         state.schematic.nets[self.net_id] = Net(
             id=self.net_id,
             name=self._saved_name,
-            pins=set(self._saved_pins),  # type: ignore[arg-type]
+            pins=set(self._saved_pins),
         )
 
 
@@ -261,5 +261,5 @@ class UnassignPinCommand(Command[NetState]):
             state.schematic.nets[self._saved_net_id] = Net(
                 id=self._saved_net_id,
                 name=self._saved_net_name,
-                pins=set(self._saved_pins),  # type: ignore[arg-type]
+                pins=set(self._saved_pins),
             )

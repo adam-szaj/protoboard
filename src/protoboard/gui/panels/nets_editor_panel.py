@@ -404,7 +404,7 @@ class NetsEditorPanel(QWidget):
         if self._session is None:
             return
         name, ok = QInputDialog.getText(
-            self,  # type: ignore[arg-type]
+            self,
             "Add net",
             "Net name:",
         )
@@ -413,7 +413,7 @@ class NetsEditorPanel(QWidget):
         name = name.strip()
         if self._name_exists(name):
             QMessageBox.warning(
-                self,  # type: ignore[arg-type]
+                self,
                 "Duplicate name",
                 f"A net named '{name}' already exists.",
             )
@@ -433,7 +433,7 @@ class NetsEditorPanel(QWidget):
         if net is None:
             return
         name, ok = QInputDialog.getText(
-            self,  # type: ignore[arg-type]
+            self,
             "Rename net",
             "New name:",
             text=net.name,
@@ -445,7 +445,7 @@ class NetsEditorPanel(QWidget):
             return
         if self._name_exists(name):
             QMessageBox.warning(
-                self,  # type: ignore[arg-type]
+                self,
                 "Duplicate name",
                 f"A net named '{name}' already exists.",
             )
@@ -466,7 +466,7 @@ class NetsEditorPanel(QWidget):
             return
         if net.pins:
             ans = QMessageBox.question(
-                self,  # type: ignore[arg-type]
+                self,
                 "Delete net",
                 f"Net '{net.name}' has {len(net.pins)} assigned pin(s).\n"
                 "Deleting it will unassign all pins. Continue?",
@@ -491,7 +491,7 @@ class NetsEditorPanel(QWidget):
         initial = QColor(net.color) if net.color else QColor("#E03030")
         color = QColorDialog.getColor(
             initial,
-            self,  # type: ignore[arg-type]
+            self,
             f"Color for net '{net.name}'",
             QColorDialog.ColorDialogOption.DontUseNativeDialog,
         )
@@ -553,7 +553,7 @@ class NetsEditorPanel(QWidget):
             "Unmark as global" if (net and net.global_net) else "Mark as global"
         )
 
-        menu = QMenu(self)  # type: ignore[arg-type]
+        menu = QMenu(self)
         menu.addAction("Rename", self._on_rename_net)
         menu.addAction("Set color…", self._on_set_color)
         menu.addAction("Clear color", self._on_clear_color)
@@ -601,7 +601,7 @@ class NetsEditorPanel(QWidget):
         if not isinstance(raw, str):
             return
         self._pin_tree.setCurrentItem(item)
-        menu = QMenu(self)  # type: ignore[arg-type]
+        menu = QMenu(self)
         menu.addAction("Assign to net…", self._on_assign_pin)
         menu.addAction("Unassign from net", self._on_unassign_pin)
         menu.exec(self._pin_tree.mapToGlobal(pos))
@@ -629,7 +629,7 @@ class NetsEditorPanel(QWidget):
             return
         dlg = _AssignNetDialog(
             nets=[(n.id, n.name) for n in nets],
-            parent=self,  # type: ignore[arg-type]
+            parent=self,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
@@ -656,7 +656,7 @@ class NetsEditorPanel(QWidget):
         if self._session is None:
             return
         ans = QMessageBox.question(
-            self,  # type: ignore[arg-type]
+            self,
             "No nets",
             "There are no nets yet. Create one now and assign this pin to it?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -664,7 +664,7 @@ class NetsEditorPanel(QWidget):
         if ans != QMessageBox.StandardButton.Yes:
             return
         name, ok = QInputDialog.getText(
-            self,  # type: ignore[arg-type]
+            self,
             "New net",
             "Net name:",
         )
@@ -673,7 +673,7 @@ class NetsEditorPanel(QWidget):
         name = name.strip()
         if self._name_exists(name):
             QMessageBox.warning(
-                self,  # type: ignore[arg-type]
+                self,
                 "Duplicate name",
                 f"A net named '{name}' already exists.",
             )

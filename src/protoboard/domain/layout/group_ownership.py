@@ -243,17 +243,17 @@ def _pin_endpoint_matches_path(
         pl = placements.get(pin.component_id)
         if pl is None:
             if pin_world_cache is not None:
-                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+                pin_world_cache[cache_key] = False
             return False
         inst = instances.get(pin.component_id)
         if inst is None:
             if pin_world_cache is not None:
-                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+                pin_world_cache[cache_key] = False
             return False
         defn = definitions.get(inst.definition_ref)
         if defn is None:
             if pin_world_cache is not None:
-                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+                pin_world_cache[cache_key] = False
             return False
         try:
             fp = resolved_footprint(defn, inst, inst.families)
@@ -267,7 +267,7 @@ def _pin_endpoint_matches_path(
                 return False
         except Exception:  # noqa: BLE001
             if pin_world_cache is not None:
-                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+                pin_world_cache[cache_key] = False
             return False
         if pin_world_cache is not None:
             pin_world_cache[cache_key] = physical_positions

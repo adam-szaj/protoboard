@@ -206,7 +206,7 @@ def _load_one(ep: EntryPoint) -> Router | None:
         protocol_check=lambda x: isinstance(x, Router),
         role="router",
     )
-    return result  # type: ignore[return-value]
+    return result
 
 
 __all__ = [

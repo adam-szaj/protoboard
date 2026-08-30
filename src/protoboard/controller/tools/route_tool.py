@@ -96,7 +96,9 @@ class RouteTool(ControllerTool):
         return self._preview
 
     @property
-    def _view(self) -> _ViewProto:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
+    def _view(
+        self,
+    ) -> _ViewProto:  # pyright: ignore[reportIncompatibleVariableOverride]
         """The bound view, narrowed away from None for the post-activate
         event handlers (same idiom as :attr:`preview`)."""
         assert self.__view is not None  # set by activate()

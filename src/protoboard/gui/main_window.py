@@ -1654,9 +1654,7 @@ class MainWindow(QMainWindow):
             # Snapshot every persistent entry, in stack order, so the
             # restore re-pushes them with the same ordering.
             self._highlight_snapshot = [
-                e
-                for e in stack._stack  # type: ignore[attr-defined]
-                if not e.transient and not e.auto
+                e for e in stack._stack if not e.transient and not e.auto
             ]
             stack.clear()
         elif self._highlight_snapshot:
@@ -3123,7 +3121,7 @@ class MainWindow(QMainWindow):
     # Window close
     # ------------------------------------------------------------------
 
-    def showEvent(self, event: object) -> None:  # type: ignore[override]
+    def showEvent(self, event: object) -> None:
         super().showEvent(event)  # type: ignore[arg-type]
         # The window-manager often delivers show() with a placeholder
         # geometry and then resizes the window to its final (maximized /
@@ -3154,7 +3152,7 @@ class MainWindow(QMainWindow):
         self._initial_fit_pending = False
         self._board_view.fit_board()
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+    def resizeEvent(self, event: QResizeEvent) -> None:
         old = event.oldSize()
         new = event.size()
         if (
@@ -3257,7 +3255,7 @@ class MainWindow(QMainWindow):
             try:
                 # 2 s ceiling — DRC is fast; if it hangs we'd rather drop
                 # the wait than freeze the app on exit.
-                w.wait(2000)  # type: ignore[attr-defined]
+                w.wait(2000)
             except Exception:
                 pass
 
