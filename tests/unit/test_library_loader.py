@@ -813,7 +813,11 @@ class TestMigratedICs:
         from typing import cast
 
         from protoboard.domain.components.package.shapes import Prism
-        from protoboard.gui.renderers.packages import DipIcRenderer, renderer_for
+        from protoboard.gui.renderers.packages import (
+            DipIcRenderer,
+            PrismRenderer,
+            renderer_for,
+        )
         from protoboard.gui.renderers.prism_silhouette import DipSilhouette
 
         lib = self._lib()
@@ -825,12 +829,9 @@ class TestMigratedICs:
         # White-box: _silhouette lives on PrismRenderer (DipIcRenderer's base);
         # the @register_renderer TypeVar widens the decorated class back to
         # type[PackageRenderer] for pyright, hiding the subtype method.
-        assert isinstance(
-            DipIcRenderer(prism)._silhouette(
-                prism
-            ),  # pyright: ignore[reportAttributeAccessIssue]
-            DipSilhouette,
-        )
+        renderer = renderer_for(prism)(prism)
+        assert isinstance(renderer, PrismRenderer)
+        assert isinstance(renderer._silhouette(prism), DipSilhouette)
         # DIP-28 parts are wide.
         wide = lib.get("ATmega328P").default_footprint(_families(lib))
         assert cast(Prism, wide).kind == "wdip_ic"
@@ -896,8 +897,11 @@ components:
         # An axial cylinder is not rigid (it bends): the referenced variant IS
         # the default geometry now, and the bendable leads survive.
         from protoboard.domain.components.package import is_rigid_package
+        from protoboard.domain.components.package.component_package import (
+            resolve_component_package,
+        )
 
-        package = defn.default_footprint(_families(lib))
+        package = resolve_component_package(defn, None, _families(lib))
         assert not is_rigid_package(package)
         assert package.pin_count() == 2
         from protoboard.domain.components.package import effective_bend_specs
@@ -943,8 +947,11 @@ class TestLoadLibrary:
         defn = lib.get("R")
         # Two-pin declared generic prism: a single in-line pair of rigid pads.
         from protoboard.domain.components.package import is_rigid_package
+        from protoboard.domain.components.package.component_package import (
+            resolve_component_package,
+        )
 
-        package = defn.default_footprint(_families(lib))
+        package = resolve_component_package(defn, None, _families(lib))
         assert is_rigid_package(package)
         assert len(defn.meta_pins) == 2
         pins = [(round(p.x), round(p.y)) for p in package.pin_positions()]
