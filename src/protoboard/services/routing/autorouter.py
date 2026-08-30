@@ -35,7 +35,7 @@ from concurrent.futures import (
 )
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, ParamSpec, TypeVar, cast
 
 import structlog
 
@@ -64,6 +64,15 @@ if TYPE_CHECKING:
 # Higher direction_change discourages long detours and keeps wires closer
 # to straight-line paths, leaving more corridors free for other nets.
 _DEFAULT_COST = RoutingCostModel(direction_change=1.0)
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+_WirePathFingerprint = tuple[
+    uuid.UUID,
+    str,
+    bool,
+    tuple[tuple[float, float], ...],
+]
 
 # Sentinel net-id used for floating pins (not in any net).
 _FLOATING = uuid.UUID("00000000-0000-0000-0000-000000000002")
@@ -207,15 +216,17 @@ class _SequentialExecutor:
     rule out concurrency as the cause.
     """
 
-    def submit(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
-        fut: Future = Future()
+    def submit(
+        self, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_T]:
+        fut: Future[_T] = Future()
         try:
             fut.set_result(fn(*args, **kwargs))
         except BaseException as e:  # noqa: BLE001
             fut.set_exception(e)
         return fut
 
-    def shutdown(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def shutdown(self, *args: object, **kwargs: object) -> None:
         pass
 
 
@@ -908,7 +919,9 @@ def autoroute(
         _opt = SimplifyOptimizer(mode=simplify_mode)
         _sink = ProgressSink(cancel_flag=cancel_flag)
 
-        def _path_fingerprint(ws: list[Wire]) -> tuple:
+        def _path_fingerprint(
+            ws: list[Wire],
+        ) -> tuple[_WirePathFingerprint, ...]:
             """Hashable snapshot of every wire's path + side + insulated."""
             return tuple(
                 (

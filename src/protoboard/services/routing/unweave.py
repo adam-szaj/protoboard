@@ -49,7 +49,7 @@ from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import _segs_cross
 from protoboard.services.routing.postprocess import _canonical_subpath
-from protoboard.types import Side
+from protoboard.types import NodeKey, Side
 
 _log = structlog.get_logger(__name__)
 
@@ -58,6 +58,11 @@ if TYPE_CHECKING:
     from protoboard.domain.schematic.schematic import Schematic
 
 _EPS = 1e-7
+
+_PointFingerprint = tuple[float, float]
+_WireFingerprint = tuple[_PointFingerprint, ...]
+_ChainFingerprint = tuple[_WireFingerprint, ...]
+_StateFingerprint = tuple[_ChainFingerprint, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +627,7 @@ def unweave_wires(
         foreign_wire_pads=foreign_wire_pads,
     )
 
-    def _state_fingerprint(state: list[list[Wire]]) -> tuple:
+    def _state_fingerprint(state: list[list[Wire]]) -> _StateFingerprint:
         """Hashable snapshot of every wire path in *state*.
 
         Used by the livelock guard below.  Two states with identical
@@ -646,7 +651,7 @@ def unweave_wires(
     # cycle detector the main thread spins until ``max_iter`` runs out
     # or the user kills the process.  Track every post-swap state
     # fingerprint; the second time we see one, we are in a cycle.
-    seen_fingerprints: set[tuple] = set()
+    seen_fingerprints: set[_StateFingerprint] = set()
     seen_fingerprints.add(_state_fingerprint(logical))
     swap_count = 0
     livelock = False
@@ -2227,7 +2232,7 @@ def _count_bare_same_side_shorts(
     from collections import defaultdict
 
     bare = [w for w in wires if not w.insulated]
-    by_side: dict = defaultdict(list)
+    by_side: dict[str, list[Wire]] = defaultdict(list)
     for w in bare:
         by_side[w.side].append(w)
     count = 0
@@ -2324,7 +2329,7 @@ def _make_short_checker(
     baseline_connected_pins: dict[uuid.UUID, set[tuple[uuid.UUID, int]]] = (
         {}
     )  # net_id → pins with key != None
-    baseline_short_pairs: set[tuple[uuid.UUID, frozenset[uuid.UUID]]] = (
+    baseline_short_pairs: set[tuple[NodeKey, frozenset[uuid.UUID]]] = (
         set()
     )  # (set_key, frozenset(net_ids))
     baseline_same_side_shorts = 0
@@ -2343,7 +2348,7 @@ def _make_short_checker(
 
     if _baseline_graph is not None:
         for net in schematic.nets.values():
-            keys: set = set()
+            keys: set[NodeKey] = set()
             connected: set[tuple[uuid.UUID, int]] = set()
             for ref in net.pins:
                 k = _baseline_graph.node_for_pin(ref)
@@ -2353,7 +2358,7 @@ def _make_short_checker(
             baseline_frag[net.id] = len(keys)
             baseline_connected_pins[net.id] = connected
 
-        key_to_nets_base: dict = defaultdict(set)
+        key_to_nets_base: dict[NodeKey, set[uuid.UUID]] = defaultdict(set)
         for (cid, pn), nid in pin_to_net.items():
             k = _baseline_graph.node_for_pin(PinRef(cid, pn))
             if k is not None:
@@ -2396,7 +2401,7 @@ def _make_short_checker(
         # Invariant (a): per-net fragmentation count must not grow, and
         # no previously-connected pin may become disconnected.
         for net in schematic.nets.values():
-            keys: set = set()
+            keys: set[NodeKey] = set()
             connected: set[tuple[uuid.UUID, int]] = set()
             for ref in net.pins:
                 k = new_graph.node_for_pin(ref)
@@ -2416,12 +2421,12 @@ def _make_short_checker(
 
         # Invariant (b): cross-net shorts may stay, but no new ones may
         # appear.  Compare as (set_key, frozenset(net_ids)) pairs.
-        key_to_nets: dict = defaultdict(set)
+        key_to_nets: dict[NodeKey, set[uuid.UUID]] = defaultdict(set)
         for (cid, pn), nid in pin_to_net.items():
             k = new_graph.node_for_pin(PinRef(cid, pn))
             if k is not None:
                 key_to_nets[k].add(nid)
-        new_short_pairs: set[tuple[uuid.UUID, frozenset[uuid.UUID]]] = set()
+        new_short_pairs: set[tuple[NodeKey, frozenset[uuid.UUID]]] = set()
         for k, nids in key_to_nets.items():
             if len(nids) > 1:
                 new_short_pairs.add((k, frozenset(nids)))

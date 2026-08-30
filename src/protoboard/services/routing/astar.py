@@ -47,12 +47,12 @@ import os
 import threading
 import time as _time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path as _Path
 from queue import Empty, Queue
-from typing import IO, cast
+from typing import IO, ParamSpec, TypeVar, cast
 
 import structlog
 
@@ -61,6 +61,9 @@ from protoboard.geometry import Point
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 _log = structlog.get_logger(__name__)
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 
 # ---------------------------------------------------------------------------
@@ -300,15 +303,17 @@ class _SequentialUniverseExecutor:
     intermittently crashes CPython 3.14 on this stack.
     """
 
-    def submit(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
-        fut: Future = Future()
+    def submit(
+        self, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+    ) -> Future[_T]:
+        fut: Future[_T] = Future()
         try:
             fut.set_result(fn(*args, **kwargs))
         except BaseException as e:  # noqa: BLE001
             fut.set_exception(e)
         return fut
 
-    def shutdown(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    def shutdown(self, *args: object, **kwargs: object) -> None:
         pass
 
 
@@ -752,7 +757,9 @@ def _universe_worker(
             # When tracing, collect a structured record of why each neighbour
             # was accepted or rejected.  The list mirrors _NEIGHBOURS order so
             # rejections at any stage stay attributable.
-            _trace_neighbours: list | None = [] if _trace is not None else None
+            _trace_neighbours: list[list[object]] | None = (
+                [] if _trace is not None else None
+            )
 
             for ndx, ndy, dist_mult in _NEIGHBOURS:
                 nx = cx + ndx
