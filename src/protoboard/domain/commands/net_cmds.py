@@ -13,6 +13,7 @@ from protoboard.domain.schematic.schematic import Schematic
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.schematic.net import PinRef
     from protoboard.domain.schematic.schematic import PinGroupUndo
 
 
@@ -156,9 +157,7 @@ class DeleteNetCommand(Command[NetState]):
 
     net_id: uuid.UUID
     _saved_name: str = field(default="", init=False, repr=False)
-    _saved_pins: object = field(
-        default=None, init=False, repr=False
-    )  # set[PinRef]|None
+    _saved_pins: set[PinRef] | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -231,9 +230,7 @@ class UnassignPinCommand(Command[NetState]):
     pin_number: int
     _saved_net_id: uuid.UUID | None = field(default=None, init=False, repr=False)
     _saved_net_name: str = field(default="", init=False, repr=False)
-    _saved_pins: object = field(
-        default=None, init=False, repr=False
-    )  # set[PinRef]|None
+    _saved_pins: set[PinRef] | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
