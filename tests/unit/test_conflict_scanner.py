@@ -77,7 +77,7 @@ def _schematic(*nets: tuple[uuid.UUID, list[tuple[uuid.UUID, int]]]) -> Schemati
     return Schematic(nets=net_objs)
 
 
-def _root_group(*comp_ids: uuid.UUID) -> dict[uuid.UUID, object]:
+def _root_group(*comp_ids: uuid.UUID) -> dict[uuid.UUID, ComponentGroup]:
     return {
         ROOT_GID: ComponentGroup(
             id=ROOT_GID,
@@ -322,7 +322,7 @@ class _FakeDragSet:
     groups: frozenset[uuid.UUID]
 
     def all_component_ids(
-        self, groups_map: dict[uuid.UUID, object]
+        self, groups_map: dict[uuid.UUID, ComponentGroup]
     ) -> frozenset[uuid.UUID]:
         return self._comp_ids
 
