@@ -1675,7 +1675,10 @@ class TestSmdChipBody:
 
         assert isinstance(pkg, Prism)
         smd = dataclasses.replace(pkg, lineage=("prism", "prism_smd"))
-        assert PackageBody(smd).draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        body_items, label_items = PackageBody(smd).draw(
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z
+        )
+        assert body_items or label_items
 
     def test_body_shorter_than_pad_span(self, qtbot: QtBot) -> None:
         # A real chip sits *between* its pads at its declared length, shorter

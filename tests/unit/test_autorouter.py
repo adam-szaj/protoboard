@@ -919,7 +919,6 @@ class TestAutorouterOptimization:
             pads_a = {(pt, wa.side) for pt in wa.path}
             for wb in all_wires[i + 1 :]:
                 pads_b = {(pt, wb.side) for pt in wb.path}
-                pads_a & pads_b
                 # Endpoints touching is allowed (same-net merge point or via),
                 # but interior overlap of different nets is not.
                 # We allow endpoint collisions here; check only interior points.

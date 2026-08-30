@@ -36,6 +36,7 @@ from protoboard.controller.selection.adapters import (
     ComponentSelectable,
     WireSelectable,
 )
+from protoboard.controller.selection.wire_edit import WireRange
 from protoboard.controller.tools.drag_commit_decision import (
     DragCommitDecision,
     DragSeverity,
@@ -779,7 +780,7 @@ class TestWireFragmentSimplify:
 
     @staticmethod
     def _arm_wire_edit(
-        view: HeadlessBoardView, wire_range: object, wire_id: object
+        view: HeadlessBoardView, wire_range: WireRange, wire_id: uuid.UUID
     ) -> WireEditTool:
         """Arm a WireEditTool on *wire_range* through the ToolHost so activate()
         runs (mirrors test_wire_edit_tool.py::_arm)."""
@@ -787,15 +788,13 @@ class TestWireFragmentSimplify:
         view.tools.set_tool(select)
         tool = WireEditTool(
             wire_range,
-            wire_id,  # type: ignore[arg-type]
+            wire_id,
             return_to=lambda: view.tools.set_tool(select),
         )
         view.tools.set_tool(tool)
         return tool
 
     def test_fragment_simplify_shortens_wire(self, session: EditorSession) -> None:
-        from protoboard.controller.selection.wire_edit import WireRange
-
         view = _headless(session)
         wire = self._add_detour_wire(session)
         # Full-span fragment armed in the WireEditTool; [S] then simplifies it.
@@ -813,8 +812,6 @@ class TestWireFragmentSimplify:
     def test_cross_wire_fragment_simplify_is_refused(
         self, session: EditorSession
     ) -> None:
-        from protoboard.controller.selection.wire_edit import WireRange
-
         view = _headless(session)
         a = self._add_detour_wire(session)
         b = Wire(

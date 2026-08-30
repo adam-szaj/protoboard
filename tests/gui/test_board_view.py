@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import cast
 
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QGraphicsItemGroup
 from pytestqt.qtbot import QtBot
 
@@ -150,7 +151,7 @@ class TestBoardSandwichCache:
     ) -> None:
         # Build cache once.
         board_view.paint._back_cache_dirty = False
-        board_view.paint._back_cache = object()  # opaque sentinel
+        board_view.paint._back_cache = QPixmap()
         board_view.refresh()
         assert (
             board_view.paint._back_cache_dirty

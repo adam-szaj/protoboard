@@ -23,7 +23,7 @@ from pytestqt.qtbot import QtBot
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import Z_BACK_WIRES, Z_FRONT_WIRES, LayerState
-from protoboard.gui.renderers.wire_renderer import update_wire_groups_v2
+from protoboard.gui.renderers.wire_renderer import WireSceneGroup, update_wire_groups_v2
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ class _RenderState:
         self.groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
         self.fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
 
-    def render(self, scene: QGraphicsScene, wire: Wire) -> QGraphicsItemGroup:
+    def render(self, scene: QGraphicsScene, wire: Wire) -> WireSceneGroup:
         update_wire_groups_v2(
             scene,
             [wire],
@@ -63,7 +63,9 @@ class _RenderState:
             self.fingerprints,
             layers=LayerState(),
         )
-        return self.groups[wire.id]
+        group = self.groups[wire.id]
+        assert isinstance(group, WireSceneGroup)
+        return group
 
 
 def _line_items(grp: QGraphicsItemGroup) -> list[QGraphicsLineItem]:
