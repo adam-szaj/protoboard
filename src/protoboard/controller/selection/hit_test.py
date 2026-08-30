@@ -97,6 +97,10 @@ class HitContext(Protocol):
 
     def iter_pin_positions(self, comp_id: uuid.UUID) -> list[tuple[int, Point]]: ...
 
+    def meta_pin_for_package_pin(
+        self, comp_id: uuid.UUID, package_pin_number: int
+    ) -> int | None: ...
+
     def component_bbox(self, comp_id: uuid.UUID) -> Rect | None: ...
 
 
@@ -345,7 +349,12 @@ class HitTester:
             if best is not None and dist <= HIT_RADIUS:
                 cid, pin = best
                 # Pin context only when truly on the pad; otherwise body click.
-                return cid, (pin if dist <= PAD_HIT_RADIUS else None)
+                meta_pin = (
+                    self._ctx.meta_pin_for_package_pin(cid, pin)
+                    if dist <= PAD_HIT_RADIUS
+                    else None
+                )
+                return cid, meta_pin
         return None
 
     def _hit_component_bbox(self, px: float, py: float) -> uuid.UUID | None:

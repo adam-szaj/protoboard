@@ -262,7 +262,10 @@ class ComponentHandleBase(HandleKind):
         )
         if defn is None:
             return {}
-        return dict(defn.pin_names)
+        return {
+            index: meta_pin.labels[0]
+            for index, meta_pin in enumerate(defn.meta_pins, start=1)
+        }
 
 
 class ReadOnlyComponentHandle(ComponentHandleBase):

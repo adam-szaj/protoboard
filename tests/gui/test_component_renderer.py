@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 
 import pytest
@@ -10,9 +11,14 @@ from pytestqt.qtbot import QtBot
 
 from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsScene
 
-from protoboard.domain.components.definition import ComponentDefinition, ComponentClass
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
@@ -53,18 +59,32 @@ def _make_placement(
 
 
 def _make_resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
+    return ComponentDefinition(
         name="R",
         component_class=ComponentClass.RESISTOR,
-        footprint=SIL(n=2),
-        pin_names={},
+        meta_pins=(MetaPin(("1",)), MetaPin(("2",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
     )
+
+
+_SIL2_FAMILY = sil_family(2)
+assert _SIL2_FAMILY is not None
+_SIL2_FAMILIES = {_SIL2_FAMILY.family_id: _SIL2_FAMILY}
+_SIL2_THEME = dataclasses.replace(
+    DEFAULT_THEME, package_families=_SIL2_FAMILIES
+)
 
 
 def _make_instance(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
     return ComponentInstance(
         id=uuid.uuid4(), definition_ref=defn.name, refdes=refdes, value="10k"
-    ).bind(defn, {})
+    ).bind(defn, _SIL2_FAMILIES)
 
 
 def _layers_key(layers: LayerState) -> tuple[object, ...]:
@@ -288,7 +308,7 @@ class TestUpdateComponentGroups:
             existing_fingerprints=existing_fps,
             schematic=schem,
             routed_nets=None,
-            theme=DEFAULT_THEME,
+            theme=_SIL2_THEME,
             layers=LayerState(),
             active_group_id=None,
             layout=layout,
@@ -315,7 +335,7 @@ class TestUpdateComponentGroups:
             existing_fingerprints=existing_fps,
             schematic=schem,
             routed_nets=None,
-            theme=DEFAULT_THEME,
+            theme=_SIL2_THEME,
             layers=LayerState(),
             active_group_id=None,
             layout=layout,
@@ -333,7 +353,7 @@ class TestUpdateComponentGroups:
             existing_fingerprints=existing_fps,
             schematic=schem,
             routed_nets=None,
-            theme=DEFAULT_THEME,
+            theme=_SIL2_THEME,
             layers=LayerState(),
             active_group_id=None,
             layout=layout,
@@ -359,7 +379,7 @@ class TestUpdateComponentGroups:
                 existing_fingerprints=existing_fps,
                 schematic=schem,
                 routed_nets=None,
-                theme=DEFAULT_THEME,
+                theme=_SIL2_THEME,
                 layers=LayerState(),
                 active_group_id=None,
                 layout=layout,
@@ -394,7 +414,7 @@ class TestUpdateComponentGroups:
                 existing_fingerprints=existing_fps,
                 schematic=schem,
                 routed_nets=None,
-                theme=DEFAULT_THEME,
+                theme=_SIL2_THEME,
                 layers=LayerState(),
                 active_group_id=None,
                 layout=layout,
@@ -473,7 +493,6 @@ class TestGhostHonoursPackageVariant:
     default candy ceramic disc (regression: ghost ignored package_variant)."""
 
     def _theme_and_defn(self):
-        import dataclasses
         from pathlib import Path
         from protoboard.controller.theme import DEFAULT_THEME
         from protoboard.services.library.loader import load_library
@@ -574,15 +593,21 @@ class TestPinNamesLayerIndependence:
     def _scene_texts(self, layers: LayerState) -> set[str]:
         from PySide6.QtWidgets import QGraphicsTextItem
 
-        defn = ComponentDefinition.from_footprint(
+        defn = ComponentDefinition(
             name="U",
             component_class=ComponentClass.IC,
-            footprint=SIL(n=2),
-            pin_names={1: "VCC", 2: "GND"},
+            meta_pins=(MetaPin(("VCC",)), MetaPin(("GND",))),
+            package_options=(
+                PackageOption(
+                    name="SIL-2",
+                    ref="sil-2/std",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
+            ),
         )
         inst = ComponentInstance(
             id=uuid.uuid4(), definition_ref=defn.name, refdes="U1", value="",
-        ).bind(defn, {})
+        ).bind(defn, _SIL2_FAMILIES)
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(1, 1), rotation=0, side="top",
         )
@@ -599,7 +624,7 @@ class TestPinNamesLayerIndependence:
             existing_fingerprints={},
             schematic=Schematic(nets={}),
             routed_nets=None,
-            theme=DEFAULT_THEME,
+            theme=_SIL2_THEME,
             layers=layers,
             active_group_id=None,
             layout=layout,

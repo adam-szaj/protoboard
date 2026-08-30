@@ -218,6 +218,9 @@ class EditState(SchematicState, Protocol):
     def iter_pin_positions(
         self, comp_id: uuid.UUID
     ) -> list[tuple[int, Point]]: ...
+    def meta_pin_for_package_pin(
+        self, comp_id: uuid.UUID, package_pin_number: int
+    ) -> int | None: ...
 
     def selection(self) -> frozenset[ItemId]:
         """The currently-selected items, as tagged :class:`ItemId`s.

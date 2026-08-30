@@ -326,12 +326,16 @@ class NetsEditorPanel(QWidget):
             session.instances.items(), key=lambda kv: kv[1].refdes
         ):
             defn = session.components.get(inst.definition_ref)
-            pin_count = defn.pin_count if defn else 1
+            pin_count = len(defn.meta_pins) if defn else 1
             parent_item = QTreeWidgetItem([inst.refdes, "", inst.value])
             parent_item.setFlags(parent_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self._pin_tree.addTopLevelItem(parent_item)
             for pin_num in range(1, pin_count + 1):
-                pin_name = defn.pin_name(pin_num) if defn else f"P{pin_num}"
+                pin_name = (
+                    " / ".join(defn.meta_pin(pin_num).labels)
+                    if defn
+                    else f"P{pin_num}"
+                )
                 net_name = pin_to_net.get((inst_id, pin_num), "—")
                 pin_item = QTreeWidgetItem(["", pin_name, net_name])
                 pin_item.setData(

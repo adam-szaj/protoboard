@@ -21,6 +21,7 @@ from pytestqt.qtbot import QtBot
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
+    MetaPin,
     PackageOption,
 )
 from protoboard.domain.components.footprints import (
@@ -108,25 +109,6 @@ def _largest_path(items: list[QGraphicsItem]) -> QGraphicsPathItem:
         paths,
         key=lambda it: it.sceneBoundingRect().width()
         * it.sceneBoundingRect().height(),
-    )
-
-
-def _make_defn(
-    cls: ComponentClass,
-    n_pins: int,
-    fp_type: str = "SIL",
-) -> ComponentDefinition:
-    if fp_type == "DIP":
-        fp: object = DIL(n=n_pins)
-    else:
-        # ``SIL`` / ``TwoPin`` test markers are both a single-row pin cloud now;
-        # a footprint is only pin count + spacing.
-        fp = SIL(n=n_pins)
-    return ComponentDefinition.from_footprint(
-        name="TEST",
-        component_class=cls,
-        footprint=fp,  # type: ignore[arg-type]
-        pin_names={},
     )
 
 
@@ -702,14 +684,15 @@ class TestConnectorPlacement:
         lib = load_library([Path("library")], cat)
         defn = lib.get(name)
         inst = ComponentInstance.new(name, "J1", "")
-        return defn, inst, cat
+        return defn, inst, {**cat, **lib.package_families}
 
-    def test_connectors_have_no_footprints_list(self) -> None:
-        # No footprints: list → the body picker is empty → no forced choice
-        # blocks placement (the bug the user hit).
+    def test_connectors_have_one_generated_default_package(self) -> None:
+        # An inline package is normalized into one default PackageOption.  A
+        # single option places directly, without forcing a picker choice.
         for name in ("PinHeader_1x04", "PinHeader_2x05", "JST_PH_3pin"):
             defn, _inst, _cat = self._setup(name)
-            assert not defn.package_options, name
+            assert len(defn.package_options) == 1, name
+            assert defn.package_options[0].ref == f"{name}-package/std"
 
     def test_preview_and_placed_render_same_kind_prism(self,
                                                        qtbot: QtBot) -> None:
@@ -1091,16 +1074,20 @@ class TestFootprintOptionStyle:
 
     def _defn(self):
         from protoboard.domain.components.appearance import Appearance
-        from protoboard.domain.components.definition import PackageOption
+        from protoboard.domain.components.definition import MetaPin, PackageOption
         return ComponentDefinition(
             name="R",
             component_class=ComponentClass.RESISTOR,
-            pin_names={},
-            package=_colored_prism("#cdd2d6"),
+            meta_pins=(MetaPin(("1",)), MetaPin(("2",))),
             package_options=(
-                PackageOption(name="DIN-0207", ref="din-0207/typ"),
+                PackageOption(
+                    name="DIN-0207",
+                    ref="din-0207/typ",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
                 PackageOption(name="SMD-0805", ref="smd-0805/typ",
-                              style=Appearance(color="#222222")),
+                              style=Appearance(color="#222222"),
+                              pin_map={1: (1,), 2: (2,)}),
             ),
         )
 
@@ -1161,41 +1148,63 @@ class TestFootprintOptionStyle:
 
 class TestBodyShapeFor:
 
-    def test_two_pin_without_package_falls_back_to_generic(self) -> None:
-        # No package option, no instance variant, no inline package.
-        defn = ComponentDefinition.from_footprint(
+    @staticmethod
+    def _generic_definition(
+        name: str, component_class: ComponentClass, footprint: object
+    ) -> tuple[ComponentDefinition, dict]:
+        from protoboard.domain.components.package.family import (
+            PackageFamily,
+            PackageVariant,
+        )
+        from protoboard.domain.components.package.kind import synth_generic_package
+
+        assert isinstance(footprint, GenericFootprint)
+        package = synth_generic_package(footprint)
+        assert package is not None
+        pin_count = footprint.pin_count()
+        family_id = f"generic-{name.lower()}-{pin_count}"
+        family = PackageFamily(
+            family_id=family_id,
+            label=family_id,
+            variants=(PackageVariant("std", "std", package),),
+        )
+        definition = ComponentDefinition(
+            name=name,
+            component_class=component_class,
+            meta_pins=tuple(MetaPin((str(index),)) for index in range(1, pin_count + 1)),
+            package_options=(
+                PackageOption(
+                    name="generic",
+                    ref=f"{family_id}/std",
+                    pin_map={index: (index,) for index in range(1, pin_count + 1)},
+                ),
+            ),
+        )
+        return definition, {family_id: family}
+
+    def test_two_pin_generic_package_renders_generic(self) -> None:
+        defn, families = self._generic_definition(
             name="X",
             component_class=ComponentClass.RESISTOR,
             footprint=SIL(n=2),
-            pin_names={},
         )
-        # The definition always carries a package (the synthesized generic
-        # bbox body) — the bare part renders through PackageBody over it.
         from protoboard.domain.components.package.kind import (
             is_generic_package,
         )
-        shape = body_shape_for(defn)
+        shape = body_shape_for(defn, package_families=families)
         assert isinstance(shape, PackageBody)
         assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
 
-    def test_bare_footprint_falls_back_to_generic(self) -> None:
-        # A footprint is only a pin cloud (count + spacing) — it no longer
-        # determines a body.  Without a resolved package, any bare footprint
-        # (SIL-3 transistor, DIL-8 IC, …) draws the generic bbox body; a part
-        # that wants TO-92 / DIP silhouette declares a package instead (see the
-        # TestTO92PackageParity / TestTO220PackageParity / inline-package tests).
+    def test_generic_packages_render_generic_for_different_pin_layouts(self) -> None:
         for cls, fp in (
             (ComponentClass.TRANSISTOR_NPN, SIL(n=3)),
             (ComponentClass.IC, DIL(n=8)),
         ):
-            defn = ComponentDefinition.from_footprint(name="U1",
-                                       component_class=cls,
-                                       footprint=fp,
-                                       pin_names={})
+            defn, families = self._generic_definition("U1", cls, fp)
             from protoboard.domain.components.package.kind import (
                 is_generic_package,
             )
-            shape = body_shape_for(defn)
+            shape = body_shape_for(defn, package_families=families)
             assert isinstance(shape, PackageBody)
             assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
 
@@ -1224,13 +1233,35 @@ class TestBodyShapeFor:
             },
             "TEST_DEVBOARD",
         )
+        from protoboard.domain.components.package import package_to_footprint
+        from protoboard.domain.components.package.family import (
+            PackageFamily,
+            PackageVariant,
+        )
+
+        pin_count = package_to_footprint(pkg).pin_count()
+        family = PackageFamily(
+            family_id="test-devboard",
+            label="test-devboard",
+            variants=(PackageVariant("std", "std", pkg),),
+        )
         defn = ComponentDefinition(
             name="MOD1",
             component_class=ComponentClass.DEVBOARD,
-            package=pkg,
-            pin_names={},
+            meta_pins=tuple(
+                MetaPin((str(index),)) for index in range(1, pin_count + 1)
+            ),
+            package_options=(
+                PackageOption(
+                    name="default",
+                    ref="test-devboard/std",
+                    pin_map={index: (index,) for index in range(1, pin_count + 1)},
+                ),
+            ),
         )
-        shape = body_shape_for(defn)
+        shape = body_shape_for(
+            defn, package_families={family.family_id: family}
+        )
         assert isinstance(shape, PackageBody)
 
     def test_placed_instance_reaches_the_renderer(self) -> None:
@@ -1238,16 +1269,17 @@ class TestBodyShapeFor:
         # for plugins that draw part identity: instance.value (a resistance
         # for colour bands), instance.definition (part name), refdes.
         import uuid as _uuid
-        defn = ComponentDefinition.from_footprint(
+        defn, families = self._generic_definition(
             name="R",
             component_class=ComponentClass.RESISTOR,
             footprint=SIL(n=2),
-            pin_names={},
         )
         inst = ComponentInstance(
             id=_uuid.uuid4(), definition_ref="R", refdes="R1", value="10k",
-        ).bind(defn, {})
-        shape = body_shape_for(defn, instance=inst)
+        ).bind(defn, families)
+        shape = body_shape_for(
+            defn, instance=inst, package_families=families
+        )
         assert isinstance(shape, PackageBody)
         assert shape._instance is inst
         # A bound instance reaches the rest: definition (part name) + value.
@@ -1267,18 +1299,26 @@ class TestBodyShapeFor:
 
     def test_generic_fallback_for_large_connector(self) -> None:
         # 10-pin SIL connector — no special shape.
-        defn = _make_defn(ComponentClass.CONNECTOR, n_pins=10, fp_type="SIL")
-        shape = body_shape_for(defn)
+        defn, families = self._generic_definition(
+            "TEST", ComponentClass.CONNECTOR, SIL(n=10)
+        )
+        shape = body_shape_for(defn, package_families=families)
         assert isinstance(shape, BodyShape)
 
     def test_placement_vflipped_passed_through(self) -> None:
-        defn = _make_defn(ComponentClass.DIODE, n_pins=2, fp_type="TwoPin")
+        defn, families = self._generic_definition(
+            "TEST", ComponentClass.DIODE, SIL(n=2)
+        )
         pl_normal = _make_placement()
         pl_flipped = _make_placement()
         pl_flipped.vertical_flipped = True
         # Both should return a valid BodyShape without error.
-        s1 = body_shape_for(defn, placement=pl_normal)
-        s2 = body_shape_for(defn, placement=pl_flipped)
+        s1 = body_shape_for(
+            defn, placement=pl_normal, package_families=families
+        )
+        s2 = body_shape_for(
+            defn, placement=pl_flipped, package_families=families
+        )
         assert isinstance(s1, BodyShape)
         assert isinstance(s2, BodyShape)
 
@@ -1290,17 +1330,49 @@ class TestBodyShapeFor:
 
 class TestPackageBodyDispatch:
 
-    def test_package_wins_over_legacy_footprint(self) -> None:
-        # A catalogue package on the definition takes precedence over the prism
-        # synthesized from the footprint (both render via PackageBody, but the
-        # catalogue geometry wins).
-        defn = ComponentDefinition(
+    @staticmethod
+    def _definition(
+        *options: PackageOption,
+        name: str = "D1",
+        component_class: ComponentClass = ComponentClass.DIODE,
+        pin_count: int = 2,
+    ) -> ComponentDefinition:
+        pin_map = {index: (index,) for index in range(1, pin_count + 1)}
+        normalized = tuple(
+            PackageOption(
+                name=option.name,
+                ref=option.ref,
+                style=option.style,
+                pin_map=pin_map,
+            )
+            for option in options
+        )
+        return ComponentDefinition(
+            name=name,
+            component_class=component_class,
+            meta_pins=tuple(
+                MetaPin((str(index),)) for index in range(1, pin_count + 1)
+            ),
+            package_options=normalized,
+        )
+
+    def test_default_package_resolves_to_package_body(self) -> None:
+        from protoboard.domain.components.package import PackageFamily, PackageVariant
+
+        package = _prism_package()
+        family = PackageFamily(
+            family_id="test-prism",
+            variants=(PackageVariant("std", "std", package),),  # type: ignore[arg-type]
+        )
+        defn = self._definition(
+            PackageOption(name="default", ref="test-prism/std"),
             name="U1",
             component_class=ComponentClass.IC,
-            pin_names={},
-            package=_prism_package(),  # type: ignore[arg-type]
+            pin_count=package.pin_count(),  # type: ignore[union-attr]
         )
-        shape = body_shape_for(defn)
+        shape = body_shape_for(
+            defn, package_families={family.family_id: family}
+        )
         assert isinstance(shape, PackageBody)
         assert shape._pkg is not None  # type: ignore[attr-defined]
 
@@ -1317,16 +1389,27 @@ class TestPackageBodyDispatch:
             Vector(0.0, 1.0),  # (1,0)->(1,1)
             Vector(0.0, 1.0),  # (1,1)->(1,2)
         ])
-        defn = ComponentDefinition.from_footprint(
+        from protoboard.domain.components.package import PackageFamily, PackageVariant
+        from protoboard.domain.components.package.kind import synth_generic_package
+
+        package = synth_generic_package(grid)
+        assert package is not None
+        family = PackageFamily(
+            family_id="grid-generic",
+            variants=(PackageVariant("std", "std", package),),
+        )
+        defn = self._definition(
+            PackageOption(name="generic", ref="grid-generic/std"),
             name="J1",
             component_class=ComponentClass.CONNECTOR,
-            footprint=grid,
-            pin_names={},
+            pin_count=grid.pin_count(),
         )
         from protoboard.domain.components.package.kind import (
             is_generic_package,
         )
-        shape = body_shape_for(defn)
+        shape = body_shape_for(
+            defn, package_families={family.family_id: family}
+        )
         assert isinstance(shape, PackageBody)
         assert is_generic_package(shape._pkg)  # type: ignore[attr-defined]
 
@@ -1348,22 +1431,15 @@ class TestPackageBodyDispatch:
         }
 
     def test_family_ref_resolves_to_package_body(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="D1",
-            component_class=ComponentClass.DIODE,
-            footprint=SIL(n=2),
-            pin_names={},
-            package_options=(PackageOption(name="DO-35/typ", ref="DO-35/typ"),),
+        defn = self._definition(
+            PackageOption(name="DO-35/typ", ref="DO-35/typ"),
         )
         shape = body_shape_for(defn, package_families=self._families())
         assert isinstance(shape, PackageBody)
 
     def test_instance_variant_resolves_to_package_body(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="D1",
-            component_class=ComponentClass.DIODE,
-            footprint=SIL(n=2),
-            pin_names={},
+        defn = self._definition(
+            PackageOption(name="DO-35/typ", ref="DO-35/typ"),
         )
         inst = ComponentInstance.new(
             definition_ref="D1",
@@ -1379,12 +1455,8 @@ class TestPackageBodyDispatch:
         assert isinstance(shape, PackageBody)
 
     def test_unresolved_package_ref_raises(self) -> None:
-        defn = ComponentDefinition.from_footprint(
-            name="D1",
-            component_class=ComponentClass.DIODE,
-            footprint=SIL(n=2),
-            pin_names={},
-            package_options=(PackageOption(name="NOPE/x", ref="NOPE/x"),),
+        defn = self._definition(
+            PackageOption(name="NOPE/x", ref="NOPE/x"),
         )
         with pytest.raises(ValueError, match="NOPE/x"):
             body_shape_for(defn, package_families=self._families())

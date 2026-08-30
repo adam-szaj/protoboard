@@ -72,7 +72,9 @@ _SAMPLES: list[tuple[str, str, str | None]] = [
 def _library() -> object:
     fams = load_full_package_catalogue()
     lib = load_library([__import__("pathlib").Path("library")], fams)
-    return (lib, fams)
+    for _label, name, _variant in _SAMPLES:
+        lib.get(name)
+    return (lib, {**fams, **lib.package_families})
 
 
 def _body_and_pins(
@@ -87,10 +89,7 @@ def _body_and_pins(
         id=uuid.uuid4(), definition_ref=defn_name, refdes="X1", value="v",
         package_variant=variant,
     )
-    try:
-        inst = inst.bind(defn, fams)
-    except Exception:
-        pass
+    inst = inst.bind(defn, fams)
     fp = resolved_footprint(defn, inst, fams)
     pl = ComponentPlacement(
         component_id=uuid.uuid4(), position=Point(20.0, 20.0),
@@ -123,10 +122,7 @@ def _pin_span(
         id=uuid.uuid4(), definition_ref=defn_name, refdes="X1", value="v",
         package_variant=variant,
     )
-    try:
-        inst = inst.bind(defn, fams)
-    except Exception:
-        pass
+    inst = inst.bind(defn, fams)
     fp = resolved_footprint(defn, inst, fams)
     pl = ComponentPlacement(
         component_id=uuid.uuid4(), position=Point(20.0, 20.0),

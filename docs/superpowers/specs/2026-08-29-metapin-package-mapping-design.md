@@ -110,3 +110,77 @@ loader normalization; mapping helpers; connectivity and persistence; geometry
 consumers; GUI; then library YAML and the remaining test fixtures. Final
 verification includes the complete unit and GUI suites, `mypy --strict`,
 Pyright, formatting, and GUI smoke tests.
+
+## Package References and Catalogue Structure
+
+The component-to-package authoring model is extended without adding another
+runtime representation. `ComponentDefinition.package_options` remains the only
+stored set of package choices, and its first entry is the default. Every option
+owns both its catalogue address and its `pin_map`; an instance may select only
+an address declared directly by an option or a concrete variant expanded from
+a family option. Every expanded variant uses the declaring option's `pin_map`.
+
+Component YAML accepts three typed reference forms:
+
+- `@family[/variant]` selects a package family or one concrete variant.
+- `#named-package` builds a standalone entry from the package-definition
+  registry.
+- `$kind` invokes a package generator, including its parameter collection path.
+
+The prefixes are authoring syntax only. The loader resolves or materializes the
+reference and stores a canonical, unprefixed catalogue address in
+`PackageOption.ref`. Runtime package resolution therefore remains independent
+of YAML syntax and never stores inline `Package` geometry on either
+`ComponentDefinition` or `PackageOption`.
+
+The component-level `package:` form remains concise authoring sugar. The loader
+builds it, registers it as `<component-name>-package/std`, and creates the
+corresponding default `PackageOption`. Its top-level `pin_map` becomes that
+option's mapping. Declaring both `package:` and `package_options:` is rejected;
+authors must express all choices in `package_options`.
+
+Unprefixed authored references are invalid. Unknown prefixes, unresolved
+references, and stale catalogue addresses fail at the library boundary with an
+actionable error. No aliases or persistence rename maps are provided.
+
+## Namespaced Package Families
+
+Package-family identifiers describe a real domain and standard series, for
+example `r-tht/DIN`, `d-tht/DO`, or `chip-smd/imperial`. Variants represent
+normalised physical sizes such as `0207`, `35`, or `0805`. The artificial
+`S`/`typ`/`L` range around one nominal size is removed; migration retains the
+old nominal (`typ`) geometry as the new size variant.
+
+Family-level values provide shared defaults and variants may override them.
+Catalogue validation rejects ambiguity where one family identifier equals a
+variant address of another family. Family reference resolution chooses the
+family default; a variant reference selects exactly that variant.
+
+## Package Picker
+
+The picker is driven exclusively by the active component's
+`package_options`. It never searches the global catalogue for packages with a
+matching physical or logical pin count. This prevents unrelated two-pin bodies
+from being offered merely because their cardinality matches.
+
+Options are displayed as a tree derived from the namespace segments of their
+canonical catalogue addresses. A family reference expands to its variants; a
+variant reference remains a leaf. Generated and inline families appear only
+when the component declares or materializes them. Recent selections remain
+leaves and must still correspond to a currently declared option.
+
+## Extended Migration Order
+
+The MetaPin migration is completed and verified before reference syntax or
+catalogue addresses change. The follow-up proceeds in dependency order:
+
+1. parse typed references and normalize them to `PackageOption`;
+2. validate namespaced families and family-default resolution;
+3. migrate catalogue assets, component YAML, fixtures, and saved test projects
+   in one pass;
+4. remove pin-count fallback and introduce the picker tree;
+5. rewrite authoring and architecture documentation and run final repository
+   verification.
+
+At no point may these stages reintroduce `PackageFootprint`, `FootprintOption`,
+`ComponentDefinition.package`, `pin_names`, or `PinVariant`.

@@ -11,13 +11,18 @@ out at full opacity.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 
 from PySide6.QtWidgets import QGraphicsScene
 
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerState
@@ -25,12 +30,28 @@ from protoboard.gui.renderers.component_renderer import _render_one
 from protoboard.controller.theme import DEFAULT_THEME
 
 
+_SIL2_FAMILY = sil_family(2)
+assert _SIL2_FAMILY is not None
+_FAMILIES = {_SIL2_FAMILY.family_id: _SIL2_FAMILY}
+_THEME = dataclasses.replace(DEFAULT_THEME, package_families=_FAMILIES)
+
+
 def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlacement, uuid.UUID]:
     cid = uuid.uuid4()
-    defn = ComponentDefinition.from_footprint(
-        name="R", footprint=SIL(n=2), pin_names={1: "A", 2: "B"},
+    defn = ComponentDefinition(
+        name="R",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
     )
-    inst = ComponentInstance(id=cid, definition_ref="R", refdes="R1", value="").bind(defn, {})
+    inst = ComponentInstance(
+        id=cid, definition_ref="R", refdes="R1", value=""
+    ).bind(defn, _FAMILIES)
     placement = ComponentPlacement(
         component_id=cid, position=Point(0.5, 0.5), rotation=90, side="top",
     )
@@ -50,7 +71,7 @@ class TestHighlightedComponentBypassesGhost:
         scene_normal = QGraphicsScene()
         grp_normal = _render_one(
             scene_normal, placement, inst, defn, cid, {}, None,
-            DEFAULT_THEME, layers, group_alpha=1.0,
+            _THEME, layers, group_alpha=1.0,
             highlighted_net_id=None, is_highlighted_comp=False,
         )
         assert grp_normal is None, (
@@ -60,7 +81,7 @@ class TestHighlightedComponentBypassesGhost:
         scene_bold = QGraphicsScene()
         grp_bold = _render_one(
             scene_bold, placement, inst, defn, cid, {}, None,
-            DEFAULT_THEME, layers, group_alpha=1.0,
+            _THEME, layers, group_alpha=1.0,
             highlighted_net_id=None, is_highlighted_comp=True,
         )
         assert grp_bold is not None, (
@@ -75,7 +96,7 @@ class TestHighlightedComponentBypassesGhost:
         scene = QGraphicsScene()
         grp = _render_one(
             scene, placement, inst, defn, cid, {}, None,
-            DEFAULT_THEME, layers, group_alpha=0.0,
+            _THEME, layers, group_alpha=0.0,
             highlighted_net_id=None, is_highlighted_comp=True,
         )
         assert grp is None

@@ -23,9 +23,13 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -136,8 +140,16 @@ class _StubGraph:
 
 
 def _two_pin_def() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(
-        name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
+    return ComponentDefinition(
+        name="CONN",
+        meta_pins=(MetaPin(("1",)), MetaPin(("2",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
     )
 
 
@@ -160,8 +172,15 @@ def _build_two_island_scenario() -> (
         J1.pin2   J2.pin2     <- island B (or wherever)
     """
     defn = _two_pin_def()
-    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="").bind(defn, {})
-    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="").bind(defn, {})
+    family = sil_family(2)
+    assert family is not None
+    families = {family.family_id: family}
+    inst_a = ComponentInstance.new(
+        definition_ref="CONN", refdes="J1", value=""
+    ).bind(defn, families)
+    inst_b = ComponentInstance.new(
+        definition_ref="CONN", refdes="J2", value=""
+    ).bind(defn, families)
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
     components = {"CONN": defn}
     placements = {

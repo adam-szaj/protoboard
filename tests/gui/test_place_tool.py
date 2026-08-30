@@ -82,6 +82,12 @@ class TestPlaceToolSmdMount:
         from protoboard.domain.components.definition import (
             ComponentClass,
             ComponentDefinition,
+            MetaPin,
+            PackageOption,
+        )
+        from protoboard.domain.components.package import (
+            PackageFamily,
+            PackageVariant,
         )
         from protoboard.domain.components.package.loader import build_package
         pkg = build_package(
@@ -97,9 +103,22 @@ class TestPlaceToolSmdMount:
             },
             "SMD_TEST",
         )
+        family = PackageFamily(
+            family_id="SMD_TEST-package",
+            variants=(PackageVariant("std", "std", pkg),),
+        )
+        session.package_families[family.family_id] = family
         defn = ComponentDefinition(
-            name="R_SMD", component_class=ComponentClass.RESISTOR,
-            pin_names={}, package=pkg,
+            name="R_SMD",
+            component_class=ComponentClass.RESISTOR,
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=(
+                PackageOption(
+                    name="SMD_TEST",
+                    ref="SMD_TEST-package/std",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
+            ),
         )
         session.components["R_SMD"] = defn
         return "R_SMD"
@@ -240,8 +259,9 @@ class TestPlaceToolSmdMount:
             component_id=uuid.uuid4(), position=Point(1.0, 1.0),
             rotation=0, side="top", pin_offsets={2: off},
         )
-        p1 = pin_world_position(defn.default_footprint(), pl, 1)
-        p2 = pin_world_position(defn.default_footprint(), pl, 2)
+        footprint = defn.default_footprint(session.package_families)
+        p1 = pin_world_position(footprint, pl, 1)
+        p2 = pin_world_position(footprint, pl, 2)
         assert (round(p1.x), round(p1.y)) == (1, 1)
         assert (round(p2.x), round(p2.y)) == (2, 2)  # SE diagonal neighbour
 

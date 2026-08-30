@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import meta_pin_for_package_pin
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 from protoboard.domain.layout.placement import (
@@ -77,6 +78,18 @@ _PIN_NAME_FONT_SIZE: float = -1.0
 _DEFAULT_LAYERS = LayerState()
 
 _IGN = QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
+
+
+def _compact_package_pin_label(
+    defn: ComponentDefinition,
+    inst: ComponentInstance,
+    package_pin_number: int,
+) -> str | None:
+    """Return the compact logical label rendered beside a physical pad."""
+    meta_pin_index = meta_pin_for_package_pin(defn, inst, package_pin_number)
+    if meta_pin_index is None:
+        return None
+    return defn.meta_pin(meta_pin_index).labels[0]
 
 
 def _get_refdes_font(pt: float) -> QFont:
@@ -548,8 +561,13 @@ def _render_one(
         pin_number = pin_idx + 1
         if pin_number in skip_pins:
             continue
-        ref = PinRef(component_id=comp_id, pin_number=pin_number)
-        net_id = pin_net.get(ref)
+        meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_number)
+        ref = (
+            PinRef(component_id=comp_id, pin_number=meta_pin_index)
+            if meta_pin_index is not None
+            else None
+        )
+        net_id = pin_net.get(ref) if ref is not None else None
 
         is_bold = (
             highlighted_net_id is not None
@@ -628,7 +646,7 @@ def _render_one(
     # Pin-name labels (controlled by the pin_names layer) — independent of the
     # labels layer, so they render even when the refdes/value labels are hidden.
     alpha_pin_names = layers.alpha_for_pin_names(side, cid=comp_id) * group_alpha
-    if alpha_pin_names > 0.0 and defn.pin_names:
+    if alpha_pin_names > 0.0 and defn.meta_pins:
         # Text colour stays at full theme alpha; only the background pill
         # fades.  Keeps pin names readable even on ghosted/back layers.
         pin_name_color = QColor(theme.pin_label_fallback_color)
@@ -636,7 +654,7 @@ def _render_one(
         pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
         for pin_idx, pos in enumerate(positions):
             pin_number = pin_idx + 1
-            name = defn.pin_names.get(pin_number)
+            name = _compact_package_pin_label(defn, inst, pin_number)
             if not name:
                 continue
             for item in _make_overlay_label(

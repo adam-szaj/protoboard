@@ -183,7 +183,7 @@ class TestKindVariantDialog:
 def lib_and_cat():
     cat = load_full_package_catalogue()
     lib = load_library([Path("library")], cat)
-    return lib, cat
+    return lib, lib.package_families
 
 
 class TestDefaultProvider:
@@ -239,12 +239,13 @@ class TestProviderKindParams:
             "    pins: {count: 6}\n"
             "    package: {kind: pin_header, rows: null}\n"
         )
-        return load_library([tmp_path]).get("HDR_ASK")
+        lib = load_library([tmp_path])
+        return lib.get("HDR_ASK"), lib.package_families
 
     def test_hole_becomes_param_row(self, tmp_path) -> None:
-        defn = self._defn_with_hole(tmp_path)
+        defn, families = self._defn_with_hole(tmp_path)
         assert defn is not None
-        provider = DefaultFootprintChoiceProvider({})
+        provider = DefaultFootprintChoiceProvider(families)
         opts = provider.options(defn)
         assert len(opts) == 1 and opts[0].is_kind
         params = provider.kind_params(opts[0].address)
@@ -254,9 +255,8 @@ class TestProviderKindParams:
         from protoboard.domain.components.package.family import (
             resolve_variant,
         )
-        defn = self._defn_with_hole(tmp_path)
+        defn, families = self._defn_with_hole(tmp_path)
         assert defn is not None
-        families: dict = {}
         provider = DefaultFootprintChoiceProvider(families)
         opts = provider.options(defn)
         address = provider.build_variant(opts[0].address, {"rows": "2"})
@@ -269,9 +269,9 @@ class TestProviderKindParams:
         assert variant.package.bbox().ly < 6
 
     def test_build_variant_invalid_values_returns_none(self, tmp_path) -> None:
-        defn = self._defn_with_hole(tmp_path)
+        defn, families = self._defn_with_hole(tmp_path)
         assert defn is not None
-        provider = DefaultFootprintChoiceProvider({})
+        provider = DefaultFootprintChoiceProvider(families)
         opts = provider.options(defn)
         # rows=3 is unrealisable for a pin header → generator raises → None.
         assert provider.build_variant(opts[0].address, {"rows": "3"}) is None
@@ -291,7 +291,8 @@ class TestRecentVariants:
             f"    pins: {{count: {pins}}}\n"
             f"    package: {{kind: pin_header, rows: null}}\n"
         )
-        return load_library([tmp_path]).get(name)
+        lib = load_library([tmp_path])
+        return lib.get(name), lib.package_families
 
     def test_build_variant_is_reoffered_in_a_fresh_session(
         self, tmp_path
@@ -299,20 +300,20 @@ class TestRecentVariants:
         from protoboard.domain.components.package.family import (
             resolve_variant,
         )
-        defn = self._defn_with_hole(tmp_path)
-        provider = DefaultFootprintChoiceProvider({})
+        defn, families = self._defn_with_hole(tmp_path)
+        fresh_families = dict(families)
+        provider = DefaultFootprintChoiceProvider(families)
         opts = provider.options(defn)
         built = provider.build_variant(opts[0].address, {"rows": "2"})
         assert built is not None
 
         # A fresh provider + empty catalogue = a new session.
-        families: dict = {}
-        fresh = DefaultFootprintChoiceProvider(families)
+        fresh = DefaultFootprintChoiceProvider(fresh_families)
         addr = fresh.options(defn)[0].address
         views = fresh.recent_variants(addr)
         assert [v.address for v in views] == [built]
         # The rebuild registered the family, so confirming the row resolves.
-        variant = resolve_variant(families, built)
+        variant = resolve_variant(fresh_families, built)
         assert variant is not None and isinstance(variant.package, Prism)
         assert variant.package.kind == "pin_header"
 
@@ -321,15 +322,18 @@ class TestRecentVariants:
     ) -> None:
         # The history stores the PARAMETER SET, not a geometry: rows=2 built
         # on a 6-pin part re-offers as a 2×5 on a 10-pin part.
-        defn6 = self._defn_with_hole(tmp_path, name="HDR6", pins=6)
-        provider = DefaultFootprintChoiceProvider({})
+        defn6, families6 = self._defn_with_hole(
+            tmp_path, name="HDR6", pins=6
+        )
+        provider = DefaultFootprintChoiceProvider(families6)
         provider.options(defn6)
         assert provider.build_variant(
             provider.options(defn6)[0].address, {"rows": "2"}) is not None
 
-        defn10 = self._defn_with_hole(tmp_path, name="HDR10", pins=10)
-        families: dict = {}
-        fresh = DefaultFootprintChoiceProvider(families)
+        defn10, families10 = self._defn_with_hole(
+            tmp_path, name="HDR10", pins=10
+        )
+        fresh = DefaultFootprintChoiceProvider(families10)
         addr = fresh.options(defn10)[0].address
         views = fresh.recent_variants(addr)
         assert len(views) == 1
@@ -338,8 +342,8 @@ class TestRecentVariants:
     def test_unbuildable_history_entry_is_skipped(self, tmp_path) -> None:
         from protoboard.gui import recent_kind_variants
         recent_kind_variants.add("no_such_kind", {"x": 1}, "ghost")
-        defn = self._defn_with_hole(tmp_path)
-        provider = DefaultFootprintChoiceProvider({})
+        defn, families = self._defn_with_hole(tmp_path)
+        provider = DefaultFootprintChoiceProvider(families)
         addr = provider.options(defn)[0].address
         # Entries for other/vanished kinds never surface for this kind...
         assert provider.recent_variants(addr) == []
@@ -348,8 +352,8 @@ class TestRecentVariants:
         assert provider.recent_variants(addr) == []
 
     def test_history_dedupes_by_parameter_set(self, tmp_path) -> None:
-        defn = self._defn_with_hole(tmp_path)
-        provider = DefaultFootprintChoiceProvider({})
+        defn, families = self._defn_with_hole(tmp_path)
+        provider = DefaultFootprintChoiceProvider(families)
         addr = provider.options(defn)[0].address
         assert provider.build_variant(addr, {"rows": "2"}) is not None
         assert provider.build_variant(addr, {"rows": "1"}) is not None
@@ -364,13 +368,14 @@ class TestRecentVariants:
     ) -> None:
         # End-to-end: a previously-built variant shows in the pop-up's
         # "Recently used" list and OK confirms it with no input.
-        defn = self._defn_with_hole(tmp_path)
-        provider = DefaultFootprintChoiceProvider({})
+        defn, families = self._defn_with_hole(tmp_path)
+        fresh_families = dict(families)
+        provider = DefaultFootprintChoiceProvider(families)
         addr = provider.options(defn)[0].address
         built = provider.build_variant(addr, {"rows": "2"})
         assert built is not None
 
-        fresh = DefaultFootprintChoiceProvider({})
+        fresh = DefaultFootprintChoiceProvider(fresh_families)
         fresh_addr = fresh.options(defn)[0].address
         dlg = KindVariantDialog(fresh, fresh_addr)
         qtbot.addWidget(dlg)

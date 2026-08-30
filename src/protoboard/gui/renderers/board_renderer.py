@@ -462,6 +462,7 @@ def build_pad_net_map(
     from protoboard.domain.layout.pad_conflict import (
         resolved_footprint_or_default,
     )
+    from protoboard.domain.components.package import meta_pin_for_package_pin
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
     from protoboard.gui.renderers.net_color import build_net_color_map
@@ -490,7 +491,10 @@ def build_pad_net_map(
         for n in range(fp.pin_count()):
             pin_number = n + 1
             pos = pin_world_position(fp, placement, pin_number)
-            ref = PinRef(component_id=comp_id, pin_number=pin_number)
+            meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_number)
+            if meta_pin_index is None:
+                continue
+            ref = PinRef(component_id=comp_id, pin_number=meta_pin_index)
             net_id = pin_to_net.get(ref)
             if net_id is None:
                 # Pin without a net — None marker triggers

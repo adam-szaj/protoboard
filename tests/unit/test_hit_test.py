@@ -86,6 +86,11 @@ class _FakeCtx:
     def iter_pin_positions(self, comp_id: uuid.UUID) -> list[tuple[int, Point]]:
         return self._pins.get(comp_id, [])
 
+    def meta_pin_for_package_pin(
+        self, _comp_id: uuid.UUID, package_pin_number: int
+    ) -> int:
+        return package_pin_number
+
     def component_bbox(self, comp_id: uuid.UUID) -> Rect | None:
         return self._bboxes.get(comp_id)
 

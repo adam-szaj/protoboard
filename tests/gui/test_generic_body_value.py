@@ -31,16 +31,24 @@ _TO92_PADS = ((0.0, 0.0), (1.0, 0.0), (2.0, 0.0))
 @pytest.fixture(scope="module")
 def library():
     from protoboard.services.library.loader import load_library
-    load_renderer_plugins([BUILTIN_LIBRARY_DIR])
-    return load_library([BUILTIN_LIBRARY_DIR])
-
-
-@pytest.fixture(scope="module")
-def families():
     from protoboard.services.library.package_family_loader import (
         load_full_package_catalogue,
     )
-    return load_full_package_catalogue()
+    load_renderer_plugins([BUILTIN_LIBRARY_DIR])
+    return load_library(
+        [BUILTIN_LIBRARY_DIR], load_full_package_catalogue()
+    )
+
+
+@pytest.fixture(scope="module")
+def families(library):
+    from protoboard.services.library.package_family_loader import (
+        load_full_package_catalogue,
+    )
+    return {
+        **library.package_families,
+        **load_full_package_catalogue(),
+    }
 
 
 def _draw(library, families, value: str):
@@ -167,4 +175,3 @@ def test_generic_label_rotates_with_body(qtbot, library, families) -> None:
     # may add a half turn to keep glyphs readable).
     delta = (angle90 - angle0) % 180.0
     assert delta == pytest.approx(90.0, abs=1.0)
-

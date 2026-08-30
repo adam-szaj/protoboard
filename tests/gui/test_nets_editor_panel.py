@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 from pytestqt.qtbot import QtBot
@@ -11,6 +12,7 @@ from pytestqt.qtbot import QtBot
 from PySide6.QtCore import Qt
 
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.definition import MetaPin
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel, _NET_COL_NAME, _ROLE
 from protoboard.gui.session import EditorSession
@@ -122,6 +124,25 @@ class TestNetsEditorPanelNetList:
 # ---------------------------------------------------------------------------
 
 class TestNetsEditorPanelPinList:
+    def test_pin_shows_all_metapin_labels(
+        self, qtbot: QtBot, session: EditorSession
+    ) -> None:
+        panel = _panel(qtbot)
+        definition = session.components["R"]
+        session.components["R"] = replace(
+            definition,
+            meta_pins=(MetaPin(("15", "PB3", "MOSI")), definition.meta_pins[1]),
+        )
+        _add_instance(session, "R1")
+
+        panel.refresh(session)
+
+        parent = panel._pin_tree.topLevelItem(0)
+        assert parent is not None
+        pin_item = parent.child(0)
+        assert pin_item is not None
+        assert pin_item.text(1) == "15 / PB3 / MOSI"
+
     def test_pins_shown_per_instance(
         self, qtbot: QtBot, session: EditorSession
     ) -> None:

@@ -205,7 +205,7 @@ explicit `pin_map`. Translate KiCad physical pads at its boundary.
 - [ ] **Step 4: Run `.venv/bin/python -m pytest tests/gui -q` and commit as
 `refactor(gui): present and select metapins`.
 
-### Task 7: Remove legacy API and verify repository
+### Task 7: Remove legacy pin API and establish a green baseline
 
 **Files:**
 - Modify: remaining files found by repository-wide searches
@@ -237,5 +237,169 @@ git diff --check
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/gui -q
 ```
 
-- [ ] **Step 4: Run the established GUI smoke workflow**, update architecture
-and authoring documentation, then commit only after every check passes.
+- [ ] **Step 4: Run the established GUI smoke workflow**, update MetaPin
+architecture and authoring documentation, then commit only after every check
+passes. This is the baseline for Tasks 8-12, not the final branch verification.
+
+### Task 8: Typed package references normalized to PackageOption
+
+**Files:**
+- Modify: `src/protoboard/services/library/loader.py`
+- Modify: `src/protoboard/services/library/parametric.py`
+- Test: `tests/unit/test_library_loader.py`
+- Test: `tests/unit/test_parametric_components.py`
+
+**Interfaces:**
+- Consumes: `PackageOption(name, ref, pin_map, style)` and the package-family
+  catalogue
+- Produces: YAML refs `@family[/variant]`, `#named-package`, and `$kind`
+  normalized to canonical unprefixed `PackageOption.ref` addresses
+
+- [ ] **Step 1: Add failing reference tests** proving that `@` resolves a
+family or variant, `#` builds a named package, `$` materializes a kind, and a
+bare or unknown ref fails loudly. Assert that every resulting option has a
+validated `pin_map` and contains no inline `Package`.
+- [ ] **Step 2: Verify RED** with
+`.venv/bin/python -m pytest tests/unit/test_library_loader.py tests/unit/test_parametric_components.py -q --maxfail=1`.
+- [ ] **Step 3: Implement parse-time dispatch.** Strip `@` after resolving the
+family reference. Build `#` and `$` references through the existing package
+registry/generator, register the result under an internal family id, and store
+only its canonical address. Reject `package:` together with
+`package_options:`. Keep `package:` sugar registering
+`<component-name>-package/std` and attach its top-level `pin_map` to the
+generated option.
+- [ ] **Step 4: Verify and commit** the focused loader tests, then
+`git diff --check`; commit as `refactor(loader): normalize typed package refs`.
+
+### Task 9: Namespaced family invariants
+
+**Files:**
+- Modify: `src/protoboard/domain/components/package/family.py`
+- Modify: `src/protoboard/services/library/package_family_loader.py`
+- Test: `tests/unit/test_package_family.py`
+- Test: `tests/unit/test_package_family_loader.py`
+
+**Interfaces:**
+- Produces: family refs resolving their declared default variant
+- Produces: catalogue validation rejecting a family id that shadows another
+  family's variant address
+
+- [ ] **Step 1: Add failing tests** for `r-tht/DIN` resolving its default,
+`r-tht/DIN/0207` resolving a concrete size, missing defaults, and the collision
+between family `r-tht/DIN/0207` and variant `0207` of `r-tht/DIN`.
+- [ ] **Step 2: Verify RED** with the two focused package-family test files.
+- [ ] **Step 3: Implement the minimum validation** in the catalogue loader.
+Preserve the existing flat `PackageFamily -> PackageVariant` dataclasses; the
+namespace lives only in `family_id`. Do not add type/kind dispatch.
+- [ ] **Step 4: Verify and commit** as
+`refactor(package): validate namespaced family addresses`.
+
+### Task 10: Migrate catalogue, libraries, and fixtures in one pass
+
+**Files:**
+- Rewrite: `assets/package_families/*.yaml`
+- Modify: `library/**/*.yaml`
+- Modify: package addresses in `tests/**/*.yaml` and affected Python fixtures
+- Test: `tests/unit/test_package_builtin_yaml.py`
+- Test: `tests/unit/test_library_loader.py`
+
+**Interfaces:**
+- Consumes: typed refs from Task 8 and namespaced families from Task 9
+- Produces: repository-authored YAML using only `meta_pins`,
+  `package_options`, explicit `pin_map`, and typed package refs
+
+- [ ] **Step 1: Record the complete old-to-new address table in the migration
+commit description.** Merge nominal sizes into real families such as
+`r-tht/DIN/{0204,0207,0411,0617,0922}`, `d-tht/DO/{15,35,41,201}`,
+`q-tht/TO-92/std`, and `chip-smd/imperial/{0402,...,1206}`. Preserve the old
+`typ` geometry exactly and drop `S`/`L` pseudo-variants.
+- [ ] **Step 2: Add or update loader smoke tests** that load the entire shipped
+catalogue and library, assert representative final addresses, and reject one
+old unprefixed address. Verify the test fails before rewriting assets.
+- [ ] **Step 3: Rewrite catalogue assets and component libraries once.** Every
+component option receives an explicit mapping. Family refs may expand to
+several physical sizes only when every expanded choice has the same valid
+MetaPin mapping; otherwise declare separate options.
+- [ ] **Step 4: Rewrite all repository fixtures and saved test projects.** Do
+not add aliases, address rename maps, or compatibility parsing.
+- [ ] **Step 5: Verify** the complete loader/package test group and run
+`rg -n 'DIN-0207/typ|DO-35/typ|SMD-0805/typ|package_family_ref' library assets tests src`;
+only intentional migration-error assertions may remain.
+- [ ] **Step 6: Commit** the single migration as
+`refactor(catalogue)!: namespace package families and refs`.
+
+### Task 11: Explicit package-option picker tree
+
+**Files:**
+- Modify: `src/protoboard/domain/components/package/generated_families.py`
+- Modify: `src/protoboard/gui/footprint_choice.py`
+- Modify: `src/protoboard/gui/dialogs/footprint_picker_dialog.py`
+- Modify: `src/protoboard/gui/panels/properties_panel.py`
+- Test: `tests/unit/test_generated_families.py`
+- Test: `tests/gui/test_footprint_picker_dialog.py`
+- Test: `tests/gui/test_panels.py`
+
+**Interfaces:**
+- Produces: picker options derived only from
+  `ComponentDefinition.package_options`
+- Produces: namespace path metadata for rendering options in a `QTreeWidget`
+
+- [ ] **Step 1: Add failing domain tests** proving that an unrelated package
+with the same pin count is never offered, an unmapped package is never offered,
+and each offered address corresponds to a declared `PackageOption`.
+- [ ] **Step 2: Remove the pin-count catalogue fallback.** Expand only a family
+explicitly referenced by an option; copy that option's `pin_map` to the
+concrete choice produced for a family variant. Reject an instance selection
+that does not resolve back to one of these declared/expanded options.
+- [ ] **Step 3: Add failing GUI tests** for nested namespace groups, family
+variant leaves, search, keyboard confirmation, recent selections, and a
+multi-label MetaPin shown in the detailed UI.
+- [ ] **Step 4: Replace the flat picker list with a tree** while retaining the
+existing selection and kind-parameter dialog behavior. Group nodes are not
+selectable; only concrete options produce an instance address.
+- [ ] **Step 5: Verify** the focused domain and GUI tests, then the complete GUI
+suite; commit as `refactor(gui): pick declared packages from namespace tree`.
+
+### Task 12: Documentation and final repository verification
+
+**Files:**
+- Modify: `docs/footprints/definition-variants.md`
+- Modify: `docs/footprints/package-model.md`
+- Modify: `docs/footprints/authoring.md`
+- Modify: `docs/data-model.md`
+- Modify: `docs/gui.md`
+- Modify: remaining architecture or example documents found by searches
+
+- [ ] **Step 1: Rewrite documentation** around one runtime concept:
+`PackageOption(ref, pin_map)`. Document `package:` as normalization sugar,
+the `@/#/$` authoring syntax, namespaced families, explicit picker offers, and
+the absence of backward compatibility.
+- [ ] **Step 2: Require no legacy production matches**:
+
+```bash
+rg -n "PackageFootprint|FootprintOption|ComponentDefinition\.package|pin_names|PinVariant|pin_variant|defn\.pin_count|package_family_ref" src
+```
+
+- [ ] **Step 3: Run formatting and strict types**:
+
+```bash
+.venv/bin/python -m black --check src tests
+.venv/bin/python -m ruff check src tests
+.venv/bin/python -m mypy --strict src
+.venv/bin/pyright
+git diff --check
+```
+
+- [ ] **Step 4: Run complete automated verification**:
+
+```bash
+.venv/bin/python -m pytest tests/unit -q
+.venv/bin/python -m pytest tests/gui -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/gui -q
+```
+
+- [ ] **Step 5: Run the established GUI smoke workflow**, including selecting
+a family variant from the tree, placing it, assigning a net through a MetaPin,
+and confirming that every mapped physical pad renders on that net.
+- [ ] **Step 6: Commit only after every check passes** as
+`docs: finalize metapin and package reference model`.

@@ -14,7 +14,10 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import resolved_footprint
+from protoboard.domain.components.package import (
+    package_pins_for_meta_pin,
+    resolved_footprint,
+)
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
@@ -678,16 +681,14 @@ def _pin_islands_for_net(
         if pl is None or inst is None:
             continue
         defn = components.get(inst.definition_ref)
-        if defn is None or ref.pin_number > defn.pin_count:
+        if defn is None or ref.pin_number > len(defn.meta_pins):
             continue
-        pos = pin_world_position(
-            resolved_footprint(defn, inst, inst.families), pl, ref.pin_number
-        )
+        positions = _physical_positions_for_ref(ref, pl, inst, defn)
         node = node_for_pin(ref)
         if node is None:
-            unassigned.append(pos)
+            unassigned.extend(positions)
         else:
-            by_island.setdefault(node, []).append(pos)
+            by_island.setdefault(node, []).extend(positions)
     result: list[list[Point]] = list(by_island.values())
     if unassigned:
         # Each pad outside the connectivity graph becomes its own
@@ -824,9 +825,23 @@ def _placed_pin_positions(
         if pl is None or inst is None:
             continue
         defn = components.get(inst.definition_ref)
-        if defn is None or ref.pin_number > defn.pin_count:
+        if defn is None or ref.pin_number > len(defn.meta_pins):
             continue
-        result.append(pin_world_position(
-            resolved_footprint(defn, inst, inst.families), pl, ref.pin_number
-        ))
+        result.extend(_physical_positions_for_ref(ref, pl, inst, defn))
     return result
+
+
+def _physical_positions_for_ref(
+    ref: PinRef,
+    placement: ComponentPlacement,
+    instance: ComponentInstance,
+    definition: ComponentDefinition,
+) -> list[Point]:
+    """Expand one logical PinRef to positions of its mapped package pins."""
+    footprint = resolved_footprint(definition, instance, instance.families)
+    return [
+        pin_world_position(footprint, placement, package_pin_number)
+        for package_pin_number in package_pins_for_meta_pin(
+            definition, instance, ref.meta_pin_index
+        )
+    ]

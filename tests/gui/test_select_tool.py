@@ -1842,9 +1842,13 @@ class TestNetContext:
         from protoboard.domain.board.board import Board
         from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
         from protoboard.domain.board.pads import PadLayers
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.definition import (
+            ComponentDefinition,
+            MetaPin,
+            PackageOption,
+        )
         from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.components.package.generated_families import sil_family
         from protoboard.domain.layout.placement import ComponentPlacement
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.geometry import Point
@@ -1865,12 +1869,23 @@ class TestNetContext:
         )
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         sess = EditorSession(board=Board(root=grid), library=lib)
-        # 2-pin component: pin1 on netA, pin2 on netB.
-        sess.components["D2"] = ComponentDefinition.from_footprint(
-            name="D2", footprint=SIL(2), pin_names={1: "A", 2: "B"}
+        # Physical pad order is deliberately opposite to logical MetaPin order.
+        family = sil_family(2)
+        assert family is not None
+        sess.package_families[family.family_id] = family
+        sess.components["D2"] = ComponentDefinition(
+            name="D2",
+            meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+            package_options=(
+                PackageOption(
+                    name="SIL-2",
+                    ref="sil-2/std",
+                    pin_map={1: (2,), 2: (1,)},
+                ),
+            ),
         )
         inst = ComponentInstance.new(definition_ref="D2", refdes="U1", value="")
-        inst = inst.bind(sess.components["D2"], {})
+        inst = inst.bind(sess.components["D2"], {family.family_id: family})
         sess.instances[inst.id] = inst
         sess.layout.placements[inst.id] = ComponentPlacement(
             component_id=inst.id, position=Point(2.5, 2.5), rotation=0, side="top"
@@ -1888,17 +1903,17 @@ class TestNetContext:
     def test_pad_click_sets_pin_net_context(self, qtbot) -> None:
         session, view, inst, na, nb = self._ctx_session(qtbot)
         tool = _v2(view)
-        _click(tool, 2.5, 2.5)  # pin1 pad → netA
-        assert tool.context_net_id == na.id
-        _click(tool, 2.5, 3.5)  # re-click pin2 pad → context moves to netB
+        _click(tool, 2.5, 2.5)  # physical pad 1 → MetaPin 2 → netB
         assert tool.context_net_id == nb.id
+        _click(tool, 2.5, 3.5)  # physical pad 2 → MetaPin 1 → netA
+        assert tool.context_net_id == na.id
         assert inst.id in _comp_ids(tool)  # component stays selected
 
     def test_body_click_clears_context(self, qtbot) -> None:
         session, view, inst, na, nb = self._ctx_session(qtbot)
         tool = _v2(view)
-        _click(tool, 2.5, 2.5)  # pin1 → netA context
-        assert tool.context_net_id == na.id
+        _click(tool, 2.5, 2.5)  # physical pad 1 → MetaPin 2 → netB
+        assert tool.context_net_id == nb.id
         _click(tool, 2.5, 2.92)  # body band (0.42 off pad) → no context
         assert tool.context_net_id is None
         assert inst.id in _comp_ids(tool)  # still selected (body click)
@@ -1906,18 +1921,32 @@ class TestNetContext:
     def test_context_persists_across_rotate(self, qtbot) -> None:
         session, view, inst, na, nb = self._ctx_session(qtbot)
         tool = _v2(view)
-        _click(tool, 2.5, 2.5)  # netA context
-        assert tool.context_net_id == na.id
+        _click(tool, 2.5, 2.5)  # physical pad 1 → MetaPin 2 → netB
+        assert tool.context_net_id == nb.id
         tool._rotate_selected(delta=90)
-        assert tool.context_net_id == na.id  # context survives the rotate
+        assert tool.context_net_id == nb.id  # context survives the rotate
 
     def test_empty_click_clears_context(self, qtbot) -> None:
         session, view, inst, na, nb = self._ctx_session(qtbot)
         tool = _v2(view)
         _click(tool, 2.5, 2.5)
-        assert tool.context_net_id == na.id
+        assert tool.context_net_id == nb.id
         _click(tool, 8.5, 8.5)  # empty board
         assert tool.context_net_id is None
+
+    def test_context_menu_uses_metapin_for_clicked_package_pad(self, qtbot) -> None:
+        _session, view, inst, _na, _nb = self._ctx_session(qtbot)
+        tool = _v2(view)
+        tool._select_primary(inst.id)
+
+        option = next(
+            option
+            for option in tool._ctx_component_options(inst.id, Point(2.5, 2.5))
+            if option.action_id == "select-tool.ctx.assign_pin"
+        )
+
+        assert option.data["pin"] == 2
+        assert "(B)" in option.label
 
 
 class TestContextMenu:

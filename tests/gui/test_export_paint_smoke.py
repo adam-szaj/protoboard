@@ -15,9 +15,13 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net
@@ -51,8 +55,23 @@ def _snapshot_with_resistor() -> BoardSnapshot:
                      layers=PadLayers(top=True, bottom=True, plated_through=True)),
         rows=2, cols=4, row_gap=0, col_gap=0,
     ))
-    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+    family = sil_family(2)
+    assert family is not None
+    families = {family.family_id: family}
+    defn = ComponentDefinition(
+        name="R",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
+    )
+    inst = ComponentInstance.new(
+        definition_ref="R", refdes="R1", value=""
+    ).bind(defn, families)
     pl = ComponentPlacement(
         component_id=inst.id, position=Point(0.5, 0.5),
         rotation=90, side="top",
@@ -69,7 +88,7 @@ def _snapshot_with_resistor() -> BoardSnapshot:
         board=board, layout=lay,
         components={"R": defn},
         instances={inst.id: inst},
-        schematic=sch, pad_index=idx, package_families={},
+        schematic=sch, pad_index=idx, package_families=families,
     )
 
 
@@ -162,6 +181,7 @@ class TestExportPng:
         export_png(
             out, snap.board, snap.layout, snap.components, snap.instances,
             schematic=snap.schematic,
+            package_families=snap.package_families,
         )
         assert out.exists() and out.stat().st_size > 0
         assert QImage(str(out)).isNull() is False

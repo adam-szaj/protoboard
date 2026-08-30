@@ -238,7 +238,7 @@ class DefaultFootprintChoiceProvider:
             if entry.kind != kind:
                 continue
             built = self._build_and_register(
-                kind, dict(entry.values), defn.pin_count)
+                kind, dict(entry.values), len(defn.meta_pins))
             if built is None:
                 continue
             built_address, label = built
@@ -269,7 +269,7 @@ class DefaultFootprintChoiceProvider:
 
         merged = {k: v for k, v in declared.items() if v is not None}
         merged.update(self._coerce(values, schema))
-        built = self._build_and_register(kind, merged, defn.pin_count)
+        built = self._build_and_register(kind, merged, len(defn.meta_pins))
         if built is None:
             return None
         built_address, label = built

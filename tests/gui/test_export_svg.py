@@ -13,9 +13,13 @@ from pytestqt.qtbot import QtBot
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
@@ -38,8 +42,22 @@ def _perfboard(rows: int, cols: int) -> Board:
     return Board(root=grid)
 
 
-def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+def _r_setup() -> tuple[ComponentDefinition, dict]:
+    family = sil_family(2)
+    assert family is not None
+    families = {family.family_id: family}
+    defn = ComponentDefinition(
+        name="R",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(
+            PackageOption(
+                name="SIL-2",
+                ref="sil-2/std",
+                pin_map={1: (1,), 2: (2,)},
+            ),
+        ),
+    )
+    return defn, families
 
 
 class TestSvgExport:
@@ -92,14 +110,20 @@ class TestSvgExport:
         # a placed component.  Exact content depends on QSvgGenerator output
         # which we don't pin in tests; we just confirm the painter ran.
         board = _perfboard(2, 4)
-        defn = _r_defn()
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(defn, {})
+        defn, families = _r_setup()
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="10k"
+        ).bind(defn, families)
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
         lay = Layout(placements=PlacementCollection({inst.id: pl}), wires=WireCollection([]))
         result = export_svg(
-            board, lay, components={defn.name: defn}, instances={inst.id: inst}
+            board,
+            lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
+            package_families=families,
         )
         ET.fromstring(result)
         assert "<svg" in result

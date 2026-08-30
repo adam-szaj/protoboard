@@ -2,6 +2,7 @@
 """MetaPin translation at layout and routing boundaries."""
 
 import uuid
+from dataclasses import replace
 
 from protoboard.domain.board.pad_state import PinItem
 from protoboard.domain.components.definition import (
@@ -23,8 +24,13 @@ from protoboard.domain.layout.pin_pad_classification import (
     ModifierShape,
     _resolve_modifier,
 )
-from protoboard.domain.schematic.net import PinRef
+from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.gui.renderers.component_renderer import _compact_package_pin_label
+from protoboard.gui.renderers.board_renderer import build_pad_net_map
+from protoboard.gui.renderers.wire_renderer import _placed_pin_positions
+from protoboard.gui.panels.properties_panel import _package_pin_detail_label
 from protoboard.services.routing.autorouter import _build_pin_positions
 
 
@@ -102,6 +108,54 @@ def test_interactive_pin_lookup_ignores_unmapped_package_pin() -> None:
         )
         is None
     )
+
+
+def test_compact_pin_label_translates_physical_pin_to_metapin() -> None:
+    definition, instance, _layout = _placed_component()
+
+    assert _compact_package_pin_label(definition, instance, 2) == "SIGNAL"
+    assert _compact_package_pin_label(definition, instance, 1) is None
+
+
+def test_package_pin_detail_label_keeps_physical_number_and_logical_label() -> None:
+    definition, instance, _layout = _placed_component()
+
+    assert _package_pin_detail_label(definition, instance, 2) == "Pin 2 (SIGNAL)"
+    assert _package_pin_detail_label(definition, instance, 1) == "Pin 1"
+
+
+def test_board_pad_net_map_translates_package_pins_to_metapin() -> None:
+    definition, instance, layout = _placed_component()
+    net = Net(id=uuid.uuid4(), name="N", pins={PinRef(instance.id, 1)})
+
+    pad_nets = build_pad_net_map(
+        layout.placements,
+        {instance.id: instance},
+        {definition.name: definition},
+        Schematic(nets={net.id: net}),
+        net_color_map={net.id: "#123456"},
+    )
+
+    assert pad_nets == {(0.5, 1.5): "#123456"}
+
+
+def test_wire_renderer_expands_metapin_to_all_mapped_package_pins() -> None:
+    definition, instance, layout = _placed_component()
+    definition = replace(
+        definition,
+        package_options=(
+            replace(definition.package_options[0], pin_map={1: (1, 2)}),
+        ),
+    )
+
+    positions = _placed_pin_positions(
+        {PinRef(instance.id, 1)},
+        layout.placements,
+        {instance.id: instance},
+        {definition.name: definition},
+    )
+
+    assert set(positions) == {Point(0.5, 0.5), Point(0.5, 1.5)}
 
 
 def test_group_surface_contains_metapins_not_package_pins() -> None:

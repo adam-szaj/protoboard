@@ -116,6 +116,11 @@ class PreviewState:
                 result.append((pin_num, pos))
         return result
 
+    def meta_pin_for_package_pin(
+        self, comp_id: uuid.UUID, package_pin_number: int
+    ) -> int | None:
+        return self._live.meta_pin_for_package_pin(comp_id, package_pin_number)
+
     # -- delegated methods --------------------------------------------------
 
     def wire_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:

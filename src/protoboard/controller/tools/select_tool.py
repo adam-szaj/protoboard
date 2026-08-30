@@ -2819,7 +2819,7 @@ class SelectTool(ControllerTool):
                     if inst is not None else None
                 )
                 name = (
-                    defn.pin_names.get(pin, str(pin))
+                    " / ".join(defn.meta_pin(pin).labels)
                     if defn is not None else str(pin)
                 )
                 self._status(
@@ -2839,13 +2839,18 @@ class SelectTool(ControllerTool):
         exact pin under the cursor."""
         best: int | None = None
         best_d = 0.6 * 0.6  # half-pitch², generous (the menu is forgiving)
-        for pin_num, pos in self._session.iter_pin_positions(comp_id):
+        for package_pin_number, pos in self._session.iter_pin_positions(comp_id):
             dx = pos.x - scene_pt.x
             dy = pos.y - scene_pt.y
             d = dx * dx + dy * dy
             if d <= best_d:
+                meta_pin_index = self._session.meta_pin_for_package_pin(
+                    comp_id, package_pin_number
+                )
+                if meta_pin_index is None:
+                    continue
                 best_d = d
-                best = pin_num
+                best = meta_pin_index
         return best
 
     def _ctx_component_options(
@@ -2871,7 +2876,7 @@ class SelectTool(ControllerTool):
 
         # ── Clicked-pin actions (assign always; disconnect when netted) ───────
         if clicked_pin is not None:
-            pin_name = defn.pin_names.get(clicked_pin, str(clicked_pin))
+            pin_name = " / ".join(defn.meta_pin(clicked_pin).labels)
             cp_net = self._session.schematic.net_for_pin(
                 _PinRef(component_id=comp_id, pin_number=clicked_pin)
             )
@@ -2997,19 +3002,15 @@ class SelectTool(ControllerTool):
         clicked_pin: int | None,
     ) -> list[ActionOption]:
         """Per-pin export/unexport options for a directly-grouped component."""
-        from protoboard.domain.layout.pad_conflict import (
-            resolved_footprint_or_default,
-        )
+        from protoboard.domain.components.definition import ComponentDefinition
         from protoboard.domain.schematic.net import PinRef as _PinRef
 
-        inst = self._session.instances.get(comp_id)
-        fp = resolved_footprint_or_default(defn, inst)  # type: ignore[arg-type]
-        pin_count = fp.pin_count()
-        pin_names = defn.pin_names  # type: ignore[attr-defined]
+        if not isinstance(defn, ComponentDefinition):
+            return []
         out: list[ActionOption] = []
-        for pin_num in range(1, pin_count + 1):
+        for pin_num, meta_pin in enumerate(defn.meta_pins, start=1):
             ep = _PinRef(component_id=comp_id, pin_number=pin_num)
-            pin_name = pin_names.get(pin_num, str(pin_num))
+            pin_name = " / ".join(meta_pin.labels)
             already = ep in active_grp.exported_pins
             marker = " ◀" if pin_num == clicked_pin else ""
             label = (

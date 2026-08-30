@@ -640,6 +640,22 @@ class HeadlessSession:
                 result.append((pin_num, pos))
         return result
 
+    def meta_pin_for_package_pin(
+        self,
+        comp_id: uuid.UUID,
+        package_pin_number: int,
+    ) -> int | None:
+        """Translate a physical package pin to its logical MetaPin ordinal."""
+        from protoboard.domain.components.package import meta_pin_for_package_pin
+
+        inst = self.instances.get(comp_id)
+        if inst is None:
+            return None
+        defn = self.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        return meta_pin_for_package_pin(defn, inst, package_pin_number)
+
     def component_bbox(self, comp_id: uuid.UUID) -> Rect | None:
         """Return the world-space bounding rect of *comp_id*, or None.
 

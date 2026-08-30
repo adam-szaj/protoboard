@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import meta_pin_for_package_pin
 from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
@@ -43,6 +44,22 @@ _SEVERITY_COLORS = {
     "warning": QColor("#CC8800"),
     "info": QColor("#2255AA"),
 }
+
+
+def _package_pin_detail_label(
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
+    package_pin_number: int,
+) -> str:
+    """Build the detailed label for a physical package pin."""
+    physical_label = f"Pin {package_pin_number}"
+    meta_pin_index = meta_pin_for_package_pin(
+        defn, instance, package_pin_number
+    )
+    if meta_pin_index is None:
+        return physical_label
+    labels = " / ".join(defn.meta_pin(meta_pin_index).labels)
+    return f"{physical_label} ({labels})"
 
 
 class PropertiesPanel(QWidget):
@@ -405,7 +422,6 @@ class PropertiesPanel(QWidget):
             return
 
         for pin_num in sorted(specs.keys()):
-            pin_name = defn.pin_name(pin_num)
             spec: PinBendSpec = specs[pin_num]
             current = current_offsets.get(pin_num, spec.default_offset)
 
@@ -416,7 +432,9 @@ class PropertiesPanel(QWidget):
 
             widget.value_changed.connect(self._on_bend_changed)
             self._pin_bend_widgets[pin_num] = widget
-            self._pin_offsets_form.addRow(f"Pin {pin_num} ({pin_name}):", widget)
+            self._pin_offsets_form.addRow(
+                f"{_package_pin_detail_label(defn, instance, pin_num)}:", widget
+            )
 
         self._pin_offsets_grp.setVisible(bool(self._pin_bend_widgets))
 
