@@ -8,6 +8,8 @@ call sites (cursor label, hover, wheel-zoom) rely on.
 
 from __future__ import annotations
 
+import shiboken6
+
 from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
 
 
@@ -75,6 +77,13 @@ def test_timer_wrap_set_interval_and_stop() -> None:
     assert t.interval() == 120
     t.stop()  # idle stop is a no-op
     assert t.is_active() is False
+
+
+def test_timer_wrap_stop_is_safe_after_qt_object_deletion() -> None:
+    t = TimerWrap(50, lambda: None)
+    shiboken6.delete(t._timer)
+
+    t.stop()
 
 
 def test_park_latest_delegates_to_timer_wrap() -> None:

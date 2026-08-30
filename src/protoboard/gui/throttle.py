@@ -64,8 +64,13 @@ class TimerWrap:
             self._timer.start()
 
     def stop(self) -> None:
-        """Cancel a pending fire (no-op if idle)."""
-        self._timer.stop()
+        """Cancel a pending fire, including during Qt object teardown."""
+        try:
+            self._timer.stop()
+        except RuntimeError:
+            # QObject destruction may run the owner's cleanup slot after Qt
+            # has already deleted this timer's C++ object.
+            pass
 
     def is_active(self) -> bool:
         """True while a fire is pending (burst-state read-out)."""
