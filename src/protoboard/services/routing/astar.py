@@ -602,18 +602,12 @@ def _universe_worker(
     _segs_on_bot: list[tuple[float, float, float, float, bool, int]] = []
     if _pos_active and all_segments is not None:
         for _seg in all_segments:
-            # Backward compat: accept legacy 4-tuple (p1, p2, side, insulated)
-            # and synthesise net_idx=-1.
-            if len(_seg) == 5:
-                _p1, _p2, _osd, _oins, _onet = _seg
-            else:
-                _p1, _p2, _osd, _oins = _seg
-                _onet = -1
-            entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins, _onet)
+            _p1, _p2, _osd, _oins, _onet = _seg
+            segment_entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins, _onet)
             if _osd == "top":
-                _segs_on_top.append(entry)
+                _segs_on_top.append(segment_entry)
             else:
-                _segs_on_bot.append(entry)
+                _segs_on_bot.append(segment_entry)
     # Same-net wire reuse setup.
     _reuse_cost = cost_model.same_net_wire_reuse_cost
     _has_reuse = active_net_idx >= 0
@@ -1720,21 +1714,21 @@ def find_paths(
 
     bare_segs_canon: set[tuple[Point, Point, str, int]] = set()
     if bare_wire_segments:
-        for _seg in bare_wire_segments:
-            if len(_seg) == 4:
-                _p1, _p2, _sd, _nid = _seg
+        for bare_segment in bare_wire_segments:
+            if len(bare_segment) == 4:
+                _p1, _p2, _sd, _nid = bare_segment
             else:
-                _p1, _p2, _sd = _seg
+                _p1, _p2, _sd = bare_segment
                 _nid = None
             bare_segs_canon.add((_p1, _p2, _sd, _ensure_idx(_nid)))
 
     all_segs_canon: list[tuple[Point, Point, str, bool, int]] = []
     if all_segments:
-        for _seg in all_segments:
-            if len(_seg) == 5:
-                _p1, _p2, _sd, _oins, _nid = _seg
+        for routed_segment in all_segments:
+            if len(routed_segment) == 5:
+                _p1, _p2, _sd, _oins, _nid = routed_segment
             else:
-                _p1, _p2, _sd, _oins = _seg  # type: ignore[misc]
+                _p1, _p2, _sd, _oins = routed_segment
                 _nid = None
             all_segs_canon.append((_p1, _p2, _sd, _oins, _ensure_idx(_nid)))
 
