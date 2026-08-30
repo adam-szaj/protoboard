@@ -96,19 +96,11 @@ class RouteTool(ControllerTool):
         return self._preview
 
     @property
-    def _view(
-        self,
-    ) -> _ViewProto:  # pyright: ignore[reportIncompatibleVariableOverride]
+    def _route_view(self) -> _ViewProto:
         """The bound view, narrowed away from None for the post-activate
         event handlers (same idiom as :attr:`preview`)."""
-        assert self.__view is not None  # set by activate()
-        return self.__view
-
-    @_view.setter
-    def _view(
-        self, value: _ViewProto | None
-    ) -> None:  # pyright: ignore[reportIncompatibleVariableOverride]
-        self.__view = value
+        assert self._view is not None  # set by activate()
+        return self._view
 
     def deactivate(self) -> None:
         self._clear_route_highlight()
@@ -118,8 +110,8 @@ class RouteTool(ControllerTool):
         if inp.button != LEFT_BUTTON:
             return False
         pt = inp.scene_pos
-        if self._view.is_locked_pin(pt):
-            self._view.notify_status(
+        if self._route_view.is_locked_pin(pt):
+            self._route_view.notify_status(
                 StatusEvent(
                     "route.locked_pin",
                     {
@@ -129,7 +121,7 @@ class RouteTool(ControllerTool):
                 )
             )
             return True  # consume event, block routing
-        snapped = self._view.snap(pt)
+        snapped = self._route_view.snap(pt)
 
         if len(self._points) == 1:
             self._show_routing_hints(snapped)
@@ -153,14 +145,14 @@ class RouteTool(ControllerTool):
     def on_move(self, inp: PointerInput) -> None:
         if not self._points:
             return
-        snapped = self._view.snap(inp.scene_pos)
+        snapped = self._route_view.snap(inp.scene_pos)
         self.preview.show_live(self._points[-1], snapped)
 
     def _set_insulated(self, insulated: bool) -> None:
         """Flip insulation via the window so the choice is remembered and
         persisted (toolbar action + app-settings default), falling back to a
         local mutation when there is no window (standalone tool / tests)."""
-        win = self._view.window()
+        win = self._route_view.window()
         setter = getattr(win, "_set_wire_insulated", None)
         if setter is not None:
             setter(insulated)
@@ -169,7 +161,7 @@ class RouteTool(ControllerTool):
             self._notify_status()
 
     def _set_side(self, side: str) -> None:
-        win = self._view.window()
+        win = self._route_view.window()
         setter = getattr(win, "_set_wire_side", None)
         if setter is not None:
             setter(side)
@@ -179,7 +171,7 @@ class RouteTool(ControllerTool):
 
     def _notify_status(self) -> None:
         """Update the main window status bar with current wire options."""
-        win = self._view.window()
+        win = self._route_view.window()
         updater = getattr(win, "_update_route_status", None)
         if updater is not None:
             updater(self._insulated, self._side)
@@ -212,7 +204,7 @@ class RouteTool(ControllerTool):
     def commit_op(self) -> bool:
         decision = self._route_conflict()
         if decision is not None and decision.is_hard:
-            self._view.notify_status(
+            self._route_view.notify_status(
                 StatusEvent(
                     "route.conflict",
                     {"text": decision.description, "timeout_ms": 3000},

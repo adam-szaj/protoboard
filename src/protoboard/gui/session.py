@@ -148,7 +148,7 @@ class EditorSession(HeadlessSession, QObject):
         # trips pyright's invariance rule, but ``HighlightStack`` IS-A
         # ``HighlightStackBase`` and nothing writes a bare base back — the
         # override is sound.
-        self.highlight_stack: HighlightStack = HighlightStack(self)
+        self.highlight_stack = HighlightStack(self)
         self._routing_net_id: uuid.UUID | None = None
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
