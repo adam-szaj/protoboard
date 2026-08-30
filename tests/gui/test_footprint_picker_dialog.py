@@ -95,33 +95,47 @@ class TestFootprintPickerDialog:
         dlg = self._dialog(qtbot, [], [option])
 
         root = dlg._tree.topLevelItem(0)
+        assert root is not None
         assert root.text(0) == "connectors"
         assert not root.isSelected()
         family = root.child(0)
+        assert family is not None
         assert family.text(0) == "header"
         leaf = family.child(0)
+        assert leaf is not None
         assert leaf.text(0) == "Straight"
         assert leaf.data(0, 256).address == "connectors/header/straight"
 
     def test_recent_rows_listed_first(self, qtbot: QtBot) -> None:
         dlg = self._dialog(qtbot, [_opt("R1", "r/1")], [_opt("A", "a/1")])
         recent = dlg._tree.topLevelItem(0)
+        assert recent is not None
         assert recent.text(0) == "Recently used"
-        assert recent.child(0).text(0).startswith("★ ")
-        assert dlg._tree.topLevelItem(1).text(0) == "A"
+        recent_leaf = recent.child(0)
+        assert recent_leaf is not None
+        assert recent_leaf.text(0).startswith("★ ")
+        regular = dlg._tree.topLevelItem(1)
+        assert regular is not None
+        assert regular.text(0) == "A"
 
     def test_double_click_package_returns_address(self, qtbot: QtBot) -> None:
         dlg = self._dialog(qtbot, [], [_opt("A", "a/1"), _opt("B", "b/1")])
-        dlg._confirm_item(dlg._tree.topLevelItem(1))
+        item = dlg._tree.topLevelItem(1)
+        assert item is not None
+        dlg._confirm_item(item)
         assert dlg.chosen_address == "b/1"
         assert dlg.result() == QDialog.DialogCode.Accepted
 
     def test_search_filters_and_reselects(self, qtbot: QtBot) -> None:
         dlg = self._dialog(qtbot, [], [_opt("DIP-8", "dip-8"), _opt("SIL-4", "sil-4")])
         dlg._search.setText("sil")
-        assert dlg._tree.topLevelItem(0).isHidden()  # DIP-8 hidden
-        assert not dlg._tree.topLevelItem(1).isHidden()  # SIL-4 visible
-        assert dlg._tree.currentItem() is dlg._tree.topLevelItem(1)
+        dip_item = dlg._tree.topLevelItem(0)
+        sil_item = dlg._tree.topLevelItem(1)
+        assert dip_item is not None
+        assert sil_item is not None
+        assert dip_item.isHidden()
+        assert not sil_item.isHidden()
+        assert dlg._tree.currentItem() is sil_item
 
     def test_search_filters_siblings_inside_namespace(self, qtbot: QtBot) -> None:
         options = [
@@ -132,9 +146,16 @@ class TestFootprintPickerDialog:
 
         dlg._search.setText("straight")
 
-        family = dlg._tree.topLevelItem(0).child(0)
-        assert not family.child(0).isHidden()
-        assert family.child(1).isHidden()
+        root = dlg._tree.topLevelItem(0)
+        assert root is not None
+        family = root.child(0)
+        assert family is not None
+        straight = family.child(0)
+        angled = family.child(1)
+        assert straight is not None
+        assert angled is not None
+        assert not straight.isHidden()
+        assert angled.isHidden()
 
     def test_space_confirms_current_leaf(self, qtbot: QtBot) -> None:
         dlg = self._dialog(qtbot, [], [_opt("A", "a/1")])
@@ -157,7 +178,9 @@ class TestFootprintPickerDialog:
 
         monkeypatch.setattr(FootprintPickerDialog, "_run_variant_dialog", _fake_run)
         dlg = self._dialog(qtbot, [], [_opt("PinHeader", "ph", is_kind=True)])
-        dlg._confirm_item(dlg._tree.topLevelItem(0))
+        item = dlg._tree.topLevelItem(0)
+        assert item is not None
+        dlg._confirm_item(item)
         assert opened == ["ph"]
         assert dlg.chosen_address == "kind/built"
 
@@ -170,7 +193,9 @@ class TestFootprintPickerDialog:
             lambda self_, address: None,  # user cancelled stage 2
         )
         dlg = self._dialog(qtbot, [], [_opt("PinHeader", "ph", is_kind=True)])
-        dlg._confirm_item(dlg._tree.topLevelItem(0))
+        item = dlg._tree.topLevelItem(0)
+        assert item is not None
+        dlg._confirm_item(item)
         assert dlg.chosen_address is None
         assert dlg.result() != QDialog.DialogCode.Accepted
 
