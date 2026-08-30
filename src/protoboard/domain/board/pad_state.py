@@ -38,7 +38,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, TypeAlias
+from typing import ClassVar, Literal, TypeAlias, TypeGuard
 
 from protoboard.domain.board.layer import PHYSICAL_LAYERS, LayerId
 from protoboard.domain.board.pads import PadLayers
@@ -177,9 +177,12 @@ Item = (
     | InsulatedWireCrossing
     | ComponentBody
 )
+ElectricalItem = (
+    PinItem | WirePinItem | BareWireItem | BareWireCrossing | InsulatedWireItem
+)
 
 
-def _item_contributes_electrically(item: Item) -> bool:
+def _item_contributes_electrically(item: Item) -> TypeGuard[ElectricalItem]:
     """True if *item* contributes its net to the side it is placed on.
 
     Pins, wire-pins, bare wires (vertex or crossing), and insulated
