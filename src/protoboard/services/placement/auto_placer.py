@@ -109,11 +109,11 @@ def auto_place(
         uuid.UUID,
         tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
     ] = {}
-    for comp_id, pl in session.layout.placements.items():
+    for comp_id, existing_placement in session.layout.placements.items():
         inst = session.instances.get(comp_id)
         defn = session.components.get(inst.definition_ref) if inst else None
         if defn is not None and inst is not None:
-            existing[comp_id] = (pl, defn, inst)
+            existing[comp_id] = (existing_placement, defn, inst)
 
     # Pre-sort: process components with the most gravity connections first.
     ordered = _sort_by_gravity(instances_to_place, session, existing)
