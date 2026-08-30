@@ -10,7 +10,9 @@ from typing import cast
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -639,15 +641,17 @@ class _StubLibrary:
     needs to resolve a definition during the v2→v3 group migration."""
 
     def __init__(
-        self, by_name: dict[str, object], package_families: dict | None = None
+        self,
+        by_name: dict[str, ComponentDefinition],
+        package_families: dict[str, PackageFamily] | None = None,
     ) -> None:
         self._by_name = by_name
         self.package_families = package_families or {}
 
-    def names(self):  # type: ignore[no-untyped-def]
+    def names(self):
         return self._by_name.keys()
 
-    def get(self, name: str):  # type: ignore[no-untyped-def]
+    def get(self, name: str) -> ComponentDefinition | None:
         return self._by_name.get(name)
 
 
@@ -933,7 +937,7 @@ class TestWirePinPersistence:
                 self.board = board
                 self.layout = lay
                 self.instances: dict[uuid.UUID, ComponentInstance] = {}
-                self.components: dict[str, object] = {}
+                self.components: dict[str, ComponentDefinition] = {}
 
         state = _S(lay)
         net_a = uuid.uuid4()
@@ -941,16 +945,12 @@ class TestWirePinPersistence:
             wire_id=wire.id,
             endpoint="a",
             net_id=net_a,
-        ).apply(
-            state
-        )  # type: ignore[arg-type]
+        ).apply(state)
         ConvertEndpointToWirePinCommand(
             wire_id=wire.id,
             endpoint="b",
             net_id=None,
-        ).apply(
-            state
-        )  # type: ignore[arg-type]
+        ).apply(state)
 
         save_project(tmp_path, board, lay, Schematic(nets={}))
         return wire.id, ka.id, kb.id, net_a
@@ -1037,11 +1037,11 @@ class TestDropDanglingInstances:
     library) are dropped from the board on load; the project still loads."""
 
     class _FakeLibrary:
-        def __init__(self, known: set[str]) -> None:
-            self._known = known
+        def __init__(self, definitions: dict[str, ComponentDefinition]) -> None:
+            self._definitions = definitions
 
-        def get(self, name: str):  # type: ignore[no-untyped-def]
-            return object() if name in self._known else None
+        def get(self, name: str) -> ComponentDefinition | None:
+            return self._definitions.get(name)
 
     def test_dangling_instance_dropped(self, tmp_path: Path) -> None:
         from protoboard.services.persistence.project_yaml import (
@@ -1070,7 +1070,9 @@ class TestDropDanglingInstances:
         )
         save_project(tmp_path, board, lay, Schematic(nets={}), instances=instances)
 
-        set_migration_library(self._FakeLibrary({"R"}))  # GHOST unknown
+        from tests.unit._autoroute_invariants import make_sil
+
+        set_migration_library(self._FakeLibrary({"R": make_sil("R")}))
         try:
             _, loaded_layout, _, loaded_instances, _, _, _ = load_project(tmp_path)
         finally:
