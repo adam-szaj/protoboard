@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Protocol, override, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+from typing_extensions import override
 
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.services.debug_trace import traced

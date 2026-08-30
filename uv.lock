@@ -537,6 +537,7 @@ dependencies = [
     { name = "pyside6" },
     { name = "ruamel-yaml" },
     { name = "structlog" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -580,6 +581,7 @@ requires-dist = [
     { name = "ruamel-yaml", specifier = ">=0.18" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.17" },
     { name = "structlog", specifier = ">=24.0" },
+    { name = "typing-extensions", specifier = ">=4.4" },
 ]
 provides-extras = ["dev"]
 

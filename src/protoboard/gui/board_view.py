@@ -7,9 +7,10 @@ import math
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING
 
 import structlog
+from typing_extensions import override
 
 if TYPE_CHECKING:
     from protoboard.controller.ports import (

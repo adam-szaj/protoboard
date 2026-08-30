@@ -15,6 +15,7 @@ dependencies = [
     "networkx>=3.3",
     "ruamel.yaml>=0.18",
     "structlog>=24.0",
+    "typing-extensions>=4.4",
 ]
 
 [project.optional-dependencies]
