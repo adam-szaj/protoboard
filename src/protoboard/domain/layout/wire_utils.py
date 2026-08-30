@@ -650,10 +650,11 @@ def split_wire_at_vertex(
     # PinKnot lookup: scan pin_knots → resolver via layout._pin_resolver
     # if available.  Falls back to "no pin found" when resolver isn't
     # set (tests / migration path without a library).
-    if shared_hub is None and getattr(layout, "_pin_resolver", None) is not None:
+    pin_resolver = layout._pin_resolver
+    if shared_hub is None and pin_resolver is not None:
         for pin_ref, knot_id in layout.pin_knots.items():
             try:
-                pin_pos = layout._pin_resolver(pin_ref)
+                pin_pos = pin_resolver(pin_ref)
             except Exception:
                 continue
             if (
@@ -1028,13 +1029,10 @@ def _wire_net_id(
         # ambiguous so we fall through to the per-vertex pin scan
         # below; in practice short pads are rare and DRC has already
         # flagged them.
-        from protoboard.domain.board.pad_state import SHORT_CIRCUIT
-
         for vertex in wire.path:
             net = pad_index.electrical_net_at(vertex, wire.side)
-            if net is None or net is SHORT_CIRCUIT:
-                continue
-            return net
+            if isinstance(net, uuid.UUID):
+                return net
         return None
     plated: frozenset[Point] | None = (
         frozenset(plated_through_pads(board)) if board is not None else None
