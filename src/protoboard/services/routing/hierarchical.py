@@ -43,8 +43,13 @@ from protoboard.domain.layout.group import (
     internal_net_ids_for_components,
 )
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.services.routing.autorouter import AutorouteResult, autoroute
+from protoboard.services.routing.autorouter import (
+    AutorouteResult,
+    PassStats,
+    autoroute,
+)
 from protoboard.services.routing.cost_model import RoutingCostModel
 from protoboard.types import Side
 
@@ -141,9 +146,9 @@ def hierarchical_autoroute(
         n_target_nets=len(target_net_ids),
     )
 
-    merged_wires: list = []
+    merged_wires: list[Wire] = []
     merged_unrouted: set[str] = set()
-    merged_stats: list = []
+    merged_stats: list[PassStats] = []
     routed_net_ids: set[uuid.UUID] = set()
 
     def _route_subset(

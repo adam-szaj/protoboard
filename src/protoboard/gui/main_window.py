@@ -12,8 +12,10 @@ from typing import TYPE_CHECKING
 import structlog
 
 if TYPE_CHECKING:
+    from protoboard.controller.highlight_entry import HighlightEntry
     from protoboard.controller.ports import InteractionContext, StatusEvent
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.services.drc.engine import DRCIssue
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, Signal
 from PySide6.QtGui import (
@@ -188,7 +190,7 @@ class MainWindow(QMainWindow):
 
         # Highlight toggle: snapshot of persistent entries when the
         # user hits the toggle to hide them, restored on next press.
-        self._highlight_snapshot: list = []
+        self._highlight_snapshot: list[HighlightEntry] = []
 
         # Per-layer manual visibility overrides — restored from session if available.
         self._layer_overrides = session.layer_overrides
@@ -2473,7 +2475,7 @@ class MainWindow(QMainWindow):
             self._status.showMessage(status_msg)
         worker.start()
 
-    def _on_drc_finished(self, issues: list) -> None:
+    def _on_drc_finished(self, issues: list[DRCIssue]) -> None:
         """Apply a DRC result to the session — but only if the worker
         that emitted it is still the active one.  Superseded workers
         whose cancel flag is set typically don't fire this signal, but

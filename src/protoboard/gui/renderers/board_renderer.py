@@ -27,6 +27,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.placement import PlacementMap
 from dataclasses import dataclass, field
 
@@ -477,11 +479,11 @@ def render_board(
         scene.addItem(item)
     # Frame rects (box outlines) — drawn just under board pads.
     for fr2 in dl.frame_rects:
-        item = QGraphicsRectItem(fr2.rect)
-        item.setBrush(QBrush(QColor(0, 0, 0, 0)))
-        item.setPen(fr2.pen)
-        item.setZValue(Z_BOARD - 0.2)
-        scene.addItem(item)
+        frame_item = QGraphicsRectItem(fr2.rect)
+        frame_item.setBrush(QBrush(QColor(0, 0, 0, 0)))
+        frame_item.setPen(fr2.pen)
+        frame_item.setZValue(Z_BOARD - 0.2)
+        scene.addItem(frame_item)
     # Pads (ring + hole).
     for p in dl.pads:
         ring = QGraphicsEllipseItem(
@@ -500,16 +502,16 @@ def render_board(
         scene.addItem(hole)
     # Isolated-strip X strokes.
     for line in dl.lines:
-        item = QGraphicsLineItem(line.x1, line.y1, line.x2, line.y2)
-        item.setPen(line.pen)
-        item.setZValue(Z_BOARD)
-        scene.addItem(item)
+        line_item = QGraphicsLineItem(line.x1, line.y1, line.x2, line.y2)
+        line_item.setPen(line.pen)
+        line_item.setZValue(Z_BOARD)
+        scene.addItem(line_item)
 
 
 def build_pad_net_map(
     placements: PlacementMap,
-    instances: dict,
-    components: dict,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
     schematic: object,
     *,
     theme: Theme = DEFAULT_THEME,

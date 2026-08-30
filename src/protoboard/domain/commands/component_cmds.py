@@ -1382,7 +1382,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
     def _build_fragments_for_flip(
         self,
         wire: Wire,
-    ) -> list:
+    ) -> list[Fragment]:
         """Build the new fragment list for ``wire`` with the requested
         sub-range flipped to ``self.target_side``.
 

@@ -35,6 +35,7 @@ from protoboard.domain.board.pad_state import (
     BareWireItem,
     InsulatedWireCrossing,
     InsulatedWireItem,
+    Pad,
     PadIndex,
 )
 from protoboard.domain.components.definition import ComponentDefinition
@@ -287,8 +288,14 @@ def _count_at_pad_crossings_via_pad_index(
     """
     counter: _CrossCounter = {}
 
-    def _wire_items_on(pad, side: str) -> list:  # type: ignore[no-untyped-def]
-        out: list = []
+    def _wire_items_on(
+        pad: Pad, side: str
+    ) -> list[
+        BareWireItem | BareWireCrossing | InsulatedWireItem | InsulatedWireCrossing
+    ]:
+        out: list[
+            BareWireItem | BareWireCrossing | InsulatedWireItem | InsulatedWireCrossing
+        ] = []
         seen_ids: set[uuid.UUID] = set()
         for it in pad.physically_blocked_on(side):
             if not isinstance(it, _WIRE_ITEM_TYPES):

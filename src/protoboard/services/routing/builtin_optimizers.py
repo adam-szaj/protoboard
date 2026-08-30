@@ -20,6 +20,8 @@ from protoboard.services.routing.optimizer import (
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
     from protoboard.services.routing.autorouter import AutorouteResult
@@ -46,8 +48,8 @@ class _PadContext:
         object  # Layout — kept loosely typed to avoid the import at module level
     )
     worker_schematic: object  # Schematic
-    components: dict
-    instances: dict
+    components: dict[str, ComponentDefinition]
+    instances: dict[uuid.UUID, ComponentInstance]
 
 
 def _build_pad_context(
@@ -296,9 +298,9 @@ class InsulatedToBareOptimizer:
         for w in result.wires:
             net_id: uuid.UUID | None = None
             for endpoint in (w.path[0], w.path[-1]):
-                cand = ctx.pin_net_map.get(endpoint)
-                if cand is not None:
-                    net_id = cand
+                net_candidate = ctx.pin_net_map.get(endpoint)
+                if net_candidate is not None:
+                    net_id = net_candidate
                     break
             wire_to_net[w.id] = net_id
 
@@ -308,7 +310,7 @@ class InsulatedToBareOptimizer:
 
         # Operate on a mutable copy of the wires so each flip is visible
         # to subsequent safety checks (they see *current* wire types).
-        working: list = list(result.wires)
+        working: list[Wire] = list(result.wires)
         # Index by id for O(1) replacement.
         by_id = {w.id: idx for idx, w in enumerate(working)}
 
@@ -321,12 +323,12 @@ class InsulatedToBareOptimizer:
             return result
 
         flipped_count = 0
-        for cand in order:
+        for wire_candidate in order:
             if sink.cancelled():
                 break
             # The wire as currently stored (it may have been replaced
             # by an earlier flip — read fresh).
-            cur = working[by_id[cand.id]]
+            cur = working[by_id[wire_candidate.id]]
             if not cur.insulated:
                 continue  # already flipped (defensive)
             net_id = wire_to_net.get(cur.id)

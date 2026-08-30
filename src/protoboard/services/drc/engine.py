@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.package.shapes import Package
     from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import Wire
 
 _log = structlog.get_logger(__name__)
 _Severity = Literal["error", "warning", "info"]
@@ -748,7 +749,7 @@ def _check_bare_wire_interior_cross(
     if len(bare) < 2:
         return []
 
-    by_side: dict[str, list] = {}
+    by_side: dict[str, list[Wire]] = {}
     for w in bare:
         by_side.setdefault(w.side, []).append(w)
 
