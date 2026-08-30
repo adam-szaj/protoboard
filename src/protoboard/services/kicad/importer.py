@@ -163,12 +163,11 @@ class KiCadNetlistImporter:
                 comp.kicad_lib, comp.kicad_part
             )
             if libsource_resolved is not None and authoritative:
-                resolved = libsource_resolved
-                def_ref = _part_to_definition_ref(comp.kicad_part, resolved)
+                def_ref = _part_to_definition_ref(comp.kicad_part, libsource_resolved)
                 entries[map_key] = FootprintEntry(
                     kicad_fp=map_key,
                     definition_ref=def_ref,
-                    pin_count=resolved.pin_count(),
+                    pin_count=libsource_resolved.pin_count(),
                 )
                 continue
 
