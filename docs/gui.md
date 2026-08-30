@@ -86,6 +86,20 @@ Two toolbars (Workflow + View) replace the seven that existed before the
 2026-06-03 redesign. Both are customisable via **Edit ▸ Customize
 Toolbars…**, which writes `~/.config/protoboard/toolbars.yaml`.
 
+## Package picker
+
+The package picker shows only choices declared by the selected component's
+`PackageOption` entries. A family option expands to its concrete variants;
+unrelated catalogue packages are never suggested merely because they have the
+same pin count. Canonical address namespaces form non-selectable tree groups,
+while only concrete package variants are selectable leaves.
+
+Selecting a leaf stores its canonical catalogue address on the component
+instance. The option's `pin_map` remains the electrical boundary: a MetaPin may
+appear on zero or several physical pads, but every physical pad maps back to at
+most one MetaPin. Search and recent choices operate on leaves and cannot select
+an address that the component does not declare.
+
 ## Keyboard shortcuts (defaults)
 
 Every menu / context / toolbar action has an entry in
