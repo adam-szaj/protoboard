@@ -78,6 +78,11 @@ class ViewCamera:
         """True while a wheel-zoom or pan-scroll burst is in flight."""
         return self._wheel_throttle.is_active() or self._pan_burst_timer.is_active()
 
+    def dispose(self) -> None:
+        """Cancel callbacks that must not outlive the attached view."""
+        self._wheel_throttle.stop()
+        self._pan_burst_timer.stop()
+
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
         return (self._has_mirror_h(), self._has_mirror_v())

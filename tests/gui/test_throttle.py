@@ -86,3 +86,14 @@ def test_park_latest_delegates_to_timer_wrap() -> None:
     t.note("y")
     t._flush()
     assert fired == ["y"]
+
+
+def test_park_latest_stop_discards_pending_value() -> None:
+    fired: list[str] = []
+    t: ParkLatestThrottle[str] = ParkLatestThrottle(33, fired.append)
+    t.note("pending")
+
+    t.stop()
+    t._flush()
+
+    assert fired == []

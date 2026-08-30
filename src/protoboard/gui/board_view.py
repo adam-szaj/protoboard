@@ -155,6 +155,7 @@ class BoardView(QGraphicsView):
         self.help_overlay = QtHelpOverlay(self)
         self.executor = QtExecutor(self)
         self.camera = ViewCamera(self)
+        self.destroyed.connect(self.camera.dispose)
         self._layer_overrides: LayerOverrides = LayerOverrides()
         # Hover-reveal (2B): component whose pin names stay drawn while the
         # meta_pin_labels layer is HIDDEN.  Persistent — layer_state() is rebuilt

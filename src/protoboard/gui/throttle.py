@@ -121,6 +121,11 @@ class ParkLatestThrottle(Generic[T]):
         """Update the coalescing interval (Preferences may change it live)."""
         self._timer.set_interval(interval_ms)
 
+    def stop(self) -> None:
+        """Cancel a pending delivery and discard its parked value."""
+        self._timer.stop()
+        self._parked = None
+
     def _flush(self) -> None:
         parked = self._parked
         self._parked = None
