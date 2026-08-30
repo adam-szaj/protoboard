@@ -490,16 +490,21 @@ class _ColorsPage(QWidget):
                 range_hint: tuple[float, float] | None = (
                     entry[3] if len(entry) > 3 else None
                 )
+                control: _ColorButton | QDoubleSpinBox | QSpinBox
                 if isinstance(init, str):
-                    row_layout, w = _color_row(label, init)
+                    row_layout, color_button = _color_row(label, init)
+                    control = color_button
                 elif isinstance(init, int):
-                    row_layout, w = _alpha_row(label, init, is_int=True)
+                    row_layout, alpha_spin = _alpha_row(label, init, is_int=True)
+                    control = alpha_spin
                 elif range_hint is not None:
-                    row_layout, w = _float_row(label, float(init), range_hint[0], range_hint[1])  # type: ignore[arg-type]  # noqa: E501
+                    row_layout, float_spin = _float_row(label, float(init), range_hint[0], range_hint[1])  # type: ignore[arg-type]  # noqa: E501
+                    control = float_spin
                 else:
-                    row_layout, w = _alpha_row(label, float(init))  # type: ignore[arg-type]
+                    row_layout, alpha_spin = _alpha_row(label, float(init))  # type: ignore[arg-type]
+                    control = alpha_spin
                 gl.addLayout(row_layout)
-                self._widgets[field_name] = w
+                self._widgets[field_name] = control
             vbox.addWidget(grp)
 
         def add_opacity_section(title: str, rows: list[tuple[str, str, float]]) -> None:
