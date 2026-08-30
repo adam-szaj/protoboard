@@ -86,9 +86,9 @@ def find_wire_net_at(
                     pin = find_pin_at(v2, session)
                     if pin is None:
                         continue
-                    net = pin_to_net.get(pin)
-                    if net is not None:
-                        return net
+                    matched_net = pin_to_net.get(pin)
+                    if matched_net is not None:
+                        return matched_net
                 # Wire has no pin endpoints with net — match-but-no-net.
                 return None
     return None
