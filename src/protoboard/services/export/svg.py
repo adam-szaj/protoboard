@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
 
 
@@ -45,7 +46,7 @@ def export_svg(
     schematic: Schematic | None = None,
     scale: float | None = None,
     theme: Theme = DEFAULT_THEME,
-    package_families: dict | None = None,
+    package_families: dict[str, PackageFamily] | None = None,
 ) -> str:
     """Render the board to an SVG string.
 

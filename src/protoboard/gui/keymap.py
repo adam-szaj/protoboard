@@ -191,7 +191,7 @@ class KeyAction:
     def default(self) -> list[str] | str | None:
         return self.shortcuts
 
-    def __json_repr__(self) -> dict:
+    def __json_repr__(self) -> dict[str, object]:
         return {
             "id": self.id,
             "shortcuts": self.shortcuts,
@@ -328,7 +328,7 @@ class AbstractKeyMap(ABC):
     def known_actions(self) -> tuple[KeyAction, ...]: ...
 
     @abstractmethod
-    def __json_repr__(self) -> dict[str, dict]: ...
+    def __json_repr__(self) -> dict[str, dict[str, object]]: ...
 
     @abstractmethod
     def actions_in(self, category: str) -> tuple[KeyAction, ...]: ...
@@ -361,8 +361,8 @@ class KeyMap(AbstractKeyMap):
     # registered *yet*.
     _overrides: dict[str, str] = field(default_factory=dict)
 
-    def __json_repr__(self) -> dict[str, dict]:
-        json_repr = dict()
+    def __json_repr__(self) -> dict[str, dict[str, object]]:
+        json_repr: dict[str, dict[str, object]] = {}
         if self._parent:
             json_repr = self._parent.__json_repr__()
         for action_id, key_action in self._actions.items():

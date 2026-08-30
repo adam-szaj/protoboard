@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
 
 # 1 raster unit = 2.54 mm (standard 0.1" pitch) — default.
@@ -36,7 +37,7 @@ def export_pdf(
     schematic: Schematic | None = None,
     raster_pitch_mm: float = _MM_PER_RASTER,
     theme: Theme = DEFAULT_THEME,
-    package_families: dict | None = None,
+    package_families: dict[str, PackageFamily] | None = None,
 ) -> None:
     """Write a print-ready 1:1 PDF of the board top layer to *path*.
 

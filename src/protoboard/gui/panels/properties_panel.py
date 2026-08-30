@@ -293,7 +293,7 @@ class PropertiesPanel(QWidget):
         inst: ComponentInstance,
         placement: ComponentPlacement | None = None,
         defn: ComponentDefinition | None = None,
-        package_families: dict | None = None,
+        package_families: dict[str, PackageFamily] | None = None,
     ) -> None:
         self._current_id = inst.id
         self._populate_basic_fields(inst, placement)
@@ -396,7 +396,7 @@ class PropertiesPanel(QWidget):
         defn: ComponentDefinition | None,
         current_offsets: dict[int, Vector],
         instance: ComponentInstance | None = None,
-        package_families: dict | None = None,
+        package_families: dict[str, PackageFamily] | None = None,
     ) -> None:
         while self._pin_offsets_form.rowCount():
             self._pin_offsets_form.removeRow(0)
@@ -600,7 +600,7 @@ class PropertiesPanel(QWidget):
         self,
         defn: ComponentDefinition | None,
         current_variant: str | None,
-        packages: dict,
+        packages: dict[str, PackageFamily],
     ) -> None:
         """Repopulate the body-variant dropdown for the current instance.
 

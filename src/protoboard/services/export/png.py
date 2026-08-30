@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
 
 # Default rasterisation: 40 px per raster unit ≈ 100 dpi at 2.54 mm pitch.
@@ -36,7 +37,7 @@ def export_png(
     svg_scale: float = 10.0,  # kept for signature compatibility
     pixel_scale: int = 4,  # legacy: SVG units × pixel_scale
     theme: Theme = DEFAULT_THEME,
-    package_families: dict | None = None,
+    package_families: dict[str, PackageFamily] | None = None,
 ) -> None:
     """Rasterise the board into a PNG at *path*.
 
