@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from protoboard.domain.board.boxes import (
     BoardGrid,
@@ -75,8 +75,8 @@ class Board:
         """
         cached = self._.get("_atoms_list")
         if cached is None:
-            cached = self._build_atoms_list()
-        return iter(cached)
+            return iter(self._build_atoms_list())
+        return iter(cast(tuple[tuple[Box, Point], ...], cached))
 
     def pad_positions(self) -> list[Point]:
         """All pad centres (raster units), in atom-walk order.
@@ -103,7 +103,7 @@ class Board:
         return positions
 
     @counted("Board._build_atoms_list")
-    def _build_atoms_list(self) -> tuple:  # type: ignore[type-arg]
+    def _build_atoms_list(self) -> tuple[tuple[Box, Point], ...]:
         """The cache-miss branch of :meth:`atoms`.
 
         Split out so the call counter records only the actual
