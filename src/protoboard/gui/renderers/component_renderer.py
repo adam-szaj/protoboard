@@ -450,9 +450,9 @@ def render_components(
     # Build set of component IDs that are part of the highlighted net.
     highlighted_comp_ids: set[uuid.UUID] = set()
     if highlighted_net_id is not None and schematic is not None:
-        net = schematic.nets.get(highlighted_net_id)
-        if net is not None:
-            highlighted_comp_ids = {ref.component_id for ref in net.pins}
+        highlighted_net = schematic.nets.get(highlighted_net_id)
+        if highlighted_net is not None:
+            highlighted_comp_ids = {ref.component_id for ref in highlighted_net.pins}
 
     comp_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     label_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
