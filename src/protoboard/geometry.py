@@ -23,10 +23,10 @@ graphics conventions).
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from itertools import accumulate
-from typing import overload
+from typing import Any, cast, overload
 
 # from _typeshed import Self
 
@@ -182,7 +182,7 @@ class Point3D:
         return Point(self.x, self.y)
 
 
-ROTATE2D_TRANSFORM: list = [
+ROTATE2D_TRANSFORM: list[Callable[[Vector], Vector]] = [
     lambda v: v,
     lambda v: Vector(v.dy, -v.dx),
     lambda v: Vector(-v.dx, -v.dy),
@@ -469,16 +469,18 @@ Vector3DList = list[Vector3D]
 
 
 @overload
-def _make_points_from_offsets(point, offsets: Iterable[Vector]) -> Iterator[Point]: ...
+def _make_points_from_offsets(
+    point: Point, offsets: Iterable[Vector]
+) -> Iterator[Point]: ...
 
 
 @overload
 def _make_points_from_offsets(
-    point, offsets: Iterable[Vector3D]
+    point: Point3D, offsets: Iterable[Vector3D]
 ) -> Iterator[Point3D]: ...
 
 
-def _make_points_from_offsets(point, offsets) -> Iterable[Point3D] | Iterator[Point]:
+def _make_points_from_offsets(point: Any, offsets: Iterable[Any]) -> Iterator[Any]:
     return accumulate(offsets, initial=point)
 
 
@@ -492,8 +494,14 @@ def make_points_from_offsets(
 ) -> Point3DList: ...
 
 
-def make_points_from_offsets(point, offsets) -> Point3DList | PointList:
-    return list(_make_points_from_offsets(point, offsets))
+def make_points_from_offsets(
+    point: Point | Point3D,
+    offsets: Iterable[Vector] | Iterable[Vector3D],
+) -> Point3DList | PointList:
+    return cast(
+        Point3DList | PointList,
+        list(_make_points_from_offsets(cast(Any, point), cast(Iterable[Any], offsets))),
+    )
 
 
 @overload
@@ -504,7 +512,7 @@ def _make_offsets_from_points(points: Iterable[Point]) -> Iterator[Vector]: ...
 def _make_offsets_from_points(points: Iterable[Point3D]) -> Iterator[Vector3D]: ...
 
 
-def _make_offsets_from_points(points) -> Iterator[Vector] | Iterator[Vector3D]:
+def _make_offsets_from_points(points: Iterable[Any]) -> Iterator[Any]:
     from itertools import pairwise
 
     return map(lambda pw: pw[1] - pw[0], pairwise(points))
@@ -518,8 +526,13 @@ def make_offsets_from_points(points: Iterable[Point]) -> VectorList: ...
 def make_offsets_from_points(points: Iterable[Point3D]) -> Vector3DList: ...
 
 
-def make_offsets_from_points(points) -> VectorList | Vector3DList:
-    return list(_make_offsets_from_points(points))
+def make_offsets_from_points(
+    points: Iterable[Point] | Iterable[Point3D],
+) -> VectorList | Vector3DList:
+    return cast(
+        VectorList | Vector3DList,
+        list(_make_offsets_from_points(cast(Iterable[Any], points))),
+    )
 
 
 @dataclass(frozen=True, slots=True)
