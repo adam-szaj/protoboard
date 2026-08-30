@@ -90,6 +90,11 @@ class _MigrationLibrary(Protocol):
 
     def get(self, name: str) -> ComponentDefinition | None: ...
 
+
+@runtime_checkable
+class _NamedMigrationLibrary(_MigrationLibrary, Protocol):
+    """Migration library that can enumerate all registered definitions."""
+
     def names(self) -> Iterable[str]: ...
 
 
@@ -133,21 +138,19 @@ def save_project(
     # different net must stay a crossing, not collapse into a shared
     # hub).  Falls back to None when no library is registered (legacy
     # tests); the split pass then behaves geometry-only as before.
-    _components_for_split: dict[str, object] | None = None
-    if _library_for_migration is not None and hasattr(
-        _library_for_migration,
-        "names",
-    ):
+    _components_for_split: dict[str, ComponentDefinition] | None = None
+    if isinstance(_library_for_migration, _NamedMigrationLibrary):
         _components_for_split = {
-            _name: _library_for_migration.get(_name)
+            _name: _defn
             for _name in _library_for_migration.names()
+            if (_defn := _library_for_migration.get(_name)) is not None
         }
     for _ in range(16):
         _s = split_wires_at_endpoint_collisions(
             layout,
             schematic=schematic,
             instances=instances,
-            components=_components_for_split,  # type: ignore[arg-type]
+            components=_components_for_split,
             board=board,
         )
         _f = merge_endpoint_wires(
@@ -155,7 +158,7 @@ def save_project(
             board,
             schematic=schematic,
             instances=instances,
-            components=_components_for_split,  # type: ignore[arg-type]
+            components=_components_for_split,
         )
         _splits_on_save += _s
         _fused_on_save += _f
@@ -616,15 +619,9 @@ def load_project(
     # enters the project. Instances whose definition is unavailable (duck-typed
     # legacy/test handles) are left unbound; the migration passes already guard
     # for a missing defn before resolving geometry.
-    if _library_for_migration is not None and hasattr(
-        _library_for_migration,
-        "get",
-    ):
-        _mig_lib = cast(_MigrationLibrary, _library_for_migration)
-        _mig_families = cast(
-            "dict[str, PackageFamily] | None",
-            _families_for_migration,
-        )
+    if _library_for_migration is not None:
+        _mig_lib = _library_for_migration
+        _mig_families = _families_for_migration
         for _cid, _inst in list(instances.items()):
             _defn = _mig_lib.get(_inst.definition_ref)
             if _defn is not None:
@@ -690,11 +687,7 @@ def load_project(
                 inst = instances.get(comp_id)
                 if inst is None:
                     continue
-                defn = (
-                    cast(_MigrationLibrary, library).get(inst.definition_ref)
-                    if hasattr(library, "get")
-                    else None
-                )
+                defn = library.get(inst.definition_ref)
                 if defn is None:
                     continue
                 fp = _resolved_footprint(defn, inst, _families_for_migration)
@@ -716,7 +709,7 @@ def load_project(
                 inst = instances.get(comp_id)
                 if pl is None or inst is None or library is None:
                     return None
-                defn = library.get(inst.definition_ref)  # type: ignore[attr-defined]
+                defn = library.get(inst.definition_ref)
                 if defn is None:
                     return None
                 try:
@@ -786,14 +779,12 @@ def load_project(
     # components dict from the registered library so cross-net insulated
     # crossings stay as crossings instead of getting spliced into shared
     # hubs.  No-op when no library was registered (legacy tests).
-    _components_for_split: dict[str, object] | None = None
-    if _library_for_migration is not None and hasattr(
-        _library_for_migration,
-        "names",
-    ):
+    _components_for_split: dict[str, ComponentDefinition] | None = None
+    if isinstance(_library_for_migration, _NamedMigrationLibrary):
         _components_for_split = {
-            _name: _library_for_migration.get(_name)
+            _name: _defn
             for _name in _library_for_migration.names()
+            if (_defn := _library_for_migration.get(_name)) is not None
         }
     # Canonicalisation: split+merge wire endpoints until stable.  This
     # is a best-effort cleanup — if the saved layout violates internal
@@ -808,7 +799,7 @@ def load_project(
                 layout,
                 schematic=schematic,
                 instances=instances,
-                components=_components_for_split,  # type: ignore[arg-type]
+                components=_components_for_split,
                 board=board,
             )
         except (ValueError, KeyError) as exc:
@@ -820,7 +811,7 @@ def load_project(
                 board,
                 schematic=schematic,
                 instances=instances,
-                components=_components_for_split,  # type: ignore[arg-type]
+                components=_components_for_split,
             )
         except (ValueError, KeyError) as exc:
             _canon_failed_at = ("merge", str(exc))
@@ -953,15 +944,11 @@ def load_project(
                 if not isinstance(k, _PK):
                     continue
                 comp_id = k.pin.component_id
-                pl = layout.placements.get(comp_id)
+                endpoint_placement = layout.placements.get(comp_id)
                 inst = instances.get(comp_id)
-                if pl is None or inst is None:
+                if endpoint_placement is None or inst is None:
                     continue
-                defn = (
-                    _library_for_migration.get(inst.definition_ref)
-                    if hasattr(_library_for_migration, "get")
-                    else None
-                )
+                defn = _library_for_migration.get(inst.definition_ref)
                 if defn is None:
                     continue
                 try:
@@ -971,7 +958,7 @@ def load_project(
                     # (3.2-hole pitch) and every pin "moves", snapping the whole
                     # wire and dragging neighbours.
                     fp = _resolved_footprint(defn, inst, _families_for_migration)
-                    pin_pos = _pwp(fp, pl, k.pin.pin_number)
+                    pin_pos = _pwp(fp, endpoint_placement, k.pin.pin_number)
                 except (IndexError, ValueError):
                     continue
                 if not w.path:
@@ -1035,17 +1022,17 @@ def load_project(
 # can resolve pin world positions.  ``None`` means "no library available";
 # the load falls back to JointKnot-only knot backfill (acceptable for tests
 # that don't exercise PinKnot persistence).
-_library_for_migration: object | None = None
-_families_for_migration: object | None = None
+_library_for_migration: _MigrationLibrary | None = None
+_families_for_migration: dict[str, PackageFamily] | None = None
 
 
-def set_migration_library(library: object | None) -> None:
+def set_migration_library(library: _MigrationLibrary | None) -> None:
     """Register the ComponentLibrary used during legacy v1→v2 wire migration."""
     global _library_for_migration
     _library_for_migration = library
 
 
-def set_migration_families(families: object | None) -> None:
+def set_migration_families(families: dict[str, PackageFamily] | None) -> None:
     """Register the package-family catalogue used at load to resolve each
     component's chosen variant footprint (so stale-path snapping measures pin
     positions against the variant, not the definition default)."""
