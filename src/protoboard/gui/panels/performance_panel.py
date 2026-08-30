@@ -249,7 +249,7 @@ class PerformancePanel(QWidget):
     def _on_selection_changed(
         self,
         comp_ids: object,
-        wire_ids: object,
+        wire_ids: frozenset[uuid.UUID],
         net_id: object,
     ) -> None:
         self._selected_wire_ids = frozenset(wire_ids) if wire_ids else frozenset()
