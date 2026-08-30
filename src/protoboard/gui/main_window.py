@@ -829,6 +829,7 @@ class MainWindow(QMainWindow):
             if concrete is None:
                 return  # cancelled
             definition_ref = concrete.name
+            package_variant = concrete.package_options[0].ref
         package_variant_str = (
             str(package_variant) if package_variant is not None else None
         )

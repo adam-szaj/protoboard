@@ -4,6 +4,7 @@ and the post-refactor invariants (one source of truth, no if-elif chain)."""
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from pathlib import Path
 
@@ -11,9 +12,11 @@ import pytest
 from PySide6.QtGui import QKeySequence
 
 from protoboard.controller.app_settings import AppSettings
+from protoboard.controller.tools.place_tool import PlaceTool
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
+from protoboard.domain.components.definition import PackageOption
 from protoboard.gui import keybindings as KB
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
@@ -75,6 +78,40 @@ class TestActionRegistry:
 
     def test_registry_size_matches_handler_map(self, main_window: MainWindow) -> None:
         assert len(main_window._actions) == len(main_window._action_handlers)
+
+
+class TestParametricPlacement:
+    def test_concrete_definition_replaces_base_package_variant(
+        self, main_window: MainWindow, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base = dataclasses.replace(
+            main_window._session.components["R"],
+            name="JST_PH",
+            parametric_pins=True,
+        )
+        concrete = dataclasses.replace(
+            base,
+            name="JST_PH_4pin",
+            package_options=(
+                PackageOption(
+                    name="default",
+                    ref="JST_PH_4pin-package/std",
+                    pin_map=base.package_options[0].pin_map,
+                ),
+            ),
+            parametric_pins=False,
+        )
+        main_window._session.components[base.name] = base
+        monkeypatch.setattr(
+            main_window, "_prompt_parametric_pins", lambda _defn: concrete
+        )
+        tools: list[PlaceTool] = []
+        monkeypatch.setattr(main_window._board_view, "set_tool", tools.append)
+
+        main_window._tool_place(base.name, "JST_PH-package/std")
+
+        assert tools[0]._definition_ref == concrete.name
+        assert tools[0]._package_variant == concrete.package_options[0].ref
 
 
 class TestLiveReload:
