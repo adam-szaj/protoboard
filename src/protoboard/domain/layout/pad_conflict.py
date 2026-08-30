@@ -10,7 +10,7 @@ import math
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
@@ -41,8 +41,18 @@ if TYPE_CHECKING:
     from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package.shapes import Package
+    from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
+
+
+class _DragSetLike(Protocol):
+    @property
+    def groups(self) -> frozenset[uuid.UUID]: ...
+
+    def all_component_ids(
+        self, groups_map: dict[uuid.UUID, ComponentGroup]
+    ) -> frozenset[uuid.UUID]: ...
 
 
 def footprint_of(
@@ -432,7 +442,6 @@ def _wire_hit_via_pad_index(
     matched only vertex items and silently missed every such case.
     """
     from protoboard.domain.board.pad_state import (
-        SHORT_CIRCUIT,
         BareWireCrossing,
         BareWireItem,
         InsulatedWireCrossing,
@@ -498,12 +507,12 @@ def _wire_hit_via_pad_index(
     if wire_item is None:
         return None
     net_id = pad.electrical_net_on(hit_side)
-    if net_id is None or net_id is SHORT_CIRCUIT:
+    if not isinstance(net_id, uuid.UUID):
         return wire_item.id, None
     name = net_name_by_id.get(net_id)
     if name is None:
         return wire_item.id, None
-    return wire_item.id, (net_id, name)  # type: ignore[return-value]
+    return wire_item.id, (net_id, name)
 
 
 def _pin_hit_via_pad_index(
@@ -731,7 +740,7 @@ def check_group_move_conflicts(
     active_group_id: uuid.UUID,
     layout_placements: PlacementMap,
     layout_wires: list[Wire],
-    layout_groups: dict[uuid.UUID, object],
+    layout_groups: dict[uuid.UUID, ComponentGroup],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
@@ -764,7 +773,7 @@ def check_group_move_conflicts(
     wire crossing still hard-blocks when it cuts through a moving
     subgroup's interior.  ``None`` preserves single-group semantics.
     """  # noqa: E501
-    from protoboard.domain.layout.group import ComponentGroup, all_component_ids
+    from protoboard.domain.layout.group import all_component_ids
 
     blocking_pads: list[Point] = []
     removable_ids: list[uuid.UUID] = []
@@ -930,13 +939,10 @@ def check_group_move_conflicts(
     subgroup_bboxes: list[tuple[float, float, float, float]] = []
     for parent_gid in protected_parent_gids:
         parent_group = layout_groups.get(parent_gid)
-        if not isinstance(parent_group, ComponentGroup):
+        if parent_group is None:
             continue
         for child_gid in parent_group.child_group_ids:
-            child_ids = all_component_ids(
-                layout_groups,  # type: ignore[arg-type]
-                child_gid,
-            )
+            child_ids = all_component_ids(layout_groups, child_gid)
             subgroup_comp_ids |= set(child_ids)
             bbox = _compute_bbox(child_ids, layout_placements, instances, components)
             if bbox is not None:
@@ -992,11 +998,11 @@ def check_group_move_conflicts(
 
 
 def check_multi_group_move_conflicts(
-    drag_set: object,  # protoboard.controller.editing.drag_set.DragSet
+    drag_set: _DragSetLike,
     active_group_id: uuid.UUID,
     layout_placements: PlacementMap,
     layout_wires: list[Wire],
-    layout_groups: dict[uuid.UUID, object],
+    layout_groups: dict[uuid.UUID, ComponentGroup],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
@@ -1022,18 +1028,15 @@ def check_multi_group_move_conflicts(
     ``moved_ids``.
 
     Args:
-        drag_set: :class:`protoboard.controller.editing.drag_set.DragSet` — the
-            structured snapshot built at press time.  Typed as
-            ``object`` here to keep the domain module Qt-free.
+        drag_set: Structured drag snapshot built at press time. The local
+            protocol keeps this domain module independent of the controller.
         active_group_id: The user's current group context (root or a
             sub-group entered via long-press 1 s).  Its child groups
             stay protected.
         Other args: same as :func:`check_group_move_conflicts`.
     """
     # Resolve flat moved_ids from the DragSet.
-    moved_ids: set[uuid.UUID] = set(
-        drag_set.all_component_ids(layout_groups)  # type: ignore[attr-defined]
-    )
+    moved_ids: set[uuid.UUID] = set(drag_set.all_component_ids(layout_groups))
 
     extra_groups: set[uuid.UUID] = set(drag_set.groups) - {active_group_id}
 
@@ -1041,7 +1044,7 @@ def check_multi_group_move_conflicts(
         "multi_group_move.check.start",
         n_moved=len(moved_ids),
         active_group_id=str(active_group_id)[:8],
-        drag_set_groups=[str(g)[:8] for g in drag_set.groups],  # type: ignore[attr-defined]
+        drag_set_groups=[str(g)[:8] for g in drag_set.groups],
         extra_groups=[str(g)[:8] for g in extra_groups],
     )
 
@@ -1227,7 +1230,7 @@ class ConflictScanner:
         moved_ids: set[uuid.UUID],
         active_group_id: uuid.UUID,
         layout_wires: list[Wire],
-        layout_groups: dict[uuid.UUID, object],
+        layout_groups: dict[uuid.UUID, ComponentGroup],
         moved_wire_ids: set[uuid.UUID] | None = None,
         extra_protected_group_ids: set[uuid.UUID] | None = None,
     ) -> MoveConflictResult:
@@ -1249,10 +1252,10 @@ class ConflictScanner:
 
     def check_multi_group_move(
         self,
-        drag_set: object,
+        drag_set: _DragSetLike,
         active_group_id: uuid.UUID,
         layout_wires: list[Wire],
-        layout_groups: dict[uuid.UUID, object],
+        layout_groups: dict[uuid.UUID, ComponentGroup],
         moved_wire_ids: set[uuid.UUID] | None = None,
     ) -> MoveConflictResult:
         """Classify an atomic multi-group / mixed drag-set move (see
