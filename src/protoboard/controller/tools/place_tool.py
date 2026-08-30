@@ -158,17 +158,8 @@ class PlaceTool(ControllerTool):
         self.__view = value
 
     def _theme_typed(self) -> Theme:
-        """``_theme()`` narrowed to a concrete :class:`Theme`.
-
-        The Qt-free base declares ``_theme() -> object | None``; the GUI
-        subclass re-points it to the real ``() -> Theme``. Ghost drawing only
-        runs with the real view/theme bound, so this narrows for the drawing
-        path (mirrors gui_tools._theme_fn)."""
-        from protoboard.controller.theme import Theme as _Theme
-
-        t = self._theme()
-        assert isinstance(t, _Theme)  # real theme bound on the GUI subclass
-        return t
+        """Return the active GUI theme or the headless default."""
+        return self._theme()
 
     @traced()
     def _is_phase(self, phase: PhaseEnum) -> bool:

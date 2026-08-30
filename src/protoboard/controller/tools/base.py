@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         StatusEvent,
         WheelInput,
     )
+    from protoboard.controller.theme import Theme
     from protoboard.geometry import Point
 
 
@@ -123,13 +124,11 @@ class ControllerTool:
             return False
         return view.keymap.matches(inp.key, inp.native_mods, action_id)
 
-    def _theme(self) -> object | None:
-        """The resolved theme.
+    def _theme(self) -> Theme:
+        """Return the Qt-free default theme for headless tool execution."""
+        from protoboard.controller.theme import DEFAULT_THEME
 
-        Qt-free default: headless has no theme. Only Qt-rendering paths read
-        it; ``ViewToolMixin`` overrides this to resolve the real View theme.
-        """
-        return None
+        return DEFAULT_THEME
 
     def can_exit(self) -> bool:
         """May ``[Esc]`` exit this tool now? Tools with a pending operation

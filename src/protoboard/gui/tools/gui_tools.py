@@ -64,7 +64,7 @@ def _theme_fn(tool: ViewToolMixin) -> Callable[[], Theme]:
     None``) from the MRO. Binding it through ``ViewToolMixin`` restores the
     precise return type for the Qt preview constructors that require it.
     """
-    return cast("Callable[[], Theme]", tool._theme)
+    return tool._theme
 
 
 __all__ = [
@@ -216,8 +216,9 @@ class ArmedTransformTool(
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
         super().activate(session, view)  # type: ignore[arg-type]
-        self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
-        self._overlays = TransformOverlays(view)
+        gui_view = _gui_view(view)
+        self._preview = QtSelectPreview(gui_view.scene)
+        self._overlays = TransformOverlays(gui_view)
         # The base activate() already drew pivot markers / published status
         # before this preview existed — redraw now that it does.
         self._draw_pivot_markers()
@@ -324,14 +325,13 @@ class SelectTool(
     _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
+        gui_view = _gui_view(view)
         if not self._preview_injected:
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
-            self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
+            self._preview = QtSelectPreview(gui_view.scene)
         if not self._group_prompt_injected:
-            self._group_prompt = qt_group_target_prompt(
-                lambda: view.window()  # type: ignore[attr-defined]
-            )
+            self._group_prompt = qt_group_target_prompt(lambda: gui_view.window())
         if not self._armed_transform_factory_injected:
             self._armed_transform_factory = ArmedTransformTool
         if not self._wire_edit_factory_injected:
@@ -339,7 +339,7 @@ class SelectTool(
         super().activate(session, view)  # type: ignore[arg-type]
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
-        self._overlays = TransformOverlays(view)
+        self._overlays = TransformOverlays(gui_view)
 
     @staticmethod
     def _key_to_intent(key: int) -> Intent | None:
@@ -460,14 +460,15 @@ class SimplifyTool(
     _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
+        gui_view = _gui_view(view)
         if not self._preview_injected:
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
-            self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
+            self._preview = QtSelectPreview(gui_view.scene)
         super().activate(session, view)  # type: ignore[arg-type]
         from protoboard.gui.tools.transform_overlays import TransformOverlays
 
-        self._overlays = TransformOverlays(view)
+        self._overlays = TransformOverlays(gui_view)
         if not self._draft_preview_injected:
             from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from typing_extensions import override
 
@@ -385,8 +385,6 @@ class ViewToolMixin:
         # Composed onto ControllerTool in every concrete tool (_Tool); declare
         # the borrowed members here so mypy checks this mixin's own bodies
         # against the composed shape without inheriting from ControllerTool.
-        _view: AbstractBoardView
-
         def key_actions(self) -> dict[str, str | None]: ...
         def mouse_actions(self) -> dict[str, str | None]: ...
 
@@ -411,7 +409,8 @@ class ViewToolMixin:
     def _theme(self) -> Theme:
         from protoboard.controller.theme import DEFAULT_THEME, Theme
 
-        t = getattr(self._view, "_theme_override", None)
+        view = cast("AbstractBoardView", getattr(self, "_view"))
+        t = getattr(view, "_theme_override", None)
         return t if isinstance(t, Theme) else DEFAULT_THEME
 
     @traced()
