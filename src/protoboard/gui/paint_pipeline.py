@@ -28,11 +28,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtGui import QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsItem
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view import BoardView
+    from protoboard.gui.renderers.board_renderer import BoardDisplayList
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -49,25 +50,25 @@ class PaintPipeline:
     def __init__(self, view: BoardView) -> None:
         self._view = view
         # Board layer: rebuilt only when board geometry / theme / alpha changes.
-        self._bg_cache: object | None = None  # QPixmap, kept loose-typed
+        self._bg_cache: QPixmap | None = None
         self._bg_cache_dirty: bool = True
         # ``BoardDisplayList`` is rebuilt alongside the cache pixmap but
         # cached separately so a viewport-only resize (no board change)
         # can re-rasterise without re-walking ``board.atoms()``.
-        self._bg_display_list: object | None = None  # BoardDisplayList
+        self._bg_display_list: BoardDisplayList | None = None
         # ``_back_cache`` holds the rasterised scene items whose zValue lies
         # in the back band (0..Z_BOARD).  ``_back_cache_dirty`` is set
         # whenever back-side items change, viewport resizes, or transform
         # changes.
-        self._back_cache: object | None = None
+        self._back_cache: QPixmap | None = None
         self._back_cache_dirty: bool = True
         # Scene items kept hidden while a valid _back_cache shows them
         # as a rasterised blit instead.  Restored on cache invalidation.
-        self._back_hidden_items: list[object] = []
+        self._back_hidden_items: list[QGraphicsItem] = []
         # Stale-blit anchor: the most recent _bg_cache + its viewportTransform
         # at the moment we built it.
-        self._bg_cache_anchor: object | None = None
-        self._bg_cache_anchor_transform: object | None = None  # QTransform
+        self._bg_cache_anchor: QPixmap | None = None
+        self._bg_cache_anchor_transform: QTransform | None = None
         # Paint profiling counters — incremented each time a phase actually
         # runs.  Reported alongside per-paint timings when
         # PROTOBOARD_PAINT_PROFILE is set so we can tell e.g. "blit_base
@@ -204,9 +205,8 @@ class PaintPipeline:
             # in the GPU/blit stage so the pan/zoom feels instant.  We
             # explicitly do NOT call ``_ensure_bg_cache`` here — that would
             # negate the whole point of the fast preview.
-            from PySide6.QtGui import QTransform
-
-            anchor_t: QTransform = self._bg_cache_anchor_transform  # type: ignore[assignment]
+            anchor_t = self._bg_cache_anchor_transform
+            assert anchor_t is not None
             cur_t = view.viewportTransform()
             # World-space coords mapped by current transform must land where
             # anchor-rendered pixels were placed; the bridging transform is
@@ -405,9 +405,7 @@ class PaintPipeline:
         need_rebuild = (
             self._bg_cache_dirty
             or self._bg_cache is None
-            or (
-                isinstance(self._bg_cache, QPixmap) and self._bg_cache.size() != vp_size
-            )
+            or (self._bg_cache.size() != vp_size)
         )
         if not need_rebuild:
             return 0.0
@@ -466,7 +464,7 @@ class PaintPipeline:
             # uses for scene items so display-list coordinates land in
             # the right place on the pixmap.
             painter.setTransform(view.viewportTransform())
-            paint_board(painter, self._bg_display_list)  # type: ignore[arg-type]
+            paint_board(painter, self._bg_display_list)
         finally:
             painter.end()
         self._bg_cache = pix
@@ -498,10 +496,7 @@ class PaintPipeline:
         need_rebuild = (
             self._back_cache_dirty
             or self._back_cache is None
-            or (
-                isinstance(self._back_cache, QPixmap)
-                and self._back_cache.size() != vp_size
-            )
+            or (self._back_cache.size() != vp_size)
         )
         if not need_rebuild:
             return 0.0
@@ -512,7 +507,7 @@ class PaintPipeline:
         # picks up the new state.
         for it in self._back_hidden_items:
             try:
-                it.setVisible(True)  # type: ignore[attr-defined]
+                it.setVisible(True)
             except RuntimeError:
                 pass  # underlying C++ object gone
         self._back_hidden_items = []
