@@ -21,7 +21,6 @@ Aggregate (reported as benchmark value so pytest-benchmark tracks them):
 
 from __future__ import annotations
 
-import copy
 import math
 from dataclasses import dataclass
 
@@ -157,7 +156,7 @@ def measure_routing_quality(
             comp = components.get(inst.definition_ref)
             if comp is None:
                 continue
-            pt = pin_world_position(comp.default_footprint(), pl, pin_ref.pin_number)
+            pt = pin_world_position(inst.resolved_footprint(), pl, pin_ref.pin_number)
             pin_pos_to_net[(round(pt.x, 4), round(pt.y, 4))] = net.id
 
     wire_net_id: dict[object, object] = {}  # wire.id → net.id
@@ -192,7 +191,7 @@ def measure_routing_quality(
             if comp is None:
                 continue
             pin_pts.append(
-                pin_world_position(comp.default_footprint(), pl, pin_ref.pin_number)
+                pin_world_position(inst.resolved_footprint(), pl, pin_ref.pin_number)
             )
 
         if len(pin_pts) < 2:
@@ -245,7 +244,28 @@ def synthetic_medium_empty_layout(synthetic_medium_project):
         synthetic_medium_project
     )
     # synthetic generator already produces a wire-free layout.
-    return board, copy.deepcopy(layout), schematic, instances, routing, components
+    return (
+        board,
+        _routing_layout_copy(layout),
+        schematic,
+        instances,
+        routing,
+        components,
+    )
+
+
+def _routing_layout_copy(layout):
+    """Copy domain data without session-bound resolver callbacks."""
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.layout.wire import WireCollection
+
+    return Layout(
+        placements=layout.placements.copy(),
+        wires=WireCollection(list(layout.wires)),
+        groups=dict(layout.groups),
+        knots=dict(layout.knots),
+        pin_knots=dict(layout.pin_knots),
+    )
 
 
 def _run_autoroute(
@@ -262,7 +282,7 @@ def _run_autoroute(
 
     return autoroute(
         board=board,
-        layout=copy.deepcopy(layout),
+        layout=_routing_layout_copy(layout),
         schematic=schematic,
         components=components,
         instances=instances,
@@ -296,8 +316,8 @@ def test_bench_routing_quality_greedy(benchmark, synthetic_medium_empty_layout):
             components,
             max_optimize_iterations=0,
         )
-        result_layout = copy.deepcopy(layout)
-        result_layout.wires = result.wires
+        result_layout = _routing_layout_copy(layout)
+        result_layout.wires[:] = result.wires
         return measure_routing_quality(result_layout, schematic, instances, components)
 
     summary = benchmark.pedantic(_run, iterations=1, rounds=3)
@@ -328,8 +348,8 @@ def test_bench_routing_quality_optimized(benchmark, synthetic_medium_empty_layou
             components,
             max_optimize_iterations=10,
         )
-        result_layout = copy.deepcopy(layout)
-        result_layout.wires = result.wires
+        result_layout = _routing_layout_copy(layout)
+        result_layout.wires[:] = result.wires
         return measure_routing_quality(result_layout, schematic, instances, components)
 
     summary = benchmark.pedantic(_run, iterations=1, rounds=2)
@@ -379,8 +399,8 @@ def test_bench_large_greedy(benchmark, synthetic_large_empty_layout):
             components,
             max_optimize_iterations=0,
         )
-        result_layout = copy.deepcopy(layout)
-        result_layout.wires = result.wires
+        result_layout = _routing_layout_copy(layout)
+        result_layout.wires[:] = result.wires
         quality = measure_routing_quality(
             result_layout, schematic, instances, components
         )

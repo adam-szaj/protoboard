@@ -11,8 +11,6 @@ Order-of-magnitude targets (synthetic_medium: 50 comps, ~40 nets):
 
 from __future__ import annotations
 
-import copy
-
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -54,10 +52,14 @@ def astar_context(synthetic_medium_project):
         if comp0 is None or comp1 is None:
             continue
         src_pt = pin_world_position(
-            comp0.default_footprint(), layout.placements[p0.component_id], p0.pin_number
+            inst0.resolved_footprint(),
+            layout.placements[p0.component_id],
+            p0.pin_number,
         )
         tgt_pt = pin_world_position(
-            comp1.default_footprint(), layout.placements[p1.component_id], p1.pin_number
+            inst1.resolved_footprint(),
+            layout.placements[p1.component_id],
+            p1.pin_number,
         )
         break
 
@@ -89,9 +91,17 @@ def synthetic_medium_empty_layout(synthetic_medium_project):
     board, layout, schematic, instances, routing, _lib, components = (
         synthetic_medium_project
     )
-    import copy as _copy
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.layout.wire import WireCollection
 
-    return board, _copy.deepcopy(layout), schematic, instances, routing, components
+    detached = Layout(
+        placements=layout.placements.copy(),
+        wires=WireCollection(list(layout.wires)),
+        groups=dict(layout.groups),
+        knots=dict(layout.knots),
+        pin_knots=dict(layout.pin_knots),
+    )
+    return board, detached, schematic, instances, routing, components
 
 
 def test_bench_autoroute_one_pass(benchmark, synthetic_medium_empty_layout):
@@ -104,7 +114,7 @@ def test_bench_autoroute_one_pass(benchmark, synthetic_medium_empty_layout):
     def _run():
         return autoroute(
             board=board,
-            layout=copy.deepcopy(layout),
+            layout=layout.preview_copy(),
             schematic=schematic,
             components=components,
             instances=instances,
