@@ -28,6 +28,7 @@ from typing import Literal
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import (
     BoardGrid,
+    Box,
     HBox,
     PadAtom,
     SizePolicy,
@@ -35,7 +36,10 @@ from protoboard.domain.board.boxes import (
 )
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.family import PackageFamily
+from protoboard.domain.components.package.pin_mapping import package_pins_for_meta_pin
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -128,7 +132,7 @@ def _strip_cell(length: int) -> StripAtom:
     )
 
 
-def _grid(cell, rows: int, cols: int) -> BoardGrid:
+def _grid(cell: Box, rows: int, cols: int) -> BoardGrid:
     return BoardGrid(
         width_policy=_HUG,
         height_policy=_HUG,
@@ -168,13 +172,24 @@ def _build_board(spec: ProjectSpec) -> Board:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_components() -> dict[str, ComponentDefinition]:
+def _resolve_components() -> (
+    tuple[dict[str, ComponentDefinition], dict[str, PackageFamily]]
+):
     """Load the built-in library so the generator can look up footprints."""
     from protoboard.paths import BUILTIN_LIBRARY_DIR
     from protoboard.services.library.loader import load_library
+    from protoboard.services.library.package_family_loader import (
+        load_full_package_catalogue,
+    )
 
-    lib = load_library([BUILTIN_LIBRARY_DIR])
-    return {name: lib.get(name) for name in lib.names()}
+    package_families = load_full_package_catalogue()
+    lib = load_library([BUILTIN_LIBRARY_DIR], package_families)
+    components = {name: lib.get(name) for name in lib.names()}
+    for name in (_RESISTOR_DEF, _HEADER_DEF):
+        definition = lib.get(name)
+        if definition is not None:
+            components[name] = definition
+    return components, {**package_families, **lib.package_families}
 
 
 # Two-pin resistor (SIL, pitch=1.0).  Default leg reach for pin 2 is 4
@@ -263,6 +278,7 @@ def _build_slots(spec: ProjectSpec, archetypes: list[str]) -> list[_Slot]:
 def _placement_for_slot(
     slot: _Slot,
     component_id: uuid.UUID,
+    footprint: Footprint,
 ) -> tuple[ComponentPlacement, dict[int, Vector]]:
     """Build placement + override pin offsets so the body fits the slot.
 
@@ -272,13 +288,14 @@ def _placement_for_slot(
     """
     # Cell centre = (col + 0.5, row + 0.5).
     pos = Point(slot.origin_col + 0.5, slot.origin_row + 0.5)
-    # No pin offsets: footprint defaults already place pins on the slot's
-    # consecutive cell centres (SIL pitch=1.0 → pin n at (0, n-1)).
     pin_offsets: dict[int, Vector] = {}
+    if slot.archetype == "R":
+        pin2 = footprint.pin_positions()[1]
+        pin_offsets[2] = Vector(1.0 - pin2.x, -pin2.y)
     placement = ComponentPlacement(
         component_id=component_id,
         position=pos,
-        rotation=0,
+        rotation=90 if slot.archetype == "R" else 0,
         side="top",
         pin_offsets=pin_offsets,
     )
@@ -315,10 +332,17 @@ def _build_nets(
     for cid, placement in placements.items():
         inst = instances[cid]
         defn = components[inst.definition_ref]
-        for pin_no in range(1, defn.default_footprint().pin_count() + 1):
-            ref = PinRef(component_id=cid, pin_number=pin_no)
+        footprint = inst.resolved_footprint()
+        for meta_pin_index in range(1, len(defn.meta_pins) + 1):
+            package_pins = package_pins_for_meta_pin(defn, inst, meta_pin_index)
+            if not package_pins:
+                continue
+            ref = PinRef(component_id=cid, pin_number=meta_pin_index)
             pin_pool.append(
-                (ref, pin_world_position(defn.default_footprint(), placement, pin_no))
+                (
+                    ref,
+                    pin_world_position(footprint, placement, package_pins[0]),
+                )
             )
 
     rng.shuffle(pin_pool)
@@ -419,7 +443,7 @@ def generate_project(spec: ProjectSpec) -> ProjectBundle:
     infeasible (board too small for the requested component count).
     """
     rng = random.Random(spec.seed)
-    components = _resolve_components()
+    components, package_families = _resolve_components()
     if _RESISTOR_DEF not in components or _HEADER_DEF not in components:
         raise RuntimeError(
             "Built-in library missing required defs "
@@ -441,16 +465,16 @@ def generate_project(spec: ProjectSpec) -> ProjectBundle:
                 definition_ref=_RESISTOR_DEF,
                 refdes=f"R{r_count}",
                 value="10k",
-            )
+            ).bind(components[_RESISTOR_DEF], package_families)
         else:
             h_count += 1
             inst = ComponentInstance.new(
                 definition_ref=_HEADER_DEF,
                 refdes=f"J{h_count}",
                 value="HDR4",
-            )
+            ).bind(components[_HEADER_DEF], package_families)
         instances[inst.id] = inst
-        placement, _ = _placement_for_slot(slot, inst.id)
+        placement, _ = _placement_for_slot(slot, inst.id, inst.resolved_footprint())
         placements[inst.id] = placement
 
     layout = Layout(placements=PlacementCollection(placements))
