@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from protoboard.controller.ports import LEFT_BUTTON
 from protoboard.controller.tools.base import ControllerTool
@@ -13,7 +13,6 @@ from protoboard.geometry import Point
 
 if TYPE_CHECKING:
     from protoboard.controller.ports import PointerInput
-    from protoboard.domain.commands.base import ComponentState
 
 # Maximum scene-unit distance to accept a click as targeting a strip.
 _MAX_DIST = 0.65
@@ -40,14 +39,14 @@ class CutTool(ControllerTool):
             cut_index=cut_index,
             cut_between=cut_between,
         )
-        self._session.stack.execute(cmd, cast("ComponentState", self._session))
+        if not self._execute_command(cmd):
+            return False
         # SplitStripCommand rebuilds Board.root, so the board layer (pads /
         # strips) has to be repainted on the next refresh.  ``layout_changed``
         # alone only re-renders components and wires.
         view = self._view
         if view is not None:
             view.mark_board_layer_dirty()
-        self._session.notify_changed()
         return True
 
 

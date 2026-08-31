@@ -97,7 +97,7 @@ def test_controller_execution_port_notifies_only_after_success(
 
 
 def test_migrated_tools_do_not_execute_command_stack_directly() -> None:
-    for filename in ("select_tool.py", "wire_edit_tool.py"):
+    for filename in ("cut_tool.py", "select_tool.py", "wire_edit_tool.py"):
         path = (
             Path(__file__).parents[2]
             / "src"
