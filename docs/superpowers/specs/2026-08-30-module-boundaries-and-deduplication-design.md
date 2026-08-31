@@ -339,6 +339,15 @@ display-backed GUI smoke test is still the sole unexecuted verification item.
 The property gate was also rerun after the selection-port migration and passed
 all 3 selected tests (4,448 deselected) in 630.45 seconds.
 
+The subsequent GUI boundary pass removed production reads of the private
+`BoardView._active_tool` alias and private layer-override storage. Routing
+option updates now use typed `RouteTool.set_options()` / `notify_status()` ports,
+and group actions use `SelectTool`'s `current_group_id`, `group_depth`, and
+`is_inside_group()` ports instead of mutating its navigation stack. The tree
+contains 321 source modules and 97,086 physical lines; focused view, routing,
+camera, and selection suites pass, with Ruff, Black, mypy, and diff checks
+clean. Manual real-display GUI smoke remains the only outstanding verification.
+
 The selection-port migration was followed by another complete unit/GUI and
 static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
