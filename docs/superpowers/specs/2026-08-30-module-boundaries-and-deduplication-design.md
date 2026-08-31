@@ -339,6 +339,11 @@ display-backed GUI smoke test is still the sole unexecuted verification item.
 The property gate was also rerun and passed all 3 selected tests (4,448
 deselected).
 
+The selection-port migration was followed by another complete unit/GUI and
+static-analysis gate with the same passing totals. The final source tree now
+contains 321 modules and 97,058 physical lines, and no production module reads
+the removed private selection fields; only the explicit typed ports remain.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
