@@ -319,8 +319,10 @@ The typed-state cleanup then removed unnecessary reflective queries from
 controller tools while retaining the pre-activation headless fallback and
 using the required `RoutingSettings.simplify_mode` field directly. Obsolete
 selection-highlight and status-message shims were removed in the same pass.
+The touched selection/composer files also shed stale phase-history comments
+while retaining algorithm and invariant explanations.
 The focused interaction/simplification suite passes 190 tests, mypy and
-Pyright remain clean, and the tree contains 321 source modules and 97,071
+Pyright remain clean, and the tree contains 321 source modules and 97,066
 physical lines. A final boundary scan reports no controller signal emission,
 Qt import, or top-level window access; manual GUI smoke testing remains
 deferred to the final Workstream 4 gate.
