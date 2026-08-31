@@ -858,6 +858,13 @@ class MainWindow(QMainWindow):
         self._mode_label.setText(f"Place {inst.refdes} ({inst.value})  [R] rotate")
         self._sync_tool_check(None)
 
+    def _commit_layout_batch(self, command: object) -> None:
+        """Execute a component batch and refresh all derived GUI state."""
+        self._session.edit_controller.execute_command(command)
+        self._board_view.refresh()
+        self._update_stats()
+        self._update_undo_redo()
+
     def _auto_place_instances(self, instance_ids: list[uuid.UUID]) -> None:
         """Auto-place a list of component instances using net-gravity heuristic."""
         from typing import cast
@@ -926,10 +933,7 @@ class MainWindow(QMainWindow):
         )
         assert macro is not None
 
-        self._session.edit_controller.execute_command(macro)
-        self._board_view.refresh()
-        self._update_stats()
-        self._update_undo_redo()
+        self._commit_layout_batch(macro)
 
         msg = self._format_auto_place_result(n, result)
         self._status.showMessage(msg, 8000)
@@ -1038,10 +1042,7 @@ class MainWindow(QMainWindow):
         )
         assert macro is not None
 
-        self._session.edit_controller.execute_command(macro)
-        self._board_view.refresh()
-        self._update_stats()
-        self._update_undo_redo()
+        self._commit_layout_batch(macro)
 
         msg = f"Spread {n} component{'s' if n != 1 else ''}."
         n_unchanged = len(result.unchanged_ids)
