@@ -120,11 +120,14 @@ def test_menu_slot_sets_insulated(qtbot: QtBot) -> None:
         tool = mw._get_select_tool()
         assert tool is not None
         tool._selected_wire_ids = {w1, w2}
+        signals: list[None] = []
+        session.layout_changed.connect(lambda: signals.append(None))
 
         mw._set_selected_wire_insulated(False)
 
         assert session.layout.wires.get_or_raise(w1).insulated is False
         assert session.layout.wires.get_or_raise(w2).insulated is False
+        assert len(signals) == 1
     finally:
         # Always run, even on assertion failure — a dirty session left behind
         # makes qtbot's teardown closeEvent() pop a blocking "unsaved

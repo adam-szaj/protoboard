@@ -1885,7 +1885,6 @@ class MainWindow(QMainWindow):
         all_locked = all(placements[cid].locked for cid in valid)
         new_locked = not all_locked
         self._session.edit_controller.set_locked(valid, locked=new_locked)
-        self._session.layout_changed.emit()
         self._update_undo_redo()
         verb = "Locked" if new_locked else "Unlocked"
         self._status.showMessage(f"{verb} component(s).", 3000)
@@ -1966,7 +1965,6 @@ class MainWindow(QMainWindow):
         if not wire_ids:
             return
         self._session.edit_controller.set_wires_insulated(wire_ids, insulated=insulated)
-        self._session.layout_changed.emit()
 
     def _move_selected_wires_to_side(self, side: str) -> None:
         """Move all selected whole wires to a layer (explicit "Move to").
