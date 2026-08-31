@@ -31,8 +31,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.services.routing.protocol import ProgressSink
+    from protoboard.services.routing.results import AutorouteResult
     from protoboard.services.routing.snapshot import RouteRequest
 
 

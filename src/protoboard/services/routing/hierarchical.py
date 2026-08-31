@@ -43,11 +43,8 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.services.routing.autorouter import (
-    AutorouteResult,
-    PassStats,
-    autoroute,
-)
+from protoboard.services.routing.autorouter import autoroute
+from protoboard.services.routing.results import AutorouteResult, PassStats
 from protoboard.types import Side
 
 if TYPE_CHECKING:

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.services.routing.autorouter import AutorouteResult
+    from protoboard.services.routing.results import AutorouteResult
 
 
 def _build_request(
@@ -160,12 +160,12 @@ class AutorouteWorker(QThread):
         from protoboard.services.routing.autorouter import (
             AutorouteCancelled,
             AutoroutePreconditionError,
-            AutorouteResult,
         )
         from protoboard.services.routing.optimizer import (
             registry as optimizer_registry,
         )
         from protoboard.services.routing.protocol import ProgressSink, registry
+        from protoboard.services.routing.results import AutorouteResult
 
         _sl.get_logger(__name__).info(
             "autoroute_worker.run",

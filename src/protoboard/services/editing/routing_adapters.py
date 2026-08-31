@@ -156,9 +156,9 @@ class DefaultWireOptimizer:
         wires: Sequence[Wire],
     ) -> Sequence[Wire]:
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
-        from protoboard.services.routing.autorouter import AutorouteResult
         from protoboard.services.routing.optimizer import registry
         from protoboard.services.routing.protocol import ProgressSink
+        from protoboard.services.routing.results import AutorouteResult
         from protoboard.services.routing.snapshot import RouteRequest
 
         optimizer = registry.get(name)

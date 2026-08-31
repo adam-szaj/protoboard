@@ -2289,7 +2289,7 @@ class MainWindow(QMainWindow):
         the "nothing to route" / "all duplicates" / summary dialogs and the
         dirty/undo/refresh bookkeeping.
         """
-        from protoboard.services.routing.autorouter import AutorouteResult
+        from protoboard.services.routing.results import AutorouteResult
 
         if not isinstance(result, AutorouteResult):
             return

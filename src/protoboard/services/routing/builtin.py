@@ -18,7 +18,7 @@ from protoboard.services.routing.protocol import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.services.routing.autorouter import AutorouteResult
+    from protoboard.services.routing.results import AutorouteResult
     from protoboard.services.routing.snapshot import RouteRequest
 
 
