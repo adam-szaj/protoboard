@@ -225,8 +225,8 @@ Implementation status as of 2026-08-31:
   deleted. Workstream 3B completed typed command codecs, shared export snapshot
   construction, and generic atomic MRU persistence. Workstream 3C completed the
   pure snapping operation, controller-owned tool command execution, and the
-  action metadata registry. Workstream 4 is next: GUI/controller decomposition,
-  selective comment cleanup, and the final audit.
+  action metadata registry. Workstream 4 is in progress: GUI/controller
+  decomposition, selective comment cleanup, and the final audit.
 
 The Workstream 2B exit gate covered 315 source modules and 97,346 physical
 lines. The Workstream 3A exit gate covers 316 source modules and 97,121
@@ -314,6 +314,14 @@ The follow-up interaction cleanup routed drag refresh and highlight-mode
 notifications through explicit view/context ports, then removed the obsolete
 Qt `drag_moved` signal path. The focused view/session regression suite passes
 153 tests; no controller module emits Qt signals or exposes a top-level window.
+
+The typed-state cleanup then removed two unnecessary reflective queries from
+controller tools while retaining the pre-activation headless fallback. The
+focused interaction suite passes 171 tests, mypy and Pyright remain clean, and
+the tree contains 321 source modules and 97,102 physical lines. A final
+boundary scan reports no controller signal emission, Qt import, or top-level
+window access; manual GUI smoke testing remains deferred to the final
+Workstream 4 gate.
 
 Within those workstreams, the order is:
 

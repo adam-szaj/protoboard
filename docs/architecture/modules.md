@@ -37,7 +37,7 @@ graph TD
         BV["board_view / AbstractBoardView"]
         TH[tool_host]
         SC[scene_composer]
-        RND["renderers/*"]
+        RND["renderers/* — GUI overlays"]
         GT["tools/gui_tools — Qt-composed tools
         (ViewToolMixin + controller/tools/*Tool)"]
         PREV["tools/*_preview — Qt*Preview
@@ -83,8 +83,8 @@ graph TD
         PY[persistence/project_yaml]
         BY[persistence/board_yaml]
         EXP["export/* — Qt"]
+        SRND["rendering/* — shared board kernel"]
         KIC["kicad/* — parser/importer/exporter"]
-        DD[drag_detector]
     end
 
     subgraph DOMAIN["Domain Model — enforced outer-layer independence"]
@@ -93,6 +93,7 @@ graph TD
         VC["components/value_codes"]
         SCHEM[schematic]
         LAYOUT[layout]
+        DD[layout/drag_detector]
         PAD["layout/pad_strategy"]
         RCFG["routing/{cost_model,cost_presets,simplify_mode}"]
         CONN[connectivity]
@@ -115,6 +116,7 @@ graph TD
     GT --> PREV
     GT --> TO
     SC --> RND
+    SC --> SRND
     SC --> NS[routing/net_status]
     SESS -. inherits .-> HS
 
@@ -164,13 +166,9 @@ graph TD
     DRCE --> DOMAIN
     PY --> DOMAIN
     EXP --> DOMAIN
+    EXP --> SRND
+    SRND --> DOMAIN
     KIC --> DOMAIN
-
-    %% === Layer VIOLATIONS still open (upward services -> gui, runtime) ===
-    PY -->|"runtime ⚠"| THEME
-    EXP -->|"runtime ⚠"| THEME
-    EXP -->|"runtime ⚠"| RND
-    DD -->|"runtime ⚠"| DCD
 
     %% dependency-neutral diagnostics
     GUI --> INST
@@ -191,10 +189,9 @@ graph TD
   nodes import Qt.
 - Solid arrows = imports / calls. Dashed = protocol satisfaction / inheritance
   / implementation.
-- Arrows labelled **⚠** are edges that violate the declared layer direction —
-  see below. The former `armed_transform → gui.ports` edge is now the
-  intra-controller `AT --> PORTS` edge. The drag-decision type also moved out
-  of GUI, but `DD --> DCD` remains an upward `services → controller` edge.
+- The former `armed_transform → gui.ports` edge is now the intra-controller
+  `AT --> PORTS` edge. Drag classification is owned by the domain and consumed
+  by controller editing code.
 
 ## The seam: EditController / EditState
 
