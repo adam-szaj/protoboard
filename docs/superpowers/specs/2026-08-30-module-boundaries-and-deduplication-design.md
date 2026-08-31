@@ -250,9 +250,10 @@ the migrated tools. Manual GUI smoke testing remains deferred to Workstream 4.
 
 Workstream 4 has started with a focused decomposition of `SelectTool`: pure
 selection and persistent-highlight context option builders now live in a
-Qt-free selection module. The first checkpoint covers 319 source modules and
-97,143 physical lines; 109 focused unit/GUI tests pass, and manual GUI smoke
-testing remains deferred to the final Workstream 4 gate.
+Qt-free selection module. Stale stage-only commentary was also removed from
+the touched controller and GUI modules. The first checkpoint covers 319 source
+modules and 97,139 physical lines; 109 focused unit/GUI tests pass, and manual
+GUI smoke testing remains deferred to the final Workstream 4 gate.
 
 Within those workstreams, the order is:
 

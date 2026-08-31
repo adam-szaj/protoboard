@@ -72,7 +72,7 @@ the pure-builder assertions.
 
 - [x] **Step 2: Record source metrics and preserve manual-GUI deferral**
 
-The source tree now contains 319 Python modules and 97,143 physical lines.
+The source tree now contains 319 Python modules and 97,139 physical lines.
 Interactive GUI smoke testing remains deferred to the parent Workstream 4
 final gate.
 
