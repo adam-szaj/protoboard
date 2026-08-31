@@ -266,7 +266,7 @@ defining a registered subclass is the entire plugin:
 
 ```python
 # <library>/renderers/to220.py
-from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
+from protoboard.services.rendering.packages import PrismRenderer, register_renderer
 
 @register_renderer(family="TO-220")        # family id on the package lineage
 class TO220Renderer(PrismRenderer):
