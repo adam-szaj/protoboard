@@ -439,13 +439,13 @@ git commit -m "refactor(routing): define application routing ports"
   `autoroute()` operation requires it.
 - Route preview/rendering consumes `Sequence[RoutePath]`.
 
-- [ ] **Step 1: Add delegation tests for the three pathfinding callers**
+- [x] **Step 1: Add delegation tests for the three pathfinding callers**
 
 Use a recording pathfinder to prove route hints, placement reroute, and wire
 fragment autoroute forward graph/source/targets/side/cost/k/insulation/net id
 without importing A*.
 
-- [ ] **Step 2: Run one converted caller test and verify it fails**
+- [x] **Step 2: Run one converted caller test and verify it fails**
 
 Run:
 
@@ -455,20 +455,20 @@ Run:
 
 Expected: FAIL until `WireEditArm` accepts the injected finder.
 
-- [ ] **Step 3: Replace direct A* calls**
+- [x] **Step 3: Replace direct A* calls**
 
 Route tool calls `session.edit_controller.find_paths`. Controller placement
 passes its pathfinder to conflict resolution. Wire edit passes the controller
 finder into `WireEditArm`; the free helper accepts that callable. Preserve
 `RoutingCostModel()`, `k`, `insulated`, and `active_net_id` values exactly.
 
-- [ ] **Step 4: Remove the service result type from previews**
+- [x] **Step 4: Remove the service result type from previews**
 
 Change controller and GUI preview/render signatures from `list[RoutingResult]`
 to `Sequence[RoutePath]`. Do not move the service `RoutingResult`; it satisfies
 the protocol structurally.
 
-- [ ] **Step 5: Verify pathfinding behaviour and imports**
+- [x] **Step 5: Verify pathfinding behaviour and imports**
 
 Run:
 
@@ -480,7 +480,7 @@ rg -n 'services\.routing\.astar|RoutingResult' src/protoboard/controller
 
 Expected: search has no output and tests/types pass.
 
-- [ ] **Step 6: Commit pathfinding migration**
+- [x] **Step 6: Commit pathfinding migration**
 
 ```bash
 git add src/protoboard/controller src/protoboard/gui tests/unit/test_edit_service_ports.py tests/unit/test_wire_edit_arm.py tests/gui/test_route_tool.py tests/gui/test_place_tool.py

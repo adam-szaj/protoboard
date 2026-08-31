@@ -14,7 +14,6 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
-from protoboard.services.routing.astar import find_paths
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -395,7 +394,7 @@ class RouteTool(ControllerTool):
                     break
         if not targets:
             return
-        results = find_paths(
+        results = self._session.edit_controller.find_paths(
             graph=graph,
             source=source,
             targets=targets,

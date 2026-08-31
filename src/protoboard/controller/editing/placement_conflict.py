@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.editing.contexts import EditingReadContext
+    from protoboard.controller.ports.routing import PathfinderPort
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
 
@@ -111,6 +112,7 @@ def check_and_resolve(
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
     prompts: PlacementPrompts,
+    pathfinder: PathfinderPort,
     instance: ComponentInstance | None = None,
 ) -> PlacementResolution | None:
     """Check pad conflicts for *placement* and resolve interactively.
@@ -272,6 +274,7 @@ def check_and_resolve(
                 defn=defn,
                 instance_id=instance_id,
                 prompts=prompts,
+                pathfinder=pathfinder,
             )
             if result_pl is None:
                 # Revert shared_pins already applied to pad conflicts.
@@ -373,6 +376,7 @@ def _resolve_wire_conflicts(
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
     prompts: PlacementPrompts,
+    pathfinder: PathfinderPort,
 ) -> tuple[ComponentPlacement | None, list[object]]:
     """Ask the wire-conflict prompt and build commands for the chosen action.
 
@@ -408,7 +412,9 @@ def _resolve_wire_conflicts(
                 )
                 cmds.append(RemoveWireCommand(wire_id=c.wire_id))
                 if wire_obj is not None:
-                    reroute_cmd = _try_reroute_wire(session, wire_obj, placement)
+                    reroute_cmd = _try_reroute_wire(
+                        session, pathfinder, wire_obj, placement
+                    )
                     if reroute_cmd is not None:
                         cmds.append(reroute_cmd)
         return placement, cmds
@@ -435,6 +441,7 @@ def _resolve_wire_conflicts(
 
 def _try_reroute_wire(
     session: EditingReadContext,
+    pathfinder: PathfinderPort,
     wire: object,
     blocker_placement: ComponentPlacement,  # noqa: ARG001
 ) -> object | None:
@@ -444,7 +451,6 @@ def _try_reroute_wire(
     """
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing.cost_model import RoutingCostModel
-    from protoboard.services.routing.astar import find_paths
 
     if not isinstance(wire, Wire) or len(wire.path) < 2:
         return None
@@ -453,7 +459,7 @@ def _try_reroute_wire(
     target = wire.path[-1]
 
     graph = session.connectivity_graph()
-    results = find_paths(
+    results = pathfinder.find_paths(
         graph=graph,
         source=source,
         targets=[target],

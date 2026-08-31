@@ -35,6 +35,7 @@ from protoboard.geometry import round_coord as _round  # noqa: F401  legacy alia
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from protoboard.controller.ports.routing import PathfinderPort
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.placement import ComponentPlacement
@@ -103,6 +104,7 @@ def check_and_resolve(
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
     prompts: PlacementPrompts | None = None,
+    pathfinder: PathfinderPort | None = None,
     instance: ComponentInstance | None = None,
 ) -> PlacementResolution | None:
     """GUI wrapper over the Qt-free ``check_and_resolve``.
@@ -112,11 +114,16 @@ def check_and_resolve(
     """
     if prompts is None:
         prompts = qt_placement_prompts(lambda: None)
+    if pathfinder is None:
+        from protoboard.services.editing.routing_adapters import DefaultPathfinder
+
+        pathfinder = DefaultPathfinder()
     return _check_and_resolve(
         session,
         placement,
         defn,
         instance_id,
         prompts,
+        pathfinder,
         instance,
     )

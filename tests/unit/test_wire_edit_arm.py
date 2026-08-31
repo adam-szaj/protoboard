@@ -17,11 +17,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
 from protoboard.controller.editing.wire_edit_arm import WireEditArm
+from protoboard.controller.ports.routing import FindPaths
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
     WireRange,
@@ -224,31 +226,53 @@ def test_reroute_same_wire_replaces_fragments() -> None:
     assert Point(1.5, 1.0) in new_pts
 
 
-def test_autoroute_returns_command_or_none() -> None:
-    """The arm's autoroute runs A* then feeds the interior waypoints into the
-    reroute builder, mirroring ``_autoroute_fragment``.  On a real (empty-layout)
-    session graph, A* between two adjacent hole centres yields a route → a
-    ``ReplaceWireFragmentsCommand`` (same-wire); ``None`` would mean no path."""
+def test_autoroute_uses_injected_pathfinder() -> None:
     sess = _session()
-    wire = _wire((1.5, 1.5), (2.5, 1.5))
+    source = Point(1.5, 1.5)
+    midpoint = Point(2.0, 2.0)
+    target = Point(2.5, 1.5)
+    wire = _wire((source.x, source.y), (target.x, target.y))
     sess.layout.wires.append(wire)
     wires = cast(Sequence[Wire], sess.layout.wires)
     nm = _net_map(wire)
     state = WireEditState(
         start_wire_id=wire.id, start_idx=0, end_wire_id=wire.id, end_idx=1
     )
+    calls: list[dict[str, object]] = []
+
+    def _find_paths(**kwargs: object) -> list[object]:
+        calls.append(kwargs)
+        return [
+            SimpleNamespace(
+                path=[(source, "bottom"), (midpoint, "bottom"), (target, "bottom")]
+            )
+        ]
+
     graph = sess.connectivity_graph()
-    cmd = WireEditArm().autoroute(
+    cmd = WireEditArm(find_paths=cast(FindPaths, _find_paths)).autoroute(
         sess.layout,
         wires,
         nm,
         state,
         graph,
-        Point(1.5, 1.5),
-        Point(2.5, 1.5),
+        source,
+        target,
         "bottom",
     )
-    assert cmd is None or isinstance(cmd, (ReplaceWireFragmentsCommand, MacroCommand))
+
+    assert isinstance(cmd, ReplaceWireFragmentsCommand)
+    assert calls == [
+        {
+            "graph": graph,
+            "source": source,
+            "targets": [target],
+            "side": "bottom",
+            "cost_model": calls[0]["cost_model"],
+            "k": 1,
+        }
+    ]
+    new_points = [point for fragment in cmd.new_fragments for point in fragment.path]
+    assert midpoint in new_points
 
 
 # -- set_insulated / delete_range (WireRangeEdit) -----------------------------

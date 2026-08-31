@@ -3,17 +3,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
-from protoboard.services.routing.astar import RoutingResult
+
+if TYPE_CHECKING:
+    from protoboard.controller.ports.routing import RoutePath
 
 
 def render_routing_hints(
     scene: QGraphicsScene,
-    results: list[RoutingResult],
+    results: Sequence[RoutePath],
     theme: Theme = DEFAULT_THEME,
 ) -> list[QGraphicsLineItem]:
     """Add path-hint items to the scene. Returns the added items for cleanup."""

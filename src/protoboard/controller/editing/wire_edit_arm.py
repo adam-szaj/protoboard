@@ -44,7 +44,9 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
+    from protoboard.controller.ports.routing import FindPaths
     from protoboard.domain.commands.base import Command, ComponentState
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
 
@@ -61,8 +63,14 @@ class WireEditArm:
     ``Command | None`` for the tool to execute.
     """
 
-    def __init__(self, add_factory: AddWireFactory = _default_add_factory) -> None:
+    def __init__(
+        self,
+        add_factory: AddWireFactory = _default_add_factory,
+        *,
+        find_paths: FindPaths | None = None,
+    ) -> None:
         self._add_factory = add_factory
+        self._find_paths = find_paths
 
     def reroute(
         self,
@@ -83,14 +91,16 @@ class WireEditArm:
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
         state: WireEditState,
-        graph: object,
+        graph: ConnectivityGraph,
         source: Point,
         target: Point,
         side: str,
     ) -> Command[ComponentState] | None:
         """Run A* between *source* and *target*, then build the reroute command
         from the routed interior waypoints.  Returns ``None`` when no path."""
-        routed = autoroute_fragment_path(graph, source, target, side)
+        if self._find_paths is None:
+            return None
+        routed = autoroute_fragment_path(self._find_paths, graph, source, target, side)
         if routed is None:
             return None
         waypoints = routed[1:-1]

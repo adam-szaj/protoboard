@@ -24,7 +24,7 @@ the tools' old ``_execute_command``) underpins them all.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
@@ -56,11 +56,14 @@ if TYPE_CHECKING:
         EditServicePorts,
         RouteResult,
     )
+    from protoboard.controller.ports.routing import RoutePath
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.tools.base import ControllerTool
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.routing.cost_model import RoutingCostModel
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Vector
     from protoboard.types import Side
@@ -958,6 +961,7 @@ class EditController:
                 defn=defn,
                 instance_id=inst.id,
                 prompts=prompts,
+                pathfinder=self._ports.routing.pathfinder,
                 instance=inst,
             )
             if resolved is None:
@@ -1573,6 +1577,68 @@ class EditController:
         # nearest hypothetical pad-grid centre so off-board cursors still
         # snap to a half-integer grid.
         return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
+
+    def find_paths(
+        self,
+        *,
+        graph: ConnectivityGraph,
+        source: Point,
+        targets: Sequence[Point],
+        side: str,
+        cost_model: RoutingCostModel,
+        k: int,
+        insulated: bool = True,
+        occupied_pads: Mapping[tuple[Point, str], uuid.UUID] | None = None,
+        same_net_pads: Mapping[tuple[Point, str], uuid.UUID] | None = None,
+        near_pin_pads: Set[tuple[Point, str]] | None = None,
+        near_pin_cost: float = 10.0,
+        bare_wire_segments: (
+            set[tuple[Point, Point, str, uuid.UUID | None]]
+            | set[tuple[Point, Point, str]]
+            | None
+        ) = None,
+        plated_through_pads: Set[Point] | None = None,
+        penalised_pads: Mapping[tuple[Point, str], float] | None = None,
+        extra_budget_ratio: float = 0.5,
+        at_pad_wires: Mapping[tuple[Point, str], int] | None = None,
+        all_segments: (
+            list[tuple[Point, Point, str, bool, uuid.UUID | None]]
+            | list[tuple[Point, Point, str, bool]]
+            | None
+        ) = None,
+        active_net_id: uuid.UUID | None = None,
+        at_pad_nets: Mapping[tuple[Point, str], frozenset[uuid.UUID]] | None = None,
+        same_net_pad_vertices: Set[tuple[Point, str]] | None = None,
+        foreign_wire_cells: Set[tuple[Point, str]] | None = None,
+        foreign_via_pads: Set[Point] | None = None,
+        active_dominant_side: str | None = None,
+    ) -> Sequence[RoutePath]:
+        """Delegate interactive pathfinding to the configured routing port."""
+        return self._ports.routing.pathfinder.find_paths(
+            graph=graph,
+            source=source,
+            targets=targets,
+            side=side,
+            cost_model=cost_model,
+            k=k,
+            insulated=insulated,
+            occupied_pads=occupied_pads,
+            same_net_pads=same_net_pads,
+            near_pin_pads=near_pin_pads,
+            near_pin_cost=near_pin_cost,
+            bare_wire_segments=bare_wire_segments,
+            plated_through_pads=plated_through_pads,
+            penalised_pads=penalised_pads,
+            extra_budget_ratio=extra_budget_ratio,
+            at_pad_wires=at_pad_wires,
+            all_segments=all_segments,
+            active_net_id=active_net_id,
+            at_pad_nets=at_pad_nets,
+            same_net_pad_vertices=same_net_pad_vertices,
+            foreign_wire_cells=foreign_wire_cells,
+            foreign_via_pads=foreign_via_pads,
+            active_dominant_side=active_dominant_side,
+        )
 
     # ------------------------------------------------------------------
     # Command execution substrate

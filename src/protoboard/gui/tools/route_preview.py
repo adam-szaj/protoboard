@@ -23,13 +23,13 @@ from typing import TYPE_CHECKING
 from protoboard.controller.tools.route_preview import RoutePreview as RoutePreview
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
+    from protoboard.controller.ports.routing import RoutePath
     from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
-    from protoboard.services.routing.astar import RoutingResult
 
 _PREVIEW_WIDTH = 0.12
 
@@ -75,7 +75,7 @@ class QtRoutePreview:
 
     # -- routing hints -----------------------------------------------------------
 
-    def show_hints(self, results: list[RoutingResult]) -> None:
+    def show_hints(self, results: Sequence[RoutePath]) -> None:
         from protoboard.gui.renderers.routing_overlay import render_routing_hints
 
         self.clear_hints()

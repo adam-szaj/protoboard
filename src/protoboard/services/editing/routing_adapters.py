@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 class DefaultPathfinder:
     def find_paths(
         self,
+        *,
         graph: ConnectivityGraph,
         source: Point,
         targets: Sequence[Point],

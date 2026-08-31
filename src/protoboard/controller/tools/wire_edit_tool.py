@@ -127,7 +127,8 @@ class WireEditTool(ControllerTool):
             cast(
                 "Callable[[Wire], Command[ComponentState]]",
                 self._net_aware_add_factory(),
-            )
+            ),
+            find_paths=session.edit_controller.find_paths,
         )
         # Fragment ops (flip / simplify / sub-range delete) issue a
         # ``replace_wire_fragments`` edit, which requires both endpoint knots.

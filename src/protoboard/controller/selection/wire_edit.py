@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Protocol
 
+    from protoboard.controller.ports.routing import FindPaths
     from protoboard.domain.commands.base import Command, ComponentState
 
     class _SimplifyInputsLike(Protocol):
@@ -764,6 +765,7 @@ def build_simplify_range_command(
 
 
 def autoroute_fragment_path(
+    find_paths: FindPaths,
     graph: object,
     source: Point,
     target: Point,
@@ -779,7 +781,6 @@ def autoroute_fragment_path(
 
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.routing.cost_model import RoutingCostModel
-    from protoboard.services.routing.astar import find_paths
 
     results = find_paths(
         graph=cast(ConnectivityGraph, graph),

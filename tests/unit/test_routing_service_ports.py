@@ -143,12 +143,12 @@ def test_default_pathfinder_delegates_and_preserves_result_order(
     net_id = uuid.uuid4()
 
     actual = DefaultPathfinder().find_paths(
-        cast(ConnectivityGraph, graph),
-        Point(0.0, 0.0),
-        [target],
-        "top",
-        RoutingCostModel(),
-        2,
+        graph=cast(ConnectivityGraph, graph),
+        source=Point(0.0, 0.0),
+        targets=[target],
+        side="top",
+        cost_model=RoutingCostModel(),
+        k=2,
         active_net_id=net_id,
     )
 

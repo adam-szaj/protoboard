@@ -18,6 +18,7 @@ from protoboard.controller.ports.edit_services import (
 )
 from protoboard.controller.ports.routing import (
     PathfinderPort,
+    RoutePath,
     RoutingServicePorts,
     WireOptimizerPort,
     WireSimplifierPort,
@@ -65,6 +66,16 @@ class _RecordingAutorouter:
         return self.result
 
 
+class _RecordingPathfinder:
+    def __init__(self, result: list[RoutePath]) -> None:
+        self.result = result
+        self.kwargs: dict[str, object] | None = None
+
+    def find_paths(self, **kwargs: object) -> list[RoutePath]:
+        self.kwargs = kwargs
+        return self.result
+
+
 class _RecordingDrc:
     def __init__(self, result: list[DRCIssue]) -> None:
         self.result = result
@@ -97,13 +108,83 @@ class _RecordingExport:
         self.kwargs = kwargs
 
 
-def _routing_ports() -> RoutingServicePorts:
+def _routing_ports(
+    pathfinder: PathfinderPort | None = None,
+) -> RoutingServicePorts:
     return RoutingServicePorts(
-        pathfinder=cast(PathfinderPort, object()),
+        pathfinder=pathfinder or cast(PathfinderPort, object()),
         simplifier=cast(WireSimplifierPort, object()),
         optimizer=cast(WireOptimizerPort, object()),
         unweaver=cast(WireUnweaverPort, object()),
     )
+
+
+def test_find_paths_forwards_to_injected_routing_port() -> None:
+    from types import SimpleNamespace
+
+    from protoboard.controller.ports.edit_services import EditServicePorts
+    from protoboard.domain.routing.cost_model import RoutingCostModel
+    from protoboard.geometry import Point
+
+    session = _session()
+    source = Point(0.5, 0.5)
+    target = Point(2.5, 0.5)
+    net_id = uuid.uuid4()
+    expected = cast(
+        "list[RoutePath]",
+        [SimpleNamespace(path=[(source, "top"), (target, "top")])],
+    )
+    pathfinder = _RecordingPathfinder(expected)
+    controller = EditController(
+        cast(EditingContext, session),
+        EditServicePorts(
+            autoroute=cast(AutoroutePort, object()),
+            drc=cast(DrcPort, object()),
+            projects=cast(ProjectStorePort, object()),
+            export=cast(BoardExportPort, object()),
+            routing=_routing_ports(pathfinder),
+        ),
+    )
+    graph = session.connectivity_graph()
+    costs = RoutingCostModel()
+
+    actual = controller.find_paths(
+        graph=graph,
+        source=source,
+        targets=[target],
+        side="top",
+        cost_model=costs,
+        k=3,
+        insulated=False,
+        active_net_id=net_id,
+    )
+
+    assert actual is expected
+    assert pathfinder.kwargs == {
+        "graph": graph,
+        "source": source,
+        "targets": [target],
+        "side": "top",
+        "cost_model": costs,
+        "k": 3,
+        "insulated": False,
+        "occupied_pads": None,
+        "same_net_pads": None,
+        "near_pin_pads": None,
+        "near_pin_cost": 10.0,
+        "bare_wire_segments": None,
+        "plated_through_pads": None,
+        "penalised_pads": None,
+        "extra_budget_ratio": 0.5,
+        "at_pad_wires": None,
+        "all_segments": None,
+        "active_net_id": net_id,
+        "at_pad_nets": None,
+        "same_net_pad_vertices": None,
+        "foreign_wire_cells": None,
+        "foreign_via_pads": None,
+        "active_dominant_side": None,
+    }
 
 
 def test_autoroute_forwards_current_project_to_injected_port(tmp_path: Path) -> None:

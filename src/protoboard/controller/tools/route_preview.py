@@ -12,8 +12,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from protoboard.controller.ports.routing import RoutePath
     from protoboard.geometry import Point
-    from protoboard.services.routing.astar import RoutingResult
 
 
 class RoutePreview(Protocol):
@@ -31,7 +33,7 @@ class RoutePreview(Protocol):
 
     def clear_live(self) -> None: ...
 
-    def show_hints(self, results: list[RoutingResult]) -> None:
+    def show_hints(self, results: Sequence[RoutePath]) -> None:
         """Render the top-K routing hint paths (replaces previous hints)."""
         ...
 

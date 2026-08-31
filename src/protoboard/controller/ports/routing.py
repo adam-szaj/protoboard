@@ -33,6 +33,7 @@ class RoutePath(Protocol):
 class PathfinderPort(Protocol):
     def find_paths(
         self,
+        *,
         graph: ConnectivityGraph,
         source: Point,
         targets: Sequence[Point],
@@ -70,6 +71,7 @@ class PathfinderPort(Protocol):
 class FindPaths(Protocol):
     def __call__(
         self,
+        *,
         graph: ConnectivityGraph,
         source: Point,
         targets: Sequence[Point],
