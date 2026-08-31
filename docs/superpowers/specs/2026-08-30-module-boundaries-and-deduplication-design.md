@@ -255,6 +255,12 @@ the touched controller and GUI modules. The first checkpoint covers 319 source
 modules and 97,139 physical lines; 109 focused unit/GUI tests pass, and manual
 GUI smoke testing remains deferred to the final Workstream 4 gate.
 
+The next Workstream 4 checkpoint relocates the Qt-free `LayerState` DTO to
+`controller.view_options` and keeps tool-dependent construction in a GUI
+adapter. The tree now contains 320 source modules and 97,145 physical lines;
+the layer-boundary gate and 49 focused rendering tests pass. No compatibility
+alias for the removed GUI module remains.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
