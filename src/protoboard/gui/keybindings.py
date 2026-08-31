@@ -99,10 +99,6 @@ ACTION_AUTOROUTE_NO_DIALOG = "autoroute_no_dialog"
 ACTION_SIMPLIFY_WIRE = "simplify_wire"
 ACTION_UNWEAVE_WIRES = "unweave_wires"
 ACTION_MERGE_WIRES = "merge_wires"
-# Legacy alias retained for any saved-preferences files that still
-# reference the old id.  Display name + slot mapping below resolve
-# through ACTION_MERGE_WIRES.
-ACTION_MERGE_WIRE_FRAGMENTS = ACTION_MERGE_WIRES
 
 ACTION_HIGHLIGHT_TOGGLE = "highlight_toggle"  # toggle highlight on/off
 ACTION_HIGHLIGHT_CYCLE = "highlight_cycle"  # cycle through relation classes
