@@ -1736,7 +1736,7 @@ class MainWindow(QMainWindow):
         if not isinstance(tool, SelectTool):
             self._status.showMessage("Group action requires the Select tool.", 3000)
             return None
-        gid = tool._current_group_id
+        gid = tool.current_group_id
         if gid == ROOT_GROUP_ID:
             self._status.showMessage(
                 "Enter a group first (long-press its outline or double-click a member).",  # noqa: E501
@@ -1925,7 +1925,7 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        if tool._group_stack:
+        if tool.group_depth > 1:
             tool.exit_group()
 
     # ------------------------------------------------------------------
@@ -2098,9 +2098,9 @@ class MainWindow(QMainWindow):
         ):
             # User clicked a group outline — disband that group.
             group_id = tool.selected_group_id
-        elif len(tool._group_stack) > 1:
+        elif tool.group_depth > 1:
             # User double-clicked into a subgroup — disband the active subgroup.
-            group_id = tool._current_group_id
+            group_id = tool.current_group_id
         else:
             # Fall back: find a group that wholly contains the selected components.
             selected = tool.selected_component_ids
@@ -2115,8 +2115,8 @@ class MainWindow(QMainWindow):
             return
         self._session.edit_controller.get_group(group_id).delete()
         # Exit the group if we were inside it (never pop root).
-        if len(tool._group_stack) > 1 and tool._group_stack[-1] == group_id:
-            tool._group_stack.pop()
+        if tool.is_inside_group(group_id):
+            tool.exit_group()
         # Clear selected_group_id if it pointed at the disbanded group.
         if tool.selected_group_id == group_id:
             tool.selected_group_id = None

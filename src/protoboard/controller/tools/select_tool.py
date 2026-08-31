@@ -389,6 +389,20 @@ class SelectTool(ControllerTool):
             self._group_stack = [ROOT_GROUP_ID]
         return self._group_stack[-1]
 
+    @property
+    def current_group_id(self) -> uuid.UUID:
+        """Active group context exposed to GUI actions."""
+        return self._current_group_id
+
+    @property
+    def group_depth(self) -> int:
+        """Navigation depth; one means the root group is active."""
+        return len(self._group_stack)
+
+    def is_inside_group(self, group_id: uuid.UUID) -> bool:
+        """Whether *group_id* is the currently entered non-root group."""
+        return self.group_depth > 1 and self.current_group_id == group_id
+
     def _status(self, msg: str, timeout_ms: int = 3000) -> None:
         if self._view is None:
             return
