@@ -902,7 +902,7 @@ class MainWindow(QMainWindow):
         from protoboard.domain.commands.base import (
             Command,
             ComponentState,
-            MacroCommand,
+            compose_command,
         )
         from protoboard.domain.commands.component_cmds import (
             PlaceComponentCommand,
@@ -957,17 +957,11 @@ class MainWindow(QMainWindow):
             return
 
         n = len(cmds)
-        macro: Command[ComponentState] = (
-            cmds[0]
-            if n == 1
-            else cast(
-                Command[ComponentState],
-                MacroCommand(
-                    commands=cmds,
-                    description=f"Auto-place {n} component{'s' if n != 1 else ''}",
-                ),
-            )
+        macro = compose_command(
+            cmds,
+            description=f"Auto-place {n} component{'s' if n != 1 else ''}",
         )
+        assert macro is not None
 
         self._session.edit_controller.execute_command(macro)
         self._board_view.refresh()
@@ -1013,7 +1007,7 @@ class MainWindow(QMainWindow):
         from protoboard.domain.commands.base import (
             Command,
             ComponentState,
-            MacroCommand,
+            compose_command,
         )
         from protoboard.domain.commands.component_cmds import (
             MoveComponentCommand,
@@ -1075,17 +1069,11 @@ class MainWindow(QMainWindow):
             )
 
         n = len(cmds)
-        macro: Command[ComponentState] = (
-            cmds[0]
-            if n == 1
-            else cast(
-                Command[ComponentState],
-                MacroCommand(
-                    commands=cmds,
-                    description=f"Spread {scope_label}{'s' if n != 1 else ''}",
-                ),
-            )
+        macro = compose_command(
+            cmds,
+            description=f"Spread {scope_label}{'s' if n != 1 else ''}",
         )
+        assert macro is not None
 
         self._session.edit_controller.execute_command(macro)
         self._board_view.refresh()

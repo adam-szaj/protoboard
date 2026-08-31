@@ -32,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from protoboard.domain.commands.base import MacroCommand
+from protoboard.domain.commands.base import MacroCommand, compose_command
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
     FlipWireFragmentCommand,
@@ -494,12 +494,9 @@ def build_delete_command(
                     )
                 )
             )
-    if len(cmds) == 1:
-        return cmds[0]
-    return cast(
-        "Command[ComponentState]",
-        MacroCommand(cmds, description="Cut wire fragment"),
-    )
+    command = compose_command(cmds, description="Cut wire fragment")
+    assert command is not None
+    return command
 
 
 @dataclass(frozen=True)

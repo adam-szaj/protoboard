@@ -551,7 +551,7 @@ class EditController:
         is a single undoable step — the fix for the legacy single-``group_id``
         limitation. Returns the count of wires dropped for crossing an alien pad.
         """
-        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.base import compose_command
         from protoboard.domain.commands.group_cmds import (
             RotateAroundPointCommand,
             RotateComponentsCommand,
@@ -599,11 +599,8 @@ class EditController:
                 )
         if not cmds:
             return 0
-        rotate_cmd: object = (
-            cmds[0]
-            if len(cmds) == 1
-            else MacroCommand(cmds, description="Rotate selection")
-        )
+        rotate_cmd = compose_command(cmds, description="Rotate selection")
+        assert rotate_cmd is not None
         return self._apply_transform(
             rotate_cmd,
             affected,
@@ -654,7 +651,7 @@ class EditController:
         the count of wires dropped for crossing an alien pad; the loose-only
         path drops none (matching the legacy per-component flip).
         """
-        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.base import compose_command
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
         from protoboard.domain.commands.group_cmds import FlipGroupCommand
         from protoboard.domain.components.package import resolved_footprint
@@ -700,11 +697,8 @@ class EditController:
         group_members = frozenset(
             cid for gid in group_ids for cid in tree.all_component_ids(gid)
         )
-        flip_cmd: object = (
-            cmds[0]
-            if len(cmds) == 1
-            else MacroCommand(cmds, description="Flip selection")
-        )
+        flip_cmd = compose_command(cmds, description="Flip selection")
+        assert flip_cmd is not None
         if group_members:
             return self._apply_transform(
                 flip_cmd,
@@ -1660,16 +1654,12 @@ class EditController:
         description: str | Callable[[int], str],
     ) -> bool:
         """Execute zero or more commands as one undoable operation."""
-        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.base import compose_command
 
         items = list(commands)
-        if not items:
-            return False
         label = description(len(items)) if callable(description) else description
-        command: Command[ComponentState] = (
-            items[0] if len(items) == 1 else MacroCommand(items, description=label)
-        )
-        return self._execute(command)
+        command = compose_command(items, description=label)
+        return command is not None and self._execute(command)
 
     def can_undo(self) -> bool:
         """Whether the command stack has an operation available to undo."""

@@ -5,7 +5,12 @@ import uuid
 
 import pytest
 
-from protoboard.domain.commands.base import Command, CommandStack
+from protoboard.domain.commands.base import (
+    Command,
+    CommandStack,
+    MacroCommand,
+    compose_command,
+)
 from protoboard.domain.commands.component_cmds import (
     PlaceComponentCommand,
     RemoveComponentCommand,
@@ -132,6 +137,17 @@ class TestCommandStack:
         assert counter.value == 1
         stack.redo(counter)
         assert counter.value == 2
+
+
+def test_compose_command_preserves_single_and_batches_multiple() -> None:
+    first = _IncrCmd()
+    second = _IncrCmd()
+
+    assert compose_command([], description="unused") is None
+    assert compose_command([first], description="unused") is first
+    combined = compose_command([first, second], description="two increments")
+    assert isinstance(combined, MacroCommand)
+    assert combined.description == "two increments"
 
 
 class TestPlaceComponentCommand:

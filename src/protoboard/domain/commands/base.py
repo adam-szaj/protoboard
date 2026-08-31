@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar
 
@@ -178,6 +178,16 @@ class MacroCommand(Command[T], Generic[T]):
     def revert(self, state: T) -> None:
         for cmd in reversed(self._commands):
             cmd.revert(state)
+
+
+def compose_command(
+    commands: Iterable[Command[T]], *, description: str
+) -> Command[T] | None:
+    """Return one command unchanged or combine many into one macro."""
+    items = list(commands)
+    if not items:
+        return None
+    return items[0] if len(items) == 1 else MacroCommand(items, description=description)
 
 
 @dataclass
