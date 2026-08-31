@@ -378,6 +378,11 @@ PySide disconnect warning), and Ruff, Black, strict mypy, Pyright, and
 `git diff --check` are clean. The source tree remains at 96,972 physical lines;
 manual real-display GUI smoke is still the only unexecuted verification.
 
+The latest idiom pass also centralised effective wire-selection assembly for
+properties, simplify, unweave, and merge actions. The current source tree has
+96,963 physical lines; the focused wire-flow gate passes 111 tests. The full
+static gate remains clean (Ruff, Black, strict mypy, Pyright, and diff check).
+
 The latest GUI idiom cleanup centralised effective component-selection assembly
 (multi-selection plus the primary item) in `MainWindow._selected_component_ids()`
 and migrated spread, lock, and side-move actions to it. This removes three
