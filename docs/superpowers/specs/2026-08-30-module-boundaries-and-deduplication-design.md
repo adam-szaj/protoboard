@@ -449,6 +449,11 @@ underscored members belong to `ToolHost`/view implementation state or are
 intentional callback injection points for MainWindow actions and dialogs. The
 manual real-display smoke test is still the sole outstanding verification gate.
 
+The panel-refresh idiom was then reduced to the existing `_refresh_panels()`
+helper in both MainWindow session initialisation paths. This removes two
+duplicated five-call sequences while preserving refresh order; the focused
+session/panel/shortcut suite (79 tests) and all static checks pass.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.

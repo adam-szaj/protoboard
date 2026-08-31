@@ -359,11 +359,7 @@ class MainWindow(QMainWindow):
         self._hl_mode_widget.relation_changed.connect(self._on_relation_changed)
 
         # Populate panels if project already loaded.
-        self._refresh_netlist()
-        self._refresh_groups()
-        self._refresh_nets_editor()
-        self._refresh_components()
-        self._refresh_net_inspector()
+        self._refresh_panels()
         self._update_stats()
         self._update_view_label()
 
@@ -595,11 +591,7 @@ class MainWindow(QMainWindow):
         self._perf_panel.set_session(session)
         self._props_panel.set_session(session)
         self._tool_select()
-        self._refresh_netlist()
-        self._refresh_groups()
-        self._refresh_nets_editor()
-        self._refresh_components()
-        self._refresh_net_inspector()
+        self._refresh_panels()
         self._update_stats()
         self._update_undo_redo()
         self._update_title()
