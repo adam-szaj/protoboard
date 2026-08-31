@@ -117,6 +117,20 @@ def test_migrated_tools_do_not_execute_command_stack_directly() -> None:
         )
 
 
+def test_gui_does_not_execute_command_stack_directly() -> None:
+    root = Path(__file__).parents[2] / "src" / "protoboard" / "gui"
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        assert not any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "execute"
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "stack"
+            for node in ast.walk(tree)
+        ), path
+
+
 def _session() -> HeadlessSession:
     board = Board(
         root=BoardGrid(

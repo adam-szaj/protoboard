@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.domain.commands.base import Command, CommandStack
+    from protoboard.domain.commands.base import Command
     from protoboard.domain.commands.net_cmds import NetState
     from protoboard.domain.schematic.net import Net
     from protoboard.gui.session import EditorSession
@@ -385,16 +385,9 @@ class NetsEditorPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _execute_net_command(self, cmd: Command[NetState]) -> None:
-        """Run a net-management command against the active session's stack.
-
-        ``session.stack`` is declared as ``CommandStack[ComponentState]`` while
-        net commands are ``Command[NetState]``; the runtime ``EditorSession``
-        satisfies both protocols, so viewing the stack as ``CommandStack[NetState]``
-        is sound. Callers must hold the ``self._session is not None`` invariant.
-        """
+        """Run a net-management command through the session controller facade."""
         assert self._session is not None
-        stack = cast("CommandStack[NetState]", self._session.stack)
-        stack.execute(cmd, cast("NetState", self._session))
+        self._session.edit_controller.execute_command(cmd)
 
     # ------------------------------------------------------------------
     # Net actions
