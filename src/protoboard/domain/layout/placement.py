@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, overload
 import structlog
 
 from protoboard.domain.components.footprints import Footprint
+from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.geometry import Point, Rect, Transform2D, Vector, round_coord
 from protoboard.instrumentation.call_counters import counted
 from protoboard.types import Side
@@ -616,8 +617,6 @@ def resolve_pin_world_position(
     if defn is None:
         return None
     try:
-        from protoboard.domain.components.package import resolved_footprint
-
         fp = resolved_footprint(defn, inst, families)
         return pin_world_position(fp, placement, pin_number)
     except (IndexError, ValueError):
@@ -663,7 +662,6 @@ def warn_pins_off_pads(
     if defn is None:
         return
     from protoboard.domain.board.boxes import GapAtom
-    from protoboard.domain.components.package import resolved_footprint
 
     pad_set: frozenset[tuple[float, float]] = frozenset(
         (center.x, center.y)
@@ -726,8 +724,6 @@ def move_blocked(
 
     # Geometry resolves the moved/other components' chosen variant footprints,
     # not the definition default (pin_count stays on defn — variant-invariant).
-    from protoboard.domain.components.package import resolved_footprint
-
     fp = resolved_footprint(defn, inst, inst.families)
     new_bbox = component_bbox(fp, new_pl, defn.component_class)
     new_pin_positions = _pin_position_set(fp, new_pl)
