@@ -7,7 +7,7 @@ import dataclasses
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -859,8 +859,6 @@ class MainWindow(QMainWindow):
 
     def _auto_place_instances(self, instance_ids: list[uuid.UUID]) -> None:
         """Auto-place a list of component instances using net-gravity heuristic."""
-        from typing import cast
-
         from protoboard.domain.commands.base import (
             Command,
             ComponentState,
@@ -961,8 +959,6 @@ class MainWindow(QMainWindow):
 
     def _spread_components(self) -> None:
         """Spread placed components more evenly using force-directed relaxation."""
-        from typing import cast
-
         from protoboard.domain.commands.base import (
             Command,
             ComponentState,
