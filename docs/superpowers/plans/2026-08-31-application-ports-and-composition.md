@@ -238,7 +238,7 @@ rg -n 'from protoboard\.gui\.layer_state import.*(LayerOverrides|LayerVisibility
 
 Expected: searches have no output and all checks pass.
 
-- [ ] **Step 6: Commit the view-options boundary when authorized**
+- [x] **Step 6: Commit the view-options boundary when authorized** (`ab18b6e6`)
 
 ```bash
 git add src/protoboard/controller/view_options src/protoboard/services/preferences src/protoboard/gui/layer_state.py src/protoboard/services/persistence/project_yaml.py src tests
@@ -348,7 +348,7 @@ Expected: search has no output and all tests pass.
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the drag boundary when authorized**
+- [x] **Step 7: Commit the drag boundary when authorized** (`82d04383`)
 
 ```bash
 git add src/protoboard/domain/layout src/protoboard/controller src/protoboard/gui/tools src/protoboard/services/drag_detector.py tests
@@ -455,7 +455,7 @@ The composition root will supply defaults in Task 5.
 
 Expected: PASS with no concrete service types leaking into controller ports.
 
-- [ ] **Step 7: Commit the application ports when authorized**
+- [x] **Step 7: Commit the application ports when authorized** (`6ea2336e`)
 
 ```bash
 git add src/protoboard/controller/ports src/protoboard/controller/editing/controller.py src/protoboard/controller/editing/preview_state.py src/protoboard/services/editing src/protoboard/services/drc src/protoboard/gui tests/unit
@@ -547,7 +547,7 @@ Expected: searches have no output and all tests pass.
 Expected: PASS. Remaining controller-to-service imports are limited to the
 explicitly deferred routing tool/selection files listed by the baseline.
 
-- [ ] **Step 7: Commit composition-root relocation when authorized**
+- [x] **Step 7: Commit composition-root relocation when authorized** (`6ea2336e`)
 
 ```bash
 git add src/protoboard/headless_session.py src/protoboard/cli.py src/protoboard/controller/editing src/protoboard/gui/session.py src tests
@@ -635,7 +635,7 @@ name Workstream 2B as the next step: narrow editing contexts plus removal of
 remaining controller routing-service imports. Report LOC as information, not a
 pass/fail criterion.
 
-- [ ] **Step 6: Commit final docs when authorized**
+- [x] **Step 6: Commit final docs when authorized** (`d5673d35`, subsequent GUI checkpoints)
 
 ```bash
 git add docs tests/unit/test_layer_import_contract.py
@@ -644,20 +644,19 @@ git commit -m "docs(architecture): record application port boundary"
 
 ## Execution Record
 
-- Full unit suite: 2818 passed, 68 skipped.
-- Offscreen GUI suite: 1494 passed, 1 expected xfail, 1 pre-existing PySide
+- Full unit suite: 2871 passed, 68 skipped.
+- Offscreen GUI suite: 1495 passed, 1 expected xfail, 1 pre-existing PySide
   disconnect warning.
 - Property suite: 2 tests passed (3000 Hypothesis examples), 4394 deselected.
-- Ruff, Black, strict mypy (312 source files), and Pyright (0 diagnostics) pass.
+- Ruff, Black, strict mypy (321 source files), and Pyright (0 diagnostics) pass.
 - Offscreen application startup reached the Qt event loop without a traceback;
   automated GUI tests covered the edit journey and PDF/PNG/SVG exports. The
   interactive manual checklist remains intentionally unchecked.
-- `src/protoboard`: 302 to 312 Python modules and 96,652 to 96,906 physical
-  lines (+254). Layer deltas are controller -985, domain +738, GUI -5, and
-  services -479 lines; the root-level composition modules account for the
-  corresponding move out of controller. LOC is informational, not a gate.
-- No task commits were created because commit authorization was not given for
-  this execution batch.
+- `src/protoboard`: 321 Python modules and 96,963 physical lines at the latest
+  checkpoint. LOC is informational, not a gate; the aspirational one-third
+  reduction is explicitly not an acceptance criterion.
+- Subsequent focused refactors were committed separately: `f8c1ca17`,
+  `aa2392db`, `0b55ce69`, `a53a08c5`, `af17498c`, and `407eef52`.
 
 ## Self-Review Checklist
 
