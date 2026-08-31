@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import structlog
@@ -566,8 +567,6 @@ class BoardView(QGraphicsView):
     @traced()
     def rebuild_pad_cache(self) -> None:
         """Rebuild _pad_positions and _pad_spatial from the current board layout."""
-        from collections import defaultdict
-
         positions = self._session.board.pad_positions()
         self._pad_positions = positions
         # Build spatial index: grid cell → pad points (for fast snap).
@@ -673,8 +672,6 @@ class BoardView(QGraphicsView):
         # Board pads — use spatial index (3×3 cells around cursor).
         # Ensure index is built even if refresh() hasn't been called yet.
         if not self._pad_spatial and self._pad_positions:
-            from collections import defaultdict
-
             _sp: dict[tuple[int, int], list[Point]] = defaultdict(list)
             for _p in self._pad_positions:
                 _sp[(int(round(_p.x)), int(round(_p.y)))].append(_p)

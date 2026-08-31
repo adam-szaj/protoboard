@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, cast
@@ -2090,8 +2091,6 @@ def _group_by_endpoints(wires: list[Wire]) -> list[list[Wire]]:
     ``chain[k].path[-1] == chain[k+1].path[0]``.  Standalone WireSegments
     become 1-element chains.
     """
-    from collections import defaultdict
-
     # Bucket segments by their endpoints so we can quickly find neighbours.
     by_start: dict[tuple[float, float], list[int]] = defaultdict(list)
     by_end: dict[tuple[float, float], list[int]] = defaultdict(list)
@@ -2232,8 +2231,6 @@ def _count_bare_same_side_shorts(
     Same electric set (e.g. two segments of the same logical wire that
     happen to cross — possible after a swap) does not count.
     """
-    from collections import defaultdict
-
     bare = [w for w in wires if not w.insulated]
     by_side: dict[str, list[Wire]] = defaultdict(list)
     for w in bare:
@@ -2302,8 +2299,6 @@ def _make_short_checker(
     replaced by *proposed*.  All other baseline wires are kept untouched so
     nets they participate in stay connected.
     """
-    from collections import defaultdict
-
     from protoboard.domain.connectivity.graph import ConnectivityGraph
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.net import PinRef

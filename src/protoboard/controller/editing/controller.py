@@ -22,6 +22,7 @@ and GUI tools.
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence, Set
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
@@ -1482,8 +1483,6 @@ class EditController:
         # Board pads — bucket centres into the same round-keyed 3×3 grid the
         # view uses, sourced from the shared Board.pad_positions() so the two
         # can never diverge.
-        from collections import defaultdict
-
         pad_spatial: dict[tuple[int, int], list[Point]] = defaultdict(list)
         for _p in state.board.pad_positions():
             pad_spatial[(int(round(_p.x)), int(round(_p.y)))].append(_p)
