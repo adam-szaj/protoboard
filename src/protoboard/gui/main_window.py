@@ -754,7 +754,7 @@ class MainWindow(QMainWindow):
         bar (other tools keep their own label).
         """
         del comp_ids  # the label reads live tool state, not the broadcast ids
-        active = getattr(self._board_view, "_active_tool", None)
+        active = self._board_view.active_tool
         if isinstance(active, SelectTool):
             self._mode_label.setText(f"Select | {active.selection_summary()}")
 
@@ -1088,7 +1088,7 @@ class MainWindow(QMainWindow):
         self._status.showMessage(msg, 6000)
 
     def _tool_route(self) -> None:
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
             # Already routing — keep current state.  RouteTool is
             # always net-aware; the only commit-time dialog is the
@@ -1114,7 +1114,7 @@ class MainWindow(QMainWindow):
         # One QAction lives in both menu and toolbar — setChecked updates both.
         self._act_wire_insulated.setChecked(insulated)
         self._persist_wire_defaults()
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
             tool._insulated = insulated
             self._update_route_status(insulated, self._wire_side)
@@ -1124,7 +1124,7 @@ class MainWindow(QMainWindow):
         self._act_wire_top.setChecked(side == "top")
         self._act_wire_bottom.setChecked(side == "bottom")
         self._persist_wire_defaults()
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
             tool._side = side
             self._update_route_status(self._wire_insulated, side)
@@ -1641,14 +1641,14 @@ class MainWindow(QMainWindow):
 
     def _ensure_select_tool(self) -> SelectTool | None:
         """Switch to SelectTool if not already active and return it."""
-        if not isinstance(self._board_view._active_tool, SelectTool):
+        if not isinstance(self._board_view.active_tool, SelectTool):
             self._board_view.set_tool(self._select_tool)
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         return tool if isinstance(tool, SelectTool) else None
 
     def _get_select_tool(self) -> SelectTool | None:
         """Return current SelectTool without switching, or None."""
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         return tool if isinstance(tool, SelectTool) else None
 
     # ------------------------------------------------------------------
@@ -1732,7 +1732,7 @@ class MainWindow(QMainWindow):
         return None when the user is at root."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         if not isinstance(tool, SelectTool):
             self._status.showMessage("Group action requires the Select tool.", 3000)
             return None
@@ -2070,7 +2070,7 @@ class MainWindow(QMainWindow):
 
     def _group_selection(self) -> None:
         """Group the current selection via Ctrl+G — delegates to SelectTool dialog."""
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         if not isinstance(tool, SelectTool):
             return
         # Require at least one component selected (single or multi).
@@ -2085,7 +2085,7 @@ class MainWindow(QMainWindow):
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
 
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         if not isinstance(tool, SelectTool):
             return
         # Priority: outline-selected group > navigated-into group > inferred from selection.  # noqa: E501
@@ -2142,7 +2142,7 @@ class MainWindow(QMainWindow):
         from protoboard.domain.schematic.net import PinRef
 
         net_ids: set[uuid.UUID] | None = None
-        tool = self._board_view._active_tool
+        tool = self._board_view.active_tool
         board_selected_ids: set[uuid.UUID] = set()
         if isinstance(tool, SelectTool):
             board_selected_ids = tool.selected_component_ids or (

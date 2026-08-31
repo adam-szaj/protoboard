@@ -529,7 +529,7 @@ class BoardView(QGraphicsView):
     def layer_state(self) -> LayerState:
         """The resolved per-layer visibility/alpha state for this paint."""
         state = layer_state_for_tool(
-            self._active_tool,
+            self.active_tool,
             self.camera.camera_side,  # type: ignore[arg-type]
             self.camera.view_transform,  # type: ignore[arg-type]
             overrides=self._layer_overrides,
@@ -597,9 +597,9 @@ class BoardView(QGraphicsView):
         """Switch to SelectTool and select the given component."""
         from protoboard.gui.tools.gui_tools import SelectTool
 
-        if not isinstance(self._active_tool, SelectTool):
+        if not isinstance(self.active_tool, SelectTool):
             self.set_tool(SelectTool())
-        tool = self._active_tool
+        tool = self.active_tool
         if isinstance(tool, SelectTool):
             tool._select_primary(comp_id)
 
@@ -627,9 +627,9 @@ class BoardView(QGraphicsView):
         from protoboard.controller.selection.queries import SessionNetSource
         from protoboard.gui.tools.gui_tools import SelectTool
 
-        if not isinstance(self._active_tool, SelectTool):
+        if not isinstance(self.active_tool, SelectTool):
             self.set_tool(SelectTool())
-        tool = self._active_tool
+        tool = self.active_tool
         if not isinstance(tool, SelectTool):
             return
         nid = net_id if isinstance(net_id, uuid.UUID) else None
