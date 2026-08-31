@@ -23,6 +23,10 @@ class _FakeController:
         self.command = command
         return True
 
+    def execute_command_silent(self, command: object) -> bool:
+        self.silent_command = command
+        return True
+
 
 class _FakeSession:
     def __init__(self) -> None:
@@ -61,6 +65,16 @@ def test_execute_command_is_shared_by_controller_tools():
 
     assert tool._execute_command(command) is True
     assert session.edit_controller.command is command
+
+
+def test_execute_command_silent_is_shared_by_controller_tools():
+    tool = ControllerTool()
+    session = _FakeSession()
+    tool._session = session  # type: ignore[assignment]
+    command = object()
+
+    assert tool._execute_command_silent(command) is True
+    assert session.edit_controller.silent_command is command
 
 
 def test_refresh_view_is_safe_before_activation():

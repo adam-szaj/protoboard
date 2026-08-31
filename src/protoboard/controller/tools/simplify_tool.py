@@ -177,7 +177,7 @@ class SimplifyTool(SelectTool):
             wire_id=wire_id,
             new_fragments=tuple(new_fragments),
         )
-        self._exec_command(cmd)
+        self._execute_command_silent(cmd)
         self._session.notify_changed()
         self._clear_draft()
         self._status_msg("Simplify: applied.")

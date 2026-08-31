@@ -134,6 +134,10 @@ class ControllerTool:
         """Execute *cmd* through the session's controller facade."""
         return self._session.edit_controller.execute_command(cmd)
 
+    def _execute_command_silent(self, cmd: object) -> bool:
+        """Execute *cmd* without publishing a change notification."""
+        return self._session.edit_controller.execute_command_silent(cmd)
+
     def _refresh_view(self) -> None:
         """Refresh the bound view when this tool has been activated."""
         if self._view is not None:

@@ -3993,24 +3993,15 @@ class SelectTool(ControllerTool):
         cmd = compose_command(typed, description=description)
         if cmd is None:
             return
-        self._exec_command(cmd)
+        self._execute_command_silent(cmd)
         if invalidate:
             self._session.invalidate_graph()
         self._session.notify_changed()
         self._refresh_after_wire_op()
 
-    def _exec_command(self, cmd: object) -> None:
-        """Execute one command against the session (no emit/refresh).
-
-        Lets a multi-command path (group dialog, wire-side move) issue several
-        commands and emit ``layout_changed`` once at the end, as the legacy
-        tool did.  Casts the session to the ``ComponentState`` command target.
-        """
-        self._session.edit_controller.execute_command_silent(cmd)
-
     @traced()
     def _execute(self, cmd: object) -> None:
-        self._exec_command(cmd)
+        self._execute_command_silent(cmd)
         self._session.notify_changed()
         self._refresh_highlight()
 
