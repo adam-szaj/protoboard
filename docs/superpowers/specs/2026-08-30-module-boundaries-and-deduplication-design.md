@@ -323,6 +323,13 @@ boundary scan reports no controller signal emission, Qt import, or top-level
 window access; manual GUI smoke testing remains deferred to the final
 Workstream 4 gate.
 
+The full regression gate has now been rerun after this cleanup: 2,870 unit
+tests passed (68 skipped), 1,496 offscreen GUI tests passed (1 expected xfail
+and 1 known PySide disconnect warning), and Ruff, Black, strict mypy, and
+Pyright report no issues. An offscreen application startup reached the Qt event
+loop without a traceback and ended only at the controlled timeout. A real
+display-backed GUI smoke test is still the sole unexecuted verification item.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
