@@ -263,9 +263,16 @@ alias for the removed GUI module remains.
 
 The following checkpoint moved the shared Qt-geometry and net-colour adapters
 to `services.rendering`. The tree contains 321 source modules and 97,165
-physical lines; 48 focused export/colour tests pass, and the remaining four
-`services.export.paint` imports are the renderer-kernel work still scheduled
-for this workstream.
+physical lines; 48 focused export/colour tests pass.
+
+The renderer-kernel checkpoint moved component, package, body-shape, and
+supporting text/silhouette renderers to `services.rendering`. GUI composition
+and interaction overlays continue to depend on that service-owned kernel, but
+the service/export layer no longer imports GUI renderer modules. The focused
+renderer boundary suite passes 392 tests (1 expected xfail); mypy, Pyright,
+Ruff, Black, and `git diff --check` are clean for the changed source, library,
+and test trees. The full GUI smoke gate remains deferred to the final
+Workstream 4 verification.
 
 Within those workstreams, the order is:
 
