@@ -189,11 +189,6 @@ def endpoint_pin_component(
     return None
 
 
-# Module-private alias kept so the existing internal callers below need
-# no edits; new code should use the public ``endpoint_pin_component``.
-_endpoint_pin_component = endpoint_pin_component
-
-
 @counted("_pin_endpoint_matches_path")
 def _pin_endpoint_matches_path(
     knot: Knot,
@@ -332,8 +327,8 @@ def wire_is_owned_by_group(
     if ka is None or kb is None:
         return False
 
-    a_comp = _endpoint_pin_component(ka)
-    b_comp = _endpoint_pin_component(kb)
+    a_comp = endpoint_pin_component(ka)
+    b_comp = endpoint_pin_component(kb)
 
     # Geometric sanity check (when full layout context is available):
     # a PinKnot endpoint only counts as "anchored to the group" if its
