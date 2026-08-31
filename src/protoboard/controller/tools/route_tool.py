@@ -62,6 +62,9 @@ class RouteTool(ControllerTool):
         side: str = "bottom",
         preview: RoutePreview | None = None,
         merge_prompt: NetMergePrompt | None = None,
+        set_insulated: Callable[[bool], None] | None = None,
+        set_side: Callable[[str], None] | None = None,
+        update_status: Callable[[bool, str], None] | None = None,
     ) -> None:
         super().__init__()
         self._insulated = insulated
@@ -78,9 +81,24 @@ class RouteTool(ControllerTool):
         # activate().
         self._merge_prompt: NetMergePrompt | None = merge_prompt
         self._merge_prompt_injected = merge_prompt is not None
+        self._set_insulated_callback = set_insulated
+        self._set_side_callback = set_side
+        self._update_status_callback = update_status
         # Track whether the transient highlight + dim overlay are
         # currently pushed so commit/cancel can pop exactly once.
         self._route_highlight_active: bool = False
+
+    def bind_route_options(
+        self,
+        *,
+        set_insulated: Callable[[bool], None] | None,
+        set_side: Callable[[str], None] | None,
+        update_status: Callable[[bool, str], None] | None,
+    ) -> None:
+        """Bind GUI-owned persistence for the route options toolbar."""
+        self._set_insulated_callback = set_insulated
+        self._set_side_callback = set_side
+        self._update_status_callback = update_status
 
     def activate(self, session: EditingContext, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
@@ -149,32 +167,24 @@ class RouteTool(ControllerTool):
         self.preview.show_live(self._points[-1], snapped)
 
     def _set_insulated(self, insulated: bool) -> None:
-        """Flip insulation via the window so the choice is remembered and
-        persisted (toolbar action + app-settings default), falling back to a
-        local mutation when there is no window (standalone tool / tests)."""
-        win = self._route_view.window()
-        setter = getattr(win, "_set_wire_insulated", None)
-        if setter is not None:
-            setter(insulated)
-        else:
-            self._insulated = insulated
-            self._notify_status()
+        """Update insulation, delegating persistence to the GUI when bound."""
+        self._insulated = insulated
+        if self._set_insulated_callback is not None:
+            self._set_insulated_callback(insulated)
+            return
+        self._notify_status()
 
     def _set_side(self, side: str) -> None:
-        win = self._route_view.window()
-        setter = getattr(win, "_set_wire_side", None)
-        if setter is not None:
-            setter(side)
-        else:
-            self._side = side
-            self._notify_status()
+        self._side = side
+        if self._set_side_callback is not None:
+            self._set_side_callback(side)
+            return
+        self._notify_status()
 
     def _notify_status(self) -> None:
         """Update the main window status bar with current wire options."""
-        win = self._route_view.window()
-        updater = getattr(win, "_update_route_status", None)
-        if updater is not None:
-            updater(self._insulated, self._side)
+        if self._update_status_callback is not None:
+            self._update_status_callback(self._insulated, self._side)
 
     def command_table(self) -> dict[str, Callable[[], object]]:
         """``action_id -> command`` — the data ``EditController.dispatch_tool_

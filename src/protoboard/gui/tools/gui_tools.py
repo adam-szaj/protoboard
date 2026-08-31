@@ -184,6 +184,15 @@ class RouteTool(
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
         gui_view = _gui_view(view)
+        window = gui_view.window()
+        set_insulated = getattr(window, "_set_wire_insulated", None)
+        set_side = getattr(window, "_set_wire_side", None)
+        update_status = getattr(window, "_update_route_status", None)
+        self.bind_route_options(
+            set_insulated=set_insulated if callable(set_insulated) else None,
+            set_side=set_side if callable(set_side) else None,
+            update_status=update_status if callable(update_status) else None,
+        )
         if not self._preview_injected:
             from protoboard.gui.tools.route_preview import QtRoutePreview
 
