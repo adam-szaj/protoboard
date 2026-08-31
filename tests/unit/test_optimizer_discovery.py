@@ -176,15 +176,13 @@ class TestDiscoverAllPlugins:
             "protoboard.services.routing.discovery.entry_points",
             _eps,
         )
-        from protoboard.services.routing.discovery import (
-            registry as router_reg_alias,
-        )
+        from protoboard.services.routing.protocol import registry as router_registry
 
         # Substitute fresh registries on both sides.
-        tmp_router = type(router_reg_alias)()
+        tmp_router = type(router_registry)()
         tmp_opt = _OptimizerRegistry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry",
+            "protoboard.services.routing.discovery.router_registry",
             tmp_router,
         )
         monkeypatch.setattr(

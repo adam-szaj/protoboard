@@ -36,19 +36,10 @@ from protoboard.services.routing.optimizer import registry as optimizer_registry
 from protoboard.services.routing.protocol import Router
 from protoboard.services.routing.protocol import registry as router_registry
 
-# Backward-compat alias — older tests monkeypatch
-# ``protoboard.services.routing.discovery.registry`` to inject a temp
-# registry for the router path.  Keep the name pointing at the router
-# registry so those tests don't need to change.
-registry = router_registry
-
 _log = structlog.get_logger(__name__)
 
 ROUTER_GROUP = "protoboard.routers"
 OPTIMIZER_GROUP = "protoboard.wire_optimizers"
-
-# Backward-compat alias — pre-existing tests import this name.
-ENTRY_POINT_GROUP = ROUTER_GROUP
 
 
 def _load_and_construct(
@@ -155,19 +146,11 @@ def _discover_into(
 
 
 def discover_router_plugins() -> list[str]:
-    """Walk ``protoboard.routers`` and register all valid routers.
-
-    Reads :data:`registry` via module-level attribute lookup so tests
-    that monkeypatch ``discovery.registry`` to inject a temporary
-    registry continue to work.
-    """
-    import sys as _sys
-
-    _self = _sys.modules[__name__]
+    """Walk ``protoboard.routers`` and register all valid routers."""
     return _discover_into(
         group=ROUTER_GROUP,
         protocol_check=lambda x: isinstance(x, Router),
-        register=_self.registry.register,
+        register=router_registry.register,
         role="router",
     )
 
@@ -194,28 +177,10 @@ def discover_all_plugins() -> dict[str, list[str]]:
     }
 
 
-# Backward-compat: pre-existing tests and call sites import ``discover_plugins``
-# and ``_load_one``.  Keep them as aliases of the router-specific path.
-discover_plugins = discover_router_plugins
-
-
-def _load_one(ep: EntryPoint) -> Router | None:
-    """Backward-compat shim for the router-specific loader."""
-    result = _load_and_construct(
-        ep,
-        protocol_check=lambda x: isinstance(x, Router),
-        role="router",
-    )
-    return result
-
-
 __all__ = [
     "discover_all_plugins",
     "discover_router_plugins",
     "discover_optimizer_plugins",
-    "discover_plugins",  # legacy alias
-    "_load_one",  # legacy
     "ROUTER_GROUP",
     "OPTIMIZER_GROUP",
-    "ENTRY_POINT_GROUP",  # legacy alias
 ]

@@ -15,12 +15,18 @@ from importlib.metadata import EntryPoint
 import pytest
 
 from protoboard.services.routing.autorouter import AutorouteResult
-from protoboard.services.routing.discovery import _load_one, discover_plugins
+from protoboard.services.routing.discovery import (
+    _load_and_construct,
+    discover_router_plugins,
+)
 from protoboard.services.routing.protocol import (
     ProgressSink,
+    Router,
     RouterCapabilities,
     _Registry,
-    registry,
+)
+from protoboard.services.routing.protocol import (
+    registry as router_registry,
 )
 from protoboard.services.routing.snapshot import RouteRequest
 
@@ -65,7 +71,7 @@ class _NotARouter:
 
 
 # ---------------------------------------------------------------------------
-# _load_one — single-entry-point branches
+# _load_and_construct — single-entry-point branches
 # ---------------------------------------------------------------------------
 
 
@@ -94,29 +100,38 @@ def _fake_ep(name: str, target: object) -> EntryPoint:
     return _Wrap(ep, target)  # type: ignore[return-value]
 
 
-class TestLoadOne:
+def _load_router(ep: EntryPoint) -> Router | None:
+    result = _load_and_construct(
+        ep,
+        protocol_check=lambda x: isinstance(x, Router),
+        role="router",
+    )
+    return result if isinstance(result, Router) else None
+
+
+class TestLoadRouter:
     def test_loads_class(self) -> None:
-        r = _load_one(_fake_ep("good", _GoodRouter))
+        r = _load_router(_fake_ep("good", _GoodRouter))
         assert r is not None
         assert r.name == "good-plugin"
 
     def test_loads_factory(self) -> None:
-        r = _load_one(_fake_ep("good", _good_factory))
+        r = _load_router(_fake_ep("good", _good_factory))
         assert r is not None
         assert r.name == "good-plugin"
 
     def test_loads_prebuilt_instance(self) -> None:
-        r = _load_one(_fake_ep("good", _GoodRouter()))
+        r = _load_router(_fake_ep("good", _GoodRouter()))
         assert r is not None
         assert r.name == "good-plugin"
 
     def test_broken_init_returns_none(self) -> None:
         # Must NOT raise — just return None and log a warning.
-        r = _load_one(_fake_ep("bad", _BrokenInit))
+        r = _load_router(_fake_ep("bad", _BrokenInit))
         assert r is None
 
     def test_protocol_mismatch_returns_none(self) -> None:
-        r = _load_one(_fake_ep("not-a-router", _NotARouter))
+        r = _load_router(_fake_ep("not-a-router", _NotARouter))
         assert r is None
 
     def test_load_failure_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -125,12 +140,12 @@ class TestLoadOne:
         monkeypatch.setattr(
             ep, "load", lambda: (_ for _ in ()).throw(ImportError("boom"))
         )
-        r = _load_one(ep)
+        r = _load_router(ep)
         assert r is None
 
 
 # ---------------------------------------------------------------------------
-# discover_plugins — registry interaction
+# discover_router_plugins — registry interaction
 # ---------------------------------------------------------------------------
 
 
@@ -146,11 +161,11 @@ class TestDiscoverPlugins:
         # Use a temporary registry so the test doesn't pollute global state.
         tmp = _Registry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry",
+            "protoboard.services.routing.discovery.router_registry",
             tmp,
         )
 
-        discovered = discover_plugins()
+        discovered = discover_router_plugins()
         assert discovered == ["good-plugin"]
         assert "good-plugin" in tmp.list_available()
 
@@ -167,11 +182,11 @@ class TestDiscoverPlugins:
         )
         tmp = _Registry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry",
+            "protoboard.services.routing.discovery.router_registry",
             tmp,
         )
 
-        discovered = discover_plugins()
+        discovered = discover_router_plugins()
         # The good one survived; the broken one was silently skipped.
         assert discovered == ["good-plugin"]
         assert "good-plugin" in tmp.list_available()
@@ -186,10 +201,10 @@ class TestDiscoverPlugins:
         )
         tmp = _Registry()
         monkeypatch.setattr(
-            "protoboard.services.routing.discovery.registry",
+            "protoboard.services.routing.discovery.router_registry",
             tmp,
         )
-        assert discover_plugins() == []
+        assert discover_router_plugins() == []
 
     def test_entry_points_failure_returns_empty(
         self, monkeypatch: pytest.MonkeyPatch
@@ -202,10 +217,10 @@ class TestDiscoverPlugins:
             _boom,
         )
         # Must NOT propagate.
-        assert discover_plugins() == []
+        assert discover_router_plugins() == []
 
     def test_idempotent_against_real_global_registry(self) -> None:
-        """Calling discover_plugins() with the live entry-point set is a no-op.
+        """Calling discover_router_plugins() with the live entry-point set is a no-op.
 
         No external routers are declared in the test environment, so the
         call returns an empty list and doesn't disturb the built-in
@@ -214,8 +229,8 @@ class TestDiscoverPlugins:
         # Ensure the side-effect registration ran in this test process.
         import protoboard.services.routing.builtin  # noqa: F401
 
-        before = set(registry.list_available())
-        discover_plugins()
-        after = set(registry.list_available())
+        before = set(router_registry.list_available())
+        discover_router_plugins()
+        after = set(router_registry.list_available())
         assert "astar" in after
         assert before.issubset(after)
