@@ -2,7 +2,7 @@
 # Module Boundaries and Deduplication Design
 
 **Date:** 2026-08-30
-**Status:** approved; Workstreams 1 and 2A implemented, Workstream 2B next
+**Status:** approved; Workstreams 1 and 2 implemented, Workstream 3 next
 
 ## Purpose
 
@@ -215,8 +215,17 @@ Implementation status as of 2026-08-31:
 - Workstream 1 established dependency enforcement and relocated pure policies.
 - Workstream 2A introduced editing-service ports, structured domain drag
   analysis, stable view-option DTOs, and root-level headless/CLI composition.
-- Workstream 2B is next: split broad editing contexts and remove the deferred
-  routing-service imports from controller tools and selection code.
+- Workstream 2B split editing state into focused contexts, reduced
+  `PreviewState` to 98 lines, and moved all routing implementation selection
+  behind service adapters. The blanket AST contract now reports zero
+  controller imports from `services` or `gui`.
+- Workstream 3 is next: introduce canonical reusable operations and delete
+  superseded legacy paths.
+
+The Workstream 2B exit gate covered 315 source modules and 97,346 physical
+lines: 2,830 unit tests passed (68 skipped), 1,494 offscreen GUI tests passed
+(1 expected xfail and 1 existing PySide disconnect warning), and both property
+tests passed. Ruff, Black, strict mypy, and Pyright reported no errors.
 
 Within those workstreams, the order is:
 

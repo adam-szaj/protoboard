@@ -30,37 +30,9 @@ def _assert_no_imports(layer: str, forbidden: tuple[str, ...]) -> None:
     assert not offenders, f"{layer} has forbidden imports:\n" + "\n".join(offenders)
 
 
-def _assert_paths_no_imports(
-    roots: tuple[Path, ...], forbidden: tuple[str, ...]
-) -> None:
-    offenders: list[str] = []
-    for root in roots:
-        paths = sorted(root.rglob("*.py")) if root.is_dir() else [root]
-        for path in paths:
-            if not path.exists():
-                continue
-            for lineno, module in _imported_modules(path):
-                if any(
-                    module == forbidden_root or module.startswith(f"{forbidden_root}.")
-                    for forbidden_root in forbidden
-                ):
-                    relative = path.relative_to(SRC)
-                    offenders.append(f"{relative}:{lineno}: {module}")
-    assert not offenders, "paths have forbidden imports:\n" + "\n".join(offenders)
-
-
-def test_controller_does_not_import_gui() -> None:
-    _assert_no_imports("controller", ("protoboard.gui",))
-
-
-def test_controller_editing_core_does_not_import_outer_layers() -> None:
-    _assert_paths_no_imports(
-        (
-            SRC / "controller/editing/controller.py",
-            SRC / "controller/editing/drag_commit.py",
-            SRC / "controller/editing/preview_state.py",
-            SRC / "controller/ports",
-        ),
+def test_controller_does_not_import_outer_layers() -> None:
+    _assert_no_imports(
+        "controller",
         ("protoboard.services", "protoboard.gui"),
     )
 
