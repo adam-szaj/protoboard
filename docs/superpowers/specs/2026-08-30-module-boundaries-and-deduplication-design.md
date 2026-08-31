@@ -471,6 +471,11 @@ The group-boundary audit also consolidated duplicate member-bbox collection in
 rubber-band selection. The focused group/selection gate passes 219 tests; the
 full gate remains green at 2,871 unit tests and 1,495 offscreen GUI tests.
 
+Group actions now also share `MainWindow._active_group_with_data()` for active
+group validation and lookup. Rename and exported-pin updates retain their
+distinct command rules while no longer duplicating the guard pipeline; the
+focused group/action gate passes 179 tests and static checks remain clean.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.

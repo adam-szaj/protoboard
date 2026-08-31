@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from protoboard.controller.ports import InteractionContext, StatusEvent
     from protoboard.controller.ports.drc import DRCIssue
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.layout.group import ComponentGroup
     from protoboard.gui.workers.drc_worker import DRCWorker
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, Signal
@@ -1712,12 +1713,10 @@ class MainWindow(QMainWindow):
     def _group_rename(self) -> None:
         from protoboard.domain.commands.group_cmds import RenameGroupCommand
 
-        gid = self._active_group_or_warn()
-        if gid is None:
+        active = self._active_group_with_data()
+        if active is None:
             return
-        group = self._session.layout.groups.get(gid)
-        if group is None:
-            return
+        gid, group = active
         name, ok = QInputDialog.getText(
             self, "Rename group", "New name:", text=group.name
         )
@@ -1735,12 +1734,10 @@ class MainWindow(QMainWindow):
         """Common back-end for the three Export menu entries."""
         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
 
-        gid = self._active_group_or_warn()
-        if gid is None:
+        active = self._active_group_with_data()
+        if active is None:
             return
-        group = self._session.layout.groups.get(gid)
-        if group is None:
-            return
+        gid, group = active
         if new_exported == group.exported_pins:
             self._status.showMessage("No change to exported pins.", 2000)
             return
@@ -1748,6 +1745,14 @@ class MainWindow(QMainWindow):
             SetExportedPinsCommand(group_id=gid, new_exported=new_exported)
         )
         self._update_undo_redo()
+
+    def _active_group_with_data(self) -> tuple[uuid.UUID, ComponentGroup] | None:
+        """Return the active group ID and object, or ``None`` when unavailable."""
+        gid = self._active_group_or_warn()
+        if gid is None:
+            return None
+        group = self._session.layout.groups.get(gid)
+        return (gid, group) if group is not None else None
 
     def _group_export_auto(self) -> None:
         gid = self._active_group_or_warn()
