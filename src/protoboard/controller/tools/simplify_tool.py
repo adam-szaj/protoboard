@@ -36,12 +36,12 @@ from protoboard.geometry import Point
 from protoboard.services.routing.postprocess import generic_simplify_wire
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing import EditingContext
+    from protoboard.controller.editing.contexts import RoutingReadContext
     from protoboard.controller.tools.simplify_preview import SimplifyPreview
 
 
 def compute_simplified_wire(
-    session: EditingContext,
+    session: RoutingReadContext,
     wire_id: uuid.UUID,
     *,
     mode: SimplifyMode | None = None,

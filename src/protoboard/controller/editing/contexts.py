@@ -124,12 +124,43 @@ class PreviewProjectContext(ProjectModel, Protocol):
     def cached_wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]: ...
 
 
+@runtime_checkable
+class ProjectSpatialContext(ProjectModel, SpatialQueries, Protocol):
+    """Project values combined with derived geometry reads."""
+
+
+@runtime_checkable
+class ProjectConnectivityContext(ProjectModel, ConnectivityQueries, Protocol):
+    """Project values combined with connectivity reads."""
+
+
+@runtime_checkable
+class EditingReadContext(
+    ProjectModel,
+    SpatialQueries,
+    ConnectivityQueries,
+    Protocol,
+):
+    """All project, geometry, and connectivity reads used by editing helpers."""
+
+
+@runtime_checkable
+class RoutingReadContext(EditingReadContext, Protocol):
+    """Editing reads plus the active routing configuration."""
+
+    routing_settings: RoutingSettings
+
+
 __all__ = [
     "ConnectivityQueries",
     "EditingContext",
     "EditingEffects",
+    "EditingReadContext",
     "InteractionState",
     "PreviewProjectContext",
+    "ProjectConnectivityContext",
     "ProjectModel",
+    "ProjectSpatialContext",
+    "RoutingReadContext",
     "SpatialQueries",
 ]

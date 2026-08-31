@@ -270,13 +270,13 @@ git commit -m "refactor(controller): narrow preview editing context"
   Protocol)`.
 - `RoutingReadContext(EditingReadContext, Protocol)` adds routing settings.
 
-- [ ] **Step 1: Add an AST guard for helper signatures**
+- [x] **Step 1: Add an AST guard for helper signatures**
 
 The new test parses the listed helper modules and fails when they import or
 annotate `EditingContext`. It does not inspect controller/tool composition
 classes, where the composite remains intentional.
 
-- [ ] **Step 2: Run the helper guard and verify current offenders**
+- [x] **Step 2: Run the helper guard and verify current offenders**
 
 Run:
 
@@ -286,7 +286,7 @@ Run:
 
 Expected: FAIL listing the helper files still importing the broad context.
 
-- [ ] **Step 3: Repoint helpers to coherent context combinations**
+- [x] **Step 3: Repoint helpers to coherent context combinations**
 
 Use these mappings:
 
@@ -294,7 +294,7 @@ Use these mappings:
 wire_nets                  ProjectModel
 drag_commit                PreviewProjectContext
 group_lock                 ProjectConnectivityContext
-placement_conflict         ProjectConnectivityContext
+placement_conflict         EditingReadContext
 selection.queries          ProjectConnectivityContext
 selection.wire_ops         EditingReadContext
 simplify_tool computation  RoutingReadContext
@@ -302,7 +302,7 @@ simplify_tool computation  RoutingReadContext
 
 Do not change arguments, return values, mutations, or exception behaviour.
 
-- [ ] **Step 4: Run focused behaviour and strict typing**
+- [x] **Step 4: Run focused behaviour and strict typing**
 
 Run:
 
@@ -314,7 +314,7 @@ Run:
 
 Expected: PASS with no casts from a narrow context back to `EditingContext`.
 
-- [ ] **Step 5: Commit the narrow helper signatures**
+- [x] **Step 5: Commit the narrow helper signatures**
 
 ```bash
 git add src/protoboard/controller tests/unit/test_context_import_contract.py
