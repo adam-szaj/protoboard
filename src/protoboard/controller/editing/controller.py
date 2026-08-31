@@ -56,7 +56,12 @@ if TYPE_CHECKING:
         EditServicePorts,
         RouteResult,
     )
-    from protoboard.controller.ports.routing import RoutePath, SimplifyRequest
+    from protoboard.controller.ports.routing import (
+        OptimizerOption,
+        RoutePath,
+        SimplifyRequest,
+        UnweaveResult,
+    )
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.tools.base import ControllerTool
     from protoboard.domain.components.instance import ComponentInstance
@@ -1644,6 +1649,32 @@ class EditController:
     def simplify_wire(self, request: SimplifyRequest) -> Wire:
         """Delegate one immutable simplify request to the routing service."""
         return self._ports.routing.simplifier.simplify(request)
+
+    def optimizer_options(self) -> Sequence[OptimizerOption]:
+        return self._ports.routing.optimizer.options()
+
+    def optimize_wires(self, name: str, wires: Sequence[Wire]) -> Sequence[Wire]:
+        state = self._state
+        return self._ports.routing.optimizer.optimize(
+            name,
+            board=state.board,
+            layout=state.layout,
+            schematic=state.schematic,
+            components=state.components,
+            instances=state.instances,
+            settings=state.routing_settings,
+            wires=wires,
+        )
+
+    def unweave_wires(self, wires: Sequence[Wire]) -> UnweaveResult:
+        state = self._state
+        return self._ports.routing.unweaver.unweave(
+            wires=wires,
+            schematic=state.schematic,
+            graph=state.connectivity_graph(),
+            allow_layer_change=state.routing_settings.allow_layer_change,
+            allow_side_flip=state.routing_settings.visual_unweave_side_flip,
+        )
 
     # ------------------------------------------------------------------
     # Command execution substrate

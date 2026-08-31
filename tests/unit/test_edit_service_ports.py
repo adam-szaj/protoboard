@@ -17,9 +17,11 @@ from protoboard.controller.ports.edit_services import (
     ProjectStorePort,
 )
 from protoboard.controller.ports.routing import (
+    OptimizerOption,
     PathfinderPort,
     RoutePath,
     RoutingServicePorts,
+    UnweaveResult,
     WireOptimizerPort,
     WireSimplifierPort,
     WireUnweaverPort,
@@ -28,6 +30,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
+from protoboard.geometry import Point
 from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import ComponentLibrary
 
@@ -110,13 +113,83 @@ class _RecordingExport:
 
 def _routing_ports(
     pathfinder: PathfinderPort | None = None,
+    optimizer: WireOptimizerPort | None = None,
+    unweaver: WireUnweaverPort | None = None,
 ) -> RoutingServicePorts:
     return RoutingServicePorts(
         pathfinder=pathfinder or cast(PathfinderPort, object()),
         simplifier=cast(WireSimplifierPort, object()),
-        optimizer=cast(WireOptimizerPort, object()),
-        unweaver=cast(WireUnweaverPort, object()),
+        optimizer=optimizer or cast(WireOptimizerPort, object()),
+        unweaver=unweaver or cast(WireUnweaverPort, object()),
     )
+
+
+class _RecordingOptimizer:
+    def __init__(self, output: list[Wire]) -> None:
+        self.output = output
+        self.kwargs: dict[str, object] | None = None
+
+    def options(self) -> list[OptimizerOption]:
+        return [OptimizerOption("test", "Test optimizer", "notes")]
+
+    def optimize(self, name: str, **kwargs: object) -> list[Wire]:
+        self.kwargs = {"name": name, **kwargs}
+        return self.output
+
+
+class _RecordingUnweaver:
+    def __init__(self, output: UnweaveResult) -> None:
+        self.output = output
+        self.kwargs: dict[str, object] | None = None
+
+    def unweave(self, **kwargs: object) -> UnweaveResult:
+        self.kwargs = kwargs
+        return self.output
+
+
+def test_optimizer_and_unweaver_receive_current_project_snapshot() -> None:
+    from protoboard.controller.ports.edit_services import EditServicePorts
+
+    session = _session()
+    first = Wire(id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(1.5, 0.5)])
+    second = Wire(id=uuid.uuid4(), path=[Point(2.5, 0.5), Point(3.5, 0.5)])
+    optimizer = _RecordingOptimizer([second, first])
+    unweave_result = UnweaveResult((first, second), 2, 0)
+    unweaver = _RecordingUnweaver(unweave_result)
+    controller = EditController(
+        cast(EditingContext, session),
+        EditServicePorts(
+            autoroute=cast(AutoroutePort, object()),
+            drc=cast(DrcPort, object()),
+            projects=cast(ProjectStorePort, object()),
+            export=cast(BoardExportPort, object()),
+            routing=_routing_ports(optimizer=optimizer, unweaver=unweaver),
+        ),
+    )
+
+    assert controller.optimizer_options() == [
+        OptimizerOption("test", "Test optimizer", "notes")
+    ]
+    assert controller.optimize_wires("test", [first, second]) == [second, first]
+    assert optimizer.kwargs == {
+        "name": "test",
+        "board": session.board,
+        "layout": session.layout,
+        "schematic": session.schematic,
+        "components": session.components,
+        "instances": session.instances,
+        "settings": session.routing_settings,
+        "wires": [first, second],
+    }
+
+    assert controller.unweave_wires([first, second]) is unweave_result
+    assert unweaver.kwargs == {
+        "wires": [first, second],
+        "schematic": session.schematic,
+        "graph": session.connectivity_graph(),
+        "allow_layer_change": session.routing_settings.allow_layer_change,
+        "allow_side_flip": session.routing_settings.visual_unweave_side_flip,
+    }
 
 
 def test_find_paths_forwards_to_injected_routing_port() -> None:

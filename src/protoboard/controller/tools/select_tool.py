@@ -67,6 +67,7 @@ if TYPE_CHECKING:
 
     from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.drag_set import DragSet
+    from protoboard.controller.ports.routing import UnweaveResult
     from protoboard.controller.selection.adapters import WireVertexSelectable
     from protoboard.controller.selection.mouse_input import MouseInputController
     from protoboard.controller.selection.selectable import Selectable
@@ -3232,21 +3233,15 @@ class SelectTool(ControllerTool):
         )
 
         # Optimize-with: one entry per registered plugin (minus built-in simplify).
-        import protoboard.services.routing.builtin_optimizers  # noqa: F401
-        from protoboard.services.routing.optimizer import registry as _opt_registry
-
-        opt_names = [o for o in _opt_registry.list_available() if o != "simplify"]
-        for opt_name in opt_names:
-            opt = _opt_registry.get(opt_name)
-            caps = opt.capabilities()
+        for option in self._session.edit_controller.optimizer_options():
             out.append(
                 ActionOption(
                     action_id="select-tool.ctx.optimize_with",
-                    label=getattr(opt, "display_name", opt_name),
+                    label=option.label,
                     group=group,
                     submenu="Optimize with…",
-                    tooltip=caps.notes or "",
-                    data={"wire_ids": wires, "optimizer": opt_name},
+                    tooltip=option.notes,
+                    data={"wire_ids": wires, "optimizer": option.name},
                 )
             )
 
@@ -3877,37 +3872,18 @@ class SelectTool(ControllerTool):
             AddWireCommand,
             RemoveWireCommand,
         )
-        from protoboard.services.routing.unweave import (
-            count_mutual_crossings,
-            unweave_wires,
-        )
 
         session = self._session
         targets = [w for w in session.layout.wires if w.id in wire_ids]
         if len(targets) < 2:
             self._status_msg("Unweave: at least 2 valid wires required.")
             return
-        before = count_mutual_crossings(targets)
-        if before == 0:
-            self._status_msg("Unweave: no crossings to resolve.")
-            return
-
-        schematic = session.schematic
-        graph = session.connectivity_graph()
-        allow_layer_change = session.routing_settings.allow_layer_change
-        allow_side_flip = session.routing_settings.visual_unweave_side_flip
 
         def _unweave_in_worker() -> object:
-            return unweave_wires(
-                targets,
-                schematic=schematic,
-                graph=graph,
-                allow_layer_change=allow_layer_change,
-                allow_side_flip=allow_side_flip,
-            )
+            return session.edit_controller.unweave_wires(targets)
 
         out = cast(
-            "list[Wire] | None",
+            "UnweaveResult | None",
             self._view.executor.run_blocking(
                 BlockingJob(
                     title="Unweave",
@@ -3918,11 +3894,16 @@ class SelectTool(ControllerTool):
         )
         if out is None:
             return
-        after = count_mutual_crossings(out)
+        before = out.before_crossings
+        if before == 0:
+            self._status_msg("Unweave: no crossings to resolve.")
+            return
+        output_wires = list(out.wires)
+        after = out.after_crossings
 
-        same = len(out) == len(targets) and all(
+        same = len(output_wires) == len(targets) and all(
             a.path == b.path and a.side == b.side and a.insulated == b.insulated
-            for a, b in zip(targets, out)
+            for a, b in zip(targets, output_wires)
         )
         if same:
             self._status_msg(
@@ -3931,12 +3912,16 @@ class SelectTool(ControllerTool):
             return
 
         cmds: list[object] = [RemoveWireCommand(wire_id=w.id) for w in targets]
-        cmds += [AddWireCommand(wire=w) for w in out]
+        cmds += [AddWireCommand(wire=w) for w in output_wires]
         self._commit_wire_macro(
-            cmds, f"Unweave {len(targets)} → {len(out)} wire(s)", invalidate=True
+            cmds,
+            f"Unweave {len(targets)} → {len(output_wires)} wire(s)",
+            invalidate=True,
         )
         seg = (
-            f" ({len(targets)}→{len(out)} segments)" if len(targets) != len(out) else ""
+            f" ({len(targets)}→{len(output_wires)} segments)"
+            if len(targets) != len(output_wires)
+            else ""
         )
         self._status_msg(f"Unweave: {before} → {after} crossings{seg}")
 
@@ -4057,43 +4042,27 @@ class SelectTool(ControllerTool):
             AddWireCommand,
             RemoveWireCommand,
         )
-        from protoboard.services.routing.autorouter import AutorouteResult
-        from protoboard.services.routing.optimizer import registry as _opt_registry
-        from protoboard.services.routing.protocol import ProgressSink
-        from protoboard.services.routing.snapshot import RouteRequest
 
         session = self._session
         if not wire_ids:
             self._status_msg("Optimize: nothing selected.")
             return
-        try:
-            optimizer = _opt_registry.get(opt_name)
-        except KeyError:
-            self._status_msg(f"Optimize: plugin {opt_name!r} is not registered.")
-            return
-
-        request = RouteRequest.from_session(
-            board=session.board,
-            layout=session.layout,
-            schematic=session.schematic,
-            components=session.components,
-            instances=session.instances,
-            routing_settings=session.routing_settings,
-        )
         selected_wires = [w for w in session.layout.wires if w.id in wire_ids]
         if not selected_wires:
             self._status_msg("Optimize: no matching wires in layout.")
             return
-        result_in = AutorouteResult(
-            wires=list(selected_wires), unrouted_nets=[], pass_stats=[]
-        )
         try:
-            result_out = optimizer.optimize(request, result_in, ProgressSink())
+            output_wires = session.edit_controller.optimize_wires(
+                opt_name, selected_wires
+            )
+        except KeyError:
+            self._status_msg(f"Optimize: plugin {opt_name!r} is not registered.")
+            return
         except Exception as exc:  # noqa: BLE001
             self._status_msg(f"Optimize: plugin failed — {exc}")
             return
 
-        out_by_id = {w.id: w for w in result_out.wires}
+        out_by_id = {w.id: w for w in output_wires}
         cmds: list[object] = []
         for wire_in in selected_wires:
             wire_out = out_by_id.pop(wire_in.id, None)
@@ -4113,7 +4082,14 @@ class SelectTool(ControllerTool):
         for new_wire in out_by_id.values():
             cmds.append(AddWireCommand(wire=new_wire))
 
-        label = getattr(optimizer, "display_name", opt_name)
+        label = next(
+            (
+                option.label
+                for option in session.edit_controller.optimizer_options()
+                if option.name == opt_name
+            ),
+            opt_name,
+        )
         if not cmds:
             self._status_msg(f"Optimize ({label}): nothing changed.")
             return

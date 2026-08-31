@@ -570,13 +570,13 @@ git commit -m "refactor(routing): inject wire simplification"
 - `EditController.unweave_wires(wires) -> UnweaveResult` supplies schematic,
   graph, and the two routing flags.
 
-- [ ] **Step 1: Change UI tests to port-owned optimizer metadata/results**
+- [x] **Step 1: Change UI tests to port-owned optimizer metadata/results**
 
 Record calls from context-menu option creation, optimizer execution, and
 unweave execution. Preserve labels, tooltip notes, plugin failure text, no-op
 messages, crossing counts, and generated Remove/Add command macros.
 
-- [ ] **Step 2: Run converted tests and verify they fail on registry access**
+- [x] **Step 2: Run converted tests and verify they fail on registry access**
 
 Run:
 
@@ -587,20 +587,20 @@ Run:
 Expected: FAIL until `SelectTool` calls controller methods instead of service
 registries/functions.
 
-- [ ] **Step 3: Replace optimizer metadata and execution**
+- [x] **Step 3: Replace optimizer metadata and execution**
 
 Build context-menu entries from `optimizer_options()`. The adapter owns built-in
 registration, lookup, `RouteRequest`, `AutorouteResult`, and `ProgressSink`.
 Keep command diffing in `SelectTool`, because converting wire changes to an
 undoable application command is controller responsibility.
 
-- [ ] **Step 4: Replace unweave execution**
+- [x] **Step 4: Replace unweave execution**
 
 Submit one controller-port call through the existing blocking executor. Use
 `UnweaveResult.before_crossings/after_crossings` for current early/no-op/status
 branches and keep Remove/Add macro construction unchanged.
 
-- [ ] **Step 5: Verify the controller has no service imports**
+- [x] **Step 5: Verify the controller has no service imports**
 
 Run:
 
@@ -613,7 +613,7 @@ rg -n 'protoboard\.services' src/protoboard/controller
 
 Expected: search has no output and all checks pass.
 
-- [ ] **Step 6: Commit optimizer/unweave migration**
+- [x] **Step 6: Commit optimizer/unweave migration**
 
 ```bash
 git add src/protoboard/controller tests/gui/test_optimize_selected_wires.py tests/gui/test_select_tool.py tests/unit/test_edit_service_ports.py tests/unit/test_unweave.py
