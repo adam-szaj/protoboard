@@ -428,11 +428,6 @@ class BoardView(QGraphicsView):
     def toggle_camera(self) -> None:
         self.camera.toggle_camera()
 
-    # Legacy alias used by MainWindow._mirror_view (now means Mirror H).
-    @traced()
-    def toggle_mirror(self) -> None:
-        self.camera.toggle_mirror()
-
     @property
     @traced()
     def is_mirrored(self) -> bool:

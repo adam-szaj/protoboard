@@ -196,11 +196,6 @@ class ViewCamera:
     def toggle_camera(self) -> None:
         self.set_camera_side("bottom" if self._camera_side == "top" else "top")
 
-    # Legacy alias used by MainWindow._mirror_view (now means Mirror H).
-    @traced()
-    def toggle_mirror(self) -> None:
-        self.toggle_mirror_h()
-
     # -- fit ------------------------------------------------------------------------
 
     @traced()
