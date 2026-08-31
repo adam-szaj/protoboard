@@ -1505,9 +1505,6 @@ class SelectTool(ControllerTool):
     def _snap(self, raw: Point, exclude: frozenset[uuid.UUID]) -> Point:
         return self._view.snap(raw, exclude_ids=exclude)
 
-    def _execute_command(self, cmd: object) -> bool:
-        return self._session.edit_controller.execute_command(cmd)
-
     # -- rubber-band Qt seams ----------------------------------------------
 
     def _draw_band(self, a: Point, b: Point, ltr: bool) -> None:

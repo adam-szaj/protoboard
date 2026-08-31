@@ -844,9 +844,6 @@ class WireEditTool(ControllerTool):
         if self._view is not None:
             self._view.refresh()
 
-    def _execute_command(self, cmd: object) -> bool:
-        return self._session.edit_controller.execute_command(cmd)
-
     def _snap(self, raw: Point) -> Point:
         assert self._view is not None
         return self._view.snap(raw, exclude_ids=frozenset())

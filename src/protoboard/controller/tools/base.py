@@ -130,6 +130,10 @@ class ControllerTool:
 
         return DEFAULT_THEME
 
+    def _execute_command(self, cmd: object) -> bool:
+        """Execute *cmd* through the session's controller facade."""
+        return self._session.edit_controller.execute_command(cmd)
+
     def can_exit(self) -> bool:
         """May ``[Esc]`` exit this tool now? Tools with a pending operation
         override to return False so the first Esc cancels the op (stay active)
