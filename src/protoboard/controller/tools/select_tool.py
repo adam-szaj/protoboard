@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from protoboard.controller.tools.select_prompts import GroupTargetPrompt
     from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
     from protoboard.controller.tools.wire_edit_tool import WireEditTool
+    from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import RedragResult
@@ -3432,7 +3433,6 @@ class SelectTool(ControllerTool):
         """
         from typing import cast
 
-        from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import (
             ConvertEndpointToWirePinCommand,
         )
@@ -3480,11 +3480,7 @@ class SelectTool(ControllerTool):
         """Demote every ``WirePinKnot`` owned by the selected wires to a free endpoint."""  # noqa: E501
         from typing import cast
 
-        from protoboard.domain.commands.base import (
-            Command,
-            ComponentState,
-            MacroCommand,
-        )
+        from protoboard.domain.commands.base import compose_command
         from protoboard.domain.commands.component_cmds import (
             ConvertWirePinToEndpointCommand,
         )
@@ -3521,14 +3517,8 @@ class SelectTool(ControllerTool):
             )
             for wp_id in targets
         ]
-        cmd = (
-            cmds[0]
-            if len(cmds) == 1
-            else cast(
-                "Command[ComponentState]",
-                MacroCommand(cmds, description="Convert wire-pins to endpoints"),
-            )
-        )
+        cmd = compose_command(cmds, description="Convert wire-pins to endpoints")
+        assert cmd is not None
         self._execute_command(cmd)
         self._refresh_after_wire_op()
 
@@ -3862,7 +3852,6 @@ class SelectTool(ControllerTool):
         """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
         from typing import cast
 
-        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.component_cmds import (
             FuseTouchingWiresCommand,
         )
@@ -3991,11 +3980,14 @@ class SelectTool(ControllerTool):
         self, cmds: list[object], description: str, *, invalidate: bool = False
     ) -> None:
         """Execute one-or-many wire commands as a macro, then refresh the view."""
-        from protoboard.domain.commands.base import MacroCommand
+        from typing import cast
 
-        if not cmds:
+        from protoboard.domain.commands.base import compose_command
+
+        typed = cast("list[Command[ComponentState]]", cmds)
+        cmd = compose_command(typed, description=description)
+        if cmd is None:
             return
-        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(cmds, description=description)  # type: ignore[arg-type]
         self._exec_command(cmd)
         if invalidate:
             self._session.invalidate_graph()
