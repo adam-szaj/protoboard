@@ -172,16 +172,26 @@ class RouteTool(ControllerTool):
         if self._set_insulated_callback is not None:
             self._set_insulated_callback(insulated)
             return
-        self._notify_status()
+        self.notify_status()
 
     def _set_side(self, side: str) -> None:
         self._side = side
         if self._set_side_callback is not None:
             self._set_side_callback(side)
             return
-        self._notify_status()
+        self.notify_status()
 
-    def _notify_status(self) -> None:
+    def set_options(
+        self, *, insulated: bool | None = None, side: str | None = None
+    ) -> None:
+        """Update route presentation options from the owning GUI."""
+        if insulated is not None:
+            self._insulated = insulated
+        if side is not None:
+            self._side = side
+        self.notify_status()
+
+    def notify_status(self) -> None:
         """Update the main window status bar with current wire options."""
         if self._update_status_callback is not None:
             self._update_status_callback(self._insulated, self._side)

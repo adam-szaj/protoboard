@@ -1093,7 +1093,7 @@ class MainWindow(QMainWindow):
             # Already routing — keep current state.  RouteTool is
             # always net-aware; the only commit-time dialog is the
             # NetMergeDialog for two-different-nets merges.
-            tool._notify_status()
+            tool.notify_status()
         else:
             self._board_view.set_tool(
                 RouteTool(insulated=self._wire_insulated, side=self._wire_side)
@@ -1116,7 +1116,7 @@ class MainWindow(QMainWindow):
         self._persist_wire_defaults()
         tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
-            tool._insulated = insulated
+            tool.set_options(insulated=insulated)
             self._update_route_status(insulated, self._wire_side)
 
     def _set_wire_side(self, side: str) -> None:
@@ -1126,7 +1126,7 @@ class MainWindow(QMainWindow):
         self._persist_wire_defaults()
         tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
-            tool._side = side
+            tool.set_options(side=side)
             self._update_route_status(self._wire_insulated, side)
 
     def _toggle_wire_insulated(self) -> None:
