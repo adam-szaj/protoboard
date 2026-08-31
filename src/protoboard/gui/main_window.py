@@ -2031,8 +2031,8 @@ class MainWindow(QMainWindow):
 
     def _group_selection(self) -> None:
         """Group the current selection via Ctrl+G — delegates to SelectTool dialog."""
-        tool = self._board_view.active_tool
-        if not isinstance(tool, SelectTool):
+        tool = self._get_select_tool()
+        if tool is None:
             return
         # Require at least one component selected (single or multi).
         has_selection = (
@@ -2046,8 +2046,8 @@ class MainWindow(QMainWindow):
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
 
-        tool = self._board_view.active_tool
-        if not isinstance(tool, SelectTool):
+        tool = self._get_select_tool()
+        if tool is None:
             return
         # Priority: outline-selected group > navigated-into group > inferred from selection.  # noqa: E501
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
@@ -2103,9 +2103,9 @@ class MainWindow(QMainWindow):
         from protoboard.domain.schematic.net import PinRef
 
         net_ids: set[uuid.UUID] | None = None
-        tool = self._board_view.active_tool
+        tool = self._get_select_tool()
         board_selected_ids: set[uuid.UUID] = set()
-        if isinstance(tool, SelectTool):
+        if tool is not None:
             board_selected_ids = tool.selected_component_ids or (
                 {tool.primary_component_id} if tool.primary_component_id else set()
             )

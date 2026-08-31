@@ -432,6 +432,11 @@ migrated its GUI tests to the existing `active_tool` port. The targeted GUI
 regression set (267 tests) and all static checks remain green; no production or
 test caller now depends on that legacy surface.
 
+The GUI action layer also reuses `MainWindow._get_select_tool()` for grouping,
+ungrouping, and autoroute selection lookup instead of repeating active-tool
+type checks. The focused action/selection suite (181 tests) and all static
+checks pass with no behaviour change.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
