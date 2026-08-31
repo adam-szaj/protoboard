@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     from protoboard.controller.selection.adapters import WireVertexSelectable
     from protoboard.controller.selection.mouse_input import MouseInputController
     from protoboard.controller.selection.selectable import Selectable
-    from protoboard.controller.selection.wire_edit import WireEditState
+    from protoboard.controller.selection.wire_edit import WireRange
     from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.controller.tools.select_prompts import GroupTargetPrompt
@@ -237,7 +237,7 @@ class SelectTool(ControllerTool):
         # in-progress range only the draw-overlay reads.
         from protoboard.controller.selection.hit_test import WireEditCycle
 
-        self._wire_edit: WireEditState | None = None
+        self._wire_edit: WireRange | None = None
         self._wire_edit_cycle: WireEditCycle = WireEditCycle()
         self._wire_edit_wire_id: uuid.UUID | None = None  # wire [E] armed on
         self._wire_edit_start: WireVertexSelectable | None = None  # first vertex
@@ -2069,7 +2069,7 @@ class SelectTool(ControllerTool):
         Requires a wire in the selection (the whole-wire ``WireSelectable`` from
         a prior click).  Arms a two-vertex ``wire-vertex`` pick: the two clicks
         define the fragment range, and ``on_done`` builds the
-        :class:`WireEditState`.  Until both vertices are picked the tool is in
+        :class:`WireRange`.  Until both vertices are picked the tool is in
         the pick (intents route to it); once the fragment is selected the
         op-keys (``[W]`` / ``[A]`` / ``[Del]`` / ``[Esc]``) take over.
         """
@@ -2150,7 +2150,7 @@ class SelectTool(ControllerTool):
         re-syncing the selection highlight to whatever wire survived.
         """
         from protoboard.controller.selection.adapters import WireVertexSelectable
-        from protoboard.controller.selection.wire_edit import WireEditState
+        from protoboard.controller.selection.wire_edit import WireRange
 
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
@@ -2169,7 +2169,7 @@ class SelectTool(ControllerTool):
                 return
             if end_idx < start_idx:
                 start_idx, end_idx = end_idx, start_idx
-        wire_range = WireEditState(
+        wire_range = WireRange(
             start_wire_id=start_wire,
             start_idx=start_idx,
             end_wire_id=end_wire,

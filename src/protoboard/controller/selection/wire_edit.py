@@ -9,7 +9,7 @@ delete — are *actions on that selection*.
 
 This module is the Qt-free home for:
 
-* :class:`WireEditState` — the fragment value object the tool stores, and
+* :class:`WireRange` — the fragment value object the tool stores, and
 * the command builders the action methods call: :func:`build_reroute_command`,
   :func:`build_delete_command`, :func:`autoroute_fragment_path`.
 
@@ -17,7 +17,7 @@ The builders are verbatim ports of the legacy ``SelectTool`` methods
 (``_commit_wire_edit`` / ``_delete_wire_fragment`` / ``_autoroute_wire_fragment``
 / ``_excise_cross_wire_range`` / ``_net_wires_ordered`` / ``_dedupe_adjacent`` /
 ``_replace_wire_path_cmd``) lifted off ``self`` so they take plain values
-(``wires``, the ``wire_net_map``, the :class:`WireEditState`) and return reusable
+(``wires``, the ``wire_net_map``, the :class:`WireRange`) and return reusable
 domain :class:`Command` objects.  No Qt, no session, no hit-test — headless
 testable.  They reuse the existing domain commands (``ReplaceWireFragmentsCommand``,
 ``AddWireCommand``, ``RemoveWireCommand``, ``MacroCommand``) and the A* router
@@ -75,7 +75,6 @@ def _default_add_factory(wire: Wire) -> Command[ComponentState]:
 
 __all__ = [
     "AddWireFactory",
-    "WireEditState",
     "WireRange",
     "WireRangeEdit",
     "autoroute_fragment_path",
@@ -296,7 +295,7 @@ def outer_endpoint_idx(wire: Wire, neighbour: Wire) -> int:
 def excise_cross_wire_range(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    state: WireEditState,
+    state: WireRange,
     add_factory: AddWireFactory = _default_add_factory,
 ) -> tuple[Command[ComponentState], Point, Point] | None:
     """Build a MacroCommand excising the cross-wire fragment.
@@ -391,7 +390,7 @@ def build_reroute_command(
     layout: object,
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    state: WireEditState,
+    state: WireRange,
     add_factory: AddWireFactory = _default_add_factory,
 ) -> Command[ComponentState] | None:
     """Build the command committing the reroute of *state* with its waypoints.
@@ -453,7 +452,7 @@ def build_reroute_command(
 def build_delete_command(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    state: WireEditState,
+    state: WireRange,
     add_factory: AddWireFactory = _default_add_factory,
 ) -> Command[ComponentState] | None:
     """Build the command deleting the fragment (port of ``_delete_wire_fragment``).
@@ -517,7 +516,7 @@ class WireRangeEdit:
 def build_set_insulated_range_command(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    state: WireEditState,
+    state: WireRange,
     insulated: bool,
     add_factory: AddWireFactory = _default_add_factory,
 ) -> WireRangeEdit | None:
@@ -590,7 +589,7 @@ def build_set_insulated_range_command(
 def build_delete_range_edit(
     wires: Sequence[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    state: WireEditState,
+    state: WireRange,
     add_factory: AddWireFactory = _default_add_factory,
 ) -> WireRangeEdit | None:
     """``build_delete_command`` wrapped as a ``WireRangeEdit``.
@@ -633,7 +632,7 @@ def _segment_side(wire: Wire, seg_idx: int) -> Side:
 
 def build_flip_fragment_command(
     wires: Sequence[Wire],
-    state: WireEditState,
+    state: WireRange,
     target_side: str | None = None,
 ) -> Command[ComponentState] | None:
     """Build the command flipping the selected fragment to the opposite layer.
@@ -672,7 +671,7 @@ def build_flip_fragment_command(
 def build_simplify_range_command(
     layout: object,
     wires: Sequence[Wire],
-    state: WireEditState,
+    state: WireRange,
     inputs: SimplifyInputs,
     mode: SimplifyMode,
     simplify_wire: SimplifyWire,

@@ -15,7 +15,7 @@ The arm's ONLY held state is the injected ``add_factory``.  The range builders
 are already session-free; the one thing that must be injected (not built here,
 because a net-aware factory needs the live session's ``resolve_wire_nets``) is
 the fresh-wire factory.  Per-op geometry (``layout``, ``wires``, the
-:class:`WireEditState`/``WireRange``, the routing ``graph``, and the resolved
+:class:`WireRange`, the routing ``graph``, and the resolved
 autoroute endpoints/side) is passed at call time exactly as the builders
 require, so this stays Qt-free and session-free — headless testable.
 ``reroute`` / ``autoroute`` / ``delete`` thread ``self._add_factory`` into their
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from protoboard.controller.selection.wire_edit import (
     AddWireFactory,
-    WireEditState,
+    WireRange,
     WireRangeEdit,
     _default_add_factory,
     autoroute_fragment_path,
@@ -84,7 +84,7 @@ class WireEditArm:
         layout: object,
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        state: WireEditState,
+        state: WireRange,
     ) -> Command[ComponentState] | None:
         """Build the reroute command for *state* (which already carries its
         waypoints).  Cross-wire replacements go through the injected factory."""
@@ -97,7 +97,7 @@ class WireEditArm:
         layout: object,
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        state: WireEditState,
+        state: WireRange,
         graph: ConnectivityGraph,
         source: Point,
         target: Point,
@@ -122,7 +122,7 @@ class WireEditArm:
     def flip(
         self,
         wires: Sequence[Wire],
-        state: WireEditState,
+        state: WireRange,
         target_side: str | None = None,
     ) -> Command[ComponentState] | None:
         """Build the id-preserving fragment-flip command (no factory)."""
@@ -132,7 +132,7 @@ class WireEditArm:
         self,
         layout: object,
         wires: Sequence[Wire],
-        state: WireEditState,
+        state: WireRange,
         inputs: SimplifyInputs,
         mode: SimplifyMode,
     ) -> Command[ComponentState] | None:
@@ -147,7 +147,7 @@ class WireEditArm:
         self,
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        state: WireEditState,
+        state: WireRange,
     ) -> Command[ComponentState] | None:
         """Build the delete command; surviving halves go through the factory."""
         return build_delete_command(wires, wire_net_map, state, self._add_factory)
@@ -156,7 +156,7 @@ class WireEditArm:
         self,
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        state: WireEditState,
+        state: WireRange,
         insulated: bool,
     ) -> WireRangeEdit | None:
         """Build the set-insulated range edit; split pieces go through the factory."""
@@ -168,7 +168,7 @@ class WireEditArm:
         self,
         wires: Sequence[Wire],
         wire_net_map: dict[uuid.UUID, uuid.UUID],
-        state: WireEditState,
+        state: WireRange,
     ) -> WireRangeEdit | None:
         """Delete as a ``WireRangeEdit`` (survivors surfaced for re-arm)."""
         return build_delete_range_edit(wires, wire_net_map, state, self._add_factory)
