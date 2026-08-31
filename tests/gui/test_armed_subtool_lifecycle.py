@@ -162,6 +162,7 @@ class TestWholeWireVsFragmentSimplifyParity:
             WireRange.full_span(wire),
             build_simplify_inputs(session),
             mode,
+            session.edit_controller.simplify_wire,
         )
         assert isinstance(reference, ReplaceWireFragmentsCommand)
 

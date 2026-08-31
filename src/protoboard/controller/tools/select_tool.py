@@ -3803,9 +3803,6 @@ class SelectTool(ControllerTool):
         from protoboard.controller.ports import BlockingJob
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
         from protoboard.domain.routing.simplify_mode import SimplifyMode
-        from protoboard.services.routing.postprocess import (
-            generic_simplify_wire,
-        )
 
         session = self._session
         if mode_override == "chebyshev":
@@ -3818,6 +3815,7 @@ class SelectTool(ControllerTool):
             )
 
         inputs = build_simplify_inputs(session)
+        simplify_wire = session.edit_controller.simplify_wire
         all_wires = list(session.layout.wires)
         wid_list = list(wire_ids)
 
@@ -3829,17 +3827,12 @@ class SelectTool(ControllerTool):
                 if wire is None:
                     progress_cb(i + 1, n)
                     continue
-                new_wire = generic_simplify_wire(
-                    wire,
-                    other_wires=[w for w in all_wires if w.id != wid],
-                    pin_positions=inputs.pin_positions,
-                    pad_to_net=inputs.pad_to_net,
-                    mode=mode,
-                    board_pads=inputs.board_pads,
-                    wire_net_id=inputs.wire_to_net.get(wid),
-                    other_wire_nets=inputs.wire_to_net,
-                    pin_net_map=inputs.pad_to_net,
-                    pad_index=inputs.pad_index,
+                new_wire = simplify_wire(
+                    inputs.request(
+                        wire,
+                        [w for w in all_wires if w.id != wid],
+                        mode,
+                    )
                 )
                 if new_wire is not wire and new_wire.path != wire.path:
                     results.append((wid, list(new_wire.path), list(wire.path)))

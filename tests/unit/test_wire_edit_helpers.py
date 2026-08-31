@@ -190,6 +190,12 @@ def _simplify_inputs():
     return build_simplify_inputs(_session())
 
 
+def _simplify_wire(request):  # type: ignore[no-untyped-def]
+    from protoboard.services.editing.routing_adapters import DefaultWireSimplifier
+
+    return DefaultWireSimplifier().simplify(request)
+
+
 class TestBuildSimplifyRange:
     def test_full_span_simplifies_whole_wire(self) -> None:
         from protoboard.controller.selection.wire_edit import (
@@ -209,6 +215,7 @@ class TestBuildSimplifyRange:
             WireRange.full_span(wire),
             build_simplify_inputs(sess),
             SimplifyMode.CHEBYSHEV,
+            _simplify_wire,
         )
         assert isinstance(cmd, ReplaceWireFragmentsCommand)
         assert cmd.wire_id == wire.id  # id preserved → net derivation stable
@@ -235,6 +242,7 @@ class TestBuildSimplifyRange:
             r,
             build_simplify_inputs(sess),
             SimplifyMode.CHEBYSHEV,
+            _simplify_wire,
         )
         assert isinstance(cmd, ReplaceWireFragmentsCommand)
         flat = [p for f in cmd.new_fragments for p in f.path]
@@ -258,6 +266,7 @@ class TestBuildSimplifyRange:
             r,
             _simplify_inputs(),
             SimplifyMode.CHEBYSHEV,
+            _simplify_wire,
         )
         assert cmd is None
 
@@ -276,6 +285,7 @@ class TestBuildSimplifyRange:
             WireRange.full_span(wire),
             _simplify_inputs(),
             SimplifyMode.CHEBYSHEV,
+            _simplify_wire,
         )
         assert cmd is None
 

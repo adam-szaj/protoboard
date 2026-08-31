@@ -129,6 +129,7 @@ class WireEditTool(ControllerTool):
                 self._net_aware_add_factory(),
             ),
             find_paths=session.edit_controller.find_paths,
+            simplify_wire=session.edit_controller.simplify_wire,
         )
         # Fragment ops (flip / simplify / sub-range delete) issue a
         # ``replace_wire_fragments`` edit, which requires both endpoint knots.

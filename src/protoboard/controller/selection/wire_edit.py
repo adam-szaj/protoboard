@@ -47,19 +47,14 @@ from protoboard.types import Side
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from typing import Protocol
 
-    from protoboard.controller.ports.routing import FindPaths
+    from protoboard.controller.ports.routing import (
+        FindPaths,
+        SimplifyInputs,
+        SimplifyWire,
+    )
     from protoboard.domain.commands.base import Command, ComponentState
-
-    class _SimplifyInputsLike(Protocol):
-        """The ``SimplifyInputs`` fields ``build_simplify_range_command`` reads."""
-
-        pin_positions: set[Point]
-        pad_to_net: dict[Point, uuid.UUID]
-        board_pads: set[Point]
-        wire_to_net: dict[uuid.UUID, uuid.UUID | None]
-        pad_index: object
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
 
 #: Builds the "add this freshly-minted wire" command for the range ops that cut
@@ -681,8 +676,9 @@ def build_simplify_range_command(
     layout: object,
     wires: Sequence[Wire],
     state: WireEditState,
-    inputs: object,
-    mode: object,
+    inputs: SimplifyInputs,
+    mode: SimplifyMode,
+    simplify_wire: SimplifyWire,
 ) -> Command[ComponentState] | None:
     """Simplify one *range* of a wire — whole wire is the full-span special case.
 
@@ -709,8 +705,6 @@ def build_simplify_range_command(
     unaffected; callers that need bare sub-range parity must thread the true
     origin (tracked in the plan, docs §5 / Stage 5 caveat).
     """
-    from protoboard.services.routing.postprocess import generic_simplify_wire
-
     if state.is_cross:
         return None
     wire = _find_wire(wires, state.start_wire_id)
@@ -720,7 +714,6 @@ def build_simplify_range_command(
     if start >= end:
         return None
 
-    inp = cast("_SimplifyInputsLike", inputs)
     other_wires = [w for w in wires if w.id != wire.id]
 
     if state.is_full_span(wire):
@@ -735,18 +728,7 @@ def build_simplify_range_command(
             color=wire.color,
         )
 
-    simplified = generic_simplify_wire(
-        slice_wire,
-        other_wires=other_wires,
-        pin_positions=inp.pin_positions,
-        pad_to_net=inp.pad_to_net,
-        mode=mode,  # type: ignore[arg-type]
-        board_pads=inp.board_pads,
-        wire_net_id=inp.wire_to_net.get(wire.id),
-        other_wire_nets=inp.wire_to_net,
-        pin_net_map=inp.pad_to_net,
-        pad_index=inp.pad_index,
-    )
+    simplified = simplify_wire(inputs.request(slice_wire, other_wires, mode))
     if simplified is slice_wire or simplified.path == slice_wire.path:
         return None  # nothing shortened
 

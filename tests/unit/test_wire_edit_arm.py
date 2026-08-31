@@ -23,11 +23,10 @@ from typing import cast
 import pytest
 
 from protoboard.controller.editing.wire_edit_arm import WireEditArm
-from protoboard.controller.ports.routing import FindPaths
+from protoboard.controller.ports.routing import FindPaths, SimplifyRequest, SimplifyWire
 from protoboard.controller.selection.wire_edit import (
     WireEditState,
     WireRange,
-    build_simplify_range_command,
 )
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
@@ -90,10 +89,7 @@ def _session():  # type: ignore[no-untyped-def]
 # -- directive acceptance test: simplify == the whole-wire builder ------------
 
 
-def test_simplify_full_span_equals_whole_wire() -> None:
-    """``WireEditArm().simplify(...)`` on a full-span range yields a command
-    equivalent to calling ``build_simplify_range_command(...)`` directly — the
-    unit-level proof that the arm's simplify == the builder."""
+def test_simplify_full_span_uses_injected_simplifier() -> None:
     from protoboard.controller.selection.wire_ops import build_simplify_inputs
     from protoboard.domain.routing.simplify_mode import SimplifyMode
 
@@ -104,20 +100,28 @@ def test_simplify_full_span_equals_whole_wire() -> None:
     rng = WireRange.full_span(wire)
     inputs = build_simplify_inputs(sess)
 
-    direct = build_simplify_range_command(
-        sess.layout, wires, rng, inputs, SimplifyMode.CHEBYSHEV
-    )
-    via_arm = WireEditArm().simplify(
+    requests: list[SimplifyRequest] = []
+
+    def _simplify(request: SimplifyRequest) -> Wire:
+        requests.append(request)
+        return Wire(
+            id=request.wire.id,
+            path=[request.wire.path[0], request.wire.path[-1]],
+            insulated=request.wire.insulated,
+            side=request.wire.side,
+        )
+
+    via_arm = WireEditArm(simplify_wire=cast(SimplifyWire, _simplify)).simplify(
         sess.layout, wires, rng, inputs, SimplifyMode.CHEBYSHEV
     )
 
-    assert isinstance(direct, ReplaceWireFragmentsCommand)
     assert isinstance(via_arm, ReplaceWireFragmentsCommand)
-    assert via_arm.wire_id == direct.wire_id == wire.id
-    direct_flat = [p for f in direct.new_fragments for p in f.path]
+    assert via_arm.wire_id == wire.id
     arm_flat = [p for f in via_arm.new_fragments for p in f.path]
-    assert arm_flat == direct_flat
     assert arm_flat[0] == Point(0, 0) and arm_flat[-1] == Point(3, 0)
+    assert len(requests) == 1
+    assert requests[0].wire is wire
+    assert requests[0].mode is SimplifyMode.CHEBYSHEV
 
 
 def test_delete_full_span_collapses_to_remove_wire() -> None:

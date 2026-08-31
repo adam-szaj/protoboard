@@ -14,33 +14,16 @@ leans on the existing session caches for the wire → net map.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from protoboard.controller.ports.routing import SimplifyInputs
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 
 if TYPE_CHECKING:
     import uuid
 
     from protoboard.controller.editing.contexts import EditingReadContext
-    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.geometry import Point
-
-
-@dataclass(frozen=True, slots=True)
-class SimplifyInputs:
-    """The read-only snapshots :func:`generic_simplify_wire` consumes.
-
-    All fields are independent of the live layout (plain values / a cloned
-    :class:`PadIndex`), so the simplify pass is safe to run in a worker thread
-    concurrently with paint.
-    """
-
-    pin_positions: set[Point]
-    pad_to_net: dict[Point, uuid.UUID]
-    board_pads: set[Point]
-    wire_to_net: dict[uuid.UUID, uuid.UUID | None]
-    pad_index: PadIndex
 
 
 def build_simplify_inputs(session: EditingReadContext) -> SimplifyInputs:

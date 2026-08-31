@@ -509,12 +509,12 @@ git commit -m "refactor(routing): inject pathfinding into controller callers"
 - `EditController.simplify_wire(request: SimplifyRequest) -> Wire`.
 - `WireEditArm` receives a `SimplifyWire` callable at construction.
 
-- [ ] **Step 1: Convert simplify tests to a recording simplifier**
+- [x] **Step 1: Convert simplify tests to a recording simplifier**
 
 Assert the whole-wire tool, selection worker, and fragment-range arm produce
 the same command/path while the fake receives the correct `SimplifyRequest`.
 
-- [ ] **Step 2: Run the converted tests and verify direct-service behaviour fails**
+- [x] **Step 2: Run the converted tests and verify direct-service behaviour fails**
 
 Run:
 
@@ -524,14 +524,14 @@ Run:
 
 Expected: FAIL because callers do not use the injected simplifier yet.
 
-- [ ] **Step 3: Move the input DTO owner and delegate simplification**
+- [x] **Step 3: Move the input DTO owner and delegate simplification**
 
 Remove the local `SimplifyInputs` definition from `selection/wire_ops.py` and
 import the controller-port DTO. Build requests before worker submission; call
 the controller simplifier inside the existing worker. Preserve id handling,
 path stitching, parity comments, and command construction in controller code.
 
-- [ ] **Step 4: Verify all simplification entry points**
+- [x] **Step 4: Verify all simplification entry points**
 
 Run:
 
@@ -544,7 +544,7 @@ rg -n 'services\.routing\.postprocess' src/protoboard/controller
 
 Expected: search has no output and checks pass.
 
-- [ ] **Step 5: Commit simplifier migration**
+- [x] **Step 5: Commit simplifier migration**
 
 ```bash
 git add src/protoboard/controller tests/unit/test_edit_service_ports.py tests/unit/test_wire_edit_arm.py tests/gui/test_simplify_tool.py tests/gui/test_select_tool.py

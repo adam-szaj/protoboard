@@ -44,10 +44,15 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
-    from protoboard.controller.ports.routing import FindPaths
+    from protoboard.controller.ports.routing import (
+        FindPaths,
+        SimplifyInputs,
+        SimplifyWire,
+    )
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
     from protoboard.geometry import Point
 
 __all__ = ["WireEditArm"]
@@ -68,9 +73,11 @@ class WireEditArm:
         add_factory: AddWireFactory = _default_add_factory,
         *,
         find_paths: FindPaths | None = None,
+        simplify_wire: SimplifyWire | None = None,
     ) -> None:
         self._add_factory = add_factory
         self._find_paths = find_paths
+        self._simplify_wire = simplify_wire
 
     def reroute(
         self,
@@ -126,11 +133,15 @@ class WireEditArm:
         layout: object,
         wires: Sequence[Wire],
         state: WireEditState,
-        inputs: object,
-        mode: object,
+        inputs: SimplifyInputs,
+        mode: SimplifyMode,
     ) -> Command[ComponentState] | None:
         """Build the id-preserving range-simplify command (no factory)."""
-        return build_simplify_range_command(layout, wires, state, inputs, mode)
+        if self._simplify_wire is None:
+            return None
+        return build_simplify_range_command(
+            layout, wires, state, inputs, mode, self._simplify_wire
+        )
 
     def delete(
         self,

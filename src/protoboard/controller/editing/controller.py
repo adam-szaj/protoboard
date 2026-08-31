@@ -56,13 +56,14 @@ if TYPE_CHECKING:
         EditServicePorts,
         RouteResult,
     )
-    from protoboard.controller.ports.routing import RoutePath
+    from protoboard.controller.ports.routing import RoutePath, SimplifyRequest
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.tools.base import ControllerTool
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing.cost_model import RoutingCostModel
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Vector
@@ -1639,6 +1640,10 @@ class EditController:
             foreign_via_pads=foreign_via_pads,
             active_dominant_side=active_dominant_side,
         )
+
+    def simplify_wire(self, request: SimplifyRequest) -> Wire:
+        """Delegate one immutable simplify request to the routing service."""
+        return self._ports.routing.simplifier.simplify(request)
 
     # ------------------------------------------------------------------
     # Command execution substrate

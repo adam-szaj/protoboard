@@ -33,16 +33,17 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.geometry import Point
-from protoboard.services.routing.postprocess import generic_simplify_wire
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.contexts import RoutingReadContext
+    from protoboard.controller.ports.routing import SimplifyWire
     from protoboard.controller.tools.simplify_preview import SimplifyPreview
 
 
 def compute_simplified_wire(
     session: RoutingReadContext,
     wire_id: uuid.UUID,
+    simplify_wire: SimplifyWire,
     *,
     mode: SimplifyMode | None = None,
 ) -> Wire | None:
@@ -62,52 +63,11 @@ def compute_simplified_wire(
         mode = getattr(rs, "simplify_mode", SimplifyMode.BARE_PARITY)
     assert mode is not None
 
-    # Pin positions across all components (Steiner-preservation set).
-    pin_positions: set[Point] = set()
-    for comp_id in layout.placements:
-        for _pn, pin_position in session.iter_pin_positions(comp_id):
-            pin_positions.add(pin_position)
+    from protoboard.controller.selection.wire_ops import build_simplify_inputs
 
-    # pad → net id for every pad whose pin is assigned to a schematic net.
-    pad_to_net: dict[Point, uuid.UUID] = {}
-    for net_obj in session.schematic.nets.values():
-        for ref in net_obj.pins:
-            net_pin_position = session.get_pin_position(
-                ref.component_id, ref.pin_number
-            )
-            if net_pin_position is not None:
-                pad_to_net.setdefault(net_pin_position, net_obj.id)
-
-    from protoboard.domain.layout.wire_utils import board_pads_for_side
-
-    all_board_pads = board_pads_for_side(session.board, "top") | board_pads_for_side(
-        session.board, "bottom"
-    )
-
-    # Map each wire id → its net id (first pad-pin hit on the wire's path).
-    wire_to_net: dict[uuid.UUID, uuid.UUID | None] = {}
-    for w in layout.wires:
-        wnet: uuid.UUID | None = None
-        for pt in w.path:
-            if pt in pad_to_net:
-                wnet = pad_to_net[pt]
-                break
-        wire_to_net[w.id] = wnet
-
-    pad_index = session.pad_index()
+    inputs = build_simplify_inputs(session)
     others = [w for w in layout.wires if w.id != wire_id]
-    new_wire = generic_simplify_wire(
-        wire,
-        other_wires=others,
-        pin_positions=pin_positions,
-        pad_to_net=pad_to_net,
-        mode=mode,
-        board_pads=all_board_pads,
-        wire_net_id=wire_to_net.get(wire_id),
-        other_wire_nets=wire_to_net,
-        pin_net_map=pad_to_net,
-        pad_index=pad_index,
-    )
+    new_wire = simplify_wire(inputs.request(wire, others, mode))
     if new_wire is wire or new_wire.path == wire.path:
         return None
     return new_wire
@@ -178,7 +138,11 @@ class SimplifyTool(SelectTool):
     # ------------------------------------------------------------------
 
     def _preview_simplify(self, wire_id: uuid.UUID) -> bool:
-        new_wire = compute_simplified_wire(self._session, wire_id)
+        new_wire = compute_simplified_wire(
+            self._session,
+            wire_id,
+            self._session.edit_controller.simplify_wire,
+        )
         self._clear_draft()
         if new_wire is None:
             self._status_msg("Simplify: nothing to shorten on this wire.")
