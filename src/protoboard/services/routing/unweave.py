@@ -46,8 +46,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import structlog
 
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.geometry import Point, Vector
-from protoboard.services.routing.astar import _segs_cross
+from protoboard.geometry import Point, Vector, segments_cross_strict
 from protoboard.services.routing.postprocess import _canonical_subpath
 from protoboard.types import NodeKey, Side
 
@@ -98,7 +97,7 @@ def _line_intersection(
     Returns ``(point, t_a, t_b)`` where ``t_a`` ∈ [0, 1] is the parameter
     along a1→a2 and ``t_b`` ∈ [0, 1] along b1→b2.  Returns ``None`` for
     parallel or non-overlapping segments.  Callers should run
-    :func:`_segs_cross` first; this helper assumes a real interior crossing.
+    strict segment crossing first; this helper assumes a real interior crossing.
     """
     dax, day = a2.x - a1.x, a2.y - a1.y
     dbx, dby = b2.x - b1.x, b2.y - b1.y
@@ -131,7 +130,7 @@ def find_crossings(w1: Wire, w2: Wire) -> list[Crossing]:
 
     Returns both:
     * **Strict-interior crossings** — two segments physically intersect in
-      their interiors (the legacy ``_segs_cross`` case).
+      their interiors (the strict segment-crossing case).
     * **Shared-pad crossings** — both wires have an *interior* vertex at
       the same pad position AND the four direction vectors around that pad
       are topologically interleaved (W1's in/out directions sit between
@@ -151,7 +150,7 @@ def find_crossings(w1: Wire, w2: Wire) -> list[Crossing]:
         a1, a2 = w1.path[i], w1.path[i + 1]
         for j in range(len(w2.path) - 1):
             b1, b2 = w2.path[j], w2.path[j + 1]
-            if not _segs_cross(a1, a2, b1, b2):
+            if not segments_cross_strict(a1, a2, b1, b2):
                 continue
             xx = _line_intersection(a1, a2, b1, b2)
             if xx is None:
@@ -909,7 +908,7 @@ def _find_crossings_logical(
         a1, a2 = p1[i], p1[i + 1]
         for j in range(len(p2) - 1):
             b1, b2 = p2[j], p2[j + 1]
-            if not _segs_cross(a1, a2, b1, b2):
+            if not segments_cross_strict(a1, a2, b1, b2):
                 continue
             xx = _line_intersection(a1, a2, b1, b2)
             if xx is None:
@@ -2255,7 +2254,7 @@ def _count_bare_same_side_shorts(
                     continue
                 for a in range(len(wi.path) - 1):
                     for b in range(len(wj.path) - 1):
-                        if _segs_cross(
+                        if segments_cross_strict(
                             wi.path[a],
                             wi.path[a + 1],
                             wj.path[b],

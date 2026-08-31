@@ -335,10 +335,14 @@ git commit -m "refactor(routing): reuse canonical plated pad query"
 - Modify: `src/protoboard/services/routing/astar.py`
 - Modify: `src/protoboard/services/routing/postprocess.py`
 - Modify: `src/protoboard/services/routing/cost_analyzer.py`
+- Modify: `src/protoboard/services/routing/unweave.py`
+- Modify: `src/protoboard/services/drc/engine.py`
 - Test: `tests/unit/test_geometry.py`
+- Test: `tests/unit/test_astar_segment_crossing.py`
 - Test: `tests/unit/test_astar_rust_parity.py`
 - Test: `tests/unit/test_routing_postprocess.py`
 - Test: `tests/unit/test_cost_analyzer.py`
+- Test: `tests/property/test_geometry_predicates.py`
 
 **Interfaces:**
 - Produces: `orientation(a, b, point) -> float`,
@@ -348,7 +352,7 @@ git commit -m "refactor(routing): reuse canonical plated pad query"
 - Preserves: exact strict-crossing and collinear-fallback behaviour; callers
   pass their existing epsilon explicitly where it differs.
 
-- [ ] **Step 1: Add property and example tests**
+- [x] **Step 1: Add property and example tests**
 
 Test strict crossing symmetry, endpoint-only contact exclusion, collinear
 overlap exclusion, orientation sign, known intersection coordinates,
@@ -356,7 +360,7 @@ degenerate/collinear fallback, and interior-point endpoint exclusion. Add a
 Hypothesis property asserting
 `segments_cross_strict(a, b, c, d) == segments_cross_strict(c, d, a, b)`.
 
-- [ ] **Step 2: Verify tests fail**
+- [x] **Step 2: Verify tests fail**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_geometry.py -q
@@ -364,14 +368,14 @@ Hypothesis property asserting
 
 Expected: FAIL because the public primitives do not exist.
 
-- [ ] **Step 3: Implement the primitives and migrate consumers**
+- [x] **Step 3: Implement the primitives and migrate consumers**
 
 Move the identical mathematics without policy into `geometry.py`. Replace
 private A* functions and both point-on-interior copies. Keep
 `_segs_cross_or_touch`, overlap handling, pad classification, and perpendicular
 diagonal policy in routing modules, calling the shared primitives.
 
-- [ ] **Step 4: Verify geometry and routing parity**
+- [x] **Step 4: Verify geometry and routing parity**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_geometry.py tests/unit/test_astar_rust_parity.py tests/unit/test_routing_postprocess.py tests/unit/test_cost_analyzer.py -q
@@ -380,10 +384,10 @@ diagonal policy in routing modules, calling the shared primitives.
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/protoboard/geometry.py src/protoboard/services/routing/astar.py src/protoboard/services/routing/postprocess.py src/protoboard/services/routing/cost_analyzer.py tests/unit/test_geometry.py
+git add src/protoboard/geometry.py src/protoboard/services/routing/astar.py src/protoboard/services/routing/postprocess.py src/protoboard/services/routing/cost_analyzer.py src/protoboard/services/routing/unweave.py src/protoboard/services/drc/engine.py tests/unit/test_geometry.py tests/unit/test_astar_segment_crossing.py tests/property/test_geometry_predicates.py docs/superpowers/plans/2026-08-31-canonical-domain-queries-and-legacy-layout-api.md
 git commit -m "refactor(geometry): centralize segment predicates"
 ```
 

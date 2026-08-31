@@ -5,7 +5,56 @@ import dataclasses
 
 import pytest
 
-from protoboard.geometry import Insets, Point, Rect, Size, Vector, Vector3D
+from protoboard.geometry import (
+    Insets,
+    Point,
+    Rect,
+    Size,
+    Vector,
+    Vector3D,
+    orientation,
+    point_on_segment_interior,
+    segment_intersection_point,
+    segments_cross_strict,
+)
+
+
+class TestSegmentPredicates:
+    def test_orientation_reports_turn_direction(self) -> None:
+        assert orientation(Point(0.0, 0.0), Point(1.0, 0.0), Point(1.0, 1.0)) == 1.0
+        assert orientation(Point(0.0, 0.0), Point(1.0, 0.0), Point(1.0, -1.0)) == -1.0
+        assert orientation(Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)) == 0.0
+
+    def test_segments_cross_strict_excludes_endpoint_and_collinear_contacts(
+        self,
+    ) -> None:
+        assert segments_cross_strict(
+            Point(0.0, 1.0), Point(2.0, 1.0), Point(1.0, 0.0), Point(1.0, 2.0)
+        )
+        assert not segments_cross_strict(
+            Point(0.0, 0.0), Point(2.0, 0.0), Point(2.0, 0.0), Point(2.0, 2.0)
+        )
+        assert not segments_cross_strict(
+            Point(0.0, 0.0), Point(4.0, 0.0), Point(2.0, 0.0), Point(6.0, 0.0)
+        )
+
+    def test_segment_intersection_point_uses_collinear_fallback(self) -> None:
+        assert segment_intersection_point(
+            Point(0.0, 0.0), Point(2.0, 2.0), Point(0.0, 2.0), Point(2.0, 0.0)
+        ) == (1.0, 1.0)
+        assert segment_intersection_point(
+            Point(0.0, 0.0), Point(2.0, 0.0), Point(1.0, 0.0), Point(3.0, 0.0)
+        ) == (1.0, 0.0)
+
+    def test_point_on_segment_interior_excludes_endpoints_and_degenerate_segments(
+        self,
+    ) -> None:
+        a, b = Point(0.0, 0.0), Point(4.0, 4.0)
+        assert point_on_segment_interior(Point(2.0, 2.0), a, b)
+        assert not point_on_segment_interior(a, a, b)
+        assert not point_on_segment_interior(b, a, b)
+        assert not point_on_segment_interior(Point(0.0, 0.0), a, a)
+        assert not point_on_segment_interior(Point(2.0, 2.1), a, b)
 
 
 class TestPoint:

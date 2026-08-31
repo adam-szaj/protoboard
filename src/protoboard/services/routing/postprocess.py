@@ -37,11 +37,13 @@ from typing import TYPE_CHECKING  # noqa: E402
 
 from protoboard.domain.layout.wire import Wire  # noqa: E402
 from protoboard.domain.routing.simplify_mode import SimplifyMode  # noqa: E402
-from protoboard.geometry import Point, Vector  # noqa: E402
-from protoboard.services.routing.astar import (  # noqa: E402
-    _build_bare_seg_index,
-    _segs_cross,
+from protoboard.geometry import (  # noqa: E402
+    Point,
+    Vector,
+    point_on_segment_interior,
+    segments_cross_strict,
 )
+from protoboard.services.routing.astar import _build_bare_seg_index  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import Pad
@@ -173,7 +175,7 @@ def corner_cut_wire(
                     # Collision check against all *other* bare segments.
                     safe = True
                     for _seg in (s for cells in bare_idx.values() for s in cells):
-                        if _segs_cross(a, c, _seg[0], _seg[1]):
+                        if segments_cross_strict(a, c, _seg[0], _seg[1]):
                             safe = False
                             break
                     # And against own non-replaced segments.
@@ -182,7 +184,7 @@ def corner_cut_wire(
                             # Skip the two segments being replaced.
                             if (src, dst) in ((a, b), (b, c)):
                                 continue
-                            if _segs_cross(a, c, src, dst):
+                            if segments_cross_strict(a, c, src, dst):
                                 safe = False
                                 break
                     if safe:
@@ -426,56 +428,29 @@ def _wire_to_segs(wire: Wire) -> list[tuple[Point, Point]]:
     return list(zip(wire.path, wire.path[1:]))
 
 
-def _point_on_segment_interior(
-    p: Point,
-    a: Point,
-    b: Point,
-    eps: float = _EPS,
-) -> bool:
-    """True if *p* lies on segment a→b strictly between the endpoints.
-
-    Used to detect T-junctions: an endpoint/vertex of one wire path that
-    falls in the middle of another wire's segment.  Such a meeting is a
-    physical electrical contact — ``_segs_cross`` deliberately ignores it
-    because the autoroute upstream uses a separate occupancy map to catch
-    these, but simplify has no such upstream and must check here.
-    """
-    ab = b - a
-    ap = p - a
-    if abs(ab.cross(ap)) > eps:
-        return False  # not collinear
-    # Collinear, so t = (ap · ab) / |ab|² is the projection parameter
-    # (degenerate ab guarded by the near-zero length check).
-    ab_sq = ab.dot(ab)
-    if ab_sq < eps * eps:
-        return False
-    t = ap.dot(ab) / ab_sq
-    return eps < t < 1.0 - eps
-
-
 def _segs_cross_or_touch(
     a1: Point,
     a2: Point,
     b1: Point,
     b2: Point,
 ) -> bool:
-    """Like ``_segs_cross`` but also reports T-junctions and vertex-on-edge.
+    """Like strict crossing but also reports T-junctions and vertex-on-edge.
 
     Returns True if segments a1→a2 and b1→b2 share any point other than an
     endpoint-on-endpoint coincidence.  In particular: if a vertex of one
     segment falls strictly inside the other, that's a real electrical
     contact and counts as a crossing here.
     """
-    if _segs_cross(a1, a2, b1, b2):
+    if segments_cross_strict(a1, a2, b1, b2):
         return True
     # T-junction or vertex-on-interior cases.
-    if _point_on_segment_interior(a1, b1, b2):
+    if point_on_segment_interior(a1, b1, b2, eps=_EPS):
         return True
-    if _point_on_segment_interior(a2, b1, b2):
+    if point_on_segment_interior(a2, b1, b2, eps=_EPS):
         return True
-    if _point_on_segment_interior(b1, a1, a2):
+    if point_on_segment_interior(b1, a1, a2, eps=_EPS):
         return True
-    if _point_on_segment_interior(b2, a1, a2):
+    if point_on_segment_interior(b2, a1, a2, eps=_EPS):
         return True
     return False
 
@@ -491,7 +466,7 @@ def _segs_overlap_collinear(
     than a single point (i.e. one's interior overlaps the other).
 
     Used to detect bare-on-bare overlap: a candidate wire that lies *along*
-    another net's wire is a long galvanic short — ``_segs_cross`` ignores
+    another net's wire is a long galvanic short — strict crossing ignores
     this case because it tests strict interior intersection only.
 
     Endpoint-only coincidences (segments meeting at one point) return False;
@@ -625,7 +600,7 @@ def _count_crossings_with_other(
                     or ep.y > c_hi_y + _EPS
                 ):
                     continue
-                if _point_on_segment_interior(ep, c_src, c_dst):
+                if point_on_segment_interior(ep, c_src, c_dst, eps=_EPS):
                     count += 1
     return count
 
@@ -691,7 +666,7 @@ def _count_insulated_pad_contacts(
                 or ay > c_hi_y + _EPS
             ):
                 continue
-            if _point_on_segment_interior(Point(ax, ay), c_src, c_dst):
+            if point_on_segment_interior(Point(ax, ay), c_src, c_dst, eps=_EPS):
                 counted.add((ax, ay))
     return len(counted)
 
@@ -1057,7 +1032,7 @@ def _candidate_safe_against_own(
     keep = own[:i] + own[j:]
     for c_src, c_dst in candidate_segs:
         for o_src, o_dst in keep:
-            if _segs_cross(c_src, c_dst, o_src, o_dst):
+            if segments_cross_strict(c_src, c_dst, o_src, o_dst):
                 return False
     return True
 
@@ -1479,7 +1454,7 @@ def generic_simplify_wire(
 
     Safety constraints:
       - Total length must strictly decrease.
-      - No crossing with other bare wires (`_segs_cross`).
+      - No crossing with other bare wires (strict segment crossing).
       - No crossing with this wire's segments outside ``[i..j]``.
       - Internal pad-pins on the original subpath must remain on the new path
         (otherwise we would silently disconnect a multi-pin net).

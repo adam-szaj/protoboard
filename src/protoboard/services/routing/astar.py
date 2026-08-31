@@ -58,7 +58,11 @@ import structlog
 
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.routing.cost_model import RoutingCostModel
-from protoboard.geometry import Point
+from protoboard.geometry import (
+    Point,
+    segment_intersection_point,
+    segments_cross_strict,
+)
 
 _log = structlog.get_logger(__name__)
 
@@ -2121,14 +2125,14 @@ def _crossing_cost(
     #      the bare×bare ban) -------------------------------------------
     if bare_idx:
         for bsrc, bdst, seg_net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
-            if not _segs_cross(p1, p2, bsrc, bdst):
+            if not segments_cross_strict(p1, p2, bsrc, bdst):
                 continue
             if active_net_idx != -1 and seg_net_idx == active_net_idx:
                 total += reuse_cost
                 continue
             if insulated:
                 # ib crossing on same side — at_pad vs off_pad.
-                ix, iy = _intersection_point(p1, p2, bsrc, bdst)
+                ix, iy = segment_intersection_point(p1, p2, bsrc, bdst)
                 at_pad = _is_at_pad(ix, iy)
                 total += _ib_aps if at_pad else _ib_ops
             else:
@@ -2163,12 +2167,12 @@ def _crossing_cost(
                 continue
             qa = Point(q1x, q1y)
             qb = Point(q2x, q2y)
-            if not _segs_cross(p1, p2, qa, qb):
+            if not segments_cross_strict(p1, p2, qa, qb):
                 continue
             if active_net_idx != -1 and q_net == active_net_idx:
                 total += reuse_cost
                 continue
-            ix, iy = _intersection_point(p1, p2, qa, qb)
+            ix, iy = segment_intersection_point(p1, p2, qa, qb)
             at_pad = _is_at_pad(ix, iy)
             if q_ins:
                 total += _ii_apo if at_pad else _ii_opo
@@ -2182,30 +2186,6 @@ def _crossing_cost(
     # ``_ii_aps`` / ``_ii_ops`` knobs remain accepted (no-op for now).
 
     return total
-
-
-def _intersection_point(
-    a1: Point,
-    a2: Point,
-    b1: Point,
-    b2: Point,
-) -> tuple[float, float]:
-    """Return (x, y) of the intersection of two crossing segments.
-
-    Caller must ensure segments actually cross (use ``_segs_cross``
-    first).  Uses the parametric form; safe against floating-point error
-    on the grid because all inputs are at integer or half-integer
-    coordinates.
-    """
-    adx, ady = a2.x - a1.x, a2.y - a1.y
-    bdx, bdy = b2.x - b1.x, b2.y - b1.y
-    denom = adx * (-bdy) - ady * (-bdx)
-    if denom == 0.0:
-        # Collinear — return midpoint of overlap (rare; segment-cross
-        # rejects strict collinearity, but defensive).
-        return ((a1.x + a2.x) * 0.5, (a1.y + a2.y) * 0.5)
-    t = ((b1.x - a1.x) * (-bdy) - (b1.y - a1.y) * (-bdx)) / denom
-    return (a1.x + t * adx, a1.y + t * ady)
 
 
 def _is_at_pad(x: float, y: float) -> bool:
@@ -2226,7 +2206,7 @@ def _is_at_pad(x: float, y: float) -> bool:
 def _seg_crosses_any(p1: Point, p2: Point, side: str, bare_idx: BareSegIndex) -> bool:
     """Return True if segment p1→p2 strictly crosses any bare segment on the same layer."""  # noqa: E501
     for bsrc, bdst, _net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
-        if _segs_cross(p1, p2, bsrc, bdst):
+        if segments_cross_strict(p1, p2, bsrc, bdst):
             return True
     return False
 
@@ -2254,31 +2234,6 @@ def _iter_segs_in_bbox(
                     continue
                 seen.add(seg_id)
                 yield (bsrc, bdst, net_idx)
-
-
-def _orient(p: Point, q: Point, r: Point) -> float:
-    """2D cross product (q-p) × (r-p).  >0 left turn, <0 right turn, 0 collinear."""
-    return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
-
-
-def _segs_cross(a1: Point, a2: Point, b1: Point, b2: Point) -> bool:
-    """Return True if segments a1→a2 and b1→b2 cross strictly in their interiors.
-
-    A "strict interior" crossing means neither segment touches the other only
-    at an endpoint.  Collinear overlap is *not* treated as a crossing here —
-    overlapping bare wires on the same line are caught by the wire-occupancy
-    map upstream.
-    """
-    o1 = _orient(a1, a2, b1)
-    o2 = _orient(a1, a2, b2)
-    o3 = _orient(b1, b2, a1)
-    o4 = _orient(b1, b2, a2)
-
-    if (o1 > 0 and o2 < 0 or o1 < 0 and o2 > 0) and (
-        o3 > 0 and o4 < 0 or o3 < 0 and o4 > 0
-    ):
-        return True
-    return False
 
 
 def _is_perpendicular_diagonal_crossing(

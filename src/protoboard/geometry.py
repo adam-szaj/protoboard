@@ -153,6 +153,61 @@ class Vector:
         return Vector3D(self.dx, self.dy, dz)
 
 
+def orientation(a: Point, b: Point, point: Point) -> float:
+    """Return the signed turn of ``a → b → point``."""
+    return (b - a).cross(point - a)
+
+
+def segments_cross_strict(a1: Point, a2: Point, b1: Point, b2: Point) -> bool:
+    """Return whether two segments cross strictly in both interiors.
+
+    Endpoint-only contacts and collinear overlap are intentionally excluded.
+    """
+    o1 = orientation(a1, a2, b1)
+    o2 = orientation(a1, a2, b2)
+    o3 = orientation(b1, b2, a1)
+    o4 = orientation(b1, b2, a2)
+    return (o1 > 0.0 and o2 < 0.0 or o1 < 0.0 and o2 > 0.0) and (
+        o3 > 0.0 and o4 < 0.0 or o3 < 0.0 and o4 > 0.0
+    )
+
+
+def segment_intersection_point(
+    a1: Point, a2: Point, b1: Point, b2: Point
+) -> tuple[float, float]:
+    """Return the intersection point of two crossing segments.
+
+    For parallel or collinear inputs, the midpoint of the first segment is
+    returned as a defensive fallback; callers normally check crossing first.
+    """
+    adx, ady = a2.x - a1.x, a2.y - a1.y
+    bdx, bdy = b2.x - b1.x, b2.y - b1.y
+    denom = adx * (-bdy) - ady * (-bdx)
+    if denom == 0.0:
+        return ((a1.x + a2.x) * 0.5, (a1.y + a2.y) * 0.5)
+    t = ((b1.x - a1.x) * (-bdy) - (b1.y - a1.y) * (-bdx)) / denom
+    return (a1.x + t * adx, a1.y + t * ady)
+
+
+def point_on_segment_interior(
+    point: Point,
+    a: Point,
+    b: Point,
+    *,
+    eps: float = 1e-9,
+) -> bool:
+    """Return whether ``point`` lies strictly between ``a`` and ``b``."""
+    ab = b - a
+    ap = point - a
+    if abs(ab.cross(ap)) > eps:
+        return False
+    ab_sq = ab.dot(ab)
+    if ab_sq < eps * eps:
+        return False
+    t = ap.dot(ab) / ab_sq
+    return eps < t < 1.0 - eps
+
+
 @dataclass(frozen=True, slots=True)
 class Point3D:
     """A 3D point in raster units."""

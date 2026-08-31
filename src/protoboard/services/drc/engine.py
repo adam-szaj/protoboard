@@ -35,8 +35,7 @@ from protoboard.domain.layout.pad_conflict import footprint_of, package_of
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
-from protoboard.services.routing.astar import _segs_cross
+from protoboard.geometry import Point, segments_cross_strict
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -751,7 +750,7 @@ def _check_bare_wire_interior_cross(
                     continue
                 for a in range(len(wi.path) - 1):
                     for b in range(len(wj.path) - 1):
-                        if not _segs_cross(
+                        if not segments_cross_strict(
                             wi.path[a],
                             wi.path[a + 1],
                             wj.path[b],

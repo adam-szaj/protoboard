@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Tests for astar._segs_cross / _crossing_cost — low-level segment intersection.
+"""Tests for strict segment crossing and A* crossing costs.
 
 Regression coverage for the diagonal-crossing bug: the previous implementation
 decomposed diagonal A* steps into two orthogonal half-steps and only ran an
@@ -12,48 +12,55 @@ from __future__ import annotations
 import math
 
 from protoboard.domain.routing.cost_model import RoutingCostModel
-from protoboard.geometry import Point
+from protoboard.geometry import Point, segments_cross_strict
 from protoboard.services.routing.astar import (
     _build_bare_seg_index,
     _crossing_cost,
     _is_perpendicular_diagonal_crossing,
-    _segs_cross,
 )
 
 # ---------------------------------------------------------------------------
-# _segs_cross — pure geometry
+# segments_cross_strict — pure geometry
 # ---------------------------------------------------------------------------
 
 
 class TestSegsCross:
     def test_perpendicular_orthogonals_cross(self) -> None:
         # Horizontal (0,1)→(2,1) crosses vertical (1,0)→(1,2) at (1,1).
-        assert _segs_cross(Point(0, 1), Point(2, 1), Point(1, 0), Point(1, 2))
+        assert segments_cross_strict(Point(0, 1), Point(2, 1), Point(1, 0), Point(1, 2))
 
     def test_parallel_orthogonals_dont_cross(self) -> None:
-        assert not _segs_cross(Point(0, 0), Point(2, 0), Point(0, 1), Point(2, 1))
+        assert not segments_cross_strict(
+            Point(0, 0), Point(2, 0), Point(0, 1), Point(2, 1)
+        )
 
     def test_two_perpendicular_diagonals_cross(self) -> None:
         # (2,2)→(3,3) (slope +1) and (2,3)→(3,2) (slope -1) cross at (2.5, 2.5).
         # This was the silent-short bug — now must be detected.
-        assert _segs_cross(Point(2, 2), Point(3, 3), Point(2, 3), Point(3, 2))
+        assert segments_cross_strict(Point(2, 2), Point(3, 3), Point(2, 3), Point(3, 2))
 
     def test_two_parallel_diagonals_dont_cross(self) -> None:
         # Both slope +1, offset by 1 → never meet.
-        assert not _segs_cross(Point(0, 0), Point(3, 3), Point(0, 1), Point(3, 4))
+        assert not segments_cross_strict(
+            Point(0, 0), Point(3, 3), Point(0, 1), Point(3, 4)
+        )
 
     def test_diagonal_crosses_orthogonal(self) -> None:
         # Diagonal (0,0)→(4,4) crosses horizontal (0,2)→(4,2) at (2,2).
-        assert _segs_cross(Point(0, 0), Point(4, 4), Point(0, 2), Point(4, 2))
+        assert segments_cross_strict(Point(0, 0), Point(4, 4), Point(0, 2), Point(4, 2))
 
     def test_endpoint_touch_is_not_crossing(self) -> None:
         # T-junction at endpoint: the orientation test returns 0 → not strict.
-        assert not _segs_cross(Point(0, 0), Point(2, 0), Point(2, 0), Point(2, 2))
+        assert not segments_cross_strict(
+            Point(0, 0), Point(2, 0), Point(2, 0), Point(2, 2)
+        )
 
     def test_collinear_overlap_is_not_crossing(self) -> None:
         # Collinear overlap is handled by the wire-occupancy map upstream;
-        # _segs_cross deliberately returns False for it.
-        assert not _segs_cross(Point(0, 0), Point(4, 0), Point(2, 0), Point(6, 0))
+        # Strict crossing deliberately returns False for it.
+        assert not segments_cross_strict(
+            Point(0, 0), Point(4, 0), Point(2, 0), Point(6, 0)
+        )
 
 
 # ---------------------------------------------------------------------------

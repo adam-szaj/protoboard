@@ -48,12 +48,15 @@ from protoboard.domain.layout.wire_utils import (
     plated_through_pads as board_plated_through_pads,
 )
 from protoboard.domain.routing.cost_model import RoutingCostModel
-from protoboard.geometry import Point
+from protoboard.geometry import (
+    Point,
+    point_on_segment_interior,
+    segment_intersection_point,
+    segments_cross_strict,
+)
 from protoboard.services.routing.astar import (
-    _intersection_point,
     _is_at_pad,
     _is_perpendicular_diagonal_crossing,
-    _segs_cross,
 )
 
 
@@ -357,34 +360,6 @@ def _count_at_pad_crossings_via_pad_index(
     return counter
 
 
-def _point_on_segment_interior(
-    p: Point,
-    a: Point,
-    b: Point,
-    *,
-    eps: float = 1e-9,
-) -> bool:
-    """True if *p* lies strictly between *a* and *b* (collinear + interior).
-
-    Excludes endpoints (``a`` and ``b``).  Used to detect "wire X passes
-    through wire Y's bend point" cases that ``_segs_cross`` rejects:
-    when two wires meet at a vertex of one of them, the vertex sits on
-    the segment endpoint, not its interior.
-    """
-    # Collinearity: cross product (b-a) × (p-a) must be zero.
-    ab = b - a
-    ap = p - a
-    if abs(ab.cross(ap)) > eps:
-        return False
-    # Collinear, so t = (ap · ab) / |ab|² is the projection parameter
-    # (degenerate ab guarded by the near-zero length check).
-    ab_sq = ab.dot(ab)
-    if ab_sq == 0:
-        return False
-    t = ap.dot(ab) / ab_sq
-    return eps < t < 1.0 - eps
-
-
 def _classify_crossing(
     our_seg: tuple[Point, Point, str, bool],
     other_seg: tuple[Point, Point, str, bool],
@@ -393,7 +368,7 @@ def _classify_crossing(
     """Identify which cost-model knob a crossing falls under, or None.
 
     Each segment is ``(p1, p2, side, insulated)``.  The function does not
-    do geometric intersection (caller pre-filters with ``_segs_cross``);
+    do geometric intersection (caller pre-filters with strict crossing);
     it only classifies the crossing kind and returns the knob key that
     the autorouter would charge.  Returns ``None`` when the crossing
     falls into a bucket that the cost model handles for free (e.g. two
@@ -414,7 +389,7 @@ def _classify_crossing(
         return "crossing_bare_bare"
 
     # At-pad vs off-pad classification needs the geometric intersection.
-    ix, iy = _intersection_point(p1, p2, q1, q2)
+    ix, iy = segment_intersection_point(p1, p2, q1, q2)
     at_pad = _is_at_pad(ix, iy)
 
     if ins_a and ins_b:
@@ -459,10 +434,10 @@ def _count_crossings(
        centre) — derived from ``PadIndex`` occupancy when available.
        This catches every wire that has a vertex *or* mid-segment pass
        through any pad, including the bend-on-pad case that pure
-       geometric ``_segs_cross`` rejects (endpoints don't count as
+       geometric strict crossing rejects (endpoints don't count as
        interior intersections).
     2. **Off-pad crossings** (intersection between pads, mesh-cell
-       centres) — geometric ``_segs_cross`` on merged directional
+       centres) — geometric strict crossing on merged directional
        segments.  PadIndex doesn't index these because they're not at
        pad positions.
 
@@ -489,7 +464,7 @@ def _count_crossings(
         )
 
     # For cross-check we want *maximal straight segments* (consecutive
-    # collinear path points merged), not unit steps.  ``_segs_cross``
+    # collinear path points merged), not unit steps.  Strict crossing
     # uses strict-interior semantics: a unit step ending at the same
     # cell as the next wire's unit step would never register as a
     # crossing, even when the two wires geometrically cross at that
@@ -551,10 +526,10 @@ def _count_crossings(
                     qy_hi = q2.y if q1.y < q2.y else q1.y
                     if qx_hi < ox_lo or qx_lo > ox_hi or qy_hi < oy_lo or qy_lo > oy_hi:
                         continue
-                    crosses_strict = _segs_cross(op1, op2, q1, q2)
+                    crosses_strict = segments_cross_strict(op1, op2, q1, q2)
                     crossing_pt: tuple[float, float] | None = None
                     if crosses_strict:
-                        ix, iy = _intersection_point(op1, op2, q1, q2)
+                        ix, iy = segment_intersection_point(op1, op2, q1, q2)
                         crossing_pt = (ix, iy)
                     else:
                         # Touchpoint test — does one segment pass through
@@ -565,12 +540,12 @@ def _count_crossings(
                         # both directions because either wire could be the
                         # one with a bend on the shared point.
                         for cand in (q1, q2):
-                            if _point_on_segment_interior(cand, op1, op2):
+                            if point_on_segment_interior(cand, op1, op2):
                                 crossing_pt = (cand.x, cand.y)
                                 break
                         if crossing_pt is None:
                             for cand in (op1, op2):
-                                if _point_on_segment_interior(cand, q1, q2):
+                                if point_on_segment_interior(cand, q1, q2):
                                     crossing_pt = (cand.x, cand.y)
                                     break
                     if crossing_pt is None:
