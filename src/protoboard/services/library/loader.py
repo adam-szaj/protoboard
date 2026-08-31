@@ -43,45 +43,13 @@ from protoboard.domain.components.package import (
 from protoboard.domain.components.package.generators import ResidualKind
 from protoboard.errors import SerializationError
 from protoboard.instrumentation.debug_trace import traced
-from protoboard.paths import BUILTIN_ASSETS_DIR
+from protoboard.services.library.builtin_package_defs import load_builtin_package_defs
 
 _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
 
 
-def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
-    """Raw builtin package definitions (name → dict) from assets/packages/*.yaml.
-
-    These are the generics/named bases a component's inline ``package:`` may
-    ``extends``. Cached after first load. Every call (re)binds the declarative
-    kind nodes the files carry (``kinds.yaml``) — binding identical content is
-    silent, so this keeps the global KIND_NODES registry deterministic even
-    after a test snapshot/restore cleared it.
-    """
-    from protoboard.domain.components.package.kind_nodes import (
-        KIND_NODES,
-        register_kind_nodes,
-    )
-
-    cached = getattr(_load_builtin_package_defs, "_cache", None)
-    if cached is not None:
-        if any(
-            isinstance(d.get("kind"), str) and d["kind"] not in KIND_NODES
-            for d in cached.values()
-        ):
-            register_kind_nodes(cached)
-        return cached  # type: ignore[no-any-return]
-    defs: dict[str, dict[str, Any]] = {}
-    pkg_dir = BUILTIN_ASSETS_DIR / "packages"
-    if pkg_dir.is_dir():
-        for yaml_path in sorted(pkg_dir.glob("*.yaml")):
-            data = _yaml.load(yaml_path.read_text())
-            for d in (data or {}).get("packages", []):
-                if isinstance(d, dict) and isinstance(d.get("name"), str):
-                    defs[d["name"]] = d
-    register_kind_nodes(defs)
-    _load_builtin_package_defs._cache = defs  # type: ignore[attr-defined]
-    return defs
+_load_builtin_package_defs = load_builtin_package_defs
 
 
 def _component_pin_count(data: dict[str, Any]) -> int | None:

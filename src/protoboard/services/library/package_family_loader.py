@@ -47,7 +47,7 @@ from protoboard.domain.components.package.loader import (
     resolve_extends,
 )
 from protoboard.paths import BUILTIN_ASSETS_DIR as _BUILTIN_ASSETS_DIR
-from protoboard.services.library.loader import _load_builtin_package_defs
+from protoboard.services.library.builtin_package_defs import load_builtin_package_defs
 
 _log = structlog.get_logger(__name__)
 
@@ -88,7 +88,7 @@ def load_package_families(
     out: dict[str, PackageFamily] = {}
     if not d.is_dir():
         return out
-    generics = _load_builtin_package_defs()
+    generics = load_builtin_package_defs()
     for path in sorted(d.glob("*.yaml")):
         try:
             families = _load_one_file(path, generics)
