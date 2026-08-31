@@ -220,11 +220,9 @@ class SelectTool(ControllerTool):
         # in :class:`~protoboard.gui.tools.transform_overlays.TransformOverlays`,
         # injected by the GUI-composed subclass's ``activate()``; ``None``
         # headless).  Cleared the moment the drag returns to CLEAR so the
-        # frame never lingers after the cursor leaves the conflict zone (the
-        # legacy "sticky yellow frame" complaint, 2026-06-19).
+        # frame never lingers after the cursor leaves the conflict zone.
         self._overlays: TransformOverlaysPort | None = None
-        # Rotate-around-point pivot capture (legacy menu path; seeds the armed
-        # rotate's shared pivot).
+        # Rotate-around-point pivot capture seeds the armed rotate's shared pivot.
         self._pivot_capture_pending: bool = False
         self._rotate_pivot: object | None = None  # geometry.Point | None
         # Re-drag (bendable lead reposition) — a request_pick client; the
@@ -253,9 +251,7 @@ class SelectTool(ControllerTool):
         from protoboard.controller.selection_axes import RelationClass, SelectionFilter
 
         self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
-        # Selection filter (which object kinds may be selected).  Shim for
-        # Phase 6a: state is held + mirrored to the status-bar widget, but
-        # `_filters()` does NOT yet enforce it (all kinds stay hittable).
+        # Selection filter (which object kinds may be selected).
         # Enforcement in the hit-test is a deferred follow-up.
         self._filter: SelectionFilter = SelectionFilter.ALL
 
@@ -542,8 +538,8 @@ class SelectTool(ControllerTool):
             self._clear_selection_to_empty()
             self._selection.set_many(union)
         elif op == SetOp.REMOVE:
-            # Phase 2 MVP: remove not yet a first-class FSM op here; treat as
-            # a fresh SET so the click is never a silent no-op. Refined later.
+            # The FSM has no remove operation; a fresh SET keeps the click
+            # observable rather than silently ignoring it.
             self._selection.set_many(targets)
         elif len(targets) > 1:
             self._selection.set_many(targets)
@@ -559,8 +555,8 @@ class SelectTool(ControllerTool):
         """Publish the auto-highlight: the selection plus the primary's net context.
 
         Any plain SET click highlights the clicked object's relation context (its
-        net members) so the user sees "what is connected to this" — the legacy
-        auto-highlight behaviour.  ``RelationClass.NONE`` disables the context.
+        net members) so the user sees "what is connected to this".
+        ``RelationClass.NONE`` disables the context.
         """
         # Tolerate pre-activate calls (main_window applies user prefs to a
         # freshly built tool before activate() binds _selection/_highlight).
@@ -898,13 +894,12 @@ class SelectTool(ControllerTool):
     def filter(self):  # type: ignore[no-untyped-def]
         """The active :class:`SelectionFilter` (which object kinds are selectable).
 
-        Shim: the value is held and mirrored to the status-bar widget, but the
-        hit-test does not yet enforce it (see ``_filters``).
+        The hit-test applies this filter through ``_filters``.
         """
         return self._filter
 
     def set_filter(self, f) -> None:  # type: ignore[no-untyped-def]
-        """Replace the selection filter wholesale (state only — no enforcement yet)."""
+        """Replace the selection filter wholesale."""
         from protoboard.controller.selection_axes import SelectionFilter
 
         if isinstance(f, SelectionFilter):

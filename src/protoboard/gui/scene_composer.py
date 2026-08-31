@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """SceneComposer — rebuilds the QGraphicsScene from the session state.
 
-Extracted from ``BoardView`` (phase 4 of the decomposition).  Owns the
+Extracted from ``BoardView``.  Owns the
 persistent per-item scene registries (component / label / wire groups with
 their fingerprints), the transient overlay items (wire pins, pin-pads, pin
 modifiers, ratsnest + group outlines, axis labels), the board-layer dirty
