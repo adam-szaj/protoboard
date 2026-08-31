@@ -64,9 +64,19 @@ git commit -m "refactor(selection): extract context option builders"
 - Modify: `docs/superpowers/plans/2026-08-31-selection-context-options.md`
 - Modify: `docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md`
 
-- [ ] **Step 1: Run the focused gate and audit the diff**
-- [ ] **Step 2: Record source metrics and preserve manual-GUI deferral**
-- [ ] **Step 3: Commit the checkpoint documentation**
+- [x] **Step 1: Run the focused gate and audit the diff**
+
+The focused gate passed 109 tests. The diff removes 92 lines from `SelectTool`
+and introduces one Qt-free module; all action ids and payloads are covered by
+the pure-builder assertions.
+
+- [x] **Step 2: Record source metrics and preserve manual-GUI deferral**
+
+The source tree now contains 319 Python modules and 97,143 physical lines.
+Interactive GUI smoke testing remains deferred to the parent Workstream 4
+final gate.
+
+- [x] **Step 3: Commit the checkpoint documentation**
 
 ```bash
 git add docs/superpowers/plans/2026-08-31-selection-context-options.md docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md
@@ -75,7 +85,7 @@ git commit -m "docs(architecture): record selection context decomposition"
 
 ## Self-Review Checklist
 
-- [ ] Context options are pure and Qt-free.
-- [ ] SelectTool still owns session queries and authorization.
-- [ ] Existing action ids and payloads are unchanged.
-- [ ] Every task has a verified commit and no merge was performed.
+- [x] Context options are pure and Qt-free.
+- [x] SelectTool still owns session queries and authorization.
+- [x] Existing action ids and payloads are unchanged.
+- [x] Every task has a verified commit and no merge was performed.
