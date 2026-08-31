@@ -268,7 +268,7 @@ def test_board_view_resubscribes_after_session_swap(main_window) -> None:
     assert tool._selected_by_kind("component") == {inst.id}
 
     # The old session is detached — its request must not touch this board_view.
-    tool._clear_selection_to_empty()
+    tool.clear_selection()
     old_session.request_select_component(inst.id)
     assert tool._selected_by_kind("component") == set()
 

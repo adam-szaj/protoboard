@@ -401,7 +401,7 @@ class TestRubberBand:
         a = _place(board_view, session, 1.0, 1.0)
         b = _place(board_view, session, 6.0, 6.0)
         tool = _v2(board_view)
-        tool._select_primary(a.id)
+        tool.select_primary(a.id)
         assert _comp_ids(tool) == {a.id}
         # Ctrl+band starting on EMPTY space, sweeping over b only → b joins a.
         bb = session.component_bbox(b.id)
@@ -1646,11 +1646,11 @@ class TestWireAndPadHighlight:
         net_b = nb.id
         # Discs follow the selection's *net context* (a pad click → that net),
         # not all nets of selected components.  Drive the context directly.
-        tool._select_primary(c1.id)
+        tool.select_primary(c1.id)
         tool._context_net_id = net_a
         view.highlight.apply_impl()
         u1_discs = _disc_centers()
-        tool._select_primary(c2.id)
+        tool.select_primary(c2.id)
         tool._context_net_id = net_b
         view.highlight.apply_impl()
         u2_discs = _disc_centers()
@@ -1788,7 +1788,7 @@ class TestDragConflictOutline:
         inst = _place(board_view, session, 2.5, 2.5)
         board_view.refresh()
         tool = _v2(board_view)
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         board_view.refresh()
         rect = board_view.highlight._selection_bbox_overlays.get(inst.id)
         assert rect is not None  # dashed bbox drawn for the selection
@@ -1813,7 +1813,7 @@ class TestDragConflictOutline:
         inst = _place(board_view, session, 2.5, 2.5)
         board_view.refresh()
         tool = _v2(board_view)
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         board_view.refresh()
         rect = board_view.highlight._selection_bbox_overlays.get(inst.id)
         assert rect is not None
@@ -1826,7 +1826,7 @@ class TestDragConflictOutline:
 
         # Toggle off → no overlay even when selected.
         board_view.set_show_selection_bbox(False)
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         board_view.refresh()
         assert inst.id not in board_view.highlight._selection_bbox_overlays
 
@@ -2046,7 +2046,7 @@ class TestNetContext:
     def test_context_menu_uses_metapin_for_clicked_package_pad(self, qtbot) -> None:
         _session, view, inst, _na, _nb = self._ctx_session(qtbot)
         tool = _v2(view)
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
 
         option = next(
             option
@@ -2156,7 +2156,7 @@ class TestContextMenu:
         tool = _v2(view)
         # X1 is a 1-pin component at (1.5, 1.5), pin 1 bound to the wire's net.
         inst = next(iter(session.instances.values()))
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         actions = self._ids(tool, 1.5, 1.5)
         assert "lock" in actions
         assert "assign_pin" in actions  # pin under cursor → assign offered
@@ -2167,7 +2167,7 @@ class TestContextMenu:
         view.refresh()
         tool = _v2(view)
         inst = next(iter(session.instances.values()))
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         assert not session.layout.placements[inst.id].locked
         depth = _depth(session)
 
@@ -2188,7 +2188,7 @@ class TestContextMenu:
         view.refresh()
         tool = _v2(view)
         inst = next(iter(session.instances.values()))
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         ref = PinRef(component_id=inst.id, pin_number=1)
         assert session.schematic.net_for_pin(ref) is not None  # netted first
 
@@ -2216,7 +2216,7 @@ class TestContextMenu:
         tool = _v2(view)
         # Start from a component selection, then "Wires of net" → wire selected.
         inst = next(iter(session.instances.values()))
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         wire = next(iter(session.layout.wires))
 
         opt = next(
@@ -2453,7 +2453,7 @@ class TestNetRelation:
 class TestSelectionBroadcastOnClick:
     """Every click-driven selection change must emit ``selection_changed`` so the
     side panels (which subscribe to it) stay in sync — not just the ~6
-    programmatic paths that called ``_notify_selection`` before.
+    programmatic paths that called the selection notification hook before.
     """
 
     @staticmethod
@@ -2477,7 +2477,7 @@ class TestSelectionBroadcastOnClick:
     ) -> None:
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
-        tool._select_primary(inst.id)
+        tool.select_primary(inst.id)
         events = self._spy(session)
         # Click far from any component → rubber-band sub-threshold click → clear.
         _click(tool, 9.0, 9.0)

@@ -600,7 +600,7 @@ class BoardView(QGraphicsView):
             self.set_tool(SelectTool())
         tool = self.active_tool
         if isinstance(tool, SelectTool):
-            tool._select_primary(comp_id)
+            tool.select_primary(comp_id)
 
     @traced()
     def _on_selection_requested(
@@ -613,13 +613,13 @@ class BoardView(QGraphicsView):
         SelectTool (so the request is honoured even from Route/Place mode) and
         rebuild its selection through the SAME setters the context menu and
         ``select_component`` use, so the result loops back out through
-        ``_notify_selection`` and every panel syncs.
+        ``replace_selection`` and every panel syncs.
 
         A ``net_id`` pulls in the whole net's comps + wires (via
         ``SessionNetSource``); any explicit component/wire ids are unioned on top
         so a *pin* request (comp id + the pin's net) lights the net AND focuses
         the component.  The full target set is built first and applied in a
-        single ``_set_selection_from_ids`` — re-running a net-select then a union
+        single ``replace_selection`` — re-running a net-select then a union
         would re-pass already-selected items to ``set_many``, which toggles them
         back OFF (the documented FSM trap).
         """
@@ -642,12 +642,9 @@ class BoardView(QGraphicsView):
             src = SessionNetSource(self._session)
             target_c |= set(src.net_component_ids(nid))
             target_w |= set(src.wire_ids_on_net(nid))
-        # Clear first: _set_selection_from_ids -> set_many -> set(first), and the
-        # FSM SET op no-ops / toggles-off a still-selected first item, so applying
-        # onto a non-empty selection can silently drop it.
-        tool._clear_selection_to_empty()
-        tool._set_selection_from_ids(target_c, target_w, set())
-        tool._notify_selection()
+        # Replace in one operation: the FSM SET op toggles an already-selected
+        # first item, so applying onto a non-empty selection can silently drop it.
+        tool.replace_selection(target_c, target_w, set())
 
     @traced()
     def snap(

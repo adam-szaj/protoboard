@@ -277,7 +277,7 @@ class EditorSession(HeadlessSession, QObject):
         """Ask the board to make *comp_id* the sole selection (panel -> board).
 
         Emits ``selection_requested`` with a single component id and no
-        wires/net; BoardView translates it into ``SelectTool._select_primary``.
+        wires/net; BoardView translates it into ``SelectTool.select_primary``.
         """
         self.selection_requested.emit(frozenset({comp_id}), frozenset(), None)
 

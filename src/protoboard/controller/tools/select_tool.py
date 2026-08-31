@@ -730,7 +730,7 @@ class SelectTool(ControllerTool):
             {value} if value is not None else set(),
         )
 
-    def _select_primary(self, comp_id: uuid.UUID) -> None:
+    def select_primary(self, comp_id: uuid.UUID) -> None:
         """Set *comp_id* as the sole (primary) selection and broadcast it.
 
         ``BoardView.select_component`` calls this to focus a component from
@@ -738,6 +738,17 @@ class SelectTool(ControllerTool):
         ``session.selection_changed`` (emitted by :meth:`_notify_selection`).
         """
         self._set_selection_from_ids({comp_id}, set(), set())
+        self._notify_selection()
+
+    def replace_selection(
+        self,
+        component_ids: set[uuid.UUID],
+        wire_ids: set[uuid.UUID],
+        group_ids: set[uuid.UUID],
+    ) -> None:
+        """Replace the complete selection and notify all GUI consumers."""
+        self._clear_selection_to_empty()
+        self._set_selection_from_ids(component_ids, wire_ids, group_ids)
         self._notify_selection()
 
     def deselect_components(self) -> None:
