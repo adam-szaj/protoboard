@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import uuid
 
+from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import LayerOverrides, LayerVisibility
-from protoboard.gui.layer_state import LayerState
 
 
 def _hidden_pins_state(reveal=None) -> LayerState:

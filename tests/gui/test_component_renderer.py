@@ -10,6 +10,7 @@ import pytest
 from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsScene
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import (
     LayerOverrides,
     LayerVisibility,
@@ -27,7 +28,6 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
-from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.component_renderer import (
     _get_refdes_font,
     _group_alpha_map,

@@ -637,7 +637,7 @@ class HighlightRenderer:
 
     @traced()
     def _add_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
-        from protoboard.gui.layer_state import Z_SELECTION
+        from protoboard.controller.view_options.layer_state import Z_SELECTION
 
         bbox = self._view.session.component_bbox(comp_id)
         if bbox is None:
@@ -712,7 +712,7 @@ class HighlightRenderer:
         """
         from PySide6.QtWidgets import QGraphicsLineItem
 
-        from protoboard.gui.layer_state import Z_WIRE_HIGHLIGHT
+        from protoboard.controller.view_options.layer_state import Z_WIRE_HIGHLIGHT
 
         theme = self._view.theme
         tool = self._view.active_tool
@@ -817,8 +817,8 @@ class HighlightRenderer:
         """
         from PySide6.QtWidgets import QGraphicsEllipseItem
 
+        from protoboard.controller.view_options.layer_state import Z_NET_PAD_HIGHLIGHT
         from protoboard.domain.layout.pin_pad_classification import PinPadInfo
-        from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT
 
         self._clear_net_pad_highlights()
         self._draw_free_pad_ring()  # the clicked free-pad ring (net-independent)
@@ -857,7 +857,7 @@ class HighlightRenderer:
         """
         from PySide6.QtWidgets import QGraphicsEllipseItem
 
-        from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT
+        from protoboard.controller.view_options.layer_state import Z_NET_PAD_HIGHLIGHT
 
         pos = self._free_pad_ring_pos
         if pos is None:

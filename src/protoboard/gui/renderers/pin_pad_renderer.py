@@ -35,16 +35,16 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
 )
 
+from protoboard.controller.view_options.layer_state import (
+    Z_PIN_MODIFIERS,
+    Z_PIN_PADS,
+    LayerState,
+)
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.layout.pin_pad_classification import (
     ModifierShape,
     PinPadClass,
     PinPadInfo,
-)
-from protoboard.gui.layer_state import (
-    Z_PIN_MODIFIERS,
-    Z_PIN_PADS,
-    LayerState,
 )
 from protoboard.instrumentation.debug_trace import traced
 

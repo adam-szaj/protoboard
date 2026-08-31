@@ -15,8 +15,8 @@ from __future__ import annotations
 from PySide6.QtGui import QBrush, QColor, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
+from protoboard.controller.view_options.layer_state import Z_PIN_MODIFIERS
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import Z_PIN_MODIFIERS
 from protoboard.instrumentation.debug_trace import traced
 
 

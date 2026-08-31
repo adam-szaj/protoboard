@@ -39,12 +39,12 @@ if TYPE_CHECKING:
         ViewportPort,
         WheelInput,
     )
+    from protoboard.controller.view_options.layer_state import LayerState
     from protoboard.controller.view_options.layers import LayerOverrides
     from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
-    from protoboard.gui.layer_state import LayerState
     from protoboard.gui.paint_pipeline import PaintPipeline
     from protoboard.gui.scene_composer import SceneComposer
     from protoboard.gui.session import EditorSession

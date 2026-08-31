@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsScene
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import LayerOverrides, LayerVisibility
 from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.board.board import Board
@@ -36,7 +37,6 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.pin_pad_renderer import (
     render_pin_modifiers,
     render_pin_pads,

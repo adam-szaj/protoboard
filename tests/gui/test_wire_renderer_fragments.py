@@ -20,9 +20,13 @@ from PySide6.QtWidgets import (
 )
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.view_options.layer_state import (
+    Z_BACK_WIRES,
+    Z_FRONT_WIRES,
+    LayerState,
+)
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import Z_BACK_WIRES, Z_FRONT_WIRES, LayerState
 from protoboard.gui.renderers.wire_renderer import WireSceneGroup, update_wire_groups_v2
 
 
@@ -223,7 +227,7 @@ class TestBackFragmentIsOnTheBackLayer:
     def test_back_fragments_live_in_a_top_level_back_group(
         self, scene: QGraphicsScene
     ) -> None:
-        from protoboard.gui.layer_state import Z_BOARD
+        from protoboard.controller.view_options.layer_state import Z_BOARD
 
         grp = _RenderState().render(scene, _mixed_wire())
         back = getattr(grp, "back", None)
@@ -291,7 +295,7 @@ _MIN_SIDE_ALPHA_GAP = 0.3
 
 def test_wire_back_alpha_gap_is_perceptible_by_default() -> None:
     from protoboard.controller.view_options.theme import DEFAULT_THEME
-    from protoboard.gui.layer_state import layer_state_for_tool
+    from protoboard.gui.layer_state_adapter import layer_state_for_tool
 
     layers = layer_state_for_tool(object(), "top", theme=DEFAULT_THEME)
     gap = layers.alpha_for_wire("top") - layers.alpha_for_wire("bottom")
@@ -309,9 +313,7 @@ def test_wire_back_alpha_gap_survives_ghost_top_full_bottom() -> None:
         LayerVisibility,
     )
     from protoboard.controller.view_options.theme import DEFAULT_THEME
-    from protoboard.gui.layer_state import (
-        layer_state_for_tool,
-    )
+    from protoboard.gui.layer_state_adapter import layer_state_for_tool
 
     layers = layer_state_for_tool(
         object(),

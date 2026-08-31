@@ -24,10 +24,10 @@ from protoboard.controller.ports import (
 )
 from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
 from protoboard.controller.ports.viewport_details import CameraMath
+from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import LayerOverrides
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
-from protoboard.gui.layer_state import LayerState
 from protoboard.gui.tool_host import ToolHost
 
 if TYPE_CHECKING:

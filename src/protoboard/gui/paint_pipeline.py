@@ -484,7 +484,7 @@ class PaintPipeline:
         Returns build wall time in milliseconds (0.0 when cache was fresh
         or there were no back items to draw).
         """
-        from protoboard.gui.layer_state import Z_BOARD
+        from protoboard.controller.view_options.layer_state import Z_BOARD
 
         view = self._view
         if view.session is None:

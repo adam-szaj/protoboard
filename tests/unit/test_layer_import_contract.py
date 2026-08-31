@@ -87,6 +87,15 @@ def test_instrumentation_is_dependency_neutral() -> None:
     )
 
 
+def test_services_do_not_import_gui_layer_state() -> None:
+    offenders: list[str] = []
+    for path in sorted((SRC / "services").rglob("*.py")):
+        for _lineno, module in _imported_modules(path):
+            if module == "protoboard.gui.layer_state":
+                offenders.append(str(path.relative_to(SRC)))
+    assert not offenders, f"services import GUI-owned LayerState: {offenders}"
+
+
 def test_group_queries_use_group_tree_without_legacy_shims() -> None:
     group_path = SRC / "domain/layout/group.py"
     group_tree = ast.parse(

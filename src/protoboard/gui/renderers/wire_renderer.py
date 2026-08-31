@@ -16,6 +16,11 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
 )
 
+from protoboard.controller.view_options.layer_state import (
+    Z_BACK_WIRES,
+    Z_FRONT_WIRES,
+    LayerState,
+)
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -32,7 +37,6 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import Z_BACK_WIRES, Z_FRONT_WIRES, LayerState
 
 _Z_OUTLINE_OFFSET = -0.05
 _DEFAULT_LAYERS = LayerState()

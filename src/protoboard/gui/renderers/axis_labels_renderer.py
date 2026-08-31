@@ -19,6 +19,7 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QFont, QFontMetricsF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
 
+from protoboard.controller.view_options.layer_state import Z_OVERLAY
 from protoboard.controller.view_options.theme import Theme
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
@@ -26,7 +27,6 @@ from protoboard.domain.axis_labels_settings import (
     format_index,
 )
 from protoboard.domain.board.board import Board
-from protoboard.gui.layer_state import Z_OVERLAY
 from protoboard.gui.renderers.component_renderer import (
     _get_refdes_font,
     _make_overlay_label,

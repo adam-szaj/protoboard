@@ -35,12 +35,12 @@ from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:
+    from protoboard.controller.view_options.layer_state import LayerState
     from protoboard.controller.view_options.theme import Theme
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.pin_pad_classification import PinPadInfo
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
-    from protoboard.gui.layer_state import LayerState
     from protoboard.gui.session import EditorSession
 
 

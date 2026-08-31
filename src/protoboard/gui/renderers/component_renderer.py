@@ -17,6 +17,10 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
 )
 
+from protoboard.controller.view_options.layer_state import (
+    Z_LABELS_TOP,
+    LayerState,
+)
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -31,10 +35,6 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect, Vector
-from protoboard.gui.layer_state import (
-    Z_LABELS_TOP,
-    LayerState,
-)
 from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.body_shapes import body_shape_for
 

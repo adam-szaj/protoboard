@@ -16,6 +16,7 @@ import uuid
 
 from PySide6.QtWidgets import QGraphicsScene
 
+from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentDefinition,
@@ -26,7 +27,6 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.component_renderer import _render_one
 
 _SIL2_FAMILY = sil_family(2)
