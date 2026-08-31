@@ -444,6 +444,11 @@ access. Full verification remains green: 2,871 unit tests passed (68 skipped),
 1,495 GUI tests passed offscreen (1 expected xfail, 1 known PySide warning),
 and Ruff, Black, strict mypy, and Pyright report no issues.
 
+The final GUI audit found no further cross-module private aliases: remaining
+underscored members belong to `ToolHost`/view implementation state or are
+intentional callback injection points for MainWindow actions and dialogs. The
+manual real-display smoke test is still the sole outstanding verification gate.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
