@@ -57,7 +57,7 @@ from protoboard.controller.selection.service import SelectionService
 from protoboard.controller.selection_fsm import BasisScope, SetOp
 from protoboard.controller.tools.base import ControllerTool, _ViewProto
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Rect
 from protoboard.instrumentation.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
@@ -1143,13 +1143,7 @@ class SelectTool(ControllerTool):
         for gid, _grp in self._session.layout.groups.items():
             if gid in (ROOT_GROUP_ID, active):
                 continue
-            bbs = [
-                b
-                for b in (
-                    self._session.component_bbox(m) for m in tree.all_component_ids(gid)
-                )
-                if b is not None
-            ]
+            bbs = self._group_member_bboxes(tree, gid)
             if not bbs:
                 continue
             x0 = min(b.x for b in bbs)
@@ -1162,6 +1156,14 @@ class SelectTool(ControllerTool):
                 if best is None or area < best_area:
                     best, best_area = gid, area
         return best
+
+    def _group_member_bboxes(self, tree: GroupTree, gid: uuid.UUID) -> list[Rect]:
+        """Return the available component bounds for a group."""
+        return [
+            bbox
+            for member_id in tree.all_component_ids(gid)
+            if (bbox := self._session.component_bbox(member_id)) is not None
+        ]
 
     def _is_click(self, scene_pt: Point) -> bool:
         """True when the release is within the click threshold of the press."""
@@ -1229,13 +1231,7 @@ class SelectTool(ControllerTool):
         for gid, grp in self._session.layout.groups.items():
             if gid == ROOT_GROUP_ID:
                 continue
-            bbs = [
-                b
-                for b in (
-                    self._session.component_bbox(m) for m in tree.all_component_ids(gid)
-                )
-                if b is not None
-            ]
+            bbs = self._group_member_bboxes(tree, gid)
             if not bbs:
                 continue
             if ltr:

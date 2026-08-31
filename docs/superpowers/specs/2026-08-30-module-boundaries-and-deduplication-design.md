@@ -466,6 +466,11 @@ the enumerated legacy paths (`controller.theme`, `services.drag_detector`, and
 the old editing composition modules) are absent. The import-contract suite
 passes all 8 tests.
 
+The group-boundary audit also consolidated duplicate member-bbox collection in
+`SelectTool._group_member_bboxes()`, shared by cursor group hit-testing and
+rubber-band selection. The focused group/selection gate passes 219 tests; the
+full gate remains green at 2,871 unit tests and 1,495 offscreen GUI tests.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
