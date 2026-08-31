@@ -33,7 +33,7 @@ from protoboard.domain.layout.placement import (  # noqa: E402
     component_bbox,
     pin_world_position,
 )
-from protoboard.geometry import Point  # noqa: E402
+from protoboard.geometry import Point, round_coord  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -194,7 +194,7 @@ def find_conflicts(
             fp = footprint_of(defn, inst)
             for pin_num in range(1, fp.pin_count() + 1):
                 p = pin_world_position(fp, pl, pin_num)
-                key = (_round(p.x), _round(p.y))
+                key = (round_coord(p.x), round_coord(p.y))
                 existing[key] = (comp_id, pin_num)
     else:
         existing = {}
@@ -227,7 +227,7 @@ def find_conflicts(
         if pin_num in incoming_placement.shared_pins:
             continue
         p = pin_world_position(incoming_fp, incoming_placement, pin_num)
-        key = (_round(p.x), _round(p.y))
+        key = (round_coord(p.x), round_coord(p.y))
         hit: tuple[uuid.UUID, int] | None
         if pad_index is None:
             hit = existing.get(key)
@@ -327,13 +327,13 @@ def find_wire_conflicts(
         # Build wire points: rounded (x, y) -> wire_id.
         for wire in wires:
             for pt in wire.path:
-                wire_points[(_round(pt.x), _round(pt.y))] = wire.id
+                wire_points[(round_coord(pt.x), round_coord(pt.y))] = wire.id
 
         # Determine the net carried by each wire (first netted point wins).
         for wire in wires:
             found: tuple[uuid.UUID, str] | None = None
             for pt in wire.path:
-                info = point_to_net.get((_round(pt.x), _round(pt.y)))
+                info = point_to_net.get((round_coord(pt.x), round_coord(pt.y)))
                 if info is not None:
                     found = info
                     break
@@ -353,7 +353,7 @@ def find_wire_conflicts(
 
     for pin_num in range(1, n_pins + 1):
         p = pin_world_position(incoming_fp, incoming_placement, pin_num)
-        key = (_round(p.x), _round(p.y))
+        key = (round_coord(p.x), round_coord(p.y))
         if key in already_conflicted:
             continue
         wire_id: uuid.UUID | None
@@ -412,11 +412,6 @@ def find_wire_conflicts(
         )
 
     return conflicts
-
-
-# Module-level alias keeping the legacy ``_round`` callsites within
-# this file working — single implementation now lives in geometry.py.
-from protoboard.geometry import round_coord as _round  # noqa: E402
 
 
 def _wire_hit_via_pad_index(
@@ -617,7 +612,7 @@ def find_wires_crossing_pads(
                     if meta_pin_index is None
                     else pin_net_map.get((comp_id, meta_pin_index))
                 )
-                pad_net[(_round(p.x), _round(p.y))] = net_id
+                pad_net[(round_coord(p.x), round_coord(p.y))] = net_id
     else:
         from protoboard.domain.board.pad_state import PinItem
 
@@ -629,7 +624,7 @@ def find_wires_crossing_pads(
                     break
             if pin_item is None:
                 continue
-            key = (_round(pad.position.x), _round(pad.position.y))
+            key = (round_coord(pad.position.x), round_coord(pad.position.y))
             pad_net[key] = pin_item.net
 
     if not pad_net:
@@ -670,7 +665,7 @@ def find_wires_crossing_pads(
     for wire in wires:
         found: uuid.UUID | None = None
         for pt in wire.path:
-            info = pad_net.get((_round(pt.x), _round(pt.y)))
+            info = pad_net.get((round_coord(pt.x), round_coord(pt.y)))
             if info is not None:
                 found = info
                 break
@@ -801,7 +796,7 @@ def check_group_move_conflicts(
         moved_pin_positions: set[tuple[float, float]] = set()
         for pn in range(1, fp.pin_count() + 1):
             p2 = pin_world_position(fp, pl, pn)
-            moved_pin_positions.add((_round(p2.x), _round(p2.y)))
+            moved_pin_positions.add((round_coord(p2.x), round_coord(p2.y)))
 
         for other_id, other_pl in layout_placements.items():
             if other_id in moved_ids:
@@ -818,7 +813,7 @@ def check_group_move_conflicts(
                 other_pins: set[tuple[float, float]] = set()
                 for pn in range(1, other_fp.pin_count() + 1):
                     p2 = pin_world_position(other_fp, other_pl, pn)
-                    other_pins.add((_round(p2.x), _round(p2.y)))
+                    other_pins.add((round_coord(p2.x), round_coord(p2.y)))
                 if moved_pin_positions.isdisjoint(other_pins):
                     # Pure body overlap — blocking (mirrors _move_blocked behaviour).
                     _log.debug(
