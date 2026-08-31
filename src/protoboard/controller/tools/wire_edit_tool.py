@@ -146,12 +146,7 @@ class WireEditTool(ControllerTool):
                     session.layout.ensure_wire_knots(wire)
         self._push_dim()
         self._draw_wire_edit_overlay()
-        self._status(
-            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
-            "[Del] Delete  ·  [Esc] Cancel",
-            0,
-        )
+        self._status_fragment_selected()
 
     @traced()
     def _push_dim(self) -> None:
@@ -349,12 +344,7 @@ class WireEditTool(ControllerTool):
         """Esc during reroute → drop the waypoints, keep the fragment armed."""
         self._clear_reroute_overlay()
         if self._wire_edit is not None:
-            self._status(
-                "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-                "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
-                "[Del] Delete  ·  [Esc] Cancel",
-                0,
-            )
+            self._status_fragment_selected()
 
     # -- ops (build via arm, execute locally, re-arm or exit) --------------
 
@@ -549,12 +539,7 @@ class WireEditTool(ControllerTool):
         self._wire_edit = WireRange(start_wire, start_idx, end_wire, end_idx)
         self._wire_edit_wire_id = start_wire
         self._draw_wire_edit_overlay()
-        self._status(
-            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
-            "[Del] Delete  ·  [Esc] Cancel",
-            0,
-        )
+        self._status_fragment_selected()
 
     def _rearm_repick_if_waiting(self) -> None:
         """Re-arm the 2-vertex re-pick if a failed resolution left the tool
@@ -603,12 +588,7 @@ class WireEditTool(ControllerTool):
             self._rearm_full_span()
             return
         self._draw_wire_edit_overlay()
-        self._status(
-            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
-            "[Del] Delete  ·  [Esc] Cancel",
-            0,
-        )
+        self._status_fragment_selected()
 
     def _rearm_full_span(self) -> None:
         """Re-arm on the FULL SPAN of the (now-mutated) wire.
@@ -629,12 +609,7 @@ class WireEditTool(ControllerTool):
         self._wire_edit_cycle = WireEditCycle()
         self._wire_edit_start = None
         self._draw_wire_edit_overlay()
-        self._status(
-            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
-            "[Del] Delete  ·  [Esc] Cancel",
-            0,
-        )
+        self._status_fragment_selected()
 
     def _exit(self) -> None:
         """Drop wire-edit and hand control back to the SelectTool that armed us."""
@@ -854,6 +829,15 @@ class WireEditTool(ControllerTool):
             return
         self._view.notify_status(
             StatusEvent("wire-edit.status", {"text": msg, "timeout_ms": timeout_ms})
+        )
+
+    def _status_fragment_selected(self) -> None:
+        """Show the action hint while a wire fragment remains armed."""
+        self._status(
+            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+            "[F] Flip layer  ·  [S] Simplify  ·  [I] Insulate/bare  ·  "
+            "[Del] Delete  ·  [Esc] Cancel",
+            0,
         )
 
     # -- wire-edit overlays (tool-drawn) ------------------------------------
