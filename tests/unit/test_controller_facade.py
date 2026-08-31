@@ -86,6 +86,20 @@ class _DeleteSelectedTool(ControllerTool):
         return self._session.edit_controller.delete(active_group_id=ROOT_GROUP_ID)
 
 
+class _MarkerCommand:
+    allowed_during_autoroute = True
+    description = "mark"
+
+    def __init__(self, marker: list[str]) -> None:
+        self._marker = marker
+
+    def apply(self, _state: object) -> None:
+        self._marker.append("applied")
+
+    def revert(self, _state: object) -> None:
+        self._marker.pop()
+
+
 def test_set_and_get_active_tool() -> None:
     session = _session()
     ctl = session.edit_controller
@@ -143,3 +157,20 @@ def test_dispatch_tool_command_with_no_active_tool_returns_false() -> None:
     session = _session()
     ctl = session.edit_controller
     assert ctl.dispatch_tool_command("anything") is False
+
+
+def test_undo_and_redo_are_exposed_by_the_controller_facade() -> None:
+    session = _session()
+    ctl = session.edit_controller
+    marker: list[str] = []
+
+    assert ctl.can_undo() is False
+    assert ctl.execute_command(_MarkerCommand(marker))
+    assert marker == ["applied"]
+    assert ctl.can_undo() is True
+    assert ctl.undo() is True
+    assert marker == []
+    assert ctl.can_redo() is True
+    assert ctl.redo() is True
+    assert marker == ["applied"]
+    assert ctl.can_redo() is False

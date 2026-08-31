@@ -1533,27 +1533,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _undo(self) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
-
-        if self._session.stack.can_undo():
-            self._session.stack.undo(cast(ComponentState, self._session))
-            self._session.invalidate_graph()
-            self._session.mark_dirty()
+        if self._session.edit_controller.undo():
             self._board_view.refresh()
             self._update_stats()
             self._update_undo_redo()
 
     def _redo(self) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
-
-        if self._session.stack.can_redo():
-            self._session.stack.redo(cast(ComponentState, self._session))
-            self._session.invalidate_graph()
-            self._session.mark_dirty()
+        if self._session.edit_controller.redo():
             self._board_view.refresh()
             self._update_stats()
             self._update_undo_redo()
@@ -1564,22 +1550,16 @@ class MainWindow(QMainWindow):
         Undo/Redo is also force-disabled while autoroute is running so a
         Ctrl+Z mid-route cannot rewind state the worker still depends on.
         """
-        stack = self._session.stack
         gate_open = not self._session.autoroute_active
-        can_undo = stack.can_undo() and gate_open
-        can_redo = stack.can_redo() and gate_open
+        controller = self._session.edit_controller
+        can_undo = controller.can_undo() and gate_open
+        can_redo = controller.can_redo() and gate_open
         self._act_undo.setEnabled(can_undo)
         self._act_redo.setEnabled(can_redo)
-        if stack.can_undo():
-            desc = getattr(stack._undo[-1], "description", "")
-            self._act_undo.setText(f"&Undo  {desc}" if desc else "&Undo")
-        else:
-            self._act_undo.setText("&Undo")
-        if stack.can_redo():
-            desc = getattr(stack._redo[-1], "description", "")
-            self._act_redo.setText(f"&Redo  {desc}" if desc else "&Redo")
-        else:
-            self._act_redo.setText("&Redo")
+        undo_desc = controller.undo_description()
+        redo_desc = controller.redo_description()
+        self._act_undo.setText(f"&Undo  {undo_desc}" if undo_desc else "&Undo")
+        self._act_redo.setText(f"&Redo  {redo_desc}" if redo_desc else "&Redo")
 
     # ------------------------------------------------------------------
     # Autoroute UI lock

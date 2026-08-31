@@ -1698,6 +1698,48 @@ class EditController:
             return False
         return True
 
+    def can_undo(self) -> bool:
+        """Whether the command stack has an operation available to undo."""
+        return self._state.stack.can_undo()
+
+    def can_redo(self) -> bool:
+        """Whether the command stack has an operation available to redo."""
+        return self._state.stack.can_redo()
+
+    def undo_description(self) -> str | None:
+        """Description of the next undo operation, if one is available."""
+        return self._stack_description("_undo")
+
+    def redo_description(self) -> str | None:
+        """Description of the next redo operation, if one is available."""
+        return self._stack_description("_redo")
+
+    def _stack_description(self, attr: str) -> str | None:
+        stack = self._state.stack
+        entries = getattr(stack, attr)
+        if not entries:
+            return None
+        description = getattr(entries[-1], "description", None)
+        return description if isinstance(description, str) else None
+
+    def undo(self) -> bool:
+        """Undo one command and publish the same change hook as an edit."""
+        if not self.can_undo():
+            return False
+        self._state.stack.undo(cast("ComponentState", self._state))
+        self._state.invalidate_graph()
+        self._state.notify_changed()
+        return True
+
+    def redo(self) -> bool:
+        """Redo one command and publish the same change hook as an edit."""
+        if not self.can_redo():
+            return False
+        self._state.stack.redo(cast("ComponentState", self._state))
+        self._state.invalidate_graph()
+        self._state.notify_changed()
+        return True
+
     def _execute(self, cmd: object) -> bool:
         """Compatibility wrapper for controller verbs using the substrate."""
         return self.execute_command(cmd)
