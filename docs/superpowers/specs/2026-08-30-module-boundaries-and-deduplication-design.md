@@ -2,7 +2,7 @@
 # Module Boundaries and Deduplication Design
 
 **Date:** 2026-08-30
-**Status:** approved; Workstreams 1–3 implemented, Workstream 4 next
+**Status:** approved; Workstreams 1–3 implemented, Workstream 4 in progress
 
 ## Purpose
 
@@ -273,6 +273,15 @@ renderer boundary suite passes 392 tests (1 expected xfail); mypy, Pyright,
 Ruff, Black, and `git diff --check` are clean for the changed source, library,
 and test trees. The full GUI smoke gate remains deferred to the final
 Workstream 4 verification.
+
+The command-facade checkpoint moved all GUI and controller-tool command-stack
+access behind `EditController`, including undo/redo and operation descriptions.
+The controller-tool base now owns the shared command adapter, and a boundary
+test forbids direct `stack.execute` calls in GUI code. The tree remains at 321
+source modules and 97,137 physical lines; the complete automated gate passes
+2,864 unit tests (68 skipped) and 1,496 offscreen GUI tests (1 expected xfail,
+1 known PySide disconnect warning). Manual GUI smoke testing remains deferred
+to the final Workstream 4 gate.
 
 Within those workstreams, the order is:
 
