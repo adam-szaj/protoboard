@@ -892,21 +892,15 @@ class SelectTool(ControllerTool):
     def set_relation(self, relation) -> None:  # type: ignore[no-untyped-def]
         """Set the correlation axis used by Alt-select and the auto-highlight.
 
-        Emits ``session.highlight_mode_changed`` with the relation's label so the
-        status bar reflects the active mode — the legacy contract (lost in the v2
-        rewrite, restored by the parity test)."""
+        Publishes the relation label so the GUI status bar reflects the active
+        mode; headless sessions simply ignore the notification."""
         from protoboard.controller.selection_axes import RELATION_LABELS, RelationClass
 
         if isinstance(relation, RelationClass):
             self._relation = relation
             self._refresh_highlight()
             if self._session is not None:
-                # GUI-only Qt signal: only EditorSession carries it, not the
-                # Qt-free EditingContext protocol / HeadlessSession. Routing this
-                # through an EditingContext notify verb is deferred (docs/todo.md).
-                self._session.highlight_mode_changed.emit(  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
-                    RELATION_LABELS[relation]
-                )
+                self._session.notify_highlight_mode(RELATION_LABELS[relation])
 
     def _cycle_relation(self, *, forward: bool = True) -> None:
         """Step the relation axis to the next/previous class — backtick / Shift+`.

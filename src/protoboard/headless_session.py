@@ -199,6 +199,13 @@ class HeadlessSession:
         to emit ``selection_changed``.
         """
 
+    def notify_highlight_mode(self, label: str) -> None:
+        """Hook fired when the selection relation mode changes.
+
+        A bare headless session has no status widget; ``EditorSession`` emits
+        its Qt signal from the override.
+        """
+
     def set_routing_net(self, net_id: uuid.UUID | None) -> None:
         """Mark a net as actively routed (RouteTool while drawing); None clears.
 
