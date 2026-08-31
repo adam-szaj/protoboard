@@ -372,6 +372,12 @@ remaining private calls from `MainWindow` are intentional action entry points
 on the concrete selection tool, not state access; replacing them with wrappers
 would add indirection without reducing coupling.
 
+After this pass the complete automated gate was rerun: 2,870 unit tests passed
+(68 skipped), 1,495 offscreen GUI tests passed (1 expected xfail and 1 known
+PySide disconnect warning), and Ruff, Black, strict mypy, Pyright, and
+`git diff --check` are clean. The source tree remains at 96,972 physical lines;
+manual real-display GUI smoke is still the only unexecuted verification.
+
 The selection-port migration was followed by another complete unit/GUI and
 static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
