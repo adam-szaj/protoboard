@@ -1902,14 +1902,14 @@ class MainWindow(QMainWindow):
             return
         tool.begin_redrag(tool.primary_component_id)
 
-    def _get_selected_wire_ids(self) -> set[uuid.UUID]:
+    def _get_selected_wire_ids(self, tool: SelectTool | None = None) -> set[uuid.UUID]:
         """Collect effective wire selection (multi + primary single)."""
-        tool = self._get_select_tool()
-        if tool is None:
+        active = tool or self._get_select_tool()
+        if active is None:
             return set()
-        ids: set[uuid.UUID] = set(tool.selected_wire_ids)
-        if tool.primary_wire_id is not None:
-            ids.add(tool.primary_wire_id)
+        ids: set[uuid.UUID] = set(active.selected_wire_ids)
+        if active.primary_wire_id is not None:
+            ids.add(active.primary_wire_id)
         return ids
 
     def _set_selected_wire_insulated(self, insulated: bool) -> None:
@@ -3261,9 +3261,7 @@ class MainWindow(QMainWindow):
         # subclasses with their own selection state, and the user's wire
         # picks live there, not in the permanent _select_tool fallback.
         tool = self._get_select_tool() or self._select_tool
-        wire_ids: set[uuid.UUID] = set(tool.selected_wire_ids)
-        if tool.primary_wire_id is not None:
-            wire_ids.add(tool.primary_wire_id)
+        wire_ids = self._get_selected_wire_ids(tool)
         if not wire_ids:
             self._status.showMessage("Simplify: select a wire first.", 3000)
             return
@@ -3272,9 +3270,7 @@ class MainWindow(QMainWindow):
     def _unweave_selected_wires(self) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
         tool = self._get_select_tool() or self._select_tool
-        wire_ids: set[uuid.UUID] = set(tool.selected_wire_ids)
-        if tool.primary_wire_id is not None:
-            wire_ids.add(tool.primary_wire_id)
+        wire_ids = self._get_selected_wire_ids(tool)
         if len(wire_ids) < 2:
             self._status.showMessage("Unweave: select at least 2 wires.", 3000)
             return
@@ -3295,8 +3291,6 @@ class MainWindow(QMainWindow):
         merged result.
         """
         tool = self._get_select_tool() or self._select_tool
-        wire_ids: set[uuid.UUID] = set(tool.selected_wire_ids)
-        if tool.primary_wire_id is not None:
-            wire_ids.add(tool.primary_wire_id)
+        wire_ids = self._get_selected_wire_ids(tool)
         scope = frozenset(wire_ids) if wire_ids else None
         tool._merge_wires_and_fragments(scope)
