@@ -54,7 +54,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing.controller import EditingContext
+    from protoboard.controller.editing.contexts import PreviewProjectContext
     from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.ports import KeyInput
     from protoboard.controller.selection.drop_resolution import ResolveFn
@@ -101,7 +101,7 @@ class ArmedTransform:
 
     def __init__(
         self,
-        ctx: EditingContext,
+        ctx: PreviewProjectContext,
         *,
         comp_ids: frozenset[uuid.UUID],
         group_id: uuid.UUID | None,

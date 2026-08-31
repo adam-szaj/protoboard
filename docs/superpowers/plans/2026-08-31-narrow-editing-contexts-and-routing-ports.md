@@ -196,7 +196,7 @@ git commit -m "refactor(controller): split editing context contracts"
 - Delegated reads: project values, `group_tree()`, and
   `cached_wire_net_map()`.
 
-- [ ] **Step 1: Replace broad parity with an exact preview contract test**
+- [x] **Step 1: Replace broad parity with an exact preview contract test**
 
 Change the parity test to compare `PreviewProjectContext` members and assert
 interaction/effect members are absent:
@@ -212,7 +212,7 @@ def test_preview_state_is_only_a_preview_project_context() -> None:
     assert not hasattr(preview, "routing_settings")
 ```
 
-- [ ] **Step 2: Run the exact surface test and verify it fails**
+- [x] **Step 2: Run the exact surface test and verify it fails**
 
 Run:
 
@@ -222,14 +222,14 @@ Run:
 
 Expected: FAIL because the current 194-line proxy exposes interaction/effects.
 
-- [ ] **Step 3: Delete unused delegation explicitly**
+- [x] **Step 3: Delete unused delegation explicitly**
 
 Keep only the constructor fields and methods listed in the interface block.
 Do not replace them with `__getattr__`. Update `ArmedTransform`, drag
 classification, and the preview branch of `EditController.snap()` to accept
 `PreviewProjectContext` rather than the composite context.
 
-- [ ] **Step 4: Verify preview geometry and drag behaviour**
+- [x] **Step 4: Verify preview geometry and drag behaviour**
 
 Run:
 
@@ -241,7 +241,7 @@ Run:
 Expected: PASS; preview pins/index reflect the preview layout and hard/soft drag
 classification remains unchanged.
 
-- [ ] **Step 5: Commit the preview boundary**
+- [x] **Step 5: Commit the preview boundary**
 
 ```bash
 git add src/protoboard/controller/editing tests/unit/test_view_proto_parity.py tests/unit/test_layout_preview_copy.py tests/unit/test_classify_drag_commit.py

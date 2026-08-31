@@ -28,7 +28,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from protoboard.controller.editing.contexts import EditingContext
+from protoboard.controller.editing.contexts import EditingContext, PreviewProjectContext
 from protoboard.controller.editing.item_handle import ItemTag
 from protoboard.domain.commands.base import (
     Command,
@@ -1502,7 +1502,7 @@ class EditController:
 
         # While a transform is armed, snap against its PREVIEW pose (the live
         # layout stays pristine) so a pivot-click lands on the moved pins.
-        state: EditingContext = self._state
+        state: PreviewProjectContext = self._state
         if self._armed is not None:
             from protoboard.controller.editing.preview_state import PreviewState
 

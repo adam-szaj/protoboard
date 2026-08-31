@@ -87,7 +87,7 @@ def _headless_session():
     return HeadlessSession(board=Board(root=grid), library=ComponentLibrary())
 
 
-def test_headless_session_covers_edit_state() -> None:
+def test_headless_session_covers_editing_context() -> None:
     # EditingContext (controller/editing/controller.py) is the state contract every
     # EditController verb + tool reads. The Qt-free HeadlessSession is its base
     # implementation, so it must expose every EditingContext member — otherwise a
@@ -104,17 +104,16 @@ def test_headless_session_covers_edit_state() -> None:
     )
 
 
-def test_preview_state_covers_edit_state() -> None:
-    # PreviewState is a read-through EditingContext proxy; when the contract grows,
-    # it must delegate new members too, else preview-mode drag hits AttributeError.
-    from protoboard.controller.editing.controller import EditingContext
+def test_preview_state_is_only_a_preview_project_context() -> None:
+    from protoboard.controller.editing.contexts import PreviewProjectContext
     from protoboard.controller.editing.preview_state import PreviewState
 
     live = _headless_session()
-    preview = PreviewState(live, live.layout)  # type: ignore[arg-type]
-    required = _protocol_members(EditingContext)
-    available = set(dir(preview))
-    missing = required - available
-    assert not missing, (
-        "PreviewState is missing EditingContext members (drift): " f"{sorted(missing)}"
-    )
+    preview = PreviewState(live, live.layout.preview_copy())
+
+    assert isinstance(preview, PreviewProjectContext)
+    assert not hasattr(preview, "selection")
+    assert not hasattr(preview, "notify_changed")
+    assert not hasattr(preview, "edit_controller")
+    assert not hasattr(preview, "highlight_stack")
+    assert not hasattr(preview, "routing_settings")
