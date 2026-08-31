@@ -32,11 +32,11 @@
 - `serialize_command` and `deserialize_command` keep their existing signatures and error types.
 - The registry stores one `Codec[Any]` per command type and serialized name; no parallel serializer/deserializer maps remain.
 
-- [ ] **Step 1: Add a failing registry contract test**
+- [x] **Step 1: Add a failing registry contract test**
 
 Add a test that imports the typed codec registry inspection helper and asserts a registered command resolves to one codec whose name, encoder, and decoder are callable. Keep existing round-trip tests as behavioural coverage.
 
-- [ ] **Step 2: Verify the contract fails**
+- [x] **Step 2: Verify the contract fails**
 
 Run:
 ```bash
@@ -44,11 +44,11 @@ Run:
 ```
 Expected: FAIL because the typed codec record/inspection helper does not exist.
 
-- [ ] **Step 3: Implement the minimal typed registry**
+- [x] **Step 3: Implement the minimal typed registry**
 
 Define `Codec[T]` and replace `_TYPE_TO_NAME`, `_TYPE_TO_SERIALIZER`, and `_NAME_TO_DESERIALIZER` with `_CODEC_BY_TYPE` and `_CODEC_BY_NAME`. Adapt every existing registration to construct one codec record; keep all explicit field codecs and command-specific functions unchanged. Add a read-only `codec_for_command_type(command_type: type[Command[Any]]) -> Codec[Any] | None` helper for the contract test.
 
-- [ ] **Step 4: Verify command replay parity and static checks**
+- [x] **Step 4: Verify command replay parity and static checks**
 
 Run:
 ```bash
@@ -58,10 +58,10 @@ Run:
 ```
 Expected: all existing round trips and the new registry contract pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/protoboard/services/recording/serialization.py tests/unit/test_command_recording.py
+git add src/protoboard/services/recording/serialization.py tests/unit/test_command_recording.py docs/superpowers/plans/2026-08-31-command-serialization-export-snapshots-mru.md
 git commit -m "refactor(recording): use typed command codecs"
 ```
 

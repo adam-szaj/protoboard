@@ -36,6 +36,15 @@ from protoboard.services.recording import (
     replay_commands,
     serialize_command,
 )
+from protoboard.services.recording.serialization import codec_for_command_type
+
+
+def test_registered_command_uses_one_typed_codec_record() -> None:
+    codec = codec_for_command_type(PlaceComponentCommand)
+    assert codec is not None
+    assert codec.name == "place_component"
+    assert callable(codec.encode)
+    assert callable(codec.decode)
 
 
 def _empty_board() -> Board:
@@ -273,9 +282,9 @@ class TestSerializationTotality:
     }
 
     def test_every_concrete_command_is_registered_or_excused(self) -> None:
-        from protoboard.services.recording.serialization import _TYPE_TO_NAME
+        from protoboard.services.recording.serialization import _CODEC_BY_TYPE
 
-        registered = {t.__name__ for t in _TYPE_TO_NAME}
+        registered = {t.__name__ for t in _CODEC_BY_TYPE}
         excused = set(self._INTENTIONALLY_UNREGISTERED)
         concrete = {c.__name__ for c in _all_concrete_command_classes()}
 
@@ -290,9 +299,9 @@ class TestSerializationTotality:
         # Guard the guard: an excused name that becomes registered (or is
         # deleted) should be pruned from the exclusion list so it can't mask a
         # future regression.
-        from protoboard.services.recording.serialization import _TYPE_TO_NAME
+        from protoboard.services.recording.serialization import _CODEC_BY_TYPE
 
-        registered = {t.__name__ for t in _TYPE_TO_NAME}
+        registered = {t.__name__ for t in _CODEC_BY_TYPE}
         concrete = {c.__name__ for c in _all_concrete_command_classes()}
         for name in self._INTENTIONALLY_UNREGISTERED:
             assert name in concrete, (

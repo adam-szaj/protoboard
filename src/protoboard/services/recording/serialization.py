@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Generic, TypeVar, cast
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import StripAtom
@@ -270,36 +271,46 @@ def _group_from(d: dict[str, Any]) -> ComponentGroup:
 # ---------------------------------------------------------------------------
 
 
-# Each serializer is registered for a *specific* command type, but the
-# registry stores them under their common erased signature.  The dispatcher
-# looks up by ``type(cmd)`` so the cast is always safe at runtime.
-_Serializer = Callable[[Any], dict[str, Any]]
-_Deserializer = Callable[[dict[str, Any]], Command[Any]]
+_T = TypeVar("_T")
 
-_TYPE_TO_NAME: dict[type, str] = {}
-_NAME_TO_DESERIALIZER: dict[str, _Deserializer] = {}
-_TYPE_TO_SERIALIZER: dict[type, _Serializer] = {}
+
+@dataclass(frozen=True, slots=True)
+class Codec(Generic[_T]):
+    """Explicit encoder/decoder pair for one serialized value type."""
+
+    name: str
+    encode: Callable[[_T], dict[str, Any]]
+    decode: Callable[[dict[str, Any]], _T]
+
+
+_CODEC_BY_TYPE: dict[type, Codec[Any]] = {}
+_CODEC_BY_NAME: dict[str, Codec[Any]] = {}
 
 
 def _register(
     cmd_type: type,
     name: str,
     to_dict: Callable[[Any], dict[str, Any]],
-    from_dict: _Deserializer,
+    from_dict: Callable[[dict[str, Any]], Command[Any]],
 ) -> None:
-    _TYPE_TO_NAME[cmd_type] = name
-    _TYPE_TO_SERIALIZER[cmd_type] = to_dict
-    _NAME_TO_DESERIALIZER[name] = from_dict
+    codec = Codec(name=name, encode=to_dict, decode=from_dict)
+    _CODEC_BY_TYPE[cmd_type] = codec
+    _CODEC_BY_NAME[name] = codec
+
+
+def codec_for_command_type(command_type: type[Command[Any]]) -> Codec[Any] | None:
+    """Return the registered codec for ``command_type``, if any."""
+    return _CODEC_BY_TYPE.get(command_type)
 
 
 def serialize_command(cmd: Command[Any]) -> dict[str, Any]:
     """Return a YAML-safe dict for *cmd*.  Raises if its type isn't registered."""
     cmd_type = type(cmd)
-    serializer = _TYPE_TO_SERIALIZER.get(cmd_type)
-    if serializer is None:
+    codec = _CODEC_BY_TYPE.get(cmd_type)
+    if codec is None:
         raise UnknownCommandError(f"No serializer registered for {cmd_type.__name__}")
-    data = serializer(cmd)
-    return {"type": _TYPE_TO_NAME[cmd_type], **data}
+    data = codec.encode(cmd)
+    return {"type": codec.name, **data}
 
 
 def deserialize_command(record: dict[str, Any]) -> Command[Any]:
@@ -307,10 +318,10 @@ def deserialize_command(record: dict[str, Any]) -> Command[Any]:
     name = record.get("type")
     if not isinstance(name, str):
         raise UnknownCommandError(f"Record missing 'type' field: {record!r}")
-    deserializer = _NAME_TO_DESERIALIZER.get(name)
-    if deserializer is None:
+    codec = _CODEC_BY_NAME.get(name)
+    if codec is None:
         raise UnknownCommandError(f"Unknown command type: {name!r}")
-    return deserializer(record)
+    return cast(Command[Any], codec.decode(record))
 
 
 # ---------------------------------------------------------------------------
@@ -1334,7 +1345,9 @@ _register(MacroCommand, "macro", _macro_to, _macro_from)
 
 
 __all__ = [
+    "Codec",
     "UnknownCommandError",
+    "codec_for_command_type",
     "deserialize_command",
     "serialize_command",
 ]
