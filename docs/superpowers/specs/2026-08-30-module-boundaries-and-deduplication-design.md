@@ -325,7 +325,7 @@ GUI consumers now use explicit typed selection ports, so the old private
 `SelectTool._selected_*` compatibility surface has been deleted and its
 production/test callers migrated.
 The focused interaction/selection/simplification suite passes 219 tests, mypy and
-Pyright remain clean, and the tree contains 321 source modules and 97,062
+Pyright remain clean, and the tree contains 321 source modules and 97,058
 physical lines. A final boundary scan reports no controller signal emission,
 Qt import, or top-level window access; manual GUI smoke testing remains
 deferred to the final Workstream 4 gate.
