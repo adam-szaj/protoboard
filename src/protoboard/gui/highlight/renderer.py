@@ -451,7 +451,7 @@ class HighlightRenderer:
     def _recolour_selected_outlines(self) -> set[uuid.UUID]:
         """Paint the selected components' body outline in the select colour.
 
-        Reads the active tool's ``_selected_ids`` (the SelectTool compat view)
+        Reads the active tool's typed component-selection port
         and, for each selected component, recolours its body-outline pen from
         the neutral ``comp_border`` to the theme ``select_color`` (cyan).  The
         fill and every other item (leads, pins, labels) are left untouched.
@@ -469,7 +469,7 @@ class HighlightRenderer:
         """
         theme = self._view.theme
         tool = self._view.active_tool
-        selected: set[uuid.UUID] = set(getattr(tool, "_selected_ids", set()))
+        selected: set[uuid.UUID] = set(getattr(tool, "selected_component_ids", set()))
 
         comp_groups = self._view.component_groups()
         border_rgb = QColor(theme.comp_border).rgb() & 0x00FFFFFF
@@ -545,7 +545,7 @@ class HighlightRenderer:
         """
         tool = self._view.active_tool
         sel_groups: set[uuid.UUID] = {
-            uuid.UUID(str(g)) for g in getattr(tool, "_selected_group_ids", set())
+            uuid.UUID(str(g)) for g in getattr(tool, "selected_group_ids", set())
         }
         if not sel_groups and not self._cyan_group_outlined:
             return
@@ -704,7 +704,7 @@ class HighlightRenderer:
         caps), so the clicked wire is unmistakable even when colours are hard to
         tell apart.
 
-        Reads the active tool's ``_selected_wire_ids`` and is idempotent: wires
+        Reads the active tool's typed wire-selection port and is idempotent: wires
         that left the selection have their overlay removed.  Skips wires the
         tool is actively editing (``[E]``) — that mode draws its own cyan
         overlay and a second one on top would only clutter.  Returns the
@@ -716,7 +716,7 @@ class HighlightRenderer:
 
         theme = self._view.theme
         tool = self._view.active_tool
-        selected: set[uuid.UUID] = set(getattr(tool, "_selected_wire_ids", set()))
+        selected: set[uuid.UUID] = set(getattr(tool, "selected_wire_ids", set()))
         # Don't double-draw over a wire the tool is editing in place.
         editing = bool(getattr(tool, "is_wire_editing", lambda: False)())
         edit_wire = getattr(tool, "_wire_edit_wire_id", None) if editing else None
@@ -789,7 +789,7 @@ class HighlightRenderer:
         out: set[uuid.UUID] = set()
         if isinstance(ctx, uuid.UUID):
             out.add(ctx)
-        sel_wires = getattr(tool, "_selected_wire_ids", None)
+        sel_wires = getattr(tool, "selected_wire_ids", None)
         if sel_wires:
             wire_net_map = self._view.session.cached_wire_net_map()
             for wid in sel_wires:

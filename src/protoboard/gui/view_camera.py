@@ -266,8 +266,8 @@ class ViewCamera:
         """Fit view to the bounding box of selected components and wires."""
         view = self._view
         tool = view.active_tool
-        sel_comp_ids: set[uuid.UUID] = getattr(tool, "_selected_ids", set())
-        sel_wire_ids: set[uuid.UUID] = getattr(tool, "_selected_wire_ids", set())
+        sel_comp_ids: set[uuid.UUID] = getattr(tool, "selected_component_ids", set())
+        sel_wire_ids: set[uuid.UUID] = getattr(tool, "selected_wire_ids", set())
 
         if not sel_comp_ids and not sel_wire_ids:
             self.fit_area()
