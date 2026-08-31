@@ -86,11 +86,14 @@ def test_ctx_handler_sets_insulated(qtbot: QtBot) -> None:
 
     tool = SelectTool()
     tool._session = session  # type: ignore[assignment]
+    signals: list[None] = []
+    session.layout_changed.connect(lambda: signals.append(None))
 
     tool._menu_set_wire_insulated({w1, w2}, False)
 
     assert session.layout.wires.get_or_raise(w1).insulated is False
     assert session.layout.wires.get_or_raise(w2).insulated is False
+    assert len(signals) == 1
 
 
 def test_ctx_handler_empty_selection_is_noop(qtbot: QtBot) -> None:
