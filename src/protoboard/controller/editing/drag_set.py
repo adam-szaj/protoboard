@@ -20,10 +20,8 @@ Why a separate type:
   groups are decomposed into their component_ids.  The pre-commit
   conflict-check needs to know *which group* each component came from so
   it can apply spec-rev-3 rule 4 (SOFT for intra-drag-set collisions).
-* Selection state in ``SelectTool`` is stored as three independent fields
-  (``_selected_ids``, ``_selected_wire_ids``, ``_selected_group_ids``).
-  ``DragSet`` is the immutable snapshot of those at press-time, frozen
-  for the duration of the drag.
+* ``DragSet`` captures the selected component, wire, and group id sets at
+  press-time, frozen for the duration of the drag.
 
 Pure Python — no Qt, no PadIndex, no side effects.  Tested without
 spinning up a ``QApplication``.

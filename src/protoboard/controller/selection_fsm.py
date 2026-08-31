@@ -3,14 +3,12 @@
 click pipeline.
 
 The pre-FSM code kept selection state in a handful of independent fields
-on ``SelectTool`` (``_selected_id``, ``_selected_ids``, ``_selected_wire_id``,
-…) and treated Esc as "clear everything".  The user formalised the
+on ``SelectTool`` and treated Esc as "clear everything".  The user formalised the
 intended interaction in ``docs/highlight-state-machine.txt`` — a stack
 of four layers (``normal``, ``highlight``, ``selection``,
 ``multi_selection``) where each click pushes or replaces a layer and Esc
-pops exactly one.  This module owns that machine; ``SelectTool`` (Phase 2)
-becomes a thin observer that mirrors the FSM's :class:`SelectionState`
-onto the existing storage fields.
+pops exactly one.  This module owns that machine; ``SelectTool`` is a thin
+observer that exposes typed selection ports backed by the FSM.
 
 No Qt imports — the FSM is pure-Python so it can be unit-tested without
 spinning up a ``QApplication``.  Observers receive a snapshot of the new
