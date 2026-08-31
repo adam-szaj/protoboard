@@ -3025,12 +3025,10 @@ class SelectTool(ControllerTool):
         comp_id: uuid.UUID | None,
         wire_id: uuid.UUID | None,
     ) -> list[ActionOption]:
-        """Select-by-net options — promote the click to its whole net(s).
-
-        Built on v2's :class:`SessionConnQuery` (click → net ids) +
-        :class:`SessionNetSource` (net → member comp/wire ids).  Simpler than
-        the legacy section (no name-based global-net exclusion, no physical-vs-
-        logical split) but covers the common "select the rest of this net"."""
+        """Select-by-net options — promote the click to its whole net(s)."""
+        from protoboard.controller.selection.context_options import (
+            build_net_selection_options,
+        )
         from protoboard.controller.selection.queries import SessionConnQuery
 
         conn = SessionConnQuery(self._session)
@@ -3041,100 +3039,21 @@ class SelectTool(ControllerTool):
             nid = conn.net_for_wire(wire_id)
             if nid is not None:
                 net_ids = [nid]
-        if not net_ids:
-            return []
-
         nets = self._session.schematic.nets
 
         def _net_name(nid: uuid.UUID) -> str:
             n = nets.get(nid)
             return n.name if n is not None else str(nid)[:8]
 
-        group = "Select"
-        out: list[ActionOption] = []
-        if len(net_ids) == 1:
-            nid = net_ids[0]
-            out.append(
-                ActionOption(
-                    action_id="select-tool.ctx.select_net_components",
-                    label=f"Components in net '{_net_name(nid)}'",
-                    group=group,
-                    data={"net_ids": (nid,)},
-                )
-            )
-            out.append(
-                ActionOption(
-                    action_id="select-tool.ctx.select_net_wires",
-                    label=f"Wires of net '{_net_name(nid)}'",
-                    group=group,
-                    data={"net_ids": (nid,)},
-                )
-            )
-            out.append(
-                ActionOption(
-                    action_id="select-tool.ctx.select_net_all",
-                    label=f"Wires + components of net '{_net_name(nid)}'",
-                    group=group,
-                    data={"net_ids": (nid,)},
-                )
-            )
-        else:
-            ids_t = tuple(net_ids)
-            out.append(
-                ActionOption(
-                    action_id="select-tool.ctx.select_net_components",
-                    label="Components in same nets",
-                    group=group,
-                    data={"net_ids": ids_t},
-                )
-            )
-            out.append(
-                ActionOption(
-                    action_id="select-tool.ctx.select_net_wires",
-                    label="Wires of same nets",
-                    group=group,
-                    data={"net_ids": ids_t},
-                )
-            )
-            out.append(
-                ActionOption(
-                    action_id="select-tool.ctx.select_net_all",
-                    label="Wires + components of all nets",
-                    group=group,
-                    data={"net_ids": ids_t},
-                )
-            )
-            for nid in net_ids:
-                out.append(
-                    ActionOption(
-                        action_id="select-tool.ctx.select_net_all",
-                        label=_net_name(nid),
-                        group=group,
-                        submenu="Net…",
-                        data={"net_ids": (nid,)},
-                    )
-                )
-        return out
+        return build_net_selection_options(net_ids, _net_name)
 
     def _ctx_highlight_options(self) -> list[ActionOption]:
-        """Persistent-highlight options — push the selection at strong dimming,
-        or clear an active persistent highlight."""
-        group = "Highlight"
-        return [
-            ActionOption(
-                action_id="select-tool.ctx.highlight_selection",
-                label="Highlight selection (Dimmed #2)",
-                group=group,
-                data={"kind": "push"},
-            ),
-            ActionOption(
-                action_id="select-tool.ctx.clear_highlight",
-                label="Clear highlight",
-                group=group,
-                enabled=self._session.highlight_stack.has_persistent(),
-                data={"kind": "clear"},
-            ),
-        ]
+        """Persistent-highlight options for the current selection."""
+        from protoboard.controller.selection.context_options import (
+            build_highlight_options,
+        )
+
+        return build_highlight_options(self._session.highlight_stack.has_persistent())
 
     def _ctx_wire_options(self, wire_id: uuid.UUID | None) -> list[ActionOption]:
         """Wire mutation options — bare/insulated, side, flip, simplify,
