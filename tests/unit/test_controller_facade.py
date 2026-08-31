@@ -74,7 +74,7 @@ class _DeleteSelectedTool(ControllerTool):
 
     Stands in for a GUI tool's ``command_table()`` entry without pulling in
     SelectTool's GUI-side ``SelectionService`` — the model-side selection
-    (``EditState.selection()``) is all a headless-safe delete command needs.
+    (``EditingContext.selection()``) is all a headless-safe delete command needs.
     """
 
     ACTION_ID = "delete-selected-tool.action.delete"

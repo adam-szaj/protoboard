@@ -9,7 +9,7 @@ legal* — snap (nearest pad/pin) and conflict classification
 ``layout`` and the reads *derived* from it (``comp_spatial_index`` /
 ``iter_pin_positions``).
 
-``PreviewState`` bridges the gap: it wraps the real :class:`EditState` and swaps
+``PreviewState`` bridges the gap: it wraps the real :class:`EditingContext` and swaps
 in the preview layout, so those consumers see the transformed pose without the
 live layout ever changing.  Every member is delegated to the live session except:
 
@@ -23,7 +23,7 @@ and connectivity-shaped reads (``cached_wire_net_map`` / ``connectivity_graph`` 
 ``classify_drag_commit`` builds its own ``PadIndex`` from ``self.layout`` (the
 preview) anyway.
 
-It is a plain delegating class rather than a subclass: :class:`EditState` is a
+It is a plain delegating class rather than a subclass: :class:`EditingContext` is a
 structural :class:`Protocol`, so satisfying it member-for-member is enough.
 """
 
@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from protoboard.controller.editing.controller import EditController, EditState
+    from protoboard.controller.editing.controller import EditController, EditingContext
     from protoboard.controller.editing.item_handle import ItemId
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
@@ -47,12 +47,12 @@ if TYPE_CHECKING:
 
 
 class PreviewState:
-    """A read-through :class:`EditState` whose ``layout`` is a preview pose."""
+    """A read-through :class:`EditingContext` whose ``layout`` is a preview pose."""
 
-    def __init__(self, live: EditState, preview: Layout) -> None:
+    def __init__(self, live: EditingContext, preview: Layout) -> None:
         self._live = live
         # The swapped-in pose.  The delegated data members are plain attributes
-        # (not properties): the ``EditState`` protocol declares them as settable,
+        # (not properties): the ``EditingContext`` protocol declares them as settable,
         # so read-only properties would fail the structural match — and these are
         # immutable references shared straight through from the live session.
         self.layout = preview
@@ -63,7 +63,7 @@ class PreviewState:
         self.stack = live.stack
         self.package_families = live.package_families
         self.axis_label_settings = live.axis_label_settings
-        # Settable EditState data members — plain attributes (not properties)
+        # Settable EditingContext data members — plain attributes (not properties)
         # for the same reason as the block above: the protocol declares them
         # mutable, so a read-only property would fail the structural match.
         # Shared straight through from the live session.

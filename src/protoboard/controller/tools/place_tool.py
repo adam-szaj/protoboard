@@ -48,7 +48,7 @@ from protoboard.geometry import Point, Vector
 from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.controller import ResolvedPlacement
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.ports import PointerInput
@@ -172,7 +172,7 @@ class PlaceTool(ControllerTool):
         return old_phase
 
     @traced()
-    def activate(self, session: EditState, view: object) -> None:
+    def activate(self, session: EditingContext, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
         self.finish_activate()
 

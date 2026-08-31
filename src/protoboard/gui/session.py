@@ -161,7 +161,7 @@ class EditorSession(HeadlessSession, QObject):
         self.stack.set_recorder(self.recorder)
         # The GUI selection lives in a per-session SelectionService, parked here
         # by SelectTool.activate (reused across tool switches). Declared here so
-        # the EditState selection() / select() bridge and the tool share one
+        # the EditingContext selection() / select() bridge and the tool share one
         # attribute; None until a SelectTool has activated at least once.
         self.selection_service: SelectionService | None = None
 
@@ -186,7 +186,7 @@ class EditorSession(HeadlessSession, QObject):
     def notify_changed(self) -> None:
         """Change hook for :class:`EditController` — emit ``layout_changed``.
 
-        Satisfies the ``EditState`` protocol so a controller verb refreshes
+        Satisfies the ``EditingContext`` protocol so a controller verb refreshes
         panels/DRC after every command. Headless drivers leave this a no-op
         (they don't define it); the GUI session emits the same signal the
         tools' old ``_execute_command`` fired directly.
@@ -210,11 +210,11 @@ class EditorSession(HeadlessSession, QObject):
         self.selection_changed.emit(comp_ids, wire_ids, net_id)
 
     # ------------------------------------------------------------------
-    # Selection (EditState bridge over the tool-owned SelectionService)
+    # Selection (EditingContext bridge over the tool-owned SelectionService)
     # ------------------------------------------------------------------
 
     def selection(self) -> frozenset[ItemId]:
-        """The current selection as tagged :class:`ItemId`s (EditState API).
+        """The current selection as tagged :class:`ItemId`s (EditingContext API).
 
         Projects the per-session ``SelectionService`` (``Hit``-based) onto the
         controller's ``ItemId`` shape — ``Hit.kind`` is exactly the ``ItemId``
@@ -231,7 +231,7 @@ class EditorSession(HeadlessSession, QObject):
         return frozenset(out)
 
     def select(self, ids: Iterable[ItemId]) -> None:
-        """Replace the selection with *ids* and broadcast to panels (EditState API).
+        """Replace the selection with *ids* and broadcast to panels.
 
         Inflates each :class:`ItemId` into the ``Selectable`` its tag needs
         (looking the entity up in the live layout) and hands the batch to the

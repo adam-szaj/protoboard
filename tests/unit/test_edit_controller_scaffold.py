@@ -5,7 +5,7 @@ Proves the extracted state substrate (:class:`HeadlessSession`) and the
 command-execution seam (:meth:`EditController._execute`) run a real command
 end-to-end without a display server — the foundation every later edit verb
 builds on. Also asserts the GUI ``EditorSession`` still structurally satisfies
-the ``EditState`` protocol, so the same controller drives both.
+the ``EditingContext`` protocol, so the same controller drives both.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from protoboard.controller.editing import EditState
+from protoboard.controller.editing import EditingContext
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.commands.component_cmds import (
@@ -111,7 +111,7 @@ def test_controller_notify_hook_fires_on_success() -> None:
 
 
 def test_editor_session_satisfies_edit_state() -> None:
-    """The GUI EditorSession still structurally satisfies EditState.
+    """The GUI EditorSession still structurally satisfies EditingContext.
 
     Imported lazily so this Qt-free module never pulls PySide6 unless a Qt
     session is actually constructed elsewhere; the isinstance check against the
@@ -125,6 +125,6 @@ def test_editor_session_satisfies_edit_state() -> None:
 
     library = load_library([_LIBRARY_DIR])
     session = EditorSession(board=_perfboard(), library=library)
-    assert isinstance(session, EditState)
+    assert isinstance(session, EditingContext)
     # The change hook the controller pings exists on the GUI session.
     assert callable(session.notify_changed)

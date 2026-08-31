@@ -36,7 +36,7 @@ from protoboard.geometry import round_coord as _round
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditingContext
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
 
@@ -106,7 +106,7 @@ class PlacementResolution:
 
 
 def check_and_resolve(
-    session: EditState,
+    session: EditingContext,
     placement: ComponentPlacement,
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
@@ -284,7 +284,7 @@ def check_and_resolve(
 
 
 def _ask_pad_conflicts(
-    session: EditState,
+    session: EditingContext,
     conflicts: list[PadConflict],
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
@@ -314,7 +314,7 @@ def _ask_pad_conflicts(
 
 
 def _update_schematic(
-    session: EditState,
+    session: EditingContext,
     conflicts: list[PadConflict],
     placement: ComponentPlacement,  # noqa: ARG001
     defn: ComponentDefinition,  # noqa: ARG001
@@ -367,7 +367,7 @@ def _update_schematic(
 
 
 def _resolve_wire_conflicts(
-    session: EditState,
+    session: EditingContext,
     wire_conflicts: list[PadConflict],
     placement: ComponentPlacement,
     defn: ComponentDefinition,
@@ -434,7 +434,7 @@ def _resolve_wire_conflicts(
 
 
 def _try_reroute_wire(
-    session: EditState,
+    session: EditingContext,
     wire: object,
     blocker_placement: ComponentPlacement,  # noqa: ARG001
 ) -> object | None:

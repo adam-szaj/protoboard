@@ -65,7 +65,7 @@ _log = structlog.get_logger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.drag_set import DragSet
     from protoboard.controller.selection.adapters import WireVertexSelectable
     from protoboard.controller.selection.mouse_input import MouseInputController
@@ -282,7 +282,7 @@ class SelectTool(ControllerTool):
         self.__view = value
 
     @traced()
-    def activate(self, session: EditState, view: SelectToolView) -> None:
+    def activate(self, session: EditingContext, view: SelectToolView) -> None:
         self._session = session
         self._view = view  # pyright: ignore[reportIncompatibleVariableOverride]
         # SelectionService / HighlightController are per-session — reuse one
@@ -886,8 +886,8 @@ class SelectTool(ControllerTool):
             self._refresh_highlight()
             if self._session is not None:
                 # GUI-only Qt signal: only EditorSession carries it, not the
-                # Qt-free EditState protocol / HeadlessSession. Routing this
-                # through an EditState notify verb is deferred (docs/todo.md).
+                # Qt-free EditingContext protocol / HeadlessSession. Routing this
+                # through an EditingContext notify verb is deferred (docs/todo.md).
                 self._session.highlight_mode_changed.emit(  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
                     RELATION_LABELS[relation]
                 )
@@ -1321,7 +1321,7 @@ class SelectTool(ControllerTool):
         # 1) Glide the dragged items to their current (already-mutated) layout
         #    positions.  _on_drag_moved reads layout.placements / wires directly.
         # GUI-only Qt signal (see the highlight_mode_changed note above) —
-        # absent from the Qt-free EditState protocol; deferred (docs/todo.md).
+        # absent from the Qt-free EditingContext protocol; deferred (docs/todo.md).
         self._session.drag_moved.emit()  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
 
         # 2) Conflict label + outline colour — cleared whenever the drop is clear.

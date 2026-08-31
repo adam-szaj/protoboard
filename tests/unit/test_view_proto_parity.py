@@ -88,33 +88,33 @@ def _headless_session():
 
 
 def test_headless_session_covers_edit_state() -> None:
-    # EditState (controller/editing/controller.py) is the state contract every
+    # EditingContext (controller/editing/controller.py) is the state contract every
     # EditController verb + tool reads. The Qt-free HeadlessSession is its base
-    # implementation, so it must expose every EditState member — otherwise a
+    # implementation, so it must expose every EditingContext member — otherwise a
     # headless driver hits an AttributeError the GUI session masks. Check a live
     # instance: several members are __init__-assigned attrs, invisible on the class.
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditingContext
 
-    required = _protocol_members(EditState)
+    required = _protocol_members(EditingContext)
     available = set(dir(_headless_session()))
     missing = required - available
     assert not missing, (
-        "HeadlessSession is missing EditState members (drift): " f"{sorted(missing)}"
+        "HeadlessSession is missing EditingContext members (drift): "
+        f"{sorted(missing)}"
     )
 
 
 def test_preview_state_covers_edit_state() -> None:
-    # PreviewState is a read-through EditState proxy; growing EditState means it
-    # must delegate the new members too, else a preview-mode drag hits an
-    # AttributeError. Guard it against the same drift.
-    from protoboard.controller.editing.controller import EditState
+    # PreviewState is a read-through EditingContext proxy; when the contract grows,
+    # it must delegate new members too, else preview-mode drag hits AttributeError.
+    from protoboard.controller.editing.controller import EditingContext
     from protoboard.controller.editing.preview_state import PreviewState
 
     live = _headless_session()
     preview = PreviewState(live, live.layout)  # type: ignore[arg-type]
-    required = _protocol_members(EditState)
+    required = _protocol_members(EditingContext)
     available = set(dir(preview))
     missing = required - available
     assert not missing, (
-        "PreviewState is missing EditState members (drift): " f"{sorted(missing)}"
+        "PreviewState is missing EditingContext members (drift): " f"{sorted(missing)}"
     )

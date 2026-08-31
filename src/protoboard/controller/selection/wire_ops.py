@@ -22,7 +22,7 @@ from protoboard.domain.layout.wire_utils import board_pads_for_side
 if TYPE_CHECKING:
     import uuid
 
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.geometry import Point
 
@@ -43,7 +43,7 @@ class SimplifyInputs:
     pad_index: PadIndex
 
 
-def build_simplify_inputs(session: EditState) -> SimplifyInputs:
+def build_simplify_inputs(session: EditingContext) -> SimplifyInputs:
     """Collect the simplify-pass inputs from session-level caches.
 
     * ``pin_positions`` — every component pin position ("don't drop a pin").

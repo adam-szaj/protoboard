@@ -40,7 +40,7 @@ from protoboard.controller.tools.base import ControllerTool
 from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.wire_edit_arm import WireEditArm
     from protoboard.controller.ports import HoverEvent, PointerInput
     from protoboard.controller.selection.adapters import WireVertexSelectable
@@ -108,7 +108,7 @@ class WireEditTool(ControllerTool):
     # -- lifecycle ----------------------------------------------------------
 
     @traced()
-    def activate(self, session: EditState, view: object) -> None:
+    def activate(self, session: EditingContext, view: object) -> None:
         from protoboard.controller.editing.wire_edit_arm import WireEditArm
         from protoboard.controller.selection.service import SelectionService
 

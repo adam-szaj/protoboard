@@ -26,7 +26,7 @@ from protoboard.domain.schematic.wire_net_ops import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditingContext
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.wire_net_ops import (
@@ -42,7 +42,7 @@ _log = structlog.get_logger(__name__)
 
 
 def resolve_wire_nets(
-    session: EditState,
+    session: EditingContext,
     wire: Wire,
     cmd: AddWireWithNetsCommand,
     merge_prompt: NetMergePrompt | None = None,
@@ -97,7 +97,7 @@ def _snapshot(net: Net) -> Net:
 
 
 def _create_new_net(
-    session: EditState,
+    session: EditingContext,
     cmd: AddWireWithNetsCommand,
     cl: WireNetClassification,
 ) -> None:
@@ -117,7 +117,7 @@ def _create_new_net(
 
 
 def _extend_net(
-    session: EditState,
+    session: EditingContext,
     cmd: AddWireWithNetsCommand,
     cl: WireNetClassification,
 ) -> None:
@@ -143,7 +143,7 @@ def _extend_net(
 
 
 def _merge_nets(
-    session: EditState,
+    session: EditingContext,
     cmd: AddWireWithNetsCommand,
     net_a: Net,
     net_b: Net,

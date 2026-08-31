@@ -124,7 +124,7 @@ class CutTool(
         # Same ``object``-typed signature as every sibling tool's ``activate``
         # (PlaceTool/RouteTool/…): the View seam (``_Tool``) types activate as
         # ``(EditorSession, AbstractBoardView)``, which ``ControllerTool``'s
-        # Qt-free ``(EditState, _ViewProto)`` does not match — so the concrete
+        # Qt-free ``(EditingContext, _ViewProto)`` does not match — so the concrete
         # tools re-declare it wide.  No extra activation work for CutTool.
         from protoboard.controller.tools.base import ControllerTool
 

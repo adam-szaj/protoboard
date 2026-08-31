@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditingContext
 
 
 def component_locked_in_group(
-    state: EditState,
+    state: EditingContext,
     comp_id: uuid.UUID,
     *,
     active_group_id: uuid.UUID,
@@ -50,7 +50,7 @@ def component_locked_in_group(
 
 
 def wire_locked_in_group(
-    state: EditState,
+    state: EditingContext,
     wire_id: uuid.UUID,
     *,
     active_group_id: uuid.UUID,

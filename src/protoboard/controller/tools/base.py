@@ -11,7 +11,7 @@ from protoboard.instrumentation.debug_trace import traced
 if TYPE_CHECKING:
     import uuid
 
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.controller.ports import (
         ExecutorPort,
         HoverEvent,
@@ -92,17 +92,17 @@ class ControllerTool:
         # Bound on activate(); set to None up-front so that pre-activate code
         # paths (e.g. MainWindow applies user preferences to a freshly built
         # SelectTool) can ``if self._session is not None`` without AttributeError.
-        # Type is narrowed to the real EditState after activate(); existing
+        # Type is narrowed to the real EditingContext after activate(); existing
         # callers all access these only via the event-handler paths that run
         # *after* activate().
-        self._session: EditState = None  # type: ignore[assignment]
+        self._session: EditingContext = None  # type: ignore[assignment]
         self._view: _ViewProto | None = None
 
     def __json_repr__(self) -> str:
         return str(type(self))
 
     @traced()
-    def activate(self, session: EditState, view: _ViewProto) -> None:
+    def activate(self, session: EditingContext, view: _ViewProto) -> None:
         self._session = session
         self._view = view
 

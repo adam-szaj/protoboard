@@ -19,7 +19,7 @@ from protoboard.services.routing.astar import find_paths
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.wire_nets import NetMergePrompt
     from protoboard.controller.ports import PointerInput
     from protoboard.controller.tools.base import _ViewProto
@@ -83,7 +83,7 @@ class RouteTool(ControllerTool):
         # currently pushed so commit/cancel can pop exactly once.
         self._route_highlight_active: bool = False
 
-    def activate(self, session: EditState, view: object) -> None:
+    def activate(self, session: EditingContext, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
         # No transient highlight on bare activation — RouteTool only
         # dims when the user is actively pulling a wire (i.e. after the

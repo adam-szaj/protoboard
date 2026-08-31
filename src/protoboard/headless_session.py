@@ -155,7 +155,7 @@ class HeadlessSession:
         # domain/controller concepts (RoutingSettings is domain, SelectionService
         # is controller) that merely happened to be initialised on the GUI
         # session during the migration — declared here so a headless driver
-        # carries them too and the ``EditState`` contract can name them.
+        # carries them too and the ``EditingContext`` contract can name them.
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.selection_service: SelectionService | None = None
         # The shared highlight stack the controller tools push/pop dimming onto.

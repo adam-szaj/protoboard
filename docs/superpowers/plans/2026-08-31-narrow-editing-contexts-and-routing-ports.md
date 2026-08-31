@@ -98,7 +98,7 @@ This plan is complete when:
   used by snap/drag: `comp_spatial_index`, `iter_pin_positions`, `group_tree`,
   and `cached_wire_net_map`.
 
-- [ ] **Step 1: Add failing context-surface tests**
+- [x] **Step 1: Add failing context-surface tests**
 
 In `tests/unit/test_editing_contexts.py`, reuse the live headless-session fixture
 and assert it satisfies every runtime-checkable constituent and the composite:
@@ -116,7 +116,7 @@ def test_headless_session_satisfies_editing_contexts() -> None:
 
 Add an AST assertion that no class named `EditState` remains after migration.
 
-- [ ] **Step 2: Run the new test and verify the intended failure**
+- [x] **Step 2: Run the new test and verify the intended failure**
 
 Run:
 
@@ -126,7 +126,7 @@ Run:
 
 Expected: FAIL because `controller.editing.contexts` does not exist.
 
-- [ ] **Step 3: Define the protocols without runtime implementations**
+- [x] **Step 3: Define the protocols without runtime implementations**
 
 Create `contexts.py` using `@runtime_checkable` and `Protocol`. Keep all heavy
 domain/controller types in `TYPE_CHECKING`; use only exact existing signatures.
@@ -148,14 +148,14 @@ class EditingContext(
 Do not add adapters or `__getattr__`; `HeadlessSession` and `EditorSession`
 satisfy the protocols structurally.
 
-- [ ] **Step 4: Repoint the broad type name mechanically**
+- [x] **Step 4: Repoint the broad type name mechanically**
 
 Move the protocol out of `controller.py`, rename broad uses to
 `EditingContext`, and export only `EditController`, `EditingContext`, and
 `ResolvedPlacement` from the appropriate modules. Replace all controller
 imports of `EditState`; do not leave `EditState = EditingContext`.
 
-- [ ] **Step 5: Verify type and parity contracts**
+- [x] **Step 5: Verify type and parity contracts**
 
 Run:
 
@@ -168,7 +168,7 @@ rg -n '\bEditState\b' src tests
 
 Expected: tests/type checks pass and the search has no output.
 
-- [ ] **Step 6: Commit the context vocabulary**
+- [x] **Step 6: Commit the context vocabulary**
 
 ```bash
 git add src/protoboard/controller tests/unit/test_editing_contexts.py tests/unit/test_view_proto_parity.py

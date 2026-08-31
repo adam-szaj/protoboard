@@ -30,7 +30,7 @@ from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 from protoboard.controller.tools.base import ControllerTool
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing import EditState
+    from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.armed_transform import ArmedTransform
     from protoboard.controller.editing.controller import EditController
     from protoboard.controller.ports import PointerInput, WheelInput
@@ -108,7 +108,7 @@ class ArmedTransformTool(ControllerTool):
 
     # -- lifecycle ----------------------------------------------------------
 
-    def activate(self, session: EditState, view: object) -> None:
+    def activate(self, session: EditingContext, view: object) -> None:
         self._session = session
         # The View seam types activate's ``view`` as ``object`` to satisfy both
         # the controller (_ViewProto) and GUI (AbstractBoardView) signatures;

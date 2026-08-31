@@ -10,6 +10,7 @@ headless CLI/test front-ends alike — the same mechanical rule that keeps
   — the stateless verb surface that both GUI tools and a CLI drive.
 """
 
-from protoboard.controller.editing.controller import EditController, EditState
+from protoboard.controller.editing.contexts import EditingContext
+from protoboard.controller.editing.controller import EditController
 
-__all__ = ["EditController", "EditState"]
+__all__ = ["EditController", "EditingContext"]

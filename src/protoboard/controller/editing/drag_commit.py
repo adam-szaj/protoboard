@@ -15,13 +15,13 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing.controller import EditState
+    from protoboard.controller.editing.controller import EditingContext
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.layout.drag_analysis import DragAnalysis
 
 
 def classify_drag_commit(
-    session: EditState,
+    session: EditingContext,
     moved_comp_ids: set[uuid.UUID],
     dragged_wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
     drag_set_members: frozenset[uuid.UUID] | None = None,
@@ -97,7 +97,7 @@ def classify_drag_commit(
     )
 
 
-def _build_drag_pad_index(session: EditState) -> PadIndex | None:
+def _build_drag_pad_index(session: EditingContext) -> PadIndex | None:
     """Build a fresh PadIndex reflecting the live (post-drag) layout.
 
     Returns None when *session* lacks a ``board`` (test stubs) or

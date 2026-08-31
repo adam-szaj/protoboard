@@ -10,7 +10,7 @@ stateful the way an active place-tool is. Selection is model state (read from
 ``state``); the driver (GUI ``SelectTool``, or the CLI) still owns the active
 group and passes it in.
 
-State is taken through the :class:`EditState` Protocol, satisfied structurally
+State is taken through the :class:`EditingContext` protocol, satisfied structurally
 by both :class:`~protoboard.headless_session.HeadlessSession`
 and the GUI ``EditorSession``. Qt-free by construction — the same mechanical
 rule that keeps ``domain/`` display-independent (CLAUDE.md §3).
@@ -26,15 +26,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, cast
 
+from protoboard.controller.editing.contexts import EditingContext
 from protoboard.controller.editing.item_handle import ItemTag
 from protoboard.domain.commands.base import (
     Command,
     CommandRejectedError,
-    CommandStack,
     ComponentState,
-    SchematicState,
 )
 
 if TYPE_CHECKING:
@@ -52,27 +51,18 @@ if TYPE_CHECKING:
     )
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing.wire_nets import NetMergePrompt
-    from protoboard.controller.highlight_stack import HighlightStackBase
     from protoboard.controller.ports.drc import DRCIssue
     from protoboard.controller.ports.edit_services import (
         EditServicePorts,
         RouteResult,
     )
     from protoboard.controller.selection.drop_resolution import ResolveFn
-    from protoboard.controller.selection.service import SelectionService
     from protoboard.controller.tools.base import ControllerTool
-    from protoboard.domain.axis_labels_settings import AxisLabelSettings
-    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.components.package import PackageFamily
-    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.group import ComponentGroup
-    from protoboard.domain.layout.group_tree import GroupTree
-    from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.geometry import Point, Rect, Vector
+    from protoboard.geometry import Point, Vector
     from protoboard.types import Side
 
 
@@ -150,7 +140,11 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
     from protoboard.domain.commands.group_cmds import DisbandGroupCommand
 
     def keep_wire(
-        state: EditState, wid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+        state: EditingContext,
+        wid: uuid.UUID,
+        *,
+        active_group_id: uuid.UUID,
+        force: bool,
     ) -> bool:
         return state.wire_by_id(wid) is not None and (
             force
@@ -158,14 +152,22 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
         )
 
     def keep_component(
-        state: EditState, cid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+        state: EditingContext,
+        cid: uuid.UUID,
+        *,
+        active_group_id: uuid.UUID,
+        force: bool,
     ) -> bool:
         return cid in state.layout.placements and not component_locked_in_group(
             state, cid, active_group_id=active_group_id
         )
 
     def keep_group(
-        state: EditState, gid: uuid.UUID, *, active_group_id: uuid.UUID, force: bool
+        state: EditingContext,
+        gid: uuid.UUID,
+        *,
+        active_group_id: uuid.UUID,
+        force: bool,
     ) -> bool:
         return gid in state.layout.groups
 
@@ -183,115 +185,6 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
             command=lambda gid: DisbandGroupCommand(group_id=gid),
         ),
     }
-
-
-@runtime_checkable
-class EditState(SchematicState, Protocol):
-    """State substrate an :class:`EditController` verb needs.
-
-    A structural protocol — ``HeadlessSession`` and ``EditorSession`` satisfy
-    it without inheriting. Extends :class:`SchematicState` (board / layout /
-    instances / components / schematic — the members every command reads) with
-    the :class:`CommandStack` the controller runs commands through, the package-
-    family catalogue variant-aware verbs need, and the read helpers the group-
-    lock guards / crossing-wire scan use (:meth:`wire_by_id`, :meth:`group_tree`,
-    :meth:`cached_wire_net_map`, :meth:`conflict_scanner`).
-
-    ``notify_changed`` is the side-effect hook — the GUI session emits
-    ``layout_changed`` from it so panels/DRC refresh; a headless driver leaves
-    it a no-op (:meth:`HeadlessSession.notify_changed`).
-    """
-
-    stack: CommandStack[ComponentState]
-    package_families: dict[str, PackageFamily]
-    axis_label_settings: AxisLabelSettings
-
-    def wire_by_id(self, wire_id: uuid.UUID) -> Wire | None: ...
-    def group_tree(self) -> GroupTree: ...
-    def cached_wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]: ...
-    def conflict_scanner(
-        self, *, pad_index: PadIndex | None = ...
-    ) -> ConflictScanner: ...
-    def pad_index(self) -> PadIndex: ...
-    def connectivity_graph(self) -> ConnectivityGraph: ...
-    def get_pin_position(self, comp_id: uuid.UUID, pin_number: int) -> Point | None: ...
-    def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]: ...
-    def wire_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]: ...
-    def iter_pin_positions(self, comp_id: uuid.UUID) -> list[tuple[int, Point]]: ...
-    def meta_pin_for_package_pin(
-        self, comp_id: uuid.UUID, package_pin_number: int
-    ) -> int | None: ...
-
-    def selection(self) -> frozenset[ItemId]:
-        """The currently-selected items, as tagged :class:`ItemId`s.
-
-        The controller's selection-relative verbs (``rotate()`` / ``flip()``
-        with no ids) read this. GUI and headless back it differently — a
-        headless session holds an ``ItemId`` set directly; the GUI bridges its
-        ``Hit``-based ``SelectionService`` — but both present the same shape.
-        """
-        ...
-
-    def select(self, ids: Iterable[ItemId]) -> None:
-        """Replace the current selection with *ids* (the ``select these`` op)."""
-        ...
-
-    def notify_changed(self) -> None:
-        """Signal that a command mutated the layout (GUI: emit; headless: no-op)."""
-        ...
-
-    def notify_active_tool_changed(self) -> None:
-        """Signal that :attr:`EditController.active_tool` changed (GUI: emit;
-        headless: no-op).  The View consumes this to swap its KeyMap layer."""
-        ...
-
-    def notify_selection(
-        self,
-        comp_ids: frozenset[uuid.UUID],
-        wire_ids: frozenset[uuid.UUID],
-        net_id: uuid.UUID | None,
-    ) -> None:
-        """Broadcast selection state to panels (GUI: emit; headless: no-op)."""
-        ...
-
-    # -- session state controller tools read/write ---------------------------
-
-    @property
-    def edit_controller(self) -> EditController:
-        """The session's verb surface (built once per session)."""
-        ...
-
-    routing_settings: RoutingSettings
-    selection_service: SelectionService | None
-
-    # Read-only *property* rather than a mutable attribute: the GUI session
-    # narrows it to the ``HighlightStack`` subclass, and a mutable-attribute
-    # Protocol member is invariant (the subclass would fail the structural
-    # check).  Nothing outside a session's ``__init__`` reassigns it, so a
-    # covariant read-only member is both sound and sufficient.
-    @property
-    def highlight_stack(self) -> HighlightStackBase: ...
-
-    def set_routing_net(self, net_id: uuid.UUID | None) -> None:
-        """Mark a net as actively routed (RouteTool while drawing); None clears."""
-        ...
-
-    @property
-    def routing_net_id(self) -> uuid.UUID | None:
-        """The net RouteTool is currently drawing (None when idle)."""
-        ...
-
-    def component_bbox(self, comp_id: uuid.UUID) -> Rect | None:
-        """Cached world-space bounding box of a placed component."""
-        ...
-
-    def cached_plated_through_pads(self) -> set[Point]:
-        """Board-only set of plated-through pad centres (cached)."""
-        ...
-
-    def invalidate_graph(self) -> None:
-        """Drop the cached connectivity graph + derived read caches."""
-        ...
 
 
 def _never_matches(inp: object, action_id: str) -> bool:
@@ -316,7 +209,7 @@ class EditController:
     :attr:`state`), not controller state.
     """
 
-    def __init__(self, state: EditState, ports: EditServicePorts) -> None:
+    def __init__(self, state: EditingContext, ports: EditServicePorts) -> None:
         self._state = state
         self._ports = ports
         # Interaction state for the active armed transform (rotate/move/flip).
@@ -332,7 +225,7 @@ class EditController:
         self._active_tool: ControllerTool | None = None
 
     @property
-    def state(self) -> EditState:
+    def state(self) -> EditingContext:
         return self._state
 
     @property
@@ -1609,7 +1502,7 @@ class EditController:
 
         # While a transform is armed, snap against its PREVIEW pose (the live
         # layout stays pristine) so a pivot-click lands on the moved pins.
-        state: EditState = self._state
+        state: EditingContext = self._state
         if self._armed is not None:
             from protoboard.controller.editing.preview_state import PreviewState
 
@@ -1715,4 +1608,4 @@ class EditController:
         return True
 
 
-__all__ = ["EditController", "EditState", "ResolvedPlacement"]
+__all__ = ["EditController", "EditingContext", "ResolvedPlacement"]

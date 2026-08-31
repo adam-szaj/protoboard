@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
-from protoboard.controller.editing import EditController, EditState
+from protoboard.controller.editing import EditController, EditingContext
 from protoboard.controller.ports.drc import DRCIssue
 from protoboard.controller.ports.edit_services import (
     AutoroutePort,
@@ -102,7 +102,7 @@ def test_autoroute_forwards_current_project_to_injected_port(tmp_path: Path) -> 
         projects=cast(ProjectStorePort, object()),
         export=cast(BoardExportPort, object()),
     )
-    controller = EditController(cast(EditState, session), ports)
+    controller = EditController(cast(EditingContext, session), ports)
     settings = RoutingSettings()
     net_ids = {uuid.uuid4()}
     report_path = tmp_path / "route-report.json"
@@ -141,7 +141,7 @@ def test_run_drc_forwards_current_connectivity_to_injected_port() -> None:
     ]
     drc = _RecordingDrc(expected)
     controller = EditController(
-        cast(EditState, session),
+        cast(EditingContext, session),
         EditServicePorts(
             autoroute=cast(AutoroutePort, object()),
             drc=drc,
@@ -171,7 +171,7 @@ def test_save_forwards_current_project_to_injected_port(tmp_path: Path) -> None:
     session = _session()
     projects = _RecordingProjects()
     controller = EditController(
-        cast(EditState, session),
+        cast(EditingContext, session),
         EditServicePorts(
             autoroute=cast(AutoroutePort, object()),
             drc=cast(DrcPort, object()),
@@ -198,7 +198,7 @@ def test_export_forwards_current_render_state_to_injected_port(tmp_path: Path) -
     session = _session()
     exporter = _RecordingExport()
     controller = EditController(
-        cast(EditState, session),
+        cast(EditingContext, session),
         EditServicePorts(
             autoroute=cast(AutoroutePort, object()),
             drc=cast(DrcPort, object()),
