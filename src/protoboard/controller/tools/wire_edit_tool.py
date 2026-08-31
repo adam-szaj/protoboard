@@ -841,8 +841,7 @@ class WireEditTool(ControllerTool):
         return self._session.cached_wire_net_map()
 
     def _refresh_after_wire_op(self) -> None:
-        if self._view is not None:
-            self._view.refresh()
+        self._refresh_view()
 
     def _snap(self, raw: Point) -> Point:
         assert self._view is not None

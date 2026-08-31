@@ -12,6 +12,10 @@ class _FakeKeymap:
 
 class _FakeView:
     keymap = _FakeKeymap()
+    refresh_count = 0
+
+    def refresh(self) -> None:
+        self.refresh_count += 1
 
 
 class _FakeController:
@@ -57,3 +61,13 @@ def test_execute_command_is_shared_by_controller_tools():
 
     assert tool._execute_command(command) is True
     assert session.edit_controller.command is command
+
+
+def test_refresh_view_is_safe_before_activation():
+    tool = ControllerTool()
+    tool._refresh_view()
+
+    view = _FakeView()
+    tool._view = view  # type: ignore[assignment]
+    tool._refresh_view()
+    assert view.refresh_count == 1

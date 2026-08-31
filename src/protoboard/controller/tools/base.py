@@ -134,6 +134,11 @@ class ControllerTool:
         """Execute *cmd* through the session's controller facade."""
         return self._session.edit_controller.execute_command(cmd)
 
+    def _refresh_view(self) -> None:
+        """Refresh the bound view when this tool has been activated."""
+        if self._view is not None:
+            self._view.refresh()
+
     def can_exit(self) -> bool:
         """May ``[Esc]`` exit this tool now? Tools with a pending operation
         override to return False so the first Esc cancels the op (stay active)

@@ -1034,8 +1034,7 @@ class SelectTool(ControllerTool):
         self._clear_drag_corner()
         self._report_drag_outcome(mouse)
         self._refresh_highlight()
-        if self._view is not None:
-            self._view.refresh()
+        self._refresh_view()
 
     def _clear_on_empty_band_click(self, mouse: MouseInputController) -> None:
         """A plain click on the empty board clears the selection.
@@ -1600,8 +1599,7 @@ class SelectTool(ControllerTool):
             self._refresh_highlight()
             if dropped:
                 self._status(f"Removed {dropped} wire(s) (Ctrl+Z to undo)", 4000)
-            if self._view is not None:
-                self._view.refresh()
+            self._refresh_view()
         return True
 
     def _cancel_gesture(self) -> None:
@@ -1880,8 +1878,7 @@ class SelectTool(ControllerTool):
             return
         self._execute_command(cmd)
         self._refresh_highlight()
-        if self._view is not None:
-            self._view.refresh()
+        self._refresh_view()
 
     def _build_redrag_command(
         self, comp_id: uuid.UUID, pin: int, target: Point
@@ -2236,8 +2233,7 @@ class SelectTool(ControllerTool):
 
     def _refresh_after_wire_op(self) -> None:
         self._refresh_highlight()
-        if self._view is not None:
-            self._view.refresh()
+        self._refresh_view()
 
     def _wire_edit_clear(self) -> None:
         """Reset the wire-edit *entry* state: the in-progress two-vertex pick,
