@@ -31,7 +31,7 @@ keeps the command methods those key branches call.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 import structlog
 
@@ -327,8 +327,6 @@ class SelectTool(ControllerTool):
     # -- helpers ------------------------------------------------------------
 
     def _hit_tester(self) -> HitTester:
-        from typing import cast
-
         from protoboard.types import Side
 
         return HitTester(self._session, camera_side=cast(Side, self._view.camera_side))
@@ -1291,8 +1289,6 @@ class SelectTool(ControllerTool):
         # anchor snaps under the cursor's grab point (legacy anchor-snap).
         grab = (anchor_pos.x - press.x, anchor_pos.y - press.y)
 
-        from typing import cast
-
         from protoboard.controller.selection.drag_controller import DragContext
 
         return DragController(
@@ -1521,8 +1517,6 @@ class SelectTool(ControllerTool):
         ``add`` only extends within the same relation, but a band is an explicit
         "these exact items" set that must union/subtract regardless of net.
         """
-        from typing import cast
-
         from protoboard.controller.selection.adapters import ComponentSelectable
         from protoboard.controller.selection.mouse_input import Mods
         from protoboard.controller.selection.rubber_band_controller import BandHit
@@ -1822,8 +1816,6 @@ class SelectTool(ControllerTool):
         ``on_preview`` (``(scene_pt, mods) -> None``) drives a live cursor
         preview on pointer motion (the reroute rubber-band line).
         """
-        from typing import cast
-
         from protoboard.controller.selection.point_pick_controller import (
             PointPickController,
         )
@@ -3183,8 +3175,6 @@ class SelectTool(ControllerTool):
         old QMenu data-tuples drove, keyed by the option's ``action_id`` with
         the structural payload in *data* (qt-ports §2.4, variant 1).
         """
-        from typing import cast
-
         action = action_id.removeprefix("select-tool.ctx.")
         if action == "lock":
             self._menu_lock(
@@ -3257,8 +3247,6 @@ class SelectTool(ControllerTool):
         self._session.edit_controller.set_wires_insulated(wire_ids, insulated=insulated)
 
     def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:
-        from typing import cast
-
         from protoboard.types import Side
 
         if not wire_ids:
@@ -3316,8 +3304,6 @@ class SelectTool(ControllerTool):
         )
 
     def _menu_export(self, action: str, data: Mapping[str, object]) -> None:
-        from typing import cast
-
         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
         from protoboard.domain.schematic.net import PinRef
 
@@ -3407,8 +3393,6 @@ class SelectTool(ControllerTool):
         only an interface to the Controller). Endpoint side preference: ``b``
         (last placed) when both endpoints are eligible, ``a`` otherwise.
         """
-        from typing import cast
-
         from protoboard.domain.commands.component_cmds import (
             ConvertEndpointToWirePinCommand,
         )
@@ -3454,8 +3438,6 @@ class SelectTool(ControllerTool):
 
     def convert_wire_pin_to_endpoint(self) -> None:
         """Demote every ``WirePinKnot`` owned by the selected wires to a free endpoint."""  # noqa: E501
-        from typing import cast
-
         from protoboard.domain.commands.base import compose_command
         from protoboard.domain.commands.component_cmds import (
             ConvertWirePinToEndpointCommand,
@@ -3540,8 +3522,6 @@ class SelectTool(ControllerTool):
         "Wire: Move to Top/Bottom Layer". The per-fragment toggle flip is
         :meth:`flip_selected_wires`; the per-fragment [F] op is WireEditTool's.
         """
-        from typing import cast
-
         from protoboard.types import Side
 
         wire_ids = self._selected_by_kind("wire")
@@ -3648,8 +3628,6 @@ class SelectTool(ControllerTool):
         mode_override: str | None = None,
     ) -> None:
         """Run generic_simplify_wire on each wire id (in a worker), apply changes."""
-        from typing import cast
-
         from protoboard.controller.ports import BlockingJob
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
         from protoboard.domain.routing.simplify_mode import SimplifyMode
@@ -3719,8 +3697,6 @@ class SelectTool(ControllerTool):
 
     def unweave_wires(self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
-        from typing import cast
-
         from protoboard.controller.ports import BlockingJob
         from protoboard.domain.commands.component_cmds import (
             AddWireCommand,
@@ -3822,8 +3798,6 @@ class SelectTool(ControllerTool):
 
     def merge_wires_and_fragments(self, wire_ids: frozenset[uuid.UUID] | None) -> None:
         """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
-        from typing import cast
-
         from protoboard.domain.commands.component_cmds import (
             FuseTouchingWiresCommand,
         )
@@ -3952,8 +3926,6 @@ class SelectTool(ControllerTool):
         self, cmds: list[object], description: str, *, invalidate: bool = False
     ) -> None:
         """Execute one-or-many wire commands as a macro, then refresh the view."""
-        from typing import cast
-
         from protoboard.domain.commands.base import compose_command
 
         typed = cast("list[Command[ComponentState]]", cmds)
