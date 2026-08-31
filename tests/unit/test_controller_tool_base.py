@@ -57,6 +57,10 @@ def test_matches_key_false_without_view():
     assert tool.matches_key(inp, "test.hit") is False
 
 
+def test_active_wire_id_is_empty_for_tools_without_wire_editing():
+    assert ControllerTool().active_wire_id is None
+
+
 def test_execute_command_is_shared_by_controller_tools():
     tool = ControllerTool()
     session = _FakeSession()

@@ -718,8 +718,8 @@ class HighlightRenderer:
         tool = self._view.active_tool
         selected: set[uuid.UUID] = set(getattr(tool, "selected_wire_ids", set()))
         # Don't double-draw over a wire the tool is editing in place.
-        editing = bool(getattr(tool, "is_wire_editing", lambda: False)())
-        edit_wire = getattr(tool, "_wire_edit_wire_id", None) if editing else None
+        editing = tool is not None and tool.state == "wire_edit"
+        edit_wire = tool.active_wire_id if editing and tool is not None else None
 
         # 1. Drop overlays for wires no longer selected (or now being edited).
         for wid in set(self._wire_select_overlays):

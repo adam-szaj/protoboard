@@ -189,6 +189,11 @@ class ControllerTool:
         """The current interaction state.  Default: idle, no sub-state."""
         return "idle"
 
+    @property
+    def active_wire_id(self) -> uuid.UUID | None:
+        """The wire currently being edited, or ``None`` for other tools."""
+        return None
+
     def _synth_pointer(
         self, point: Point, mods: Mods, *, primary: bool
     ) -> PointerInput:

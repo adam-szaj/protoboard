@@ -437,6 +437,13 @@ ungrouping, and autoroute selection lookup instead of repeating active-tool
 type checks. The focused action/selection suite (181 tests) and all static
 checks pass with no behaviour change.
 
+The renderer seam now uses the controller tool's public `state` and
+`active_wire_id` ports. This removes the reflective probe of the deleted
+`is_wire_editing` convention and the direct private `_wire_edit_wire_id`
+access. Full verification remains green: 2,871 unit tests passed (68 skipped),
+1,495 GUI tests passed offscreen (1 expected xfail, 1 known PySide warning),
+and Ruff, Black, strict mypy, and Pyright report no issues.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.

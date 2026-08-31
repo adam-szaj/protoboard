@@ -559,12 +559,7 @@ class SceneComposer:
         clutter / occlude the handles the user is dragging.
         """
         tool = self._view.active_tool
-        # ``is_wire_editing`` is WireEditTool-specific — not on the _Tool
-        # protocol; probe it dynamically (a non-wire tool simply lacks it).
-        _is_wire_editing = getattr(tool, "is_wire_editing", None)
-        _wire_editing = bool(
-            _is_wire_editing() if callable(_is_wire_editing) else False
-        )
+        _wire_editing = tool is not None and tool.state == "wire_edit"
         if not (pp_records and not _wire_editing):
             self._rebuild_item_list(scene, self._pin_modifier_items, tuple)
             self._pin_modifier_items = []

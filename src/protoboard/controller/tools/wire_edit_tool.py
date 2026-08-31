@@ -198,6 +198,11 @@ class WireEditTool(ControllerTool):
     def state(self) -> str:
         return "wire_edit" if self._wire_edit is not None else "select.idle"
 
+    @property
+    def active_wire_id(self) -> uuid.UUID | None:
+        """The wire owning the current edit range, if one is armed."""
+        return self._wire_edit_wire_id
+
     # -- commands -----------------------------------------------------------
 
     def command_table(self) -> dict[str, Callable[[], object]]:
