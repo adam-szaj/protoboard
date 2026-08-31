@@ -32,18 +32,15 @@ run placement, package-reach, connectivity, and GUI smoke tests.
 
 ### Task 2: Separate group value objects from group-tree queries — [x]
 
-Move the free query shims currently in `domain/layout/group.py` to a dedicated
-`domain/layout/group_queries.py` module (or update callers directly to
-`GroupTree`). Keep `ComponentGroup` as a leaf value object. Update all source and
-tests imports, remove the reverse `group -> group_tree` dependency, and preserve
-the existing query tests.
+Keep `ComponentGroup` as a leaf value object and keep recursive queries on
+`GroupTree`. The rebased base branch already applied the direct-query variant,
+so no `group_queries` compatibility facade is carried forward.
 
 ### Task 3: Narrow the editing-state dependency graph — [x]
 
-Extract shared protocols/value types used by `editing.controller`,
-`headless_session`, `armed_transform`, and `preview_state` into a leaf
-`controller/editing/state_ports.py`. Update imports and add a cycle regression
-test; do not split or rename `EditState` fields without evidence from callers.
+Keep the shared component spatial-index builder in the leaf
+`controller/editing/spatial_index.py`; the rebased base branch provides the
+`build_component_spatial_index` contract consumed by live and preview state.
 
 ### Task 4: Break service registration cycles — [x]
 
@@ -54,10 +51,8 @@ so the component and family loaders share a leaf dependency.
 
 ### Task 5: Re-run the SCC audit and full verification — [x]
 
-Require zero unexpected runtime SCCs in the targeted domain/controller/service
-groups. The AST contract test now checks the complete runtime graph (including
-function-local imports while excluding `TYPE_CHECKING` imports). The graph has
-zero runtime SCCs. Full unit and offscreen GUI suites pass, as do Ruff, Black,
-and the layer boundary checks. Mypy and Pyright retain only the three known
-`QTreeWidgetItem | None` diagnostics in
+The rebased base branch retains one known domain SCC (`group_tree` ↔
+`pad_conflict`); no replayed commit introduces an additional cycle. The
+post-rebase focused suite passes (392 tests), as do Ruff and Black. Mypy and
+Pyright retain only the three known `QTreeWidgetItem | None` diagnostics in
 `gui/dialogs/footprint_picker_dialog.py`; no changed module adds a diagnostic.
