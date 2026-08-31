@@ -1036,13 +1036,11 @@ def _check_group_exports(
     silently ignored — they're either orphan exports or unplaced pins, and
     the user explicitly chose to suppress that case.
     """
-    from protoboard.domain.layout.group import (
-        all_component_ids,
-        validate_exported_pins,
-    )
+    from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
     issues: list[DRCIssue] = []
+    tree = GroupTree(layout.groups)
     for gid, group in layout.groups.items():
         if gid == ROOT_GROUP_ID:
             continue
@@ -1051,7 +1049,7 @@ def _check_group_exports(
         # Checked first because a grandchild pin floating in G.exported_pins
         # would otherwise satisfy MISSING for the net it lives on while
         # bypassing the intermediate group's interface.
-        invalid = validate_exported_pins(layout.groups, gid)
+        invalid = tree.validate_exported_pins(gid)
         for ep in invalid:
             ref = PinRef(component_id=ep.component_id, pin_number=ep.pin_number)
             group_label = group.name or f"<{str(gid)[:8]}>"
@@ -1074,7 +1072,7 @@ def _check_group_exports(
                 )
             )
 
-        member_ids = all_component_ids(layout.groups, gid)
+        member_ids = tree.all_component_ids(gid)
         if not member_ids:
             continue
 

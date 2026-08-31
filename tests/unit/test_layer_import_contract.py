@@ -6,6 +6,22 @@ from pathlib import Path
 
 SRC = Path(__file__).parents[2] / "src" / "protoboard"
 
+_LEGACY_GROUP_QUERIES = frozenset(
+    {
+        "all_component_ids",
+        "exposable_surface",
+        "external_pins_for_group",
+        "internal_net_ids_for_components",
+        "parent_group_of",
+        "promote_selection_to_top_level",
+        "schematic_projection_for_group",
+        "top_level_group_for",
+        "top_level_group_under",
+        "validate_exported_pins",
+        "would_create_cycle",
+    }
+)
+
 
 def _imported_modules(path: Path) -> list[tuple[int, str]]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -69,3 +85,33 @@ def test_instrumentation_is_dependency_neutral() -> None:
             "protoboard.gui",
         ),
     )
+
+
+def test_group_queries_use_group_tree_without_legacy_shims() -> None:
+    group_path = SRC / "domain/layout/group.py"
+    group_tree = ast.parse(
+        group_path.read_text(encoding="utf-8"), filename=str(group_path)
+    )
+    definitions = {
+        node.name
+        for node in group_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in _LEGACY_GROUP_QUERIES
+    }
+
+    imports: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module != "protoboard.domain.layout.group":
+                continue
+            for alias in node.names:
+                if alias.name in _LEGACY_GROUP_QUERIES:
+                    imports.append(
+                        f"{path.relative_to(SRC)}:{node.lineno}: {alias.name}"
+                    )
+
+    assert not definitions, f"legacy group query definitions: {sorted(definitions)}"
+    assert not imports, "legacy group query imports:\n" + "\n".join(imports)

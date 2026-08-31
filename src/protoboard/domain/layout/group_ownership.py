@@ -133,7 +133,7 @@ def net_is_internal_to_group(
     AND the net is not global.
 
     When *groups* is provided the recursive set is computed via
-    ``all_component_ids(groups, group.id)``.  Without it the check falls
+    ``GroupTree(groups).all_component_ids(group.id)``. Without it the check falls
     back to ``group.component_ids`` (direct members only) — accepted for
     flat-tree callers and existing tests, but unsafe for nested layouts:
     a net spanning the group and one of its grandchildren would be
@@ -150,9 +150,9 @@ def net_is_internal_to_group(
     if not net.pins:
         return False
     if groups is not None:
-        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.group_tree import GroupTree
 
-        group_comp_ids = all_component_ids(groups, group.id)
+        group_comp_ids = GroupTree(groups).all_component_ids(group.id)
     else:
         group_comp_ids = group.component_ids
     exported = {(ep.component_id, ep.pin_number) for ep in group.exported_pins}
@@ -319,7 +319,7 @@ def wire_is_owned_by_group(
         knots: Live ``layout.knots`` dict.  Required to resolve endpoint
             kind (PinKnot vs JointKnot) and PinKnot pin component.
         group_comp_ids: Recursive component-ID set of *group*
-            (``all_component_ids(groups, group.id)``).  Pre-computed by
+            (``GroupTree(groups).all_component_ids(group.id)``). Pre-computed by
             the caller — usually one set per drag/render frame.
         schematic: Source of truth for net membership and global flag.
     """

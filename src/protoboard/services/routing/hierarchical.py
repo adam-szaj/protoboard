@@ -6,9 +6,9 @@ Strategy:
 1. Post-order traverse ``layout.groups`` rooted at ``ROOT_GROUP_ID``.
    Visit each non-root group **after** all its descendants.
 2. For each visited group, route only the nets that are *fully internal*
-   to the group's transitive component set (``internal_net_ids_for_components``
-   from :mod:`protoboard.domain.layout.group`).  Wires from earlier groups
-   are kept in ``layout.wires`` so the next pass sees them as obstacles
+   to the group's transitive component set, resolved through
+   :class:`protoboard.domain.layout.group_tree.GroupTree`. Wires from earlier
+   groups are kept in ``layout.wires`` so the next pass sees them as obstacles
    and as same-net candidates for reuse.
 3. After the tree is exhausted, route every remaining net at the
    top level.  This is where global rails (GND/VCC) and cross-group
@@ -38,10 +38,7 @@ import structlog
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import (
-    all_component_ids,
-    internal_net_ids_for_components,
-)
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel
@@ -235,11 +232,12 @@ def hierarchical_autoroute(
         routed_net_ids.update(subset_ids)
 
     # ---- Bottom-up pass over groups ---------------------------------
+    group_tree = GroupTree(working_layout.groups)
     for gid in group_order:
         if cancel_flag is not None and cancel_flag.is_set():
             break
-        group_comps = all_component_ids(working_layout.groups, gid)
-        internal = internal_net_ids_for_components(
+        group_comps = group_tree.all_component_ids(gid)
+        internal = group_tree.internal_net_ids_for_components(
             frozenset(group_comps),
             schematic,
         )

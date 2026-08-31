@@ -8,11 +8,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from protoboard.domain.commands.base import Command, ComponentState
-from protoboard.domain.layout.group import (
-    ComponentGroup,
-    all_component_ids,
-    would_create_cycle,
-)
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.wire import transform_wire_geometry
 from protoboard.domain.schematic.net import PinRef
@@ -189,10 +185,11 @@ def _group_rotate_pivot(
     group = state.layout.groups.get(group_id)
     if group is None:
         return None
-    comp_ids = all_component_ids(state.layout.groups, group_id)
+    tree = GroupTree(state.layout.groups)
+    comp_ids = tree.all_component_ids(group_id)
     if not comp_ids:
         return None
-    tg = GroupTree(state.layout.groups).group_world_transform(group_id)
+    tg = tree.group_world_transform(group_id)
     inv = tg.inverse()
     pins = GroupTree.pin_world_positions(
         comp_ids,
@@ -337,8 +334,9 @@ class AddToGroupCommand(GroupMembershipCommand):
         return "Add to group"
 
     def _validate(self, state: ComponentState, group: ComponentGroup) -> None:
+        tree = GroupTree(state.layout.groups)
         for child_id in self.child_group_ids:
-            if would_create_cycle(state.layout.groups, self.group_id, child_id):
+            if tree.would_create_cycle(self.group_id, child_id):
                 raise ValueError(
                     f"Adding group {child_id} to {self.group_id} would create a cycle"
                 )
@@ -442,7 +440,7 @@ class RotateGroupCommand(Command[ComponentState]):
             return
         self._old_group = group
 
-        comp_ids = all_component_ids(state.layout.groups, self.group_id)
+        comp_ids = GroupTree(state.layout.groups).all_component_ids(self.group_id)
         origin = _group_rotate_pivot(state, self.group_id)
         if origin is None:
             return
@@ -603,7 +601,7 @@ class FlipGroupCommand(Command[ComponentState]):
             return
         self._old_group = group
 
-        comp_ids = all_component_ids(state.layout.groups, self.group_id)
+        comp_ids = GroupTree(state.layout.groups).all_component_ids(self.group_id)
         pivot = self.pivot or _group_pin_centroid(state, comp_ids)
         if pivot is None:
             return

@@ -20,17 +20,8 @@ from protoboard.domain.commands.group_cmds import (
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import (
-    ComponentGroup,
-    all_component_ids,
-    exposable_surface,
-    parent_group_of,
-    promote_selection_to_top_level,
-    top_level_group_for,
-    top_level_group_under,
-    validate_exported_pins,
-    would_create_cycle,
-)
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.schematic.net import PinRef
 
@@ -96,14 +87,14 @@ class TestAllComponentIds:
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         g = _make_group(comp_ids=frozenset({c1, c2}))
         groups = {g.id: g}
-        assert all_component_ids(groups, g.id) == frozenset({c1, c2})
+        assert GroupTree(groups).all_component_ids(g.id) == frozenset({c1, c2})
 
     def test_nested_group(self) -> None:
         c1, c2, c3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         child = _make_group(comp_ids=frozenset({c2, c3}))
         parent = _make_group(comp_ids=frozenset({c1}), child_ids=frozenset({child.id}))
         groups = {child.id: child, parent.id: parent}
-        assert all_component_ids(groups, parent.id) == frozenset({c1, c2, c3})
+        assert GroupTree(groups).all_component_ids(parent.id) == frozenset({c1, c2, c3})
 
     def test_cycle_protection(self) -> None:
         g1 = _make_group()
@@ -117,7 +108,7 @@ class TestAllComponentIds:
         )
         groups = {g1.id: g1_cyclic, g2.id: g2}
         # Should not hang or crash.
-        result = all_component_ids(groups, g1.id)
+        result = GroupTree(groups).all_component_ids(g1.id)
         assert isinstance(result, frozenset)
 
 
@@ -129,13 +120,13 @@ class TestAllComponentIds:
 class TestWouldCreateCycle:
     def test_self_cycle(self) -> None:
         gid = uuid.uuid4()
-        assert would_create_cycle({}, gid, gid) is True
+        assert GroupTree({}).would_create_cycle(gid, gid) is True
 
     def test_no_cycle(self) -> None:
         g1 = _make_group()
         g2 = _make_group()
         groups = {g1.id: g1, g2.id: g2}
-        assert would_create_cycle(groups, g1.id, g2.id) is False
+        assert GroupTree(groups).would_create_cycle(g1.id, g2.id) is False
 
     def test_indirect_cycle(self) -> None:
         g1 = _make_group()
@@ -143,7 +134,7 @@ class TestWouldCreateCycle:
         g3 = _make_group(child_ids=frozenset({g2.id}))
         groups = {g1.id: g1, g2.id: g2, g3.id: g3}
         # Adding g3 as child of g1 would create g1→g2→g3→g1.
-        assert would_create_cycle(groups, g1.id, g3.id) is True
+        assert GroupTree(groups).would_create_cycle(g1.id, g3.id) is True
 
 
 # ---------------------------------------------------------------------------
@@ -154,20 +145,20 @@ class TestWouldCreateCycle:
 class TestTopLevelGroupFor:
     def test_not_in_any_group(self) -> None:
         cid = uuid.uuid4()
-        assert top_level_group_for({}, cid) is None
+        assert GroupTree({}).top_level_group_for(cid) is None
 
     def test_direct_member(self) -> None:
         cid = uuid.uuid4()
         g = _make_group(comp_ids=frozenset({cid}))
         groups = {g.id: g}
-        assert top_level_group_for(groups, cid) == g.id
+        assert GroupTree(groups).top_level_group_for(cid) == g.id
 
     def test_in_child_group_returns_top(self) -> None:
         cid = uuid.uuid4()
         child = _make_group(comp_ids=frozenset({cid}))
         parent = _make_group(child_ids=frozenset({child.id}))
         groups = {child.id: child, parent.id: parent}
-        assert top_level_group_for(groups, cid) == parent.id
+        assert GroupTree(groups).top_level_group_for(cid) == parent.id
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +336,9 @@ class TestNestedGroupInvariant:
         assert state.layout.groups[parent.id].component_ids == frozenset()
         assert state.layout.groups[parent.id].child_group_ids == frozenset({child.id})
         # And the recursive collector still reports both under A.
-        assert all_component_ids(state.layout.groups, parent.id) == frozenset({c1, c2})
+        assert GroupTree(state.layout.groups).all_component_ids(parent.id) == frozenset(
+            {c1, c2}
+        )
 
     def test_create_subgroup_at_root_no_op_detach(self) -> None:
         """Ctrl+G at root level: components were never direct members of
@@ -418,7 +411,7 @@ class TestSelectionPromotion:
     def test_top_level_under_active_direct_child(self) -> None:
         """active=A, c1 ∈ B (direct child of A) → returns B."""
         groups, n = self._build_tree()
-        assert top_level_group_under(groups, n["A"], n["c1"]) == n["B"]
+        assert GroupTree(groups).top_level_group_under(n["A"], n["c1"]) == n["B"]
 
     def test_top_level_under_active_direct_member_returns_none(self) -> None:
         """active=A, c1 is a member of B but B is direct child of A; if we
@@ -432,7 +425,7 @@ class TestSelectionPromotion:
             component_ids=frozenset({free_in_a}),
             child_group_ids=groups[n["A"]].child_group_ids,
         )
-        assert top_level_group_under(groups, n["A"], free_in_a) is None
+        assert GroupTree(groups).top_level_group_under(n["A"], free_in_a) is None
 
     def test_top_level_under_active_outside_subtree_returns_none(self) -> None:
         """A and B'-as-sibling tree: active=A, c outside A's subtree → None."""
@@ -444,15 +437,15 @@ class TestSelectionPromotion:
         )
         a = ComponentGroup(id=a_id, name="A")
         groups = {a_id: a, sibling_id: sibling}
-        assert top_level_group_under(groups, a_id, c_outside) is None
+        assert GroupTree(groups).top_level_group_under(a_id, c_outside) is None
 
     def test_promote_single_component_from_subgroup(self) -> None:
         """Repro of user's 2026-06-04 scenario, simplified:
         active=root, selection includes 1 component from A=Group14 →
         promoted = (free={}, groups={A})."""
         groups, n = self._build_tree()
-        free, promoted = promote_selection_to_top_level(
-            groups, ROOT_GROUP_ID, frozenset({n["c1"]})
+        free, promoted = GroupTree(groups).promote_selection_to_top_level(
+            ROOT_GROUP_ID, frozenset({n["c1"]})
         )
         # c1 lives in B which lives in A which is direct child of root.
         # Promotion under root walks one level: c1 → A (not B).
@@ -463,8 +456,8 @@ class TestSelectionPromotion:
         """active=root, selection={c1 from A, f1 freelance} →
         promoted = (free={f1}, groups={A})."""
         groups, n = self._build_tree()
-        free, promoted = promote_selection_to_top_level(
-            groups, ROOT_GROUP_ID, frozenset({n["c1"], n["f1"]})
+        free, promoted = GroupTree(groups).promote_selection_to_top_level(
+            ROOT_GROUP_ID, frozenset({n["c1"], n["f1"]})
         )
         assert promoted == frozenset({n["A"]})
         assert free == frozenset({n["f1"]})
@@ -473,8 +466,8 @@ class TestSelectionPromotion:
         """active=A, selection={c1 from B} → promoted = (free={}, groups={B}).
         Demonstrates that the "top level" is relative to the active context."""
         groups, n = self._build_tree()
-        free, promoted = promote_selection_to_top_level(
-            groups, n["A"], frozenset({n["c1"]})
+        free, promoted = GroupTree(groups).promote_selection_to_top_level(
+            n["A"], frozenset({n["c1"]})
         )
         assert promoted == frozenset({n["B"]})
         assert free == frozenset()
@@ -485,8 +478,8 @@ class TestSelectionPromotion:
         """Selecting c1 AND c2 (both members of B) under A still promotes
         just B once, never doubles."""
         groups, n = self._build_tree()
-        free, promoted = promote_selection_to_top_level(
-            groups, n["A"], frozenset({n["c1"], n["c2"]})
+        free, promoted = GroupTree(groups).promote_selection_to_top_level(
+            n["A"], frozenset({n["c1"], n["c2"]})
         )
         assert promoted == frozenset({n["B"]})
         assert free == frozenset()
@@ -495,19 +488,20 @@ class TestSelectionPromotion:
         """active=A, selection={c1 from B, c3 from C} → both B and C
         promoted, no freelance."""
         groups, n = self._build_tree()
-        free, promoted = promote_selection_to_top_level(
-            groups, n["A"], frozenset({n["c1"], n["c3"]})
+        free, promoted = GroupTree(groups).promote_selection_to_top_level(
+            n["A"], frozenset({n["c1"], n["c3"]})
         )
         assert promoted == frozenset({n["B"], n["C"]})
         assert free == frozenset()
 
     def test_parent_group_of(self) -> None:
         groups, n = self._build_tree()
-        assert parent_group_of(groups, n["A"]) == ROOT_GROUP_ID
-        assert parent_group_of(groups, n["B"]) == n["A"]
-        assert parent_group_of(groups, n["C"]) == n["A"]
+        tree = GroupTree(groups)
+        assert tree.parent_group_of(n["A"]) == ROOT_GROUP_ID
+        assert tree.parent_group_of(n["B"]) == n["A"]
+        assert tree.parent_group_of(n["C"]) == n["A"]
         # ROOT itself has no parent.
-        assert parent_group_of(groups, ROOT_GROUP_ID) is None
+        assert tree.parent_group_of(ROOT_GROUP_ID) is None
 
 
 # ---------------------------------------------------------------------------
@@ -564,35 +558,35 @@ class TestInternalNetIds:
         return sch, names
 
     def test_internal_net_collected(self) -> None:
-        from protoboard.domain.layout.group import internal_net_ids_for_components
-
         sch, n = self._build()
-        result = internal_net_ids_for_components(frozenset({n["c1"], n["c2"]}), sch)
+        result = GroupTree({}).internal_net_ids_for_components(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert result == frozenset({n["int"]})
 
     def test_external_net_excluded(self) -> None:
-        from protoboard.domain.layout.group import internal_net_ids_for_components
-
         sch, n = self._build()
         # Group {c1} alone: N_INT no longer fully internal (c2 outside),
         # N_EXT still external (c3 outside).
-        result = internal_net_ids_for_components(frozenset({n["c1"]}), sch)
+        result = GroupTree({}).internal_net_ids_for_components(
+            frozenset({n["c1"]}), sch
+        )
         assert result == frozenset()
 
     def test_global_net_excluded_even_when_fully_internal(self) -> None:
-        from protoboard.domain.layout.group import internal_net_ids_for_components
-
         sch, n = self._build()
         # VCC pins are on {c1, c2}; both in the group — but VCC is global
         # and must NOT be reported as internal.
-        result = internal_net_ids_for_components(frozenset({n["c1"], n["c2"]}), sch)
+        result = GroupTree({}).internal_net_ids_for_components(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert n["vcc"] not in result
 
     def test_empty_net_excluded(self) -> None:
-        from protoboard.domain.layout.group import internal_net_ids_for_components
-
         sch, n = self._build()
-        result = internal_net_ids_for_components(frozenset({n["c1"], n["c2"]}), sch)
+        result = GroupTree({}).internal_net_ids_for_components(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert n["empty"] not in result
 
 
@@ -652,20 +646,20 @@ class TestSchematicProjectionForGroup:
         }
 
     def test_internal_net_preserved(self) -> None:
-        from protoboard.domain.layout.group import schematic_projection_for_group
-
         sch, n = self._build()
-        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
+        proj = GroupTree({}).schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert n["int"] in proj.nets
         assert len(proj.nets[n["int"]].pins) == 2
 
     def test_external_net_keeps_only_internal_pins(self) -> None:
         """N_EXT has pins on c1, c2, c3.  Inside group {c1, c2} the
         projection keeps c1/c2 pins and drops the c3 pin."""
-        from protoboard.domain.layout.group import schematic_projection_for_group
-
         sch, n = self._build()
-        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
+        proj = GroupTree({}).schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert n["ext"] in proj.nets
         projected_ext = proj.nets[n["ext"]]
         component_ids = {p.component_id for p in projected_ext.pins}
@@ -674,10 +668,10 @@ class TestSchematicProjectionForGroup:
     def test_lonely_net_dropped(self) -> None:
         """A net with only one pin inside the group has nothing to wire
         up — dropped from the projection."""
-        from protoboard.domain.layout.group import schematic_projection_for_group
-
         sch, n = self._build()
-        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
+        proj = GroupTree({}).schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert n["lonely"] not in proj.nets
 
     def test_global_net_kept_when_at_least_two_internal_pins(self) -> None:
@@ -685,10 +679,10 @@ class TestSchematicProjectionForGroup:
         their pins fall inside.  Per user (2026-06-04) Autoroute Group
         routes *any* net with internal connectivity, not just fully
         internal ones."""
-        from protoboard.domain.layout.group import schematic_projection_for_group
-
         sch, n = self._build()
-        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
+        proj = GroupTree({}).schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert n["vcc"] in proj.nets
         assert proj.nets[n["vcc"]].global_net is True
         # External c3 pin dropped.
@@ -697,10 +691,10 @@ class TestSchematicProjectionForGroup:
     def test_projection_preserves_net_identity(self) -> None:
         """The projected nets keep the original id/name/color so wires
         produced by the router can be merged back into the schematic."""
-        from protoboard.domain.layout.group import schematic_projection_for_group
-
         sch, n = self._build()
-        proj = schematic_projection_for_group(frozenset({n["c1"], n["c2"]}), sch)
+        proj = GroupTree({}).schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
         assert proj.nets[n["int"]].name == sch.nets[n["int"]].name
         assert proj.nets[n["ext"]].name == sch.nets[n["ext"]].name
 
@@ -727,7 +721,9 @@ class TestExposableSurface:
         inst = _make_inst("DUT", "U1")
         g = _make_group(comp_ids=frozenset({inst.id}))
         groups = {g.id: g}
-        surface = exposable_surface(groups, g.id, {inst.id: inst}, {"DUT": defn})
+        surface = GroupTree(groups).exposable_surface(
+            g.id, {inst.id: inst}, {"DUT": defn}
+        )
         assert surface == frozenset(
             PinRef(component_id=inst.id, pin_number=p) for p in (1, 2, 3)
         )
@@ -746,7 +742,7 @@ class TestExposableSurface:
         )
         a = _make_group(name="A", child_ids=frozenset({b.id}))
         groups = {a.id: a, b.id: b}
-        surface = exposable_surface(groups, a.id, {u1.id: u1}, {"DUT": defn})
+        surface = GroupTree(groups).exposable_surface(a.id, {u1.id: u1}, {"DUT": defn})
         assert ep in surface
         # A has no direct members; only B's exports show up.
         assert surface == frozenset({ep})
@@ -767,7 +763,7 @@ class TestExposableSurface:
         # B has no direct components and no exports — empty surface to A.
         a = _make_group(name="A", child_ids=frozenset({b.id}))
         groups = {a.id: a, b.id: b, c.id: c}
-        surface = exposable_surface(groups, a.id, {c1.id: c1}, {"DUT": defn})
+        surface = GroupTree(groups).exposable_surface(a.id, {c1.id: c1}, {"DUT": defn})
         assert surface == frozenset()  # B blocks the chain.
 
     def test_chain_propagates_when_child_reexports(self) -> None:
@@ -791,23 +787,23 @@ class TestExposableSurface:
         )
         a = _make_group(name="A", child_ids=frozenset({b.id}))
         groups = {a.id: a, b.id: b, c.id: c}
-        surface = exposable_surface(groups, a.id, {c1.id: c1}, {"DUT": defn})
+        surface = GroupTree(groups).exposable_surface(a.id, {c1.id: c1}, {"DUT": defn})
         assert ep in surface
 
     def test_unknown_group_returns_empty(self) -> None:
-        assert exposable_surface({}, uuid.uuid4(), {}, {}) == frozenset()
+        assert GroupTree({}).exposable_surface(uuid.uuid4(), {}, {}) == frozenset()
 
     def test_missing_instance_skipped(self) -> None:
         # Direct member without a corresponding instance entry → no pins added.
         g = _make_group(comp_ids=frozenset({uuid.uuid4()}))
         groups = {g.id: g}
-        assert exposable_surface(groups, g.id, {}, {}) == frozenset()
+        assert GroupTree(groups).exposable_surface(g.id, {}, {}) == frozenset()
 
 
 class TestValidatePinRefs:
     def test_no_exports_is_valid(self) -> None:
         g = _make_group()
-        assert validate_exported_pins({g.id: g}, g.id) == frozenset()
+        assert GroupTree({g.id: g}).validate_exported_pins(g.id) == frozenset()
 
     def test_direct_member_pin_is_valid(self) -> None:
         cid = uuid.uuid4()
@@ -818,7 +814,7 @@ class TestValidatePinRefs:
             component_ids=frozenset({cid}),
             exported_pins=frozenset({ep}),
         )
-        assert validate_exported_pins({g.id: g}, g.id) == frozenset()
+        assert GroupTree({g.id: g}).validate_exported_pins(g.id) == frozenset()
 
     def test_grandchild_flat_export_is_invalid(self) -> None:
         # A[B[C]]; A.exported_pins lists a pin of c1 (which lives in C).
@@ -843,7 +839,7 @@ class TestValidatePinRefs:
             exported_pins=frozenset({ep}),
         )
         groups = {a.id: a, b.id: b, c.id: c}
-        assert validate_exported_pins(groups, a.id) == frozenset({ep})
+        assert GroupTree(groups).validate_exported_pins(a.id) == frozenset({ep})
 
     def test_chain_makes_export_valid(self) -> None:
         # Same setup but B also re-exports the pin → A's entry is valid.
@@ -868,9 +864,10 @@ class TestValidatePinRefs:
             exported_pins=frozenset({ep}),
         )
         groups = {a.id: a, b.id: b, c.id: c}
-        assert validate_exported_pins(groups, a.id) == frozenset()
-        assert validate_exported_pins(groups, b.id) == frozenset()
-        assert validate_exported_pins(groups, c.id) == frozenset()
+        tree = GroupTree(groups)
+        assert tree.validate_exported_pins(a.id) == frozenset()
+        assert tree.validate_exported_pins(b.id) == frozenset()
+        assert tree.validate_exported_pins(c.id) == frozenset()
 
     def test_mixed_exports_returns_only_invalid(self) -> None:
         # A has a direct member c_self (valid) + a flat grandchild export (invalid).
@@ -898,10 +895,10 @@ class TestValidatePinRefs:
             exported_pins=frozenset({ep_self, ep_grand}),
         )
         groups = {a.id: a, b.id: b, c.id: c}
-        assert validate_exported_pins(groups, a.id) == frozenset({ep_grand})
+        assert GroupTree(groups).validate_exported_pins(a.id) == frozenset({ep_grand})
 
     def test_unknown_group_returns_empty(self) -> None:
-        assert validate_exported_pins({}, uuid.uuid4()) == frozenset()
+        assert GroupTree({}).validate_exported_pins(uuid.uuid4()) == frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -933,15 +930,13 @@ class TestExternalPinsForGroup:
         return Schematic(nets={n_ext.id: n_ext, n_int.id: n_int})
 
     def test_flat_group_direct_member_pin_exported(self) -> None:
-        from protoboard.domain.layout.group import external_pins_for_group
-
         c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         names = {"c1": c1, "c2": c2, "c_out": c_out}
         sch = self._build_sch(names)
 
         g = _make_group(comp_ids=frozenset({c1, c2}))
         groups = {g.id: g}
-        result = external_pins_for_group(groups, g.id, sch)
+        result = GroupTree(groups).external_pins_for_group(g.id, sch)
         # c1 pin 1 reaches outside via N_EXT → must be re-exported.
         # c1 pin 2 is fully internal — NOT exported.
         assert result == frozenset({PinRef(component_id=c1, pin_number=1)})
@@ -949,8 +944,6 @@ class TestExternalPinsForGroup:
     def test_grandchild_pin_not_promoted_when_chain_broken(self) -> None:
         # A[B[c1, c2]]; B does NOT export c1.  Auto-export on A must NOT
         # surface c1 — encapsulation says A cannot see what B doesn't expose.
-        from protoboard.domain.layout.group import external_pins_for_group
-
         c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         names = {"c1": c1, "c2": c2, "c_out": c_out}
         sch = self._build_sch(names)
@@ -960,11 +953,9 @@ class TestExternalPinsForGroup:
         groups = {a.id: a, b.id: b}
         # Even though c1 reaches outside via N_EXT, A cannot expose it
         # because B's interface doesn't include c1.
-        assert external_pins_for_group(groups, a.id, sch) == frozenset()
+        assert GroupTree(groups).external_pins_for_group(a.id, sch) == frozenset()
 
     def test_grandchild_pin_surfaces_when_child_reexports(self) -> None:
-        from protoboard.domain.layout.group import external_pins_for_group
-
         c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         names = {"c1": c1, "c2": c2, "c_out": c_out}
         sch = self._build_sch(names)
@@ -982,10 +973,9 @@ class TestExternalPinsForGroup:
             child_group_ids=frozenset({b.id}),
         )
         groups = {a.id: a, b.id: b}
-        assert external_pins_for_group(groups, a.id, sch) == frozenset({ep})
+        assert GroupTree(groups).external_pins_for_group(a.id, sch) == frozenset({ep})
 
     def test_global_net_pin_exported_via_direct_member(self) -> None:
-        from protoboard.domain.layout.group import external_pins_for_group
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.domain.schematic.schematic import Schematic
 
@@ -1001,7 +991,7 @@ class TestExternalPinsForGroup:
         sch = Schematic(nets={n_vcc.id: n_vcc})
         g = _make_group(comp_ids=frozenset({c1, c2}))
         groups = {g.id: g}
-        result = external_pins_for_group(groups, g.id, sch)
+        result = GroupTree(groups).external_pins_for_group(g.id, sch)
         assert result == frozenset(
             {
                 PinRef(component_id=c1, pin_number=3),
@@ -1011,7 +1001,6 @@ class TestExternalPinsForGroup:
 
     def test_pure_internal_net_not_exported(self) -> None:
         # No outside pin, not global → must not produce any exports.
-        from protoboard.domain.layout.group import external_pins_for_group
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.domain.schematic.schematic import Schematic
 
@@ -1024,22 +1013,20 @@ class TestExternalPinsForGroup:
         sch = Schematic(nets={n_int.id: n_int})
         g = _make_group(comp_ids=frozenset({c1, c2}))
         groups = {g.id: g}
-        assert external_pins_for_group(groups, g.id, sch) == frozenset()
+        assert GroupTree(groups).external_pins_for_group(g.id, sch) == frozenset()
 
     def test_unknown_group_returns_empty(self) -> None:
-        from protoboard.domain.layout.group import external_pins_for_group
         from protoboard.domain.schematic.schematic import Schematic
 
         assert (
-            external_pins_for_group({}, uuid.uuid4(), Schematic(nets={})) == frozenset()
+            GroupTree({}).external_pins_for_group(uuid.uuid4(), Schematic(nets={}))
+            == frozenset()
         )
 
     def test_child_reexport_not_on_outside_net_not_promoted(self) -> None:
         # B re-exports c2 pin 1, but that pin lies on a fully internal net.
         # A's auto-export must NOT include c2 — re-exports only surface
         # when their underlying net actually reaches outside G.
-        from protoboard.domain.layout.group import external_pins_for_group
-
         c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
         names = {"c1": c1, "c2": c2, "c_out": c_out}
         sch = self._build_sch(names)
@@ -1061,4 +1048,4 @@ class TestExternalPinsForGroup:
         # neither leg is external to A → c2 not promoted.
         # N_EXT goes through c1.pin1, but B doesn't re-export c1 → also not
         # promoted.
-        assert external_pins_for_group(groups, a.id, sch) == frozenset()
+        assert GroupTree(groups).external_pins_for_group(a.id, sch) == frozenset()

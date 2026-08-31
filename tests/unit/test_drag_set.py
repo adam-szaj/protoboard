@@ -69,9 +69,9 @@ def world() -> World:
     groups_map = {g1_id: g1, g2_id: g2, g3_id: g3}
 
     def in_group_of(gid: uuid.UUID) -> set[uuid.UUID]:
-        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.group_tree import GroupTree
 
-        return set(all_component_ids(groups_map, gid))
+        return set(GroupTree(groups_map).all_component_ids(gid))
 
     return {
         "g1_id": g1_id,

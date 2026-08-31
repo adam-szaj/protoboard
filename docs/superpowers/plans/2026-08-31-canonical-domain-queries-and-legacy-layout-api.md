@@ -161,13 +161,13 @@ git commit -m "refactor(domain): add canonical component resolution"
 - Produces: `domain.layout.group` exporting only `ComponentGroup`; every query
   caller uses `GroupTree` or `session.group_tree()`.
 
-- [ ] **Step 1: Add a failing legacy-API contract**
+- [x] **Step 1: Add a failing legacy-API contract**
 
 Add an AST assertion that `group.py` defines none of the eleven superseded
 query functions and that production files do not import those names from it.
 Keep behavioural tests on `GroupTree` as the source of truth.
 
-- [ ] **Step 2: Verify the contract fails**
+- [x] **Step 2: Verify the contract fails**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_layer_import_contract.py tests/unit/test_group_tree.py -q
@@ -175,7 +175,7 @@ Keep behavioural tests on `GroupTree` as the source of truth.
 
 Expected: FAIL listing the current shim definitions/imports.
 
-- [ ] **Step 3: Migrate production callers**
+- [x] **Step 3: Migrate production callers**
 
 Instantiate one `GroupTree(groups)` per coherent operation and replace calls,
 for example:
@@ -191,13 +191,13 @@ For `internal_net_ids_for_components` and `schematic_projection_for_group`, use
 the already available tree or `GroupTree({})` only where no group mapping
 exists. Do not add replacement wrappers.
 
-- [ ] **Step 4: Migrate tests and remove compatibility-only parity tests**
+- [x] **Step 4: Migrate tests and remove compatibility-only parity tests**
 
 Change behavioural tests to construct `GroupTree(groups)`. Delete the parity
 test that merely compares each shim with the corresponding method. Preserve
 tests of the actual group behaviour.
 
-- [ ] **Step 5: Delete all eleven shims**
+- [x] **Step 5: Delete all eleven shims**
 
 Remove `all_component_ids`, `exposable_surface`, `validate_exported_pins`,
 `top_level_group_for`, `external_pins_for_group`,
@@ -206,7 +206,7 @@ Remove `all_component_ids`, `exposable_surface`, `validate_exported_pins`,
 `promote_selection_to_top_level`, and `parent_group_of` from `group.py`, along
 with imports made unused by their deletion.
 
-- [ ] **Step 6: Verify focused behaviour and absence**
+- [x] **Step 6: Verify focused behaviour and absence**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_group_tree.py tests/unit/test_groups.py tests/unit/test_edit_controller_group.py tests/unit/test_group_membership_command.py tests/unit/test_group_ownership.py tests/unit/test_drc.py -q
@@ -215,7 +215,7 @@ rg -n 'from protoboard\.domain\.layout\.group import .*\b(all_component_ids|expo
 
 Expected: tests pass and `rg` has no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src tests/unit tests/gui

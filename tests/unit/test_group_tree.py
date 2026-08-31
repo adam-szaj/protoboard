@@ -1,16 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""Tests for GroupTree — the behaviour home for group-hierarchy queries.
-
-Covers the methods directly AND guards that the legacy free-function shims in
-``group.py`` delegate identically (so the ~12 caller modules keep working).
-"""
+"""Tests for GroupTree — the behaviour home for group-hierarchy queries."""
 
 from __future__ import annotations
 
 import uuid
 from typing import TYPE_CHECKING
 
-from protoboard.domain.layout import group as group_mod
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import Net, PinRef
@@ -155,32 +150,6 @@ class TestExportAndNets:
         )
         proj = t.schematic_projection_for_group(frozenset({i["c2"], i["c3"]}), sch)
         assert set(proj.nets) == {keep}  # drop has only 1 surviving pin
-
-
-# ---------------------------------------------------------------------------
-# Shim equivalence — legacy free functions must delegate identically
-# ---------------------------------------------------------------------------
-
-
-class TestShimEquivalence:
-    def test_free_functions_match_methods(self) -> None:
-        t, groups, i = _tree()
-        assert group_mod.all_component_ids(groups, i["A"]) == t.all_component_ids(
-            i["A"]
-        )
-        assert group_mod.top_level_group_for(groups, i["c3"]) == t.top_level_group_for(
-            i["c3"]
-        )
-        assert group_mod.top_level_group_under(
-            groups, i["A"], i["c3"]
-        ) == t.top_level_group_under(i["A"], i["c3"])
-        assert group_mod.parent_group_of(groups, i["C"]) == t.parent_group_of(i["C"])
-        assert group_mod.would_create_cycle(
-            groups, i["C"], i["A"]
-        ) == t.would_create_cycle(i["C"], i["A"])
-        assert group_mod.promote_selection_to_top_level(
-            groups, i["A"], frozenset({i["c3"]})
-        ) == t.promote_selection_to_top_level(i["A"], frozenset({i["c3"]}))
 
 
 # ---------------------------------------------------------------------------

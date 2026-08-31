@@ -35,8 +35,9 @@ from dataclasses import dataclass, field
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import ComponentGroup, all_component_ids
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import wire_is_owned_by_group
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import KnotRef, Wire
@@ -302,7 +303,7 @@ class TestOwnershipByGroupContext:
             group,
             wire_net_map={},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
-            group_comp_ids=all_component_ids(ctx.layout.groups, group.id),
+            group_comp_ids=GroupTree(ctx.layout.groups).all_component_ids(group.id),
             schematic=ctx.schematic,
         )
 
@@ -324,7 +325,9 @@ class TestOwnershipByGroupContext:
             root,
             wire_net_map={},
             knots=ctx.layout.knots,  # type: ignore[arg-type]
-            group_comp_ids=all_component_ids(ctx.layout.groups, ROOT_GROUP_ID),
+            group_comp_ids=GroupTree(ctx.layout.groups).all_component_ids(
+                ROOT_GROUP_ID
+            ),
             schematic=ctx.schematic,
         )
 

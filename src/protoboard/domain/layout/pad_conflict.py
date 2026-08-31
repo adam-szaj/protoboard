@@ -773,10 +773,11 @@ def check_group_move_conflicts(
     wire crossing still hard-blocks when it cuts through a moving
     subgroup's interior.  ``None`` preserves single-group semantics.
     """  # noqa: E501
-    from protoboard.domain.layout.group import all_component_ids
+    from protoboard.domain.layout.group_tree import GroupTree
 
     blocking_pads: list[Point] = []
     removable_ids: list[uuid.UUID] = []
+    group_tree = GroupTree(layout_groups)
 
     _log.debug(
         "group_move.check.start",
@@ -942,7 +943,7 @@ def check_group_move_conflicts(
         if parent_group is None:
             continue
         for child_gid in parent_group.child_group_ids:
-            child_ids = all_component_ids(layout_groups, child_gid)
+            child_ids = group_tree.all_component_ids(child_gid)
             subgroup_comp_ids |= set(child_ids)
             bbox = _compute_bbox(child_ids, layout_placements, instances, components)
             if bbox is not None:

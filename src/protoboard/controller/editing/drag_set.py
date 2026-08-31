@@ -74,18 +74,19 @@ class DragSet:
 
         Includes :attr:`free_components` plus every direct and transitive
         member of every group in :attr:`groups` (resolved via
-        :func:`protoboard.domain.layout.group.all_component_ids`).
+        :class:`protoboard.domain.layout.group_tree.GroupTree`).
 
         ``groups_map`` is the session's current
         ``layout.groups`` dict — passed in rather than stored on the
         ``DragSet`` so the structure stays pure-data and the resolution
         always reflects the latest group hierarchy.
         """
-        from protoboard.domain.layout.group import all_component_ids as _all_member_ids
+        from protoboard.domain.layout.group_tree import GroupTree
 
         result: set[uuid.UUID] = set(self.free_components)
+        tree = GroupTree(groups_map)
         for gid in self.groups:
-            result |= _all_member_ids(groups_map, gid)
+            result |= tree.all_component_ids(gid)
         return frozenset(result)
 
     @property
@@ -153,15 +154,16 @@ class DragSet:
             top-level IDs, ``groups`` mirroring ``selected_group_ids``,
             and ``wires`` mirroring ``selected_wire_ids``.
         """
-        from protoboard.domain.layout.group import all_component_ids as _all_member_ids
+        from protoboard.domain.layout.group_tree import GroupTree
 
         groups = frozenset(selected_group_ids)
 
         # Components covered by selected groups — these don't enter
         # `free_components` (they move via the group monolith).
         covered_by_selected_group: set[uuid.UUID] = set()
+        tree = GroupTree(groups_map)
         for gid in groups:
-            covered_by_selected_group |= _all_member_ids(groups_map, gid)
+            covered_by_selected_group |= tree.all_component_ids(gid)
 
         free: set[uuid.UUID] = set()
         for cid in selected_ids:

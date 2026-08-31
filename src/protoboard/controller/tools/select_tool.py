@@ -2514,10 +2514,10 @@ class SelectTool(ControllerTool):
         """
         group_id = self._selected_group_id
         if group_id is not None:
-            from protoboard.domain.layout.group import all_component_ids
+            from protoboard.domain.layout.group_tree import GroupTree
 
             return (
-                all_component_ids(self._session.layout.groups, group_id),
+                GroupTree(self._session.layout.groups).all_component_ids(group_id),
                 group_id,
             )
         loose = frozenset(

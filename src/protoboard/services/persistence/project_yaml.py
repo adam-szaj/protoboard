@@ -1244,12 +1244,11 @@ def _migrate_encapsulated_exports(
     *already-migrated* exported sets when computing legality.  Mutates
     *groups* in place (frozen dataclass replacement).
     """
-    from protoboard.domain.layout.group import (
-        validate_exported_pins,
-    )
+    from protoboard.domain.layout.group_tree import GroupTree
 
     if not groups:
         return
+    tree = GroupTree(groups)
 
     children_of: dict[uuid.UUID, frozenset[uuid.UUID]] = {
         gid: g.child_group_ids for gid, g in groups.items()
@@ -1279,7 +1278,7 @@ def _migrate_encapsulated_exports(
             ordered.append(gid)
 
     for gid in ordered:
-        invalid = validate_exported_pins(groups, gid)
+        invalid = tree.validate_exported_pins(gid)
         if not invalid:
             continue
         g = groups[gid]

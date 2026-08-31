@@ -16,7 +16,6 @@ from protoboard.controller.editing.item_handle import ItemId
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import all_component_ids
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
@@ -106,7 +105,7 @@ def test_create_group_promotes_and_detaches_from_root() -> None:
     assert gid in root.child_group_ids
     assert c1 not in root.component_ids and c2 not in root.component_ids
     # The recursive collector still reports both under the new group.
-    assert all_component_ids(session.layout.groups, gid) == frozenset({c1, c2})
+    assert session.group_tree().all_component_ids(gid) == frozenset({c1, c2})
 
 
 def test_create_group_undo_restores_flat_layout() -> None:

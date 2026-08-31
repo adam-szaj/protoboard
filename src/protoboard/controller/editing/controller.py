@@ -572,13 +572,14 @@ class EditController:
             RotateComponentsCommand,
             RotateGroupCommand,
         )
-        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.group_tree import GroupTree
 
         delta = delta_deg % 360
         loose = self._loose_unlocked(comp_ids, active_group_id=active_group_id)
         groups = self._state.layout.groups
+        tree = GroupTree(groups)
         group_members = frozenset(
-            cid for gid in group_ids for cid in all_component_ids(groups, gid)
+            cid for gid in group_ids for cid in tree.all_component_ids(gid)
         )
         affected = loose | group_members
         if not affected:
@@ -672,7 +673,7 @@ class EditController:
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
         from protoboard.domain.commands.group_cmds import FlipGroupCommand
         from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.placement import flip_component
 
         state = self._state
@@ -710,10 +711,9 @@ class EditController:
         # Groups' rigid-body flip needs the crossing-wire cleanup; the
         # loose-only 2-pin flip historically skipped it. The affected set for
         # cleanup is the groups' recursive membership.
+        tree = GroupTree(state.layout.groups)
         group_members = frozenset(
-            cid
-            for gid in group_ids
-            for cid in all_component_ids(state.layout.groups, gid)
+            cid for gid in group_ids for cid in tree.all_component_ids(gid)
         )
         flip_cmd: object = (
             cmds[0]
@@ -1318,9 +1318,9 @@ class EditController:
         selection is filtered by :meth:`_loose_unlocked`.
         """
         if group_id is not None:
-            from protoboard.domain.layout.group import all_component_ids
+            from protoboard.domain.layout.group_tree import GroupTree
 
-            return all_component_ids(self._state.layout.groups, group_id)
+            return GroupTree(self._state.layout.groups).all_component_ids(group_id)
         return self._loose_unlocked(comp_ids, active_group_id=active_group_id)
 
     def _loose_unlocked(
