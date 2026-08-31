@@ -161,6 +161,8 @@ class SelectTool(ControllerTool):
         group_prompt: GroupTargetPrompt | None = None,
         armed_transform_factory: Callable[..., ArmedTransformTool] | None = None,
         wire_edit_factory: Callable[..., WireEditTool] | None = None,
+        assign_pin: Callable[[uuid.UUID, int], None] | None = None,
+        autoroute_group: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()  # sets _session / _view to None up-front
         self._selection: SelectionService = None  # type: ignore[assignment]
@@ -198,6 +200,8 @@ class SelectTool(ControllerTool):
         # (mirrors ``_armed_transform_factory``).
         self._wire_edit_factory: Callable[..., WireEditTool] | None = wire_edit_factory
         self._wire_edit_factory_injected = wire_edit_factory is not None
+        self._assign_pin = assign_pin
+        self._autoroute_group = autoroute_group
         # A plain press that landed on an *already-selected* entity defers its
         # selection change to release: if the gesture turns out to be a click
         # (no drag), the release collapses the selection onto this entity — or
@@ -254,6 +258,16 @@ class SelectTool(ControllerTool):
         # `_filters()` does NOT yet enforce it (all kinds stay hittable).
         # Enforcement in the hit-test is a deferred follow-up.
         self._filter: SelectionFilter = SelectionFilter.ALL
+
+    def bind_menu_actions(
+        self,
+        *,
+        assign_pin: Callable[[uuid.UUID, int], None] | None,
+        autoroute_group: Callable[[], None] | None,
+    ) -> None:
+        """Bind GUI-only actions used by parameterized context-menu entries."""
+        self._assign_pin = assign_pin
+        self._autoroute_group = autoroute_group
 
     # -- ControllerTool lifecycle --------------------------------------------
 
@@ -3326,12 +3340,9 @@ class SelectTool(ControllerTool):
         self._session.edit_controller.set_locked(comp_ids, locked=locked)
 
     def _menu_assign_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:
-        """Delegate to MainWindow's parameterised assign dialog (single source
-        with the Nets panel UX)."""
-        mw = self._view.window() if self._view is not None else None
-        slot = getattr(mw, "_pin_assign_net_for", None)
-        if callable(slot):
-            slot(comp_id, pin_num)
+        """Delegate the parameterised assign flow to the GUI composition root."""
+        if self._assign_pin is not None:
+            self._assign_pin(comp_id, pin_num)
 
     def _menu_disconnect_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:
         from protoboard.domain.commands.component_cmds import (
@@ -3378,11 +3389,9 @@ class SelectTool(ControllerTool):
             )
 
     def _menu_autoroute_group(self) -> None:
-        """Delegate to MainWindow's group-autoroute slot (worker plumbing)."""
-        mw = self._view.window() if self._view is not None else None
-        slot = getattr(mw, "_group_autoroute", None)
-        if callable(slot):
-            slot()
+        """Delegate group autorouting to the GUI composition root."""
+        if self._autoroute_group is not None:
+            self._autoroute_group()
 
     def _menu_select_net(self, action: object, net_ids: tuple[uuid.UUID, ...]) -> None:
         """Replace the selection with the components and/or wires of *net_ids*."""

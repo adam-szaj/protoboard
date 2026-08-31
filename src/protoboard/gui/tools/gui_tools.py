@@ -326,6 +326,13 @@ class SelectTool(
 
     def activate(self, session: object, view: object) -> None:
         gui_view = _gui_view(view)
+        window = gui_view.window()
+        assign_pin = getattr(window, "_pin_assign_net_for", None)
+        autoroute_group = getattr(window, "_group_autoroute", None)
+        self.bind_menu_actions(
+            assign_pin=assign_pin if callable(assign_pin) else None,
+            autoroute_group=autoroute_group if callable(autoroute_group) else None,
+        )
         if not self._preview_injected:
             from protoboard.gui.tools.select_preview import QtSelectPreview
 
