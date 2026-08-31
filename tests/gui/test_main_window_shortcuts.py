@@ -159,19 +159,6 @@ class TestActionMetadata:
         assert main_window._actions[KB.ACTION_MIRROR_H].isCheckable()
         assert main_window._actions[KB.ACTION_MIRROR_V].isCheckable()
 
-    def test_legacy_attribute_aliases_resolve(self, main_window: MainWindow) -> None:
-        # _act_undo / _act_redo / _act_mirror etc. must still resolve to
-        # the QAction object for backward-compat with _update_undo_redo etc.
-        assert main_window._act_undo is main_window._actions[KB.ACTION_UNDO]
-        assert main_window._act_redo is main_window._actions[KB.ACTION_REDO]
-        assert main_window._act_mirror is main_window._actions[KB.ACTION_MIRROR_H]
-        assert main_window._act_mirror_v is main_window._actions[KB.ACTION_MIRROR_V]
-        assert (
-            main_window._act_clear_highlight
-            is main_window._actions[KB.ACTION_CLEAR_HIGHLIGHT]
-        )
-
-
 class TestLayerActions:
     def test_layer_actions_view_built(self, main_window: MainWindow) -> None:
         # All layer field names map into _layer_actions.

@@ -457,43 +457,6 @@ class MainWindow(QMainWindow):
         self._wire_side_group: QActionGroup = self._registry.action_groups["wire_side"]
         self._wire_side_group.setExclusionPolicy(QActionGroup.ExclusionPolicy.Exclusive)
 
-    # ------------------------------------------------------------------
-    # Backward-compat aliases — historic per-attribute names kept as
-    # properties so existing callsites (_update_undo_redo, _sync_view_actions,
-    # _set_wire_*, etc.) keep working without a sweep.
-    # ------------------------------------------------------------------
-    @property
-    def _act_undo(self) -> QAction:
-        return self._actions[KB.ACTION_UNDO]
-
-    @property
-    def _act_redo(self) -> QAction:
-        return self._actions[KB.ACTION_REDO]
-
-    @property
-    def _act_clear_highlight(self) -> QAction:
-        return self._actions[KB.ACTION_CLEAR_HIGHLIGHT]
-
-    @property
-    def _act_mirror(self) -> QAction:
-        return self._actions[KB.ACTION_MIRROR_H]
-
-    @property
-    def _act_mirror_v(self) -> QAction:
-        return self._actions[KB.ACTION_MIRROR_V]
-
-    @property
-    def _act_wire_insulated(self) -> QAction:
-        return self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED]
-
-    @property
-    def _act_wire_top(self) -> QAction:
-        return self._actions[KB.ACTION_WIRE_SIDE_TOP]
-
-    @property
-    def _act_wire_bottom(self) -> QAction:
-        return self._actions[KB.ACTION_WIRE_SIDE_BOTTOM]
-
     def _build_menu(self) -> None:
         """Splice the dynamic menu items (Recent files, Camera Top/Bottom)
         into the QMenus the builder created from ``ALL_ACTIONS``.
@@ -1112,7 +1075,7 @@ class MainWindow(QMainWindow):
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
         # One QAction lives in both menu and toolbar — setChecked updates both.
-        self._act_wire_insulated.setChecked(insulated)
+        self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED].setChecked(insulated)
         self._persist_wire_defaults()
         tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
@@ -1121,8 +1084,8 @@ class MainWindow(QMainWindow):
 
     def _set_wire_side(self, side: str) -> None:
         self._wire_side = side
-        self._act_wire_top.setChecked(side == "top")
-        self._act_wire_bottom.setChecked(side == "bottom")
+        self._actions[KB.ACTION_WIRE_SIDE_TOP].setChecked(side == "top")
+        self._actions[KB.ACTION_WIRE_SIDE_BOTTOM].setChecked(side == "bottom")
         self._persist_wire_defaults()
         tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
@@ -1289,8 +1252,8 @@ class MainWindow(QMainWindow):
         bottom = self._board_view.camera_side == "bottom"
         # Each axis QAction reflects its own flag — both can be checked
         # simultaneously when the user combines Mirror H + Mirror V.
-        self._act_mirror.setChecked(mh)
-        self._act_mirror_v.setChecked(mv)
+        self._actions[KB.ACTION_MIRROR_H].setChecked(mh)
+        self._actions[KB.ACTION_MIRROR_V].setChecked(mv)
         self._act_camera_top.setChecked(not bottom)
         self._act_camera_bottom.setChecked(bottom)
         self._update_view_label()
@@ -1535,12 +1498,16 @@ class MainWindow(QMainWindow):
         controller = self._session.edit_controller
         can_undo = controller.can_undo() and gate_open
         can_redo = controller.can_redo() and gate_open
-        self._act_undo.setEnabled(can_undo)
-        self._act_redo.setEnabled(can_redo)
+        self._actions[KB.ACTION_UNDO].setEnabled(can_undo)
+        self._actions[KB.ACTION_REDO].setEnabled(can_redo)
         undo_desc = controller.undo_description()
         redo_desc = controller.redo_description()
-        self._act_undo.setText(f"&Undo  {undo_desc}" if undo_desc else "&Undo")
-        self._act_redo.setText(f"&Redo  {redo_desc}" if redo_desc else "&Redo")
+        self._actions[KB.ACTION_UNDO].setText(
+            f"&Undo  {undo_desc}" if undo_desc else "&Undo"
+        )
+        self._actions[KB.ACTION_REDO].setText(
+            f"&Redo  {redo_desc}" if redo_desc else "&Redo"
+        )
 
     # ------------------------------------------------------------------
     # Autoroute UI lock
@@ -1635,7 +1602,7 @@ class MainWindow(QMainWindow):
 
     def _update_highlight_action(self) -> None:
         """Enable 'Clear Highlight' only when there are persistent entries."""
-        self._act_clear_highlight.setEnabled(
+        self._actions[KB.ACTION_CLEAR_HIGHLIGHT].setEnabled(
             self._session.highlight_stack.has_persistent()
         )
 
