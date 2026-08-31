@@ -18,7 +18,7 @@ caller supplies (SVG generator, PDF printer, PNG image).
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, Protocol
 
 from protoboard.controller.view_options.layer_state import LayerState
@@ -152,25 +152,21 @@ class BoardSnapshot:
         and mirrored variants from one snapshot.  Other state (layout,
         instances, theme) is shared — these are read-only inputs.
         """
-        from dataclasses import replace as _replace
-
         kwargs: dict[str, object] = {}
         if camera_side is not None:
             kwargs["camera_side"] = camera_side
         if view_transform is not None:
             kwargs["view_transform"] = view_transform
-        return _replace(self, **kwargs)  # type: ignore[arg-type]
+        return replace(self, **kwargs)  # type: ignore[arg-type]
 
     def layer_state(self) -> LayerState:
         """Derive a :class:`LayerState` from the snapshot's stored bits."""
-        from dataclasses import replace as _replace
-
         s = LayerState(
             camera_side=self.camera_side,
             view_transform=self.view_transform,
             overrides=self.layer_overrides,
         )
-        return _replace(
+        return replace(
             s,
             back_alpha=self.theme.back_alpha,
             board_ghost_alpha=self.theme.board_ghost_alpha,

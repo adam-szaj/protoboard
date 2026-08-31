@@ -658,8 +658,6 @@ def build_flip_fragment_command(
     # and repeated flips would target the same side forever).
     current_side = _segment_side(wire, start)
     side = target_side or ("bottom" if current_side == "top" else "top")
-    from typing import cast
-
     return cast(
         "Command[ComponentState]",
         FlipWireFragmentCommand(
@@ -755,8 +753,6 @@ def autoroute_fragment_path(
     caller supplies the :class:`ConnectivityGraph` (built from the session) and
     the boundary points/side; this stays Qt-free and returns just the geometry.
     """
-    from typing import cast
-
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.routing.cost_model import RoutingCostModel
 
