@@ -2,7 +2,7 @@
 """Qt-free drag-commit classifier.
 
 :func:`classify_drag_commit` inspects the current (post-drag) layout state and
-returns a :class:`DragCommitDecision` describing how the floating-overlay UX in
+returns a :class:`DragAnalysis` describing how the floating-overlay UX in
 SelectTool should commit it. It is pure application logic — it never constructs
 a Qt dialog — so it lives here in ``controller/editing`` rather than under
 ``gui/``.
@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.controller import EditState
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
 
 
 def classify_drag_commit(
@@ -25,7 +25,7 @@ def classify_drag_commit(
     moved_comp_ids: set[uuid.UUID],
     dragged_wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
     drag_set_members: frozenset[uuid.UUID] | None = None,
-) -> DragCommitDecision:
+) -> DragAnalysis:
     """Classify the current (post-drag) layout state for commit.
 
     Thin wrapper around :class:`DragDetector`. Builds a
@@ -44,9 +44,9 @@ def classify_drag_commit(
 
     Pure logic — never constructs a Qt dialog.
     """
+    from protoboard.domain.layout.drag_detector import DragDetector, DragSnapshot
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
-    from protoboard.services.drag_detector import DragDetector, DragSnapshot
 
     pad_index = _build_drag_pad_index(session)
     drag_set = drag_set_members or frozenset()

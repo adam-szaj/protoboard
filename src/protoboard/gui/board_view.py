@@ -44,16 +44,13 @@ from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme  # noqa: E402
+from protoboard.controller.view_options.layers import LayerOverrides  # noqa: E402
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme  # noqa: E402
 from protoboard.geometry import Point  # noqa: E402
 from protoboard.gui.board_view_tool import _Tool  # noqa: E402
 from protoboard.gui.highlight.renderer import HighlightRenderer  # noqa: E402
 from protoboard.gui.hover_reveal import HoverReveal  # noqa: E402
-from protoboard.gui.layer_state import (  # noqa: E402
-    LayerOverrides,
-    LayerState,
-    layer_state_for_tool,
-)
+from protoboard.gui.layer_state import LayerState, layer_state_for_tool  # noqa: E402
 from protoboard.gui.paint_pipeline import PaintPipeline  # noqa: E402
 from protoboard.gui.qt_executor import QtExecutor  # noqa: E402
 from protoboard.gui.qt_help_overlay import QtHelpOverlay  # noqa: E402
@@ -394,7 +391,7 @@ class BoardView(QGraphicsView):
 
     @traced()
     def set_theme(self, theme: object) -> None:
-        from protoboard.controller.theme import Theme
+        from protoboard.controller.view_options.theme import Theme
 
         if isinstance(theme, Theme):
             self._theme_override = theme

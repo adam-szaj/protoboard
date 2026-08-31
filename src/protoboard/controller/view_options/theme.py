@@ -8,7 +8,6 @@ fields by loading an optional ``~/.config/protoboard-designer/theme.yaml``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -316,58 +315,3 @@ class Theme:
 
 
 DEFAULT_THEME = Theme()
-
-
-def save_theme(theme: Theme, path: Path | None = None) -> None:
-    """Persist *theme* to YAML, writing only fields that differ from defaults."""
-    from protoboard.paths import THEME_FILE
-
-    if path is None:
-        path = THEME_FILE
-    try:
-        from ruamel.yaml import YAML
-
-        defaults = Theme()
-        data: dict[str, object] = {}
-        for f in theme.__dataclass_fields__:
-            if f == "package_families":
-                # Loaded from assets at startup; not user-configurable.
-                continue
-            val = getattr(theme, f)
-            if val != getattr(defaults, f):
-                data[f] = val
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        yaml = YAML()
-        yaml.default_flow_style = False
-        with path.open("w", encoding="utf-8") as fh:
-            yaml.dump(data, fh)
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def load_theme(path: Path | None = None) -> Theme:
-    """Load a Theme from a YAML file, falling back to DEFAULT_THEME on any error.
-
-    If *path* is None, looks for ``~/.config/protoboard/theme.yaml``.
-    Unknown keys are silently ignored so partial overrides work.
-    """
-    from protoboard.paths import THEME_FILE
-
-    if path is None:
-        path = THEME_FILE
-    if not path.exists():
-        return DEFAULT_THEME
-    try:
-        from ruamel.yaml import YAML
-
-        data = YAML().load(path)
-        if not isinstance(data, dict):
-            return DEFAULT_THEME
-        theme = Theme()
-        for key, value in data.items():
-            if hasattr(theme, key):
-                setattr(theme, key, value)
-        return theme
-    except Exception:  # noqa: BLE001
-        return DEFAULT_THEME

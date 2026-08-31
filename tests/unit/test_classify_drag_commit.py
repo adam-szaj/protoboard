@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass, field
 
 from protoboard.controller.editing.drag_commit import classify_drag_commit
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,
@@ -17,6 +16,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily, PackageVariant
 from protoboard.domain.components.package.generated_families import sil_family
+from protoboard.domain.layout.drag_analysis import DragReasonCode, DragSeverity
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import Wire
@@ -165,7 +165,7 @@ class TestClassifyDragCommit:
         )
         assert decision.severity == DragSeverity.CLEAR
         assert decision.auto_remove_wire_ids == ()
-        assert decision.description == ""
+        assert decision.reasons == ()
 
     def test_hard_on_body_overlap(self) -> None:
         # Two 2-pin parts placed at the same position with no schematic — bodies
@@ -194,7 +194,9 @@ class TestClassifyDragCommit:
         )
         assert decision.severity == DragSeverity.HARD
         assert decision.blocking_pad_positions  # at least one marker
-        assert "body overlap" in decision.description
+        assert DragReasonCode.BODY_OVERLAP in {
+            reason.code for reason in decision.reasons
+        }
 
     def test_hard_on_pad_pad_different_nets(self) -> None:
         net_a = uuid.uuid4()
@@ -233,7 +235,9 @@ class TestClassifyDragCommit:
         )
         assert decision.severity == DragSeverity.HARD
         assert decision.blocking_pad_positions
-        assert "different-net" in decision.description
+        assert DragReasonCode.DIFFERENT_NETS in {
+            reason.code for reason in decision.reasons
+        }
 
     def test_soft_on_pin_on_foreign_wire(self) -> None:
         # Wire belongs to net N1 (connects R2's pin 1). Moved R1 lands its pin 1
@@ -273,7 +277,9 @@ class TestClassifyDragCommit:
         )
         assert decision.severity == DragSeverity.SOFT
         assert wire.id in decision.auto_remove_wire_ids
-        assert "foreign wire" in decision.description
+        assert DragReasonCode.FOREIGN_WIRE in {
+            reason.code for reason in decision.reasons
+        }
 
     def test_soft_on_both_unconnected_pad(self) -> None:
         # Two components share a pad, neither has a net → BOTH_UNCONNECTED → SOFT.
@@ -294,7 +300,7 @@ class TestClassifyDragCommit:
             dragged_wire_ids=frozenset(),
         )
         assert decision.severity == DragSeverity.SOFT
-        assert "shared pad" in decision.description
+        assert DragReasonCode.SHARED_PAD in {reason.code for reason in decision.reasons}
 
     def test_soft_on_skewed_dragged_wire(self) -> None:
         # Component R1 alone — no conflicts with others. But one wire that
@@ -320,7 +326,9 @@ class TestClassifyDragCommit:
         )
         assert decision.severity == DragSeverity.SOFT
         assert skewed.id in decision.auto_remove_wire_ids
-        assert "skewed" in decision.description
+        assert DragReasonCode.SKEWED_WIRE in {
+            reason.code for reason in decision.reasons
+        }
 
     def test_hard_wins_over_soft_when_both_present(self) -> None:
         # Same-position-different-nets HARD plus a skewed wire SOFT → HARD wins.

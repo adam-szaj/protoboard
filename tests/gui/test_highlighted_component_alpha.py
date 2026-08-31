@@ -16,7 +16,7 @@ import uuid
 
 from PySide6.QtWidgets import QGraphicsScene
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,

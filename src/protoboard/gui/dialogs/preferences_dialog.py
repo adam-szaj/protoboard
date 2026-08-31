@@ -35,9 +35,10 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
-from protoboard.controller.theme import Theme, save_theme
+from protoboard.controller.view_options.theme import Theme
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
 from protoboard.gui.keymap import AbstractKeyMap
+from protoboard.services.preferences.theme_yaml import save_theme
 
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QComboBox, QFormLayout

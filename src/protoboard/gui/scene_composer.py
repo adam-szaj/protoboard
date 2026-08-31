@@ -35,7 +35,7 @@ from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:
-    from protoboard.controller.theme import Theme
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.pin_pad_classification import PinPadInfo
     from protoboard.geometry import Point
@@ -486,7 +486,7 @@ class SceneComposer:
     ) -> None:
         """Overlays — ratsnest + group outlines + axis labels (always recreated)."""
         new_overlays: list[object] = []
-        from protoboard.gui.layer_state import LayerVisibility
+        from protoboard.controller.view_options.layers import LayerVisibility
 
         ratsnest_vis = self._view.layer_overrides.ratsnest
         if session.schematic.nets and ratsnest_vis != LayerVisibility.HIDDEN:

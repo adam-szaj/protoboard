@@ -37,11 +37,11 @@ from protoboard.controller.selection.adapters import (
     WireSelectable,
 )
 from protoboard.controller.selection.wire_edit import WireRange
-from protoboard.controller.tools.drag_commit_decision import (
-    DragCommitDecision,
+from protoboard.domain.commands.base import ComponentState
+from protoboard.domain.layout.drag_analysis import (
+    DragAnalysis,
     DragSeverity,
 )
-from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.layout.placement import ComponentPlacement, move_blocked
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
@@ -614,9 +614,7 @@ class TestMoveCollision:
         # for SOFT, red for HARD — assert the red channel dominates.
         view = _headless(session)
         tool = _select_tool(view)
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.HARD, description="overlap")
-        )
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.HARD))
         assert view.outline_overrides  # an override was pushed
         color = view.outline_overrides[-1]
         assert color is not None and color.startswith("#")
@@ -626,12 +624,8 @@ class TestMoveCollision:
     ) -> None:
         view = _headless(session)
         tool = _select_tool(view)
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.HARD, description="x")
-        )
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.CLEAR, description="")
-        )
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.HARD))
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.CLEAR))
         # A CLEAR verdict clears the override (last recorded value is None).
         assert view.outline_overrides[-1] is None
 

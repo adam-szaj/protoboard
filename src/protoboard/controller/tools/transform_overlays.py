@@ -13,13 +13,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
 
 
 class TransformOverlaysPort(Protocol):
     """The conflict corner label + selection-outline override for one view."""
 
-    def show_conflict(self, decision: DragCommitDecision | None) -> None:
+    def show_conflict(self, decision: DragAnalysis | None) -> None:
         """Show/clear the corner + outline for a live preview *decision*."""
         ...
 

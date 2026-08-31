@@ -34,7 +34,7 @@ from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.controller.theme import Theme
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
 

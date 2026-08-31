@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,

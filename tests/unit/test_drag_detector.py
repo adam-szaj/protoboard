@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
@@ -23,6 +22,8 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily, PackageVariant
+from protoboard.domain.layout.drag_analysis import DragReasonCode, DragSeverity
+from protoboard.domain.layout.drag_detector import DragDetector, DragSnapshot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -30,7 +31,6 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
-from protoboard.services.drag_detector import DragDetector, DragSnapshot
 from tests.unit._autoroute_invariants import make_sil, sil_families
 
 _TEST_FAMILIES: dict[str, PackageFamily] = {}
@@ -140,6 +140,10 @@ def _detector() -> DragDetector:
     return DragDetector(DRCEnforcingStrategy())
 
 
+def _reason_codes(decision) -> tuple[DragReasonCode, ...]:
+    return tuple(reason.code for reason in decision.reasons)
+
+
 # ---------------------------------------------------------------------------
 # Severity contract — mirrors classify_drag_commit's existing tests
 # ---------------------------------------------------------------------------
@@ -159,7 +163,7 @@ class TestSeverity:
         decision = _detector().classify(snap, {inst.id})
         assert decision.severity is DragSeverity.CLEAR
         assert decision.auto_remove_wire_ids == ()
-        assert decision.description == ""
+        assert decision.reasons == ()
 
     def test_hard_on_body_overlap(self) -> None:
         # Rigid bodies: the generic synth body floats (bendable), so only a
@@ -184,7 +188,7 @@ class TestSeverity:
         snap = _snapshot([(inst_a, defn_a, pl_a), (inst_b, defn_b, pl_b)])
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.HARD
-        assert "body overlap" in decision.description
+        assert _reason_codes(decision) == (DragReasonCode.BODY_OVERLAP,)
 
     def test_hard_on_pad_pad_different_nets(self) -> None:
         defn = _defn("R", 2)
@@ -222,7 +226,7 @@ class TestSeverity:
         )
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.HARD
-        assert "different-net" in decision.description
+        assert DragReasonCode.DIFFERENT_NETS in _reason_codes(decision)
 
     def test_soft_on_pin_on_foreign_wire(self) -> None:
         defn = _defn("R", 2)
@@ -264,6 +268,7 @@ class TestSeverity:
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.SOFT
         assert wire.id in decision.auto_remove_wire_ids
+        assert DragReasonCode.FOREIGN_WIRE in _reason_codes(decision)
 
     def test_soft_on_pin_on_same_net_wire_rule6_strict(self) -> None:
         """Rule 6 strict: even same-net wire on pin pad must be removed."""
@@ -330,7 +335,7 @@ class TestSeverity:
         snap = _snapshot([(inst_a, defn, pl_a), (inst_b, defn, pl_b)])
         decision = _detector().classify(snap, {inst_a.id})
         assert decision.severity is DragSeverity.SOFT
-        assert "shared pad" in decision.description
+        assert DragReasonCode.SHARED_PAD in _reason_codes(decision)
 
     def test_soft_on_skewed_dragged_wire(self) -> None:
         defn = _defn("R", 2)
@@ -355,7 +360,7 @@ class TestSeverity:
         )
         assert decision.severity is DragSeverity.SOFT
         assert skewed.id in decision.auto_remove_wire_ids
-        assert "skewed" in decision.description
+        assert DragReasonCode.SKEWED_WIRE in _reason_codes(decision)
 
     def test_hard_wins_over_soft(self) -> None:
         defn = _defn("R", 2)

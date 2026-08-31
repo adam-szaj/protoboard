@@ -7,6 +7,7 @@ from types import MappingProxyType
 
 import pytest
 
+from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -27,7 +28,7 @@ from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point, Vector, Vector3D
-from protoboard.services.drc.engine import DRCEngine, DRCIssue, _check_overlap
+from protoboard.services.drc.engine import DRCEngine, _check_overlap
 from tests.instance_utils import bind
 
 _TEST_FAMILIES: dict[str, PackageFamily] = {}

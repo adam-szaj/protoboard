@@ -3,7 +3,7 @@
 """Headless edit-CLI — drives the same EditController verbs as the GUI.
 
 The MVC acceptance front-end: builds a HeadlessSession + EditController and maps
-a line grammar onto the edit verbs (see ``services.editing.cli`` for the grammar).
+a line grammar onto the edit verbs (see ``protoboard.cli`` for the grammar).
 Reads a batch script file, or falls back to an interactive readline loop.
 
 Usage::
@@ -27,7 +27,7 @@ _THIS = Path(__file__).resolve()
 _REPO = _THIS.parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
-from protoboard.controller.editing.cli import CliDriver, CliError  # noqa: E402
+from protoboard.cli import CliDriver, CliError  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

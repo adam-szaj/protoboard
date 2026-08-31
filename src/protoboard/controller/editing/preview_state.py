@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point, Rect
-    from protoboard.services.drc.engine import DRCIssue
 
 
 class PreviewState:
@@ -63,6 +62,7 @@ class PreviewState:
         self.schematic = live.schematic
         self.stack = live.stack
         self.package_families = live.package_families
+        self.axis_label_settings = live.axis_label_settings
         # Settable EditState data members — plain attributes (not properties)
         # for the same reason as the block above: the protocol declares them
         # mutable, so a read-only property would fail the structural match.
@@ -80,11 +80,11 @@ class PreviewState:
         so it is rebuilt from the preview each call rather than served from the
         live session's placement-keyed cache.
         """
-        from protoboard.controller.editing.headless_session import (
-            _build_comp_spatial_index,
+        from protoboard.controller.editing.spatial_index import (
+            build_component_spatial_index,
         )
 
-        return _build_comp_spatial_index(
+        return build_component_spatial_index(
             self.layout, self.instances, self.components, self.package_families
         )
 
@@ -143,9 +143,6 @@ class PreviewState:
 
     def conflict_scanner(self, *, pad_index: PadIndex | None = None) -> ConflictScanner:
         return self._live.conflict_scanner(pad_index=pad_index)
-
-    def run_drc(self) -> list[DRCIssue]:
-        return self._live.run_drc()
 
     def pad_index(self) -> PadIndex:
         return self._live.pad_index()

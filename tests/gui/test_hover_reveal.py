@@ -10,6 +10,7 @@ from typing import cast
 
 from protoboard.controller.ports.hover import HoverEvent
 from protoboard.controller.ports.inputs import Mods
+from protoboard.controller.view_options.layers import LayerOverrides, LayerVisibility
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -17,7 +18,6 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.hover_reveal import HoverReveal
 from protoboard.gui.hover_tooltip import HoverTooltip
-from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 

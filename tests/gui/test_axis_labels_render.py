@@ -9,6 +9,7 @@ import pytest
 from PySide6.QtWidgets import QGraphicsTextItem
 from pytestqt.qtbot import QtBot
 
+from protoboard.controller.view_options.layers import LayerVisibility
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -17,7 +18,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.layer_state import LayerVisibility
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 

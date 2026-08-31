@@ -34,7 +34,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from protoboard.controller.editing.headless_session import HeadlessSession
 from protoboard.controller.editing.item_handle import ItemId
 from protoboard.controller.editing.placement_conflict import (
     PadConflictRequest,
@@ -45,6 +44,7 @@ from protoboard.controller.editing.placement_conflict import (
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.geometry import Point
+from protoboard.headless_session import HeadlessSession
 from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.library.loader import load_library
 

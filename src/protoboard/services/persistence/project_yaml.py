@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.package import PackageFamily
 
+from protoboard.controller.view_options.layers import LayerOverrides, LayerVisibility
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -48,7 +49,6 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point, Transform2D, Vector
-from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 
 # Identity transform sentinel — a group with this transform is a no-op in the
 # scene-graph model, so it is not written to disk (keeps files clean).

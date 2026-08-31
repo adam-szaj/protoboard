@@ -9,7 +9,7 @@ extracted into a Qt-free controller that owns the whole lifecycle:
   cloned once;
 * **update** (per move) — past a start threshold, translate every member and
   internal wire by one shared delta, re-sync the trial PadIndex, run
-  :class:`DragDetector` for a live :class:`DragCommitDecision`, and report it
+  :class:`DragDetector` for a live :class:`DragAnalysis`, and report it
   through the injected ``on_preview`` seam;
 * **commit** (on release) — below threshold, restore and report "this was a
   click" (``False``); otherwise resolve the conflict decision into a
@@ -40,17 +40,17 @@ import structlog
 
 from protoboard.controller.editing.drag_set import DragSet
 from protoboard.controller.selection.mouse_input import Intent, Mods
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
+from protoboard.domain.layout.drag_analysis import DragSeverity
 from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.editing.drag_preferences import DragPreferences
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import (
         ComponentPlacement,
@@ -127,7 +127,7 @@ class DragContext(Protocol):
 if TYPE_CHECKING:
     SnapFn = Callable[[Point, frozenset[uuid.UUID]], Point]
     """``(raw_anchor, exclude_ids) -> snapped`` — wraps ``view.snap``."""
-    PreviewFn = Callable[["DragCommitDecision | None"], None]
+    PreviewFn = Callable[["DragAnalysis | None"], None]
     """Called per move with the live decision (or ``None`` pre-threshold)."""
     ResolveFreeFn = Callable[
         [str, frozenset[uuid.UUID]],
@@ -199,7 +199,7 @@ class DragController:
 
         self._threshold_crossed = False
         self._last_delta: Vector | None = None
-        self._last_decision: DragCommitDecision | None = None
+        self._last_decision: DragAnalysis | None = None
         self._phase = FloatingPhase.NONE
         self._trial_pad_index: object | None = None
         self._floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
@@ -221,7 +221,7 @@ class DragController:
         return self._phase is FloatingPhase.FLOATING
 
     @property
-    def last_decision(self) -> DragCommitDecision | None:
+    def last_decision(self) -> DragAnalysis | None:
         return self._last_decision
 
     @property
@@ -363,7 +363,7 @@ class DragController:
             _log.warning("drag.pad_index.refresh_failed", error=str(exc))
             self._trial_pad_index = None
 
-    def _classify(self) -> DragCommitDecision | None:
+    def _classify(self) -> DragAnalysis | None:
         """Run the shared classifier over the current (post-drag) layout."""
         from protoboard.controller.editing.drag_commit import (
             classify_drag_commit,
@@ -494,7 +494,7 @@ class DragController:
         return outcome
 
     def _resolve_drops(
-        self, decision: DragCommitDecision
+        self, decision: DragAnalysis
     ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
         """Run the three preference resolvers; merge the kept drops + reroutes.
 

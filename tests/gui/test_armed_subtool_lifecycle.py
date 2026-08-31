@@ -15,12 +15,12 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
 from protoboard.controller.selection.adapters import WireSelectable
-from protoboard.controller.tools.drag_commit_decision import (
-    DragCommitDecision,
-    DragSeverity,
-)
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.drag_analysis import (
+    DragAnalysis,
+    DragSeverity,
+)
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
@@ -251,7 +251,7 @@ class TestArmedTransformExitParity:
         view, armed = self._armed_after_rotate_step(session)
         transform = session.edit_controller.armed_transform
         assert transform is not None
-        transform._classify = lambda: DragCommitDecision(  # type: ignore[method-assign]
+        transform._classify = lambda: DragAnalysis(  # type: ignore[method-assign]
             severity=DragSeverity.HARD
         )
         assert transform.can_commit() is False

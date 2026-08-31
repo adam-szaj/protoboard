@@ -15,8 +15,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.controller.view_options.layers import LayerVisibility
 from protoboard.gui.hover_tooltip import HoverTooltip
-from protoboard.gui.layer_state import LayerVisibility
 from protoboard.gui.throttle import TimerWrap
 
 if TYPE_CHECKING:

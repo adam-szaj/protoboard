@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
+from protoboard.controller.view_options.layers import LayerOverrides, LayerVisibility
 
 # (field_name, display_name, key_hint).  "ratsnest" keeps its internal
 # name for backwards compatibility but is displayed as "Connections".

@@ -21,9 +21,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.controller.view_options.layers import LayerOverrides
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.gui.layer_state import LayerOverrides, LayerState
+from protoboard.gui.layer_state import LayerState
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board

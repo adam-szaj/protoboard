@@ -160,13 +160,13 @@ class TestDragDetectorLockPromotion:
         # joint at (3.5, 0.5).  Foreign comp c_drag dragged so pin1
         # lands on (3.5, 0.5).  Detector should set severity=HARD via
         # hard_locked_wire_pads.
-        from protoboard.controller.tools.drag_commit_decision import DragSeverity
         from protoboard.domain.board.pad_state import PadIndex
-        from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
-        from protoboard.services.drag_detector import (
+        from protoboard.domain.layout.drag_analysis import DragSeverity
+        from protoboard.domain.layout.drag_detector import (
             DragDetector,
             DragSnapshot,
         )
+        from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
 
         defn = make_sil("R", 2)
         families = sil_families(defn)

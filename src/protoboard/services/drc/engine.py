@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -45,32 +45,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
 
 _log = structlog.get_logger(__name__)
-_Severity = Literal["error", "warning", "info"]
-_VALID_SEVERITIES = frozenset({"error", "warning", "info"})
-
-
-@dataclass(frozen=True)
-class DRCIssue:
-    severity: _Severity
-    code: str
-    message: str
-    locations: list[Point]
-    affected_nets: list[uuid.UUID]
-    # Optional reference fields populated by individual checks so the GUI
-    # can highlight the right objects when an issue is clicked.  Empty
-    # lists are the safe default for backward-compat with older callers
-    # that don't set them.
-    affected_pins: list[PinRef] = field(default_factory=list)
-    affected_wires: list[uuid.UUID] = field(default_factory=list)
-    affected_components: list[uuid.UUID] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        if self.severity not in _VALID_SEVERITIES:
-            raise ValueError(
-                f"severity must be one of {_VALID_SEVERITIES}; got {self.severity!r}"
-            )
-
-
 # ---------------------------------------------------------------------------
 # Human-readable formatting helpers
 # ---------------------------------------------------------------------------

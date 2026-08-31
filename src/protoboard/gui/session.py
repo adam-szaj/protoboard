@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
 
-from protoboard.controller.editing.headless_session import HeadlessSession
 from protoboard.controller.editing.item_handle import ItemId, ItemTag
+from protoboard.controller.ports.drc import DRCIssue
+from protoboard.controller.view_options.layers import LayerOverrides
 from protoboard.domain.board.board import Board
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.highlight_state import HighlightStack
-from protoboard.gui.layer_state import LayerOverrides
-from protoboard.services.drc.engine import DRCIssue
+from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.recording.recorder import CommandRecorder
 

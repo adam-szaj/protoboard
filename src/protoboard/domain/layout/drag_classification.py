@@ -26,7 +26,7 @@ Companion code paths consume this classification:
 * :class:`protoboard.domain.commands.drag_cmds.MoveDragSetCommand`
   translates ``internal ∪ half_orphan_internal`` by the delta and
   removes wires the user opted to drop.
-* :class:`protoboard.services.drag_detector.DragDetector` cross-references
+* :class:`protoboard.domain.layout.drag_detector.DragDetector` cross-references
   the classification with conflict detection so commit-time UI can
   surface the right preference dialog per category.
 

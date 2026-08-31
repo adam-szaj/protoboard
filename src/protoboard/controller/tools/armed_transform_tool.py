@@ -385,14 +385,14 @@ class ArmedTransformTool(ControllerTool):
         show — so the step needs a real ``refresh()`` (which clears the scene, so
         the pivot markers are re-drawn after).
         """
-        from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+        from protoboard.domain.layout.drag_analysis import DragAnalysis
 
         view = self._view
         if view is not None:
             view.refresh()
         self._draw_pivot_markers()
         if self._overlays is not None:
-            dec = decision if isinstance(decision, DragCommitDecision) else None
+            dec = decision if isinstance(decision, DragAnalysis) else None
             self._overlays.show_conflict(dec)
 
     def _draw_pivot_markers(self) -> None:

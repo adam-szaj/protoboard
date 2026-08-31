@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         QGraphicsScene,
     )
 
-    from protoboard.controller.theme import Theme
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.geometry import Point, Vector
 

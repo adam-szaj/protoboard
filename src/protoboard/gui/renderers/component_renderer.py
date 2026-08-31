@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import meta_pin_for_package_pin

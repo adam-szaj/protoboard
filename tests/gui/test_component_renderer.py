@@ -10,7 +10,11 @@ import pytest
 from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsScene
 from pytestqt.qtbot import QtBot
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.layers import (
+    LayerOverrides,
+    LayerVisibility,
+)
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
@@ -23,11 +27,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
-from protoboard.gui.layer_state import (
-    LayerOverrides,
-    LayerState,
-    LayerVisibility,
-)
+from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.component_renderer import (
     _get_refdes_font,
     _group_alpha_map,
@@ -505,7 +505,7 @@ class TestGhostHonoursPackageVariant:
     def _theme_and_defn(self):
         from pathlib import Path
 
-        from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.controller.view_options.theme import DEFAULT_THEME
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,

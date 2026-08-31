@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QRectF, QSize
 from PySide6.QtGui import QImage, QPainter
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.export.paint import paint_snapshot

@@ -2,7 +2,7 @@
 # Module Boundaries and Deduplication Design
 
 **Date:** 2026-08-30
-**Status:** approved direction; implementation plan pending review
+**Status:** approved; Workstreams 1 and 2A implemented, Workstream 2B next
 
 ## Purpose
 
@@ -209,6 +209,14 @@ parent contract for four independently planned workstreams:
 Each workstream receives its own executable plan and verification gate. Work on
 the next one starts only after the previous workstream leaves the full relevant
 suite green.
+
+Implementation status as of 2026-08-31:
+
+- Workstream 1 established dependency enforcement and relocated pure policies.
+- Workstream 2A introduced editing-service ports, structured domain drag
+  analysis, stable view-option DTOs, and root-level headless/CLI composition.
+- Workstream 2B is next: split broad editing contexts and remove the deferred
+  routing-service imports from controller tools and selection code.
 
 Within those workstreams, the order is:
 

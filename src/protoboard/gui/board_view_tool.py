@@ -39,11 +39,12 @@ if TYPE_CHECKING:
         ViewportPort,
         WheelInput,
     )
-    from protoboard.controller.theme import Theme
+    from protoboard.controller.view_options.layers import LayerOverrides
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import AbstractKeyMap, KeyMap
-    from protoboard.gui.layer_state import LayerOverrides, LayerState
+    from protoboard.gui.layer_state import LayerState
     from protoboard.gui.paint_pipeline import PaintPipeline
     from protoboard.gui.scene_composer import SceneComposer
     from protoboard.gui.session import EditorSession
@@ -407,7 +408,7 @@ class ViewToolMixin:
         pass
 
     def _theme(self) -> Theme:
-        from protoboard.controller.theme import DEFAULT_THEME, Theme
+        from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 
         view = cast("AbstractBoardView", getattr(self, "_view"))
         t = getattr(view, "_theme_override", None)

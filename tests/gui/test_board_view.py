@@ -206,7 +206,7 @@ class TestBoardSandwichCache:
         # here we just use the LayerState default 0.10).
         assert ls.alpha_for_board_mid() == 0.10
         # HIDDEN → 0
-        from protoboard.gui.layer_state import LayerVisibility
+        from protoboard.controller.view_options.layers import LayerVisibility
 
         ls.overrides.board = LayerVisibility.HIDDEN
         assert ls.alpha_for_board_mid() == 0.0
@@ -215,7 +215,8 @@ class TestBoardSandwichCache:
         assert ls.alpha_for_board_mid() == 0.0
 
     def test_components_hidden_does_not_hide_labels(self) -> None:
-        from protoboard.gui.layer_state import LayerState, LayerVisibility
+        from protoboard.controller.view_options.layers import LayerVisibility
+        from protoboard.gui.layer_state import LayerState
 
         ls = LayerState()
         ls.overrides.components_top = LayerVisibility.HIDDEN

@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.drag_preferences import DragPreferences
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
 
     ResolveFn = Callable[
         [str, frozenset[uuid.UUID]],
@@ -45,7 +45,7 @@ def run_resolver(
 
 
 def resolve_drops(
-    decision: DragCommitDecision,
+    decision: DragAnalysis,
     *,
     preferences: DragPreferences | None,
     resolve_free: ResolveFn | None,

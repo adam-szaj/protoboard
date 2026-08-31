@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
 )

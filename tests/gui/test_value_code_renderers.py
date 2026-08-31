@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import body_shape_for

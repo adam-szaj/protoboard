@@ -19,7 +19,7 @@ from __future__ import annotations
 from PySide6.QtGui import QColor, QFont, QFontMetricsF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene
 
-from protoboard.controller.theme import Theme
+from protoboard.controller.view_options.theme import Theme
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,

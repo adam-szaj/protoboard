@@ -58,8 +58,8 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.drag_preferences import DragPreferences
     from protoboard.controller.ports import KeyInput
     from protoboard.controller.selection.drop_resolution import ResolveFn
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.domain.commands.base import Command, ComponentState
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment
     from protoboard.geometry import Transform2D
@@ -110,7 +110,7 @@ class ArmedTransform:
         matches: Matcher,
         mode: str = "rotate",
         pivot: Point | None = None,
-        preview: Callable[[DragCommitDecision | None], None] | None = None,
+        preview: Callable[[DragAnalysis | None], None] | None = None,
         status: StatusFn | None = None,
         preferences: DragPreferences | None = None,
         resolve_free: ResolveFn | None = None,
@@ -483,7 +483,7 @@ class ArmedTransform:
 
     # -- commit-readiness + terminal ---------------------------------------
 
-    def _classify(self) -> DragCommitDecision | None:
+    def _classify(self) -> DragAnalysis | None:
         from protoboard.controller.editing.drag_commit import (
             classify_drag_commit,
         )
@@ -560,7 +560,7 @@ class ArmedTransform:
     # -- command assembly ---------------------------------------------------
 
     def _build_commit_command(
-        self, decision: DragCommitDecision | None
+        self, decision: DragAnalysis | None
     ) -> Command[ComponentState] | None:
         from protoboard.domain.commands.drag_cmds import TransformDragSetCommand
 
@@ -614,9 +614,7 @@ class ArmedTransform:
             description=f"Transform {n} component{'s' if n != 1 else ''}",
         )
 
-    def _resolve_soft_drops(
-        self, decision: DragCommitDecision | None
-    ) -> set[uuid.UUID]:
+    def _resolve_soft_drops(self, decision: DragAnalysis | None) -> set[uuid.UUID]:
         if decision is None:
             return set()
         from protoboard.controller.selection.drop_resolution import resolve_drops

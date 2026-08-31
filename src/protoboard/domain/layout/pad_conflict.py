@@ -309,7 +309,7 @@ def find_wire_conflicts(
     rebuilding from *wires* and *point_to_net*.
 
     Note for drag-pipeline callers: prefer
-    :class:`protoboard.services.drag_detector.DragDetector` over calling
+    :class:`protoboard.domain.layout.drag_detector.DragDetector` over calling
     this function directly. The detector wraps this helper plus
     :func:`find_conflicts` and :func:`find_wires_crossing_pads` behind
     a single strategy-aware entry point. This function is kept as a

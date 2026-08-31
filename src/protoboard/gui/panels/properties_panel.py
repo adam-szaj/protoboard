@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -34,7 +35,6 @@ from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
 from protoboard.instrumentation.debug_trace import traced
-from protoboard.services.drc.engine import DRCIssue
 
 if TYPE_CHECKING:
     from protoboard.gui.session import EditorSession

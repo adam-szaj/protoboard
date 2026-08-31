@@ -38,11 +38,11 @@ if TYPE_CHECKING:
 
     from protoboard.controller.ports import KeyInput
     from protoboard.controller.selection.mouse_input import Intent
-    from protoboard.controller.theme import Theme
     from protoboard.controller.tools.select_prompts import (
         GroupTargetChoice,
         GroupTargetRequest,
     )
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.gui.board_view_tool import AbstractBoardView
 
 

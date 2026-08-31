@@ -72,7 +72,6 @@ if TYPE_CHECKING:
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.wire_edit import WireEditState
     from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.controller.tools.select_prompts import GroupTargetPrompt
     from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
@@ -80,6 +79,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import RedragResult
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.placement import ComponentPlacement
@@ -1304,7 +1304,7 @@ class SelectTool(ControllerTool):
             auto_accept_clear=True,
         )
 
-    def _drag_preview(self, decision: DragCommitDecision | None) -> None:
+    def _drag_preview(self, decision: DragAnalysis | None) -> None:
         """Live drag feedback: glide the scene + show/clear the conflict label.
 
         Called by :class:`DragController` after every move (and at release) with
@@ -1331,7 +1331,7 @@ class SelectTool(ControllerTool):
         #    sees *which* wires are affected before releasing.
         self._update_wire_ghosting(decision)
 
-    def _update_wire_ghosting(self, decision: DragCommitDecision | None) -> None:
+    def _update_wire_ghosting(self, decision: DragAnalysis | None) -> None:
         """Dim wires the current drop would remove ("drop") or tear apart
         ("disconnect"); reset any previously-ghosted wire that no longer
         qualifies.  No-op when BoardView lacks the setter (headless test)."""
@@ -1356,7 +1356,7 @@ class SelectTool(ControllerTool):
             setter(states)
         self._ghosted_wire_ids = {wid for wid, st in states.items() if st != "normal"}
 
-    def _show_conflict_corner(self, decision: DragCommitDecision | None) -> None:
+    def _show_conflict_corner(self, decision: DragAnalysis | None) -> None:
         """Show/clear the corner conflict label for a live preview decision.
 
         Shared by drag and armed-rotate previews (SOFT amber / HARD red while

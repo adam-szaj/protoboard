@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pytestqt.qtbot import QtBot
 
-from protoboard.controller.editing.cli import CliDriver
+from protoboard.cli import CliDriver
 
 
 def _journey(save_dir: Path) -> list[str]:

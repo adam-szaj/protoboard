@@ -34,12 +34,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import Literal
 
+from protoboard.controller.view_options.layers import (
+    LayerOverrides,
+    LayerVisibility,
+    ViewTransform,
+)
 from protoboard.types import Side
-
-ViewTransform = Literal["normal", "mirror_h", "mirror_v", "mirror_hv"]
 
 # ---------------------------------------------------------------------------
 # Z-value anchors
@@ -93,60 +95,6 @@ _VIS_ALPHA = {
     "hidden": 0.0,
 }
 # Note: AUTO was removed; FULL now means "respect tool-driven ghosting".
-
-
-# ---------------------------------------------------------------------------
-# Per-layer manual visibility
-# ---------------------------------------------------------------------------
-
-
-class LayerVisibility(StrEnum):
-    FULL = "full"  # always 100%
-    GHOST = "ghost"  # always ~25%
-    HIDDEN = "hidden"  # 0% (not drawn, not hit-tested)
-
-    def cycle(self) -> LayerVisibility:
-        """Cycle: FULL → GHOST → HIDDEN → FULL."""
-        order = [LayerVisibility.FULL, LayerVisibility.GHOST, LayerVisibility.HIDDEN]
-        idx = order.index(self)
-        return order[(idx + 1) % len(order)]
-
-    def label(self) -> str:
-        """Short label for menu display."""
-        return f"[{self.value.capitalize()}]"
-
-
-@dataclass
-class LayerOverrides:
-    """Manual per-layer visibility overrides."""
-
-    board: LayerVisibility = LayerVisibility.FULL
-    components_top: LayerVisibility = LayerVisibility.FULL
-    components_bottom: LayerVisibility = LayerVisibility.FULL
-    wires_top: LayerVisibility = LayerVisibility.FULL
-    wires_bottom: LayerVisibility = LayerVisibility.FULL
-    labels: LayerVisibility = LayerVisibility.FULL
-    meta_pin_labels: LayerVisibility = LayerVisibility.FULL
-    # "ratsnest" is the legacy field name; UI displays it as "Connections".
-    ratsnest: LayerVisibility = LayerVisibility.FULL
-    axis_labels: LayerVisibility = LayerVisibility.FULL
-    # Schematic-aware overlay above the board layer — colours every pad
-    # that carries a net.  See ``domain/layout/pin_pad_classification.py``.
-    pin_pads: LayerVisibility = LayerVisibility.FULL
-    # Top-most modifier glyphs (square / diamond / star) repeated above
-    # wires and components so pin 1 / exported markers stay visible even
-    # when something sits on top of the pin pad.
-    pin_modifiers: LayerVisibility = LayerVisibility.FULL
-
-    def reset(self) -> None:
-        """Reset all overrides to FULL."""
-        for f in self.__dataclass_fields__:
-            setattr(self, f, LayerVisibility.FULL)
-
-    def all_full(self) -> bool:
-        return all(
-            getattr(self, f) == LayerVisibility.FULL for f in self.__dataclass_fields__
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +317,7 @@ def layer_state_for_tool(
     if theme is not None:
         import dataclasses
 
-        from protoboard.controller.theme import Theme
+        from protoboard.controller.view_options.theme import Theme
 
         if isinstance(theme, Theme):
             state = dataclasses.replace(

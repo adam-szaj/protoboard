@@ -24,7 +24,7 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
-from protoboard.controller.theme import Theme
+from protoboard.controller.view_options.theme import Theme
 from protoboard.geometry import Point
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.instrumentation.debug_trace import traced

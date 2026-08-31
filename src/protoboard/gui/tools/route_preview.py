@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-    from protoboard.controller.theme import Theme
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
     from protoboard.services.routing.astar import RoutingResult
 

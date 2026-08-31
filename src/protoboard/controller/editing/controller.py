@@ -11,7 +11,7 @@ stateful the way an active place-tool is. Selection is model state (read from
 group and passes it in.
 
 State is taken through the :class:`EditState` Protocol, satisfied structurally
-by both :class:`~protoboard.controller.editing.headless_session.HeadlessSession`
+by both :class:`~protoboard.headless_session.HeadlessSession`
 and the GUI ``EditorSession``. Qt-free by construction — the same mechanical
 rule that keeps ``domain/`` display-independent (CLAUDE.md §3).
 
@@ -53,9 +53,15 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing.wire_nets import NetMergePrompt
     from protoboard.controller.highlight_stack import HighlightStackBase
+    from protoboard.controller.ports.drc import DRCIssue
+    from protoboard.controller.ports.edit_services import (
+        EditServicePorts,
+        RouteResult,
+    )
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.selection.service import SelectionService
     from protoboard.controller.tools.base import ControllerTool
+    from protoboard.domain.axis_labels_settings import AxisLabelSettings
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import PackageFamily
@@ -67,8 +73,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Rect, Vector
-    from protoboard.services.drc.engine import DRCIssue
-    from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.types import Side
 
 
@@ -200,6 +204,7 @@ class EditState(SchematicState, Protocol):
 
     stack: CommandStack[ComponentState]
     package_families: dict[str, PackageFamily]
+    axis_label_settings: AxisLabelSettings
 
     def wire_by_id(self, wire_id: uuid.UUID) -> Wire | None: ...
     def group_tree(self) -> GroupTree: ...
@@ -207,7 +212,6 @@ class EditState(SchematicState, Protocol):
     def conflict_scanner(
         self, *, pad_index: PadIndex | None = ...
     ) -> ConflictScanner: ...
-    def run_drc(self) -> list[DRCIssue]: ...
     def pad_index(self) -> PadIndex: ...
     def connectivity_graph(self) -> ConnectivityGraph: ...
     def get_pin_position(self, comp_id: uuid.UUID, pin_number: int) -> Point | None: ...
@@ -312,8 +316,9 @@ class EditController:
     :attr:`state`), not controller state.
     """
 
-    def __init__(self, state: EditState) -> None:
+    def __init__(self, state: EditState, ports: EditServicePorts) -> None:
         self._state = state
+        self._ports = ports
         # Interaction state for the active armed transform (rotate/move/flip).
         # None unless a transform is currently armed — the controller is
         # stateful only within the scope of that one active sub-tool.
@@ -1118,7 +1123,7 @@ class EditController:
             n += 1
         return f"{prefix}{n}"
 
-    def apply_autoroute(self, result: AutorouteResult) -> int:
+    def apply_autoroute(self, result: RouteResult) -> int:
         """Commit an autoroute *result*'s wires, dropping duplicates. Returns #applied.
 
         Absorbs the apply half of ``MainWindow._on_autoroute_done``: filters out
@@ -1164,7 +1169,7 @@ class EditController:
         *,
         settings: RoutingSettings,
         report_path: Path | None = None,
-    ) -> AutorouteResult:
+    ) -> RouteResult:
         """Route *net_ids* (or every net when None) synchronously.
 
         The blocking counterpart to the GUI's background ``AutorouteWorker`` —
@@ -1173,39 +1178,36 @@ class EditController:
         Does **not** mutate the layout; pass the returned result to
         :meth:`apply_autoroute` to commit it.
         """
-        # Ensure the built-in router/optimizers are registered.
-        import protoboard.services.routing.builtin  # noqa: F401
-        from protoboard.services.routing.protocol import ProgressSink, registry
-        from protoboard.services.routing.snapshot import RouteRequest
-
         state = self._state
-        request = RouteRequest.from_session(
+        return self._ports.autoroute.route(
             board=state.board,
             layout=state.layout,
             schematic=state.schematic,
             components=state.components,
             instances=state.instances,
-            routing_settings=settings,
+            settings=settings,
             net_ids=net_ids,
             report_path=report_path,
         )
-        return registry.default().route(request, ProgressSink())
 
     def run_drc(self) -> list[DRCIssue]:
-        """Run DRC synchronously and return the issues (no side effects).
-
-        Thin pass-through to :meth:`HeadlessSession.run_drc` — the Qt-free
-        DRCEngine path. The GUI keeps its background ``DRCWorker``; this is the
-        blocking check for the CLI / headless validation.
-        """
-        return self._state.run_drc()
+        """Run DRC synchronously and return issues without GUI side effects."""
+        state = self._state
+        return self._ports.drc.check(
+            board=state.board,
+            layout=state.layout,
+            schematic=state.schematic,
+            components=state.components,
+            instances=state.instances,
+            graph=state.connectivity_graph(),
+            axis_labels=state.axis_label_settings,
+            pad_index=state.pad_index(),
+        )
 
     def save(self, directory: Path) -> None:
         """Save the current project to *directory* (Qt-free YAML)."""
-        from protoboard.services.persistence.project_yaml import save_project
-
         state = self._state
-        save_project(
+        self._ports.projects.save(
             directory,
             board=state.board,
             layout=state.layout,
@@ -1214,36 +1216,18 @@ class EditController:
         )
 
     def export(self, kind: str, path: Path) -> None:
-        """Export the board to *path*. *kind* is ``pdf`` / ``svg`` / ``png``.
-
-        Thin pass-through to the export service. PDF/PNG go through Qt's paint
-        pipeline (the caller must have a ``QGuiApplication`` — the CLI sets one
-        up with the offscreen platform); the import is local so the edit verbs
-        stay Qt-free.
-        """
+        """Export the board through the configured technical adapter."""
         state = self._state
-        common = {
-            "board": state.board,
-            "layout": state.layout,
-            "components": state.components,
-            "instances": state.instances,
-            "schematic": state.schematic,
-            "package_families": state.package_families,
-        }
-        if kind == "pdf":
-            from protoboard.services.export.pdf import export_pdf
-
-            export_pdf(path, **common)  # type: ignore[arg-type]
-        elif kind == "png":
-            from protoboard.services.export.png import export_png
-
-            export_png(path, **common)  # type: ignore[arg-type]
-        elif kind == "svg":
-            from protoboard.services.export.svg import export_svg
-
-            path.write_text(export_svg(**common))  # type: ignore[arg-type]
-        else:
-            raise ValueError(f"unknown export kind: {kind!r}")
+        self._ports.export.export(
+            kind,
+            path,
+            board=state.board,
+            layout=state.layout,
+            components=state.components,
+            instances=state.instances,
+            schematic=state.schematic,
+            package_families=state.package_families,
+        )
 
     def create_group(
         self,

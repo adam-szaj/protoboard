@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.layout.pin_pad_classification import (
     ModifierShape,
     PinPadClass,

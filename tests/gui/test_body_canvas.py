@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtGui import QColor, QPen, QTransform
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.gui.renderers.packages import BodyCanvas
 
 

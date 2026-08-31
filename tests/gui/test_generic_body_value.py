@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
-from protoboard.controller.theme import DEFAULT_THEME
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import resolved_footprint
 from protoboard.domain.layout.placement import (

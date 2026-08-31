@@ -274,7 +274,7 @@ class NetsEditorPanel(QWidget):
         # Resolve every net to its effective colour (manual override, palette,
         # or golden-ratio extension) so the panel shows exactly what the
         # board renderer paints — not just the manual override.
-        from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.controller.view_options.theme import DEFAULT_THEME
         from protoboard.gui.renderers.net_color import build_net_color_map
 
         theme = getattr(self._session, "theme", DEFAULT_THEME) or DEFAULT_THEME

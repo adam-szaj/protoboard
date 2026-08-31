@@ -52,7 +52,7 @@ def _kind_pkg(kind: str, pins: int, values: dict | None = None) -> Package:
     return ctx.package
 
 
-from protoboard.controller.theme import DEFAULT_THEME  # noqa: E402
+from protoboard.controller.view_options.theme import DEFAULT_THEME  # noqa: E402
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point  # noqa: E402
 from protoboard.gui.renderers.body_shapes import (  # noqa: E402

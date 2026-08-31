@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainterPath
 
-from protoboard.controller.theme import Theme
+from protoboard.controller.view_options.theme import Theme
 from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
 from protoboard.gui.qt_geometry import to_qrectf

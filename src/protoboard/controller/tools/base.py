@@ -22,7 +22,7 @@ if TYPE_CHECKING:
         StatusEvent,
         WheelInput,
     )
-    from protoboard.controller.theme import Theme
+    from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
 
 
@@ -126,7 +126,7 @@ class ControllerTool:
 
     def _theme(self) -> Theme:
         """Return the Qt-free default theme for headless tool execution."""
-        from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.controller.view_options.theme import DEFAULT_THEME
 
         return DEFAULT_THEME
 

@@ -26,11 +26,11 @@ from protoboard.controller.selection.drag_controller import (
     FloatingPhase,
 )
 from protoboard.controller.selection.mouse_input import Intent, Mods
-from protoboard.controller.tools.drag_commit_decision import (
-    DragCommitDecision,
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.drag_analysis import (
+    DragAnalysis,
     DragSeverity,
 )
-from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
@@ -236,10 +236,10 @@ def _stub_classify(
     """
     comp_id = next(iter(ctrl.member_ids))
 
-    def fake() -> DragCommitDecision:
+    def fake() -> DragAnalysis:
         x = ctrl._ctx.layout.placements[comp_id].position.x  # type: ignore[attr-defined]
         sev = severity_at_x.get(round(x, 3), DragSeverity.CLEAR)
-        return DragCommitDecision(severity=sev)
+        return DragAnalysis(severity=sev)
 
     ctrl._classify = fake  # type: ignore[method-assign]
 

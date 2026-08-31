@@ -168,7 +168,7 @@ class TestCyanSelectionOutline:
     def test_selected_component_outline_turns_cyan(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.controller.view_options.theme import DEFAULT_THEME
 
         inst = _place(board_view, session, 0.5, 0.5)
         board_view.refresh()
@@ -187,7 +187,7 @@ class TestCyanSelectionOutline:
     def test_deselect_restores_outline(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.controller.view_options.theme import DEFAULT_THEME
 
         inst = _place(board_view, session, 0.5, 0.5)
         board_view.refresh()
@@ -276,7 +276,7 @@ class TestGroupSelectAndEdit:
     def test_selected_group_outline_turns_cyan(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.controller.theme import DEFAULT_THEME
+        from protoboard.controller.view_options.theme import DEFAULT_THEME
 
         gid = self._make_group(board_view, session)
         select_rgb = QColor(DEFAULT_THEME.select_color).rgb() & 0x00FFFFFF
@@ -1700,8 +1700,8 @@ class TestDragConflictOutline:
     def test_severity_drives_outline_override(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
             DragSeverity,
         )
 
@@ -1710,29 +1710,25 @@ class TestDragConflictOutline:
         tool = _v2(board_view)
 
         # HARD → red override.
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.HARD, description="x")
-        )
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.HARD))
         hard = board_view.highlight._select_outline_override
         assert hard is not None and hard.red() > hard.green()  # reddish
 
         # SOFT → amber override (more green than red's, still warm).
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.SOFT, description="y")
-        )
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.SOFT))
         soft = board_view.highlight._select_outline_override
         assert soft is not None and soft.green() > hard.green()  # amber vs red
 
         # CLEAR → back to cyan (override removed).
-        tool._show_conflict_corner(DragCommitDecision(severity=DragSeverity.CLEAR))
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.CLEAR))
         assert board_view.highlight._select_outline_override is None
 
     def test_wire_ghosting_dims_drop_wires(self, qtbot) -> None:
         """A drop decision ghost-dims its drop/disconnect wires; CLEAR restores."""
         from PySide6.QtWidgets import QGraphicsItemGroup
 
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
             DragSeverity,
         )
 
@@ -1746,7 +1742,7 @@ class TestDragConflictOutline:
 
         # SOFT decision marking the wire as a free drop → dimmed.
         tool._update_wire_ghosting(
-            DragCommitDecision(
+            DragAnalysis(
                 severity=DragSeverity.SOFT,
                 free_drop_wire_ids=(wire.id,),
             )
@@ -1755,15 +1751,15 @@ class TestDragConflictOutline:
         assert wire.id in tool._ghosted_wire_ids
 
         # CLEAR decision → wire restored to full opacity.
-        tool._update_wire_ghosting(DragCommitDecision(severity=DragSeverity.CLEAR))
+        tool._update_wire_ghosting(DragAnalysis(severity=DragSeverity.CLEAR))
         assert grp.opacity() == 1.0
         assert wire.id not in tool._ghosted_wire_ids
 
     def test_clear_drag_corner_restores_ghosted_wires(self, qtbot) -> None:
         from PySide6.QtWidgets import QGraphicsItemGroup
 
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
             DragSeverity,
         )
 
@@ -1772,9 +1768,7 @@ class TestDragConflictOutline:
         tool = _v2(view)
         wire = next(iter(session.layout.wires))
         tool._update_wire_ghosting(
-            DragCommitDecision(
-                severity=DragSeverity.SOFT, free_drop_wire_ids=(wire.id,)
-            )
+            DragAnalysis(severity=DragSeverity.SOFT, free_drop_wire_ids=(wire.id,))
         )
         grp = view.composer._wire_groups.get(wire.id)
         assert isinstance(grp, QGraphicsItemGroup) and grp.opacity() < 1.0
@@ -1839,17 +1833,15 @@ class TestDragConflictOutline:
     def test_clear_drag_corner_resets_outline(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
             DragSeverity,
         )
 
         _place(board_view, session, 0.5, 0.5)
         board_view.refresh()
         tool = _v2(board_view)
-        tool._show_conflict_corner(
-            DragCommitDecision(severity=DragSeverity.HARD, description="x")
-        )
+        tool._show_conflict_corner(DragAnalysis(severity=DragSeverity.HARD))
         assert board_view.highlight._select_outline_override is not None
         # Any drag-end path routes through _clear_drag_corner → outline resets.
         tool._clear_drag_corner()

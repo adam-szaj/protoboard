@@ -12,7 +12,6 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from protoboard.controller.editing import HeadlessSession
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -21,6 +20,7 @@ from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
+from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import load_library
 from protoboard.services.routing.autorouter import AutorouteResult
 

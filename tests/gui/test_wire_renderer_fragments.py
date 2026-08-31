@@ -140,8 +140,11 @@ def test_hidden_first_side_does_not_hide_the_other_fragments(
 ) -> None:
     """wires_bottom HIDDEN must not erase a wire's TOP fragments just
     because the wire's first fragment is on the bottom."""
+    from protoboard.controller.view_options.layers import (
+        LayerOverrides,
+        LayerVisibility,
+    )
     from protoboard.domain.layout.wire import Fragment
-    from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 
     starts_hidden = Wire(
         id=uuid.uuid4(),
@@ -287,7 +290,7 @@ _MIN_SIDE_ALPHA_GAP = 0.3
 
 
 def test_wire_back_alpha_gap_is_perceptible_by_default() -> None:
-    from protoboard.controller.theme import DEFAULT_THEME
+    from protoboard.controller.view_options.theme import DEFAULT_THEME
     from protoboard.gui.layer_state import layer_state_for_tool
 
     layers = layer_state_for_tool(object(), "top", theme=DEFAULT_THEME)
@@ -301,10 +304,12 @@ def test_wire_back_alpha_gap_survives_ghost_top_full_bottom() -> None:
     Historically ghost≈0.89 collided with back_alpha≈0.90 — a 0.01 delta.
     The wire-specific back alpha must keep the sides distinct even here.
     """
-    from protoboard.controller.theme import DEFAULT_THEME
-    from protoboard.gui.layer_state import (
+    from protoboard.controller.view_options.layers import (
         LayerOverrides,
         LayerVisibility,
+    )
+    from protoboard.controller.view_options.theme import DEFAULT_THEME
+    from protoboard.gui.layer_state import (
         layer_state_for_tool,
     )
 
@@ -334,7 +339,7 @@ def test_routing_target_net_renders_in_neon(scene: QGraphicsScene) -> None:
     """v1 parity: wires of the actively-routed net take routing_target_color."""
     from PySide6.QtGui import QColor
 
-    from protoboard.controller.theme import DEFAULT_THEME
+    from protoboard.controller.view_options.theme import DEFAULT_THEME
 
     wire = _all_top_wire()
     net_id = uuid.uuid4()

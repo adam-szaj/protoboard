@@ -30,6 +30,7 @@ import structlog as _structlog
 if TYPE_CHECKING:
     from protoboard.controller.editing.controller import EditController
     from protoboard.controller.editing.item_handle import ItemId
+    from protoboard.controller.ports.edit_services import EditServicePorts
     from protoboard.controller.selection.service import SelectionService
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.footprints import Footprint
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
 
 from protoboard.controller.highlight_stack import HighlightStackBase
+from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import CommandStack, ComponentState
@@ -46,11 +48,9 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
-from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
@@ -58,34 +58,6 @@ from protoboard.services.library.package_family_loader import (
 
 _click_log = _structlog.get_logger("protoboard.gui.session.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
-
-
-def _build_comp_spatial_index(
-    layout: Layout,
-    instances: dict[uuid.UUID, ComponentInstance],
-    components: dict[str, ComponentDefinition],
-    families: dict[str, PackageFamily] | None = None,
-) -> dict[tuple[int, int], list[uuid.UUID]]:
-    """Build grid-cell → comp_id index from current placements."""
-    from protoboard.domain.components.package import resolved_footprint
-
-    idx: dict[tuple[int, int], list[uuid.UUID]] = defaultdict(list)
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = resolved_footprint(defn, inst, families)
-        seen_cells: set[tuple[int, int]] = set()
-        for n in range(fp.pin_count()):
-            p = pin_world_position(fp, placement, n + 1)
-            cell = (round(p.x), round(p.y))
-            if cell not in seen_cells:
-                seen_cells.add(cell)
-                idx[cell].append(comp_id)
-    return dict(idx)
 
 
 def _build_wire_spatial_index(layout: Layout) -> dict[tuple[int, int], list[uuid.UUID]]:
@@ -104,7 +76,12 @@ def _build_wire_spatial_index(layout: Layout) -> dict[tuple[int, int], list[uuid
 class HeadlessSession:
     """Qt-free state container shared by the GUI session and headless drivers."""
 
-    def __init__(self, board: Board, library: ComponentLibrary) -> None:
+    def __init__(
+        self,
+        board: Board,
+        library: ComponentLibrary,
+        edit_ports: EditServicePorts | None = None,
+    ) -> None:
         self.board = board
         self.library = library
         self.schematic = Schematic(nets={})
@@ -168,6 +145,7 @@ class HeadlessSession:
         # GUI tools and a headless CLI drive. Built lazily so the base module
         # never imports the controller at construction time.
         self._edit_controller: EditController | None = None
+        self._edit_ports = edit_ports
         # Current selection as tagged ItemIds — the model-side selection the
         # controller's selection-relative verbs (rotate()/flip() with no ids)
         # read. A headless session owns it directly; EditorSession overrides the
@@ -192,8 +170,12 @@ class HeadlessSession:
         """The session's :class:`EditController` (built once, on first use)."""
         if self._edit_controller is None:
             from protoboard.controller.editing.controller import EditController
+            from protoboard.services.editing.adapters import (
+                default_edit_service_ports,
+            )
 
-            self._edit_controller = EditController(self)
+            ports = self._edit_ports or default_edit_service_ports()
+            self._edit_controller = EditController(self, ports)
         return self._edit_controller
 
     def notify_changed(self) -> None:
@@ -248,24 +230,8 @@ class HeadlessSession:
         self._selection = frozenset(ids)
 
     def run_drc(self) -> list[DRCIssue]:
-        """Run DRC synchronously on the calling thread and return the issues.
-
-        The Qt-free compute path shared by the CLI / headless validation and by
-        the GUI ``EditorSession.run_drc`` (which additionally records the result
-        + emits ``drc_changed``). Hands the live pad_index over so the fast
-        checks kick in.
-        """
-        engine = DRCEngine()
-        return engine.check_with_graph(
-            schematic=self.schematic,
-            layout=self.layout,
-            components=self.components,
-            instances=self.instances,
-            graph=self.connectivity_graph(),
-            axis_labels=self.axis_label_settings,
-            board=self.board,
-            pad_index=self.pad_index(),
-        )
+        """Run DRC synchronously through the configured application port."""
+        return self.edit_controller.run_drc()
 
     # ------------------------------------------------------------------
     # Layout (with PinKnot resolver rebinding on swap)
@@ -482,7 +448,11 @@ class HeadlessSession:
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
         """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""
         if self._comp_spatial_index is None:
-            self._comp_spatial_index = _build_comp_spatial_index(
+            from protoboard.controller.editing.spatial_index import (
+                build_component_spatial_index,
+            )
+
+            self._comp_spatial_index = build_component_spatial_index(
                 self.layout,
                 self.instances,
                 self.components,

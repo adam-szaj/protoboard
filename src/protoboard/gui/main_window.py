@@ -14,9 +14,9 @@ import structlog
 if TYPE_CHECKING:
     from protoboard.controller.highlight_entry import HighlightEntry
     from protoboard.controller.ports import InteractionContext, StatusEvent
+    from protoboard.controller.ports.drc import DRCIssue
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.gui.workers.drc_worker import DRCWorker
-    from protoboard.services.drc.engine import DRCIssue
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, Signal
 from PySide6.QtGui import (
@@ -113,8 +113,8 @@ class MainWindow(QMainWindow):
         self._watched_net_path: Path | None = None
         self._kicad_watcher = QFileSystemWatcher(self)
         self._kicad_watcher.fileChanged.connect(self._on_kicad_net_changed)
-        from protoboard.controller.theme import Theme as _Theme
-        from protoboard.controller.theme import load_theme
+        from protoboard.controller.view_options.theme import Theme as _Theme
+        from protoboard.services.preferences.theme_yaml import load_theme
 
         self._theme: _Theme = load_theme()
         self._update_title()
@@ -2557,8 +2557,8 @@ class MainWindow(QMainWindow):
         clicks replace (not stack) the entry, and a tool's transient
         highlight still wins over it.
         """
+        from protoboard.controller.ports.drc import DRCIssue as _DRCIssue
         from protoboard.gui.highlight_state import HighlightEntry
-        from protoboard.services.drc.engine import DRCIssue as _DRCIssue
 
         stack = self._session.highlight_stack
         stack.clear_auto(self._DRC_HIGHLIGHT_SOURCE)
@@ -2995,7 +2995,7 @@ class MainWindow(QMainWindow):
             act.setShortcut(self._ks(action_id))
 
     def _on_theme_applied(self, theme: object) -> None:
-        from protoboard.controller.theme import Theme
+        from protoboard.controller.view_options.theme import Theme
 
         if isinstance(theme, Theme):
             self._theme = theme

@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QGraphicsSimpleTextItem,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme  # noqa: E402
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme  # noqa: E402
 from protoboard.domain.components.definition import (  # noqa: E402
     ComponentClass,
     ComponentDefinition,

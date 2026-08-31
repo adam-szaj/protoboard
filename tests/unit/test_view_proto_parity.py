@@ -61,7 +61,6 @@ def test_tool_host_proto_covered_by_abstract_view_tools() -> None:
 
 def _headless_session():
     """A minimal Qt-free session (empty library) for member-coverage checks."""
-    from protoboard.controller.editing.headless_session import HeadlessSession
     from protoboard.domain.board.board import Board
     from protoboard.domain.board.boxes import (
         BoardGrid,
@@ -69,6 +68,7 @@ def _headless_session():
         PadLayers,
         SizePolicy,
     )
+    from protoboard.headless_session import HeadlessSession
     from protoboard.services.library.loader import ComponentLibrary
 
     grid = BoardGrid(

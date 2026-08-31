@@ -13,7 +13,6 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from protoboard.controller.editing import HeadlessSession
 from protoboard.controller.editing.armed_transform import ArmedTransform
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
@@ -21,6 +20,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
+from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import load_library
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"

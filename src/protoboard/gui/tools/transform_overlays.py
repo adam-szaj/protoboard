@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QColor
 
 if TYPE_CHECKING:
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
     from protoboard.gui.board_view_tool import AbstractBoardView
 
 
@@ -31,13 +31,13 @@ class TransformOverlays:
         self._view = view
         self._corner: object | None = None  # lazily-built DragCornerText
 
-    def show_conflict(self, decision: DragCommitDecision | None) -> None:
+    def show_conflict(self, decision: DragAnalysis | None) -> None:
         """Show/clear the corner + outline for a live preview *decision*.
 
         SOFT amber / HARD red while conflicting; hidden the instant the state is
         CLEAR (or ``None``) so the frame never lingers.
         """
-        from protoboard.controller.tools.drag_commit_decision import DragSeverity
+        from protoboard.domain.layout.drag_analysis import DragSeverity
 
         if decision is None or decision.severity is DragSeverity.CLEAR:
             self.clear()
@@ -45,7 +45,9 @@ class TransformOverlays:
         amber = QColor(180, 130, 0, 220)
         red = QColor(180, 40, 25, 230)
         color = red if decision.severity is DragSeverity.HARD else amber
-        text = decision.description or (
+        from protoboard.gui.tools.drag_messages import format_drag_reasons
+
+        text = format_drag_reasons(decision.reasons) or (
             "Cannot drop here — overlap  ·  [Esc] cancel"
             if decision.severity is DragSeverity.HARD
             else "Drops/edits some wires on release"

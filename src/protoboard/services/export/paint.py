@@ -179,7 +179,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     )
 
     # ── Ratsnest + groups + axis labels (overlays) ──────────────────────────
-    from protoboard.gui.layer_state import LayerVisibility
+    from protoboard.controller.view_options.layers import LayerVisibility
 
     if (
         snapshot.schematic.nets

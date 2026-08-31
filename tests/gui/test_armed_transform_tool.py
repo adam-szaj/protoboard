@@ -299,8 +299,8 @@ class TestArmedRotate:
     def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
         # Conditional-disarm contract: an accept that cannot commit (HARD
         # conflict) leaves the tool active, waiting — it does NOT return.
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
             DragSeverity,
         )
 
@@ -308,7 +308,7 @@ class TestArmedRotate:
         _key(armed, Qt.Key.Key_R)  # step once so there is a non-zero rotation
         transform = session.edit_controller.armed_transform
         assert transform is not None
-        transform._classify = lambda: DragCommitDecision(  # type: ignore[attr-defined]
+        transform._classify = lambda: DragAnalysis(  # type: ignore[attr-defined]
             severity=DragSeverity.HARD
         )
         assert transform.can_commit() is False
@@ -427,8 +427,8 @@ class TestArmedAtomic:
         assert session.edit_controller.armed_transform is None  # never armed
 
     def test_atomic_parks_armed_on_conflict(self, board_view, session) -> None:
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
             DragSeverity,
         )
 
@@ -440,7 +440,7 @@ class TestArmedAtomic:
             self._step_cw(armed)
             transform = session.edit_controller.armed_transform
             assert transform is not None
-            transform._classify = lambda: DragCommitDecision(  # type: ignore[attr-defined]
+            transform._classify = lambda: DragAnalysis(  # type: ignore[attr-defined]
                 severity=DragSeverity.HARD
             )
 

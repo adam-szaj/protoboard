@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from protoboard.controller.theme import DEFAULT_THEME, Theme
+from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.definition import ComponentClass
 from protoboard.domain.components.instance import ComponentInstance

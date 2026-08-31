@@ -52,9 +52,9 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.controller import ResolvedPlacement
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.ports import PointerInput
-    from protoboard.controller.theme import Theme
     from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.place_preview import PlacePreview
+    from protoboard.controller.view_options.theme import Theme
 
 _log = structlog.get_logger(__name__)
 

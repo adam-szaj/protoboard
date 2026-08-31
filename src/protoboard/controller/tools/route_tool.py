@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.wire_nets import NetMergePrompt
     from protoboard.controller.ports import PointerInput
     from protoboard.controller.tools.base import _ViewProto
-    from protoboard.controller.tools.drag_commit_decision import DragCommitDecision
     from protoboard.controller.tools.route_preview import RoutePreview
+    from protoboard.domain.layout.drag_analysis import DragAnalysis
 
 _log = structlog.get_logger(__name__)
 
@@ -41,6 +41,7 @@ ACT_CANCEL = "global.action.cancel"
 ACT_INSULATE = "route-tool.action.insulate"
 ACT_SIDE_TOP = "route-tool.action.side_top"
 ACT_SIDE_BOTTOM = "route-tool.action.side_bottom"
+_ROUTE_CONFLICT_MESSAGE = "Cannot route: wire crosses a pad of another net"
 
 
 class RouteTool(ControllerTool):
@@ -207,7 +208,7 @@ class RouteTool(ControllerTool):
             self._route_view.notify_status(
                 StatusEvent(
                     "route.conflict",
-                    {"text": decision.description, "timeout_ms": 3000},
+                    {"text": _ROUTE_CONFLICT_MESSAGE, "timeout_ms": 3000},
                 )
             )
             return False  # park — stay armed, points intact, wire not added
@@ -222,14 +223,14 @@ class RouteTool(ControllerTool):
     def can_commit(self) -> bool:
         return self._route_conflict() is None
 
-    def _route_conflict(self) -> DragCommitDecision | None:
+    def _route_conflict(self) -> DragAnalysis | None:
         """Classify the candidate route (``self._points``) for a HARD conflict.
 
         Scoped to mid-path segment-on-alien-pad this round (wire-vs-wire
         same-side crossing is deferred — see docs/todo.md). Wraps the
         candidate points as a temp ``Wire`` (this tool's side + insulation)
         and reuses ``find_wires_crossing_pads``'s pad/net geometry; a
-        different-net pad hit maps to a HARD ``DragCommitDecision`` driving
+        different-net pad hit maps to a HARD ``DragAnalysis`` driving
         the commit park.
 
         The two *terminal endpoints* are exempt: they are the intended contact
@@ -239,8 +240,10 @@ class RouteTool(ControllerTool):
         """
         from typing import cast
 
-        from protoboard.controller.tools.drag_commit_decision import (
-            DragCommitDecision,
+        from protoboard.domain.layout.drag_analysis import (
+            DragAnalysis,
+            DragReason,
+            DragReasonCode,
             DragSeverity,
         )
         from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
@@ -271,9 +274,9 @@ class RouteTool(ControllerTool):
         )
         if not hits:
             return None
-        return DragCommitDecision(
+        return DragAnalysis(
             severity=DragSeverity.HARD,
-            description="Cannot route: wire crosses a pad of another net",
+            reasons=(DragReason(DragReasonCode.ROUTE_ALIEN_PAD_CROSSING),),
         )
 
     def _key_toggle_insulated(self) -> bool:

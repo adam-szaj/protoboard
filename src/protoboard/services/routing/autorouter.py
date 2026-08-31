@@ -57,9 +57,9 @@ from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.types import Side
 
 if TYPE_CHECKING:
+    from protoboard.controller.ports.drc import DRCIssue
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.routing.simplify_mode import SimplifyMode
-    from protoboard.services.drc.engine import DRCIssue
 
 # Higher direction_change discourages long detours and keeps wires closer
 # to straight-line paths, leaving more corridors free for other nets.
@@ -521,7 +521,7 @@ def autoroute(
     # explore the entire grid trying to reach an unreachable target —
     # with ``max_detour_factor=0.0`` (no budget cap) this exhausts memory
     # on dense boards.  Bail out before A* sees anything.
-    from protoboard.services.drc.engine import DRCIssue as _DRCIssue
+    from protoboard.controller.ports.drc import DRCIssue as _DRCIssue
 
     # When a pad_index is supplied, derive the board pad set from it in
     # a single dict-keys() pass — otherwise fall back to the historical

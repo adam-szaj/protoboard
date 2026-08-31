@@ -17,13 +17,14 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.controller.tools.drag_commit_decision import DragSeverity
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.drag_analysis import DragSeverity
+from protoboard.domain.layout.drag_detector import DragDetector, DragSnapshot
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, PinKnot
 from protoboard.domain.layout.layout import Layout
@@ -33,7 +34,6 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.services.drag_detector import DragDetector, DragSnapshot
 from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------
