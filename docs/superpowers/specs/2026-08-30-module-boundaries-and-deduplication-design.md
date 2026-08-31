@@ -278,10 +278,10 @@ The command-facade checkpoint moved all GUI and controller-tool command-stack
 access behind `EditController`, including undo/redo and operation descriptions.
 The controller-tool base now owns the shared command adapter, and a boundary
 test forbids direct `stack.execute` calls in GUI code. The tree remains at 321
-source modules and 97,137 physical lines; the complete automated gate passes
-2,864 unit tests (68 skipped) and 1,496 offscreen GUI tests (1 expected xfail,
-1 known PySide disconnect warning). Manual GUI smoke testing remains deferred
-to the final Workstream 4 gate.
+source modules and 97,135 physical lines; the complete automated gate passes
+2,864 unit tests (68 skipped), 1,496 offscreen GUI tests (1 expected xfail,
+1 known PySide disconnect warning), and 3 property tests (4,442 deselected).
+Manual GUI smoke testing remains deferred to the final Workstream 4 gate.
 
 Within those workstreams, the order is:
 
