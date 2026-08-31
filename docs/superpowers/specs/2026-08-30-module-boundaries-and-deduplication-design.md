@@ -378,6 +378,12 @@ PySide disconnect warning), and Ruff, Black, strict mypy, Pyright, and
 `git diff --check` are clean. The source tree remains at 96,972 physical lines;
 manual real-display GUI smoke is still the only unexecuted verification.
 
+The latest GUI idiom cleanup centralised effective component-selection assembly
+(multi-selection plus the primary item) in `MainWindow._selected_component_ids()`
+and migrated spread, lock, and side-move actions to it. This removes three
+copies of the same state-normalisation loop without changing selection rules;
+the focused GUI selection gate passes 202 tests.
+
 The follow-up alias pass also removed obsolete routing-discovery names and
 migrated tests to `discover_router_plugins` and the canonical router registry.
 After the final rerun, 2,870 unit tests passed (68 skipped), 1,495 GUI tests
