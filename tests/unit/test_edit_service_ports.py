@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import ast
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
+
+import pytest
 
 from protoboard.controller.editing import EditController, EditingContext
 from protoboard.controller.ports.drc import DRCIssue
@@ -33,6 +36,85 @@ from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.geometry import Point
 from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import ComponentLibrary
+
+
+class _RecordingCommand:
+    allowed_during_autoroute = True
+    description = "recording command"
+
+    def __init__(self) -> None:
+        self.ran = False
+
+    def apply(self, _state: object) -> None:
+        self.ran = True
+
+    def revert(self, _state: object) -> None:
+        pass
+
+
+class _RejectingCommand(_RecordingCommand):
+    def apply(self, _state: object) -> None:
+        from protoboard.domain.commands.base import CommandRejectedError
+
+        raise CommandRejectedError("rejected")
+
+
+def _controller_for(session: HeadlessSession) -> EditController:
+    from protoboard.controller.ports.edit_services import EditServicePorts
+
+    return EditController(
+        cast(EditingContext, session),
+        EditServicePorts(
+            autoroute=cast(AutoroutePort, object()),
+            drc=cast(DrcPort, object()),
+            projects=cast(ProjectStorePort, object()),
+            export=cast(BoardExportPort, object()),
+            routing=_routing_ports(),
+        ),
+    )
+
+
+def test_controller_execution_port_notifies_only_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    controller = _controller_for(session)
+    notifications: list[None] = []
+    monkeypatch.setattr(session, "notify_changed", lambda: notifications.append(None))
+
+    command = _RecordingCommand()
+    assert controller.execute_command(command)
+    assert command.ran
+    assert len(notifications) == 1
+
+    silent = _RecordingCommand()
+    assert controller.execute_command_silent(silent)
+    assert silent.ran
+    assert len(notifications) == 1
+
+    assert not controller.execute_command(_RejectingCommand())
+    assert len(notifications) == 1
+
+
+def test_migrated_tools_do_not_execute_command_stack_directly() -> None:
+    for filename in ("select_tool.py", "wire_edit_tool.py"):
+        path = (
+            Path(__file__).parents[2]
+            / "src"
+            / "protoboard"
+            / "controller"
+            / "tools"
+            / filename
+        )
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        assert not any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "execute"
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "stack"
+            for node in ast.walk(tree)
+        )
 
 
 def _session() -> HeadlessSession:

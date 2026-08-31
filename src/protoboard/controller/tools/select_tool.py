@@ -1506,23 +1506,7 @@ class SelectTool(ControllerTool):
         return self._view.snap(raw, exclude_ids=exclude)
 
     def _execute_command(self, cmd: object) -> bool:
-        from typing import cast
-
-        from protoboard.domain.commands.base import (
-            Command,
-            CommandRejectedError,
-            ComponentState,
-        )
-
-        try:
-            self._session.stack.execute(
-                cast("Command[ComponentState]", cmd),
-                cast("ComponentState", self._session),
-            )
-        except CommandRejectedError:
-            return False
-        self._session.notify_changed()
-        return True
+        return self._session.edit_controller.execute_command(cmd)
 
     # -- rubber-band Qt seams ----------------------------------------------
 
@@ -4120,14 +4104,7 @@ class SelectTool(ControllerTool):
         commands and emit ``layout_changed`` once at the end, as the legacy
         tool did.  Casts the session to the ``ComponentState`` command target.
         """
-        from typing import cast
-
-        from protoboard.domain.commands.base import Command, ComponentState
-
-        self._session.stack.execute(
-            cast("Command[ComponentState]", cmd),
-            cast("ComponentState", self._session),
-        )
+        self._session.edit_controller.execute_command_silent(cmd)
 
     @traced()
     def _execute(self, cmd: object) -> None:

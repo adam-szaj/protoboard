@@ -1671,7 +1671,7 @@ class EditController:
     # Command execution substrate
     # ------------------------------------------------------------------
 
-    def _execute(self, cmd: object) -> bool:
+    def execute_command(self, cmd: object) -> bool:
         """Run *cmd* through the session's CommandStack.
 
         Qt-free copy of the tools' old ``_execute_command``: casts *cmd* to the
@@ -1679,12 +1679,12 @@ class EditController:
         fires the change hook. Returns ``False`` (without raising) when the
         command rejects itself, matching the tools' contract.
         """
-        ran = self._execute_silent(cmd)
+        ran = self.execute_command_silent(cmd)
         if ran:
             self._state.notify_changed()
         return ran
 
-    def _execute_silent(self, cmd: object) -> bool:
+    def execute_command_silent(self, cmd: object) -> bool:
         """Execute *cmd* without firing the change hook.
 
         For multi-command verbs (the group promotion sequence) that issue
@@ -1699,6 +1699,14 @@ class EditController:
         except CommandRejectedError:
             return False
         return True
+
+    def _execute(self, cmd: object) -> bool:
+        """Compatibility wrapper for controller verbs using the substrate."""
+        return self.execute_command(cmd)
+
+    def _execute_silent(self, cmd: object) -> bool:
+        """Compatibility wrapper for silent controller command execution."""
+        return self.execute_command_silent(cmd)
 
 
 __all__ = ["EditController", "EditingContext", "ResolvedPlacement"]

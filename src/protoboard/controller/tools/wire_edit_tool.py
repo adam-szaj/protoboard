@@ -845,19 +845,7 @@ class WireEditTool(ControllerTool):
             self._view.refresh()
 
     def _execute_command(self, cmd: object) -> bool:
-        from protoboard.domain.commands.base import (
-            CommandRejectedError,
-        )
-
-        try:
-            self._session.stack.execute(
-                cast("Command[ComponentState]", cmd),
-                cast("ComponentState", self._session),
-            )
-        except CommandRejectedError:
-            return False
-        self._session.notify_changed()
-        return True
+        return self._session.edit_controller.execute_command(cmd)
 
     def _snap(self, raw: Point) -> Point:
         assert self._view is not None

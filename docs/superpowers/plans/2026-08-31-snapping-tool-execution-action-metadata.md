@@ -71,22 +71,20 @@ git commit -m "refactor(snapping): centralize candidate selection"
 
 **Files:**
 - Modify: `src/protoboard/controller/editing/controller.py`
-- Modify: `src/protoboard/controller/editing/contexts.py`
 - Modify: `src/protoboard/controller/tools/select_tool.py`
 - Modify: `src/protoboard/controller/tools/wire_edit_tool.py`
 - Test: `tests/unit/test_edit_service_ports.py`
-- Test: `tests/gui/test_select_tool.py`
 
 **Interfaces:**
 - Produces `EditController.execute_command(command: object) -> bool` and `execute_command_silent(command: object) -> bool` as the command execution port.
 - Both methods catch `CommandRejectedError`; the notifying form emits one model-change notification only after success, while the silent form emits none.
 - Select and wire-edit tools use the port for single and multi-command operations; no tool reaches `session.stack.execute` directly.
 
-- [ ] **Step 1: Add failing execution-port contract tests**
+- [x] **Step 1: Add failing execution-port contract tests**
 
 Assert success/rejection behaviour and notification count through the controller facade, and add an AST assertion that the two migrated tools contain no `stack.execute` call.
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
 Run:
 ```bash
@@ -94,15 +92,15 @@ Run:
 ```
 Expected: FAIL because the public execution-port methods and AST contract do not exist.
 
-- [ ] **Step 3: Implement and migrate callers**
+- [x] **Step 3: Implement and migrate callers**
 
 Promote the existing controller execution substrate to the two public methods, preserve its casts at the controller boundary, and replace `_execute_command`/`_exec_command` stack calls in the selected tools with the port.
 
-- [ ] **Step 4: Verify command behaviour and static checks**
+- [x] **Step 4: Verify command behaviour and static checks**
 
 Run the focused tests above plus `tests/gui/test_wire_edit_tool.py`, Ruff, Black, strict mypy, and Pyright for changed files.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/protoboard/controller/editing/controller.py src/protoboard/controller/editing/contexts.py src/protoboard/controller/tools/select_tool.py src/protoboard/controller/tools/wire_edit_tool.py tests/unit/test_edit_service_ports.py tests/gui/test_select_tool.py
