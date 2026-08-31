@@ -559,13 +559,13 @@ class SelectTool(ControllerTool):
             self._selection.set_many(targets)
         else:
             self._selection.set(sel)
-        self._refresh_highlight(primary=sel)
+        self.refresh_highlight(primary=sel)
         # Broadcast to the panels: every click-driven selection change funnels
         # through here, so this is the one spot that keeps board -> panel sync
         # honest for plain mouse clicks (the highlight above is board-only).
         self._notify_selection()
 
-    def _refresh_highlight(self, *, primary: Selectable | None = None) -> None:
+    def refresh_highlight(self, *, primary: Selectable | None = None) -> None:
         """Publish the auto-highlight: the selection plus the primary's net context.
 
         Any plain SET click highlights the clicked object's relation context (its
@@ -668,7 +668,7 @@ class SelectTool(ControllerTool):
             if grp is not None:
                 targets.append(GroupSelectable(group=grp))
         self._selection.set_many(targets)
-        self._refresh_highlight()
+        self.refresh_highlight()
 
     def _primary_id(self, kind: str) -> uuid.UUID | None:
         """Return the first selected id with the requested hit kind."""
@@ -740,23 +740,23 @@ class SelectTool(ControllerTool):
         self._set_selection_from_ids({comp_id}, set(), set())
         self._notify_selection()
 
-    def _deselect(self) -> None:
+    def deselect_components(self) -> None:
         """Drop the component part of the selection (keep wires/groups)."""
         self._set_selection_from_ids(
             set(), self._selected_by_kind("wire"), self.selected_group_ids
         )
 
-    def _deselect_wire(self) -> None:
+    def deselect_wires(self) -> None:
         """Drop the wire part of the selection (keep components/groups)."""
         self._set_selection_from_ids(
             self._selected_by_kind("component"), set(), self.selected_group_ids
         )
 
-    def _clear_multi_selection(self) -> None:
+    def clear_selection(self) -> None:
         """Clear the whole selection."""
         self._selection.clear()
         self._context_net_id = None
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._notify_selection()
 
     def _notify_selection(self) -> None:
@@ -805,7 +805,7 @@ class SelectTool(ControllerTool):
         )
         if not ran:
             return False
-        self._clear_multi_selection()
+        self.clear_selection()
         self._notify_selection()
         return True
 
@@ -889,7 +889,7 @@ class SelectTool(ControllerTool):
 
         if isinstance(relation, RelationClass):
             self._relation = relation
-            self._refresh_highlight()
+            self.refresh_highlight()
             if self._session is not None:
                 self._session.notify_highlight_mode(RELATION_LABELS[relation])
 
@@ -1032,7 +1032,7 @@ class SelectTool(ControllerTool):
         self._clear_on_empty_band_click(mouse)
         self._clear_drag_corner()
         self._report_drag_outcome(mouse)
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._refresh_view()
 
     def _clear_on_empty_band_click(self, mouse: MouseInputController) -> None:
@@ -1044,7 +1044,7 @@ class SelectTool(ControllerTool):
         """
         if isinstance(mouse, RubberBandController) and mouse.was_click:
             self._clear_selection_to_empty()
-            self._refresh_highlight()
+            self.refresh_highlight()
             self._notify_selection()
 
     def _resolve_deferred_click(self, mouse: MouseInputController) -> None:
@@ -1073,7 +1073,7 @@ class SelectTool(ControllerTool):
         # plain ``set`` would clear instead of collapse.
         self._clear_selection_to_empty()
         self._selection.set(sel)
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._notify_selection()
 
     def _clear_selection_to_empty(self) -> None:
@@ -1550,7 +1550,7 @@ class SelectTool(ControllerTool):
         self._clear_selection_to_empty()
         if final:
             self._selection.set_many(final)
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._notify_selection()
 
     # -- intent dispatch (CONFIRM / CANCEL / UNDO) -------------------------
@@ -1589,7 +1589,7 @@ class SelectTool(ControllerTool):
         if mouse.finished:
             self._mouse = None
             self._clear_drag_corner()
-            self._refresh_highlight()
+            self.refresh_highlight()
             if dropped:
                 self._status(f"Removed {dropped} wire(s) (Ctrl+Z to undo)", 4000)
             self._refresh_view()
@@ -1870,7 +1870,7 @@ class SelectTool(ControllerTool):
             self._status("Re-drag: pad out of the lead's reach")
             return
         self._execute_command(cmd)
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._refresh_view()
 
     def _build_redrag_command(
@@ -2211,13 +2211,13 @@ class SelectTool(ControllerTool):
         wire = self._wire_by_id(wire_id)
         if wire is not None:
             self._selection.set(WireSelectable(wire=wire))
-        self._refresh_highlight()
+        self.refresh_highlight()
 
     def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
         return self._session.layout.wires.get(wire_id)
 
     def _refresh_after_wire_op(self) -> None:
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._refresh_view()
 
     def _wire_edit_clear(self) -> None:
@@ -2591,7 +2591,7 @@ class SelectTool(ControllerTool):
         )
         if removed:
             self._status(f"Removed {removed} colliding wire(s) after move.")
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._notify_selection()  # refresh Properties panel after multi-rotate
 
     def flip_multi(self) -> None:
@@ -2611,7 +2611,7 @@ class SelectTool(ControllerTool):
         if has_group:
             if removed:
                 self._status(f"Removed {removed} colliding wire(s) after move.")
-            self._refresh_highlight()
+            self.refresh_highlight()
             self._notify_selection()
 
     # -- wire-side ops / wire-pin eligibility / wire hit-test ---------------
@@ -3963,7 +3963,7 @@ class SelectTool(ControllerTool):
     def _execute(self, cmd: object) -> None:
         self._execute_command_silent(cmd)
         self._session.notify_changed()
-        self._refresh_highlight()
+        self.refresh_highlight()
 
     # -- group navigation ---------------------------------------------------
 
@@ -3984,7 +3984,7 @@ class SelectTool(ControllerTool):
         self._group_stack.append(gid)
         self._sync_active_group()
         self._selection.clear()
-        self._refresh_highlight()
+        self.refresh_highlight()
         self._status("Entered group — [Esc] to leave")
         return True
 
@@ -3994,7 +3994,7 @@ class SelectTool(ControllerTool):
             self._group_stack.pop()
             self._sync_active_group()
             self._selection.clear()
-            self._refresh_highlight()
+            self.refresh_highlight()
 
     def _sync_active_group(self) -> None:
         """Push the current group context to the view so it re-renders."""

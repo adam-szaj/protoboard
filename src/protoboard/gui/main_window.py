@@ -1985,7 +1985,7 @@ class MainWindow(QMainWindow):
         session = self._session
         tool.selected_component_ids = set(session.layout.placements.keys())
         tool.selected_wire_ids = {w.id for w in session.layout.wires}
-        tool._refresh_highlight()
+        tool.refresh_highlight()
         _log.info(
             "select_all.applied",
             n_components=len(tool.selected_component_ids),
@@ -1997,9 +1997,7 @@ class MainWindow(QMainWindow):
         tool = self._ensure_select_tool()
         if tool is None:
             return
-        tool._clear_multi_selection()
-        tool._deselect()
-        tool._deselect_wire()
+        tool.clear_selection()
 
     def _select_all_components(self) -> None:
         """Select all components, keep wire selection unchanged."""
@@ -2007,15 +2005,14 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         tool.selected_component_ids = set(self._session.layout.placements.keys())
-        tool._refresh_highlight()
+        tool.refresh_highlight()
 
     def _deselect_all_components(self) -> None:
         """Deselect all components, keep wire selection unchanged."""
         tool = self._ensure_select_tool()
         if tool is None:
             return
-        tool._clear_multi_selection()
-        tool._deselect()
+        tool.clear_selection()
 
     def _select_all_wires(self) -> None:
         """Select all wires, keep component selection unchanged."""
@@ -2023,14 +2020,14 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         tool.selected_wire_ids = {w.id for w in self._session.layout.wires}
-        tool._refresh_highlight()
+        tool.refresh_highlight()
 
     def _deselect_all_wires(self) -> None:
         """Deselect all wires, keep component selection unchanged."""
         tool = self._ensure_select_tool()
         if tool is None:
             return
-        tool._deselect_wire()
+        tool.deselect_wires()
 
     def _group_selection(self) -> None:
         """Group the current selection via Ctrl+G — delegates to SelectTool dialog."""

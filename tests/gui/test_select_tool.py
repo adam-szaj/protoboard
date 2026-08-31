@@ -230,7 +230,7 @@ class TestCyanSelectionOutline:
 
         # A subsequent highlight pass (the one that crashed) must be clean.
         board_view.highlight.apply_impl()
-        tool._refresh_highlight()
+        tool.refresh_highlight()
 
 
 class TestGroupSelectAndEdit:
@@ -1491,7 +1491,7 @@ class TestWireAndPadHighlight:
     def _select_wire_and_highlight(tool, view, session) -> None:  # type: ignore[no-untyped-def]
         """Select the wire and run the highlight pass (what a real click does)."""
         _select_wire(tool, session)
-        tool._refresh_highlight()  # publish to the highlight stack
+        tool.refresh_highlight()  # publish to the highlight stack
         view.highlight.apply_impl()  # draw overlays now (no debounce wait)
 
     def test_selected_wire_gets_bright_overlay(self, qtbot) -> None:
@@ -1514,7 +1514,7 @@ class TestWireAndPadHighlight:
         assert wire.id in view.highlight._wire_select_overlays
 
         tool._selection.clear()
-        tool._refresh_highlight()
+        tool.refresh_highlight()
         view.highlight.apply_impl()
         assert wire.id not in view.highlight._wire_select_overlays
 
@@ -1672,7 +1672,7 @@ class TestWireAndPadHighlight:
         pl = session.layout.placements[inst.id]
         tool._selection.set(ComponentSelectable(component_id=inst.id, placement=pl))
         tool._context_net_id = None
-        tool._refresh_highlight()
+        tool.refresh_highlight()
         view.highlight.apply_impl()
         assert view.highlight._net_pad_highlight_items == []
 
@@ -1820,7 +1820,7 @@ class TestDragConflictOutline:
         assert rect.pen().style() == _Qt.PenStyle.DashLine  # dashed, not solid
 
         # Deselect → overlay removed.
-        tool._deselect()
+        tool.deselect_components()
         board_view.refresh()
         assert inst.id not in board_view.highlight._selection_bbox_overlays
 

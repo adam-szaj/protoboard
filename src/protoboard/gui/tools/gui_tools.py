@@ -450,7 +450,7 @@ class SelectTool(
                 self._selection.clear()
                 self._context_net_id = None  # deselect drops the net context
                 self._clear_free_pad_ring()
-                self._refresh_highlight()
+                self.refresh_highlight()
             return True
         return False
 
