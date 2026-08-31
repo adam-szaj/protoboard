@@ -27,7 +27,7 @@ from protoboard.domain.axis_labels_settings import (
     format_index,
 )
 from protoboard.domain.board.board import Board
-from protoboard.gui.renderers.component_renderer import (
+from protoboard.services.rendering.component_renderer import (
     _get_refdes_font,
     _make_overlay_label,
 )

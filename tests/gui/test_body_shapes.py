@@ -55,13 +55,13 @@ def _kind_pkg(kind: str, pins: int, values: dict | None = None) -> Package:
 from protoboard.controller.view_options.theme import DEFAULT_THEME  # noqa: E402
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point  # noqa: E402
-from protoboard.gui.renderers.body_shapes import (  # noqa: E402
+from protoboard.services.rendering.body_shapes import (  # noqa: E402
     BodyShape,
     GenericBody,
     PackageBody,
     body_shape_for,
 )
-from protoboard.gui.renderers.prism_silhouette import (  # noqa: E402
+from protoboard.services.rendering.prism_silhouette import (  # noqa: E402
     DipSilhouette,
     SilSilhouette,
     silhouette_for,
@@ -549,7 +549,7 @@ class TestDeclaredKindSilhouette:
     render never blocks."""
 
     def test_dip_ic_kind_selects_notch(self) -> None:
-        from protoboard.gui.renderers.packages import DipIcRenderer
+        from protoboard.services.rendering.packages import DipIcRenderer
 
         pkg = _kind_pkg("dip_ic", 8)
         shape = PackageBody(pkg)  # type: ignore[arg-type]
@@ -563,8 +563,8 @@ class TestDeclaredKindSilhouette:
         # a notch on it — the declared kind dispatches PlainBodyRenderer, and
         # that wins.
         from protoboard.domain.components.package.shapes import Prism
-        from protoboard.gui.renderers.packages import PlainBodyRenderer
-        from protoboard.gui.renderers.prism_silhouette import silhouette_for
+        from protoboard.services.rendering.packages import PlainBodyRenderer
+        from protoboard.services.rendering.prism_silhouette import silhouette_for
 
         pkg = _kind_pkg("dip_switch", 8)
         assert isinstance(pkg, Prism)
@@ -580,7 +580,7 @@ class TestDeclaredKindSilhouette:
         # unknown kind never crashes the render.
         import dataclasses
 
-        from protoboard.gui.renderers.packages import PrismRenderer
+        from protoboard.services.rendering.packages import PrismRenderer
 
         prism = dataclasses.replace(
             _dip8_prism(),
@@ -652,7 +652,7 @@ class TestConnectorKind:
         # Neither a 1×N (SIL-like) nor a 2×N (DIP-like) connector gets the SIL
         # slots / DIP notch the column guess would add — the kind dispatches
         # PlainBodyRenderer, whose declared silhouette is None (plain rect).
-        from protoboard.gui.renderers.packages import PlainBodyRenderer
+        from protoboard.services.rendering.packages import PlainBodyRenderer
 
         for kind, n, params in [
             ("pin_header", 6, {"rows": 1}),
@@ -1051,7 +1051,7 @@ class TestDevboardBody:
         # The devboard look is a component-class registration
         # (@register_renderer(component_class="devboard")), threaded from the
         # PackageBody constructor through renderer_for — not a hardcoded gate.
-        from protoboard.gui.renderers.packages import DevboardRenderer
+        from protoboard.services.rendering.packages import DevboardRenderer
 
         body = PackageBody(  # type: ignore[arg-type]
             _dip8_prism(), component_class=ComponentClass.DEVBOARD

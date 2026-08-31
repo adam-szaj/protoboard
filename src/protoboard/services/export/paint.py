@@ -26,14 +26,14 @@ from protoboard.domain.layout.pin_pad_classification import (
     classify_pin_pads,
 )
 from protoboard.geometry import Insets
-from protoboard.gui.renderers.component_renderer import (
-    render_components,
-    render_groups,
-)
 from protoboard.services.export.snapshot import BoardSnapshot
 from protoboard.services.rendering.board_renderer import (
     build_pad_net_map,
     render_board,
+)
+from protoboard.services.rendering.component_renderer import (
+    render_components,
+    render_groups,
 )
 from protoboard.services.rendering.net_color import build_net_color_map
 from protoboard.services.rendering.pin_pad_renderer import (

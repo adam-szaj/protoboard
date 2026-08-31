@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor
 
-from protoboard.gui.renderers.text_contrast import (
+from protoboard.services.rendering.text_contrast import (
     DARK_INKS,
     LIGHT_INKS,
     best_ink,

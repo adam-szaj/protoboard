@@ -18,9 +18,9 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.body_shapes import body_shape_for
-from protoboard.gui.renderers.packages import load_renderer_plugins
 from protoboard.paths import BUILTIN_LIBRARY_DIR
+from protoboard.services.rendering.body_shapes import body_shape_for
+from protoboard.services.rendering.packages import load_renderer_plugins
 
 _RED = QColor("#cc4444")
 _DARK = QColor("#222222")
@@ -140,7 +140,7 @@ def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> Non
     (along) extent from ``local_size_holes`` — NOT the axis-aligned
     ``box.lx`` (the short extent for a DIP). Regression test for the
     transposed avail_len/avail_w bug."""
-    import protoboard.gui.renderers.packages.base as base_mod
+    import protoboard.services.rendering.packages.base as base_mod
     from protoboard.domain.components.package.shapes import local_size_holes
 
     defn = library.get("NE555")

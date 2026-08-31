@@ -24,8 +24,8 @@ from protoboard.domain.components.package.loader import (
     load_packages,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.body_shapes import PackageBody
-from protoboard.gui.renderers.packages import (
+from protoboard.services.rendering.body_shapes import PackageBody
+from protoboard.services.rendering.packages import (
     BODY_RENDERERS,
     CLASS_RENDERERS,
     CylinderRenderer,
@@ -114,7 +114,7 @@ class TestRendererDispatch:
         assert renderer_for(do_test_package) is CylinderRenderer
 
     def test_kind_dispatches_its_renderer(self) -> None:
-        from protoboard.gui.renderers.packages import SilHeaderRenderer
+        from protoboard.services.rendering.packages import SilHeaderRenderer
 
         ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
         assert ctx.package is not None
@@ -195,7 +195,7 @@ class TestRegisterRendererDecorator:
             del BODY_RENDERERS["_T-DECO-FAM"]
 
     def test_component_class_axis_wins_over_lineage_leaf(self) -> None:
-        from protoboard.gui.renderers.packages import SilHeaderRenderer
+        from protoboard.services.rendering.packages import SilHeaderRenderer
 
         @register_renderer(component_class="_t_led_bar")
         class _LedBarRenderer(PrismRenderer):
@@ -231,7 +231,7 @@ class TestRegisterRendererDecorator:
             del CLASS_RENDERERS["_t_led_bar"]
 
     def test_unknown_component_class_falls_back_to_lineage(self) -> None:
-        from protoboard.gui.renderers.packages import SilHeaderRenderer
+        from protoboard.services.rendering.packages import SilHeaderRenderer
 
         ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
         assert ctx.package is not None
@@ -267,7 +267,7 @@ class TestRegisterRendererDecorator:
 # ---------------------------------------------------------------------------
 
 _PLUGIN_SRC = dedent("""
-    from protoboard.gui.renderers.packages import CylinderRenderer
+    from protoboard.services.rendering.packages import CylinderRenderer
 
     class PluginTestRenderer(CylinderRenderer):
         renders = "plugin_test_lineage"

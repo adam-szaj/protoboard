@@ -8,7 +8,7 @@ defines the generator contract; :func:`~..kind.build_kind_package` is the
 driver that dispatches through the registry and enforces the contract.
 
 Registration is declarative and mirrors the renderer registry
-(:mod:`protoboard.gui.renderers.packages.base`), with the same two spellings:
+(:mod:`protoboard.services.rendering.packages.base`), with the same two spellings:
 the :func:`register_generator` decorator (``@register_generator(
 kind="dip_ic")``, the preferred one — the counterpart of
 ``@register_renderer``) or a subclass that sets ``generates = "<kind>"``;

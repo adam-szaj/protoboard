@@ -4,7 +4,7 @@
 The shared loader behind the two plugin surfaces:
 
 * ``renderers/`` — ``PackageRenderer`` subclasses (GUI; see
-  :mod:`protoboard.gui.renderers.packages.discovery`);
+  :mod:`protoboard.services.rendering.packages.discovery`);
 * ``generators/`` — ``PackageGenerator`` subclasses (pure domain; loadable
   headless; see :mod:`protoboard.domain.components.package.generators`).
 

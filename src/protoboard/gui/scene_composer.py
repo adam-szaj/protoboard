@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING, cast
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsItemGroup, QGraphicsScene
 
 from protoboard.geometry import Insets, Rect
-from protoboard.gui.renderers.component_renderer import (
+from protoboard.gui.view_camera import GRID_PX
+from protoboard.instrumentation.debug_trace import traced
+from protoboard.services.rendering.component_renderer import (
     render_groups,
     update_component_groups,
 )
-from protoboard.gui.view_camera import GRID_PX
-from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.qt_geometry import to_qrectf
 from protoboard.services.rendering.wire_renderer import (
     render_ratsnest,

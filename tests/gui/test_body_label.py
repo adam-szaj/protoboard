@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtGui import QColor, QTransform
 
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages.body_label import make_body_label
+from protoboard.services.rendering.packages.body_label import make_body_label
 
 
 def _identity() -> QTransform:

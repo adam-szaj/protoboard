@@ -3015,10 +3015,10 @@ class MainWindow(QMainWindow):
         ) + extra_dirs
         # Pick up renderer / generator plugins from any newly-added library
         # dir (already loaded modules are skipped — the loader is idempotent).
-        from protoboard.gui.renderers.packages import load_renderer_plugins
         from protoboard.services.library.plugin_discovery import (
             load_generator_plugins,
         )
+        from protoboard.services.rendering.packages import load_renderer_plugins
 
         load_renderer_plugins(library_dirs)
         load_generator_plugins(library_dirs)

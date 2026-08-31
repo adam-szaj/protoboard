@@ -28,7 +28,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
-from protoboard.gui.renderers.component_renderer import (
+from protoboard.services.rendering.component_renderer import (
     _get_refdes_font,
     _group_alpha_map,
     _make_overlay_label,
@@ -246,21 +246,21 @@ class TestComposeOverlayLabel:
     """
 
     def test_value_present_concatenated_with_space(self) -> None:
-        from protoboard.gui.renderers.component_renderer import (
+        from protoboard.services.rendering.component_renderer import (
             _compose_overlay_label,
         )
 
         assert _compose_overlay_label("R23", "4.7k") == "R23 4.7k"
 
     def test_value_question_mark_prompts_user(self) -> None:
-        from protoboard.gui.renderers.component_renderer import (
+        from protoboard.services.rendering.component_renderer import (
             _compose_overlay_label,
         )
 
         assert _compose_overlay_label("R23", "?") == "R23 ?"
 
     def test_value_part_number_for_concrete_parts(self) -> None:
-        from protoboard.gui.renderers.component_renderer import (
+        from protoboard.services.rendering.component_renderer import (
             _compose_overlay_label,
         )
 
@@ -269,7 +269,7 @@ class TestComposeOverlayLabel:
         assert _compose_overlay_label("U2", "NE555") == "U2 NE555"
 
     def test_empty_value_yields_refdes_only(self) -> None:
-        from protoboard.gui.renderers.component_renderer import (
+        from protoboard.services.rendering.component_renderer import (
             _compose_overlay_label,
         )
 
@@ -517,7 +517,7 @@ class TestGhostHonoursPackageVariant:
         return theme, lib.get("C")
 
     def test_variant_changes_ghost_pin_spacing(self, qtbot: QtBot) -> None:
-        from protoboard.gui.renderers.component_renderer import make_ghost_item
+        from protoboard.services.rendering.component_renderer import make_ghost_item
 
         theme, defn = self._theme_and_defn()
         g_default = make_ghost_item(defn, theme=theme)
@@ -532,7 +532,7 @@ class TestGhostHonoursPackageVariant:
         assert g_default.boundingRect() != g_smd.boundingRect()
 
     def test_unknown_variant_raises(self, qtbot: QtBot) -> None:
-        from protoboard.gui.renderers.component_renderer import make_ghost_item
+        from protoboard.services.rendering.component_renderer import make_ghost_item
 
         theme, defn = self._theme_and_defn()
         with pytest.raises(ValueError, match="No-Such/typ"):
@@ -559,7 +559,7 @@ class TestGhostHonoursPackageVariant:
             pin_world_position,
         )
         from protoboard.geometry import Point
-        from protoboard.gui.renderers.body_shapes import body_shape_for
+        from protoboard.services.rendering.body_shapes import body_shape_for
 
         theme, defn = self._theme_and_defn()
         inst = ComponentInstance.new(

@@ -18,8 +18,8 @@ from protoboard.domain.components.package.shapes import (
     Disc as _PkgDisc,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages.base import PackageRenderer
-from protoboard.gui.renderers.packages.canvas import _body_pen
+from protoboard.services.rendering.packages.base import PackageRenderer
+from protoboard.services.rendering.packages.canvas import _body_pen
 
 
 class DiscRenderer(PackageRenderer):

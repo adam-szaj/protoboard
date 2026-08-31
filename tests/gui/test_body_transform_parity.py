@@ -39,11 +39,11 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.services.library.loader import load_library
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
+from protoboard.services.rendering.body_shapes import body_shape_for
 from protoboard.types import Side
 
 _RED = QColor(200, 50, 50)

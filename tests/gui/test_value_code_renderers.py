@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
 from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
-from protoboard.gui.renderers.body_shapes import body_shape_for
-from protoboard.gui.renderers.packages import load_renderer_plugins
 from protoboard.paths import BUILTIN_LIBRARY_DIR
+from protoboard.services.rendering.body_shapes import body_shape_for
+from protoboard.services.rendering.packages import load_renderer_plugins
 
 _RED = QColor("#cc4444")
 _DARK = QColor("#222222")

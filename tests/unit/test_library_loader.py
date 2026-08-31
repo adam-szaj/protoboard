@@ -813,12 +813,12 @@ class TestMigratedICs:
         from typing import cast
 
         from protoboard.domain.components.package.shapes import Prism
-        from protoboard.gui.renderers.packages import (
+        from protoboard.services.rendering.packages import (
             DipIcRenderer,
             PrismRenderer,
             renderer_for,
         )
-        from protoboard.gui.renderers.prism_silhouette import DipSilhouette
+        from protoboard.services.rendering.prism_silhouette import DipSilhouette
 
         lib = self._lib()
         d = lib.get("74HC00")

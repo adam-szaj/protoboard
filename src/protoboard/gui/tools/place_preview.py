@@ -65,7 +65,7 @@ class QtPlacePreview:
         package_variant: str | None,
         theme: Theme,
     ) -> None:
-        from protoboard.gui.renderers.component_renderer import make_ghost_item
+        from protoboard.services.rendering.component_renderer import make_ghost_item
 
         self.clear_ghost()
         ghost = make_ghost_item(

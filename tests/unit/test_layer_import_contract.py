@@ -108,6 +108,7 @@ def test_export_paint_uses_service_rendering_helpers() -> None:
     assert "protoboard.gui.renderers.net_color" not in modules
     forbidden = {
         "protoboard.gui.renderers.board_renderer",
+        "protoboard.gui.renderers.component_renderer",
         "protoboard.gui.renderers.pin_pad_renderer",
         "protoboard.gui.renderers.wire_renderer",
     }

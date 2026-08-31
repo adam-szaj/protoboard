@@ -57,7 +57,7 @@ from protoboard.domain.components.package.kind import (  # noqa: E402
 )
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
-from protoboard.gui.renderers.body_shapes import body_shape_for  # noqa: E402
+from protoboard.services.rendering.body_shapes import body_shape_for  # noqa: E402
 from protoboard.services.library.package_family_loader import (  # noqa: E402
     load_full_package_catalogue,
 )

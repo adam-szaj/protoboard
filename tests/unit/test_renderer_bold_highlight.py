@@ -8,7 +8,7 @@ import uuid
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
-from protoboard.gui.renderers.component_renderer import comp_fingerprint
+from protoboard.services.rendering.component_renderer import comp_fingerprint
 from protoboard.services.rendering.wire_renderer import (
     wire_fingerprint_v2 as wire_fingerprint,
 )

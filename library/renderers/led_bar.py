@@ -4,7 +4,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
+from protoboard.services.rendering.packages import PrismRenderer, register_renderer
 
 
 @register_renderer(component_class="led_bar")

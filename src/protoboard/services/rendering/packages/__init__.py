@@ -12,7 +12,7 @@ into a library's ``renderers/`` directory subclass them and register with the
 :mod:`.discovery`).
 """
 
-from protoboard.gui.renderers.packages.base import (
+from protoboard.services.rendering.packages.base import (
     BODY_RENDERERS,
     CLASS_RENDERERS,
     BodyShape,
@@ -21,19 +21,19 @@ from protoboard.gui.renderers.packages.base import (
     register_renderer,
     renderer_for,
 )
-from protoboard.gui.renderers.packages.canvas import (
+from protoboard.services.rendering.packages.canvas import (
     BodyCanvas,
     PaintState,
     qcolor_from_css,
 )
-from protoboard.gui.renderers.packages.cylinder import CylinderRenderer
-from protoboard.gui.renderers.packages.disc import DiscRenderer
-from protoboard.gui.renderers.packages.discovery import load_renderer_plugins
-from protoboard.gui.renderers.packages.prism import (
+from protoboard.services.rendering.packages.cylinder import CylinderRenderer
+from protoboard.services.rendering.packages.disc import DiscRenderer
+from protoboard.services.rendering.packages.discovery import load_renderer_plugins
+from protoboard.services.rendering.packages.prism import (
     DevboardRenderer,
     PrismRenderer,
 )
-from protoboard.gui.renderers.packages.prism_kinds import (
+from protoboard.services.rendering.packages.prism_kinds import (
     DipIcRenderer,
     PlainBodyRenderer,
     SilHeaderRenderer,

@@ -34,7 +34,7 @@ from protoboard.domain.components.package.shapes import (
     local_size_holes,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
+from protoboard.services.rendering.packages import PrismRenderer, register_renderer
 
 
 @register_renderer(family="q-tht/TO-220")

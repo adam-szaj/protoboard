@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Per-package body shape renderers — compatibility surface.
 
-The implementation lives in :mod:`protoboard.gui.renderers.packages`: one
+The implementation lives in :mod:`protoboard.services.rendering.packages`: one
 renderer class per package lineage node (``CylinderRenderer`` /
 ``PrismRenderer`` / ``DiscRenderer`` + user plugins), dispatched by
-:func:`~protoboard.gui.renderers.packages.renderer_for` over the package's
+:func:`~protoboard.services.rendering.packages.renderer_for` over the package's
 ``lineage``.  This module keeps the historical entry points stable:
 
 - :func:`body_shape_for` — the production dispatch (unchanged signature);
@@ -32,7 +32,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.gui.renderers.packages import (
+from protoboard.services.rendering.packages import (
     BodyShape,
     GenericBody,
     PackageRenderer,
@@ -91,7 +91,7 @@ def body_shape_for(
     A parametric package (resolved from the instance/definition/catalogue via
     :func:`resolve_component_package`) is the source of truth for the body and
     renders through the lineage-dispatched :class:`PackageRenderer` subclass
-    (see :func:`protoboard.gui.renderers.packages.renderer_for`); a part
+    (see :func:`protoboard.services.rendering.packages.renderer_for`); a part
     without a package draws a generic bbox.
     """
     cls = defn.component_class

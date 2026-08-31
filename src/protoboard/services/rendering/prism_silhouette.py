@@ -10,7 +10,7 @@ pin-1 marker) — depends on that **column layout**, not on the component class.
 Rather than branch on the layout inside the renderer, each layout is a
 :class:`PrismSilhouette` that builds its own outline.  *Which* silhouette a
 package gets is the renderer registry's decision: a declared ``kind`` maps to
-a renderer subclass (:mod:`protoboard.gui.renderers.packages.prism_kinds`)
+a renderer subclass (:mod:`protoboard.services.rendering.packages.prism_kinds`)
 that picks its silhouette explicitly, while :func:`silhouette_for` remains the
 column-layout *guess* the base :class:`PrismRenderer` falls back to.  The
 geometry is built in the package-local frame (pin 1 at the origin), exactly as
@@ -237,7 +237,7 @@ def dip_silhouette(prism: Prism) -> PrismSilhouette | None:
     """A DIP notch parameterized by *prism*'s two pin columns (None if not two).
 
     Used by the ``dip_ic`` / ``wdip_ic`` kind renderers
-    (:mod:`protoboard.gui.renderers.packages.prism_kinds`) — the declared-look
+    (:mod:`protoboard.services.rendering.packages.prism_kinds`) — the declared-look
     counterpart of the column guess below.
     """
     cols = _columns(prism.pin_positions())

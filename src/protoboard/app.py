@@ -169,10 +169,10 @@ def main() -> None:
     # any library dir may carry a ``renderers/`` or ``generators/`` subdir
     # whose *.py files register PackageRenderer / PackageGenerator subclasses
     # on import (see gui/renderers/packages, domain/components/package/generators).
-    from protoboard.gui.renderers.packages import load_renderer_plugins
     from protoboard.services.library.plugin_discovery import (
         load_generator_plugins,
     )
+    from protoboard.services.rendering.packages import load_renderer_plugins
 
     load_renderer_plugins(library_dirs)
     load_generator_plugins(library_dirs)

@@ -4,14 +4,14 @@
 A user library directory (any entry of ``component_library_dirs``) may carry a
 ``renderers/`` subdirectory.  Every ``*.py`` file in it is imported at library
 load; a module registers its renderers simply by *defining* a
-:class:`~protoboard.gui.renderers.packages.base.PackageRenderer` subclass
+:class:`~protoboard.services.rendering.packages.base.PackageRenderer` subclass
 decorated with
-:func:`~protoboard.gui.renderers.packages.base.register_renderer` (or
+:func:`~protoboard.services.rendering.packages.base.register_renderer` (or
 carrying the legacy ``renders`` attribute) — registration happens at class
 creation, so no explicit call is needed.  Example plugin
 (``<library>/renderers/to220.py``)::
 
-    from protoboard.gui.renderers.packages import (
+    from protoboard.services.rendering.packages import (
         PrismRenderer,
         register_renderer,
     )

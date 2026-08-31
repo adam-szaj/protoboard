@@ -12,11 +12,11 @@ from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages.base import (
+from protoboard.services.rendering.packages.base import (
     PackageRenderer,
     register_renderer,
 )
-from protoboard.gui.renderers.prism_silhouette import (
+from protoboard.services.rendering.prism_silhouette import (
     PrismSilhouette,
     silhouette_for,
 )

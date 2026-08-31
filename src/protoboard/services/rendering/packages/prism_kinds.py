@@ -6,7 +6,7 @@ each procedural package ``kind`` (see ``domain/components/package/kind.py``)
 registers a renderer whose ``_silhouette`` returns the *declared* look, so a
 ``dip_switch`` stays plain even though its two pin columns would column-guess
 a DIP notch.  A kind with no registered renderer falls back to the base
-:class:`~protoboard.gui.renderers.packages.prism.PrismRenderer` (the column
+:class:`~protoboard.services.rendering.packages.prism.PrismRenderer` (the column
 guess) — rendering never blocks on an unknown kind.
 """
 
@@ -23,16 +23,16 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.components.value_text import body_print_text
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages.base import register_renderer
-from protoboard.gui.renderers.packages.body_label import make_body_label
-from protoboard.gui.renderers.packages.canvas import BodyCanvas
-from protoboard.gui.renderers.packages.prism import PrismRenderer
-from protoboard.gui.renderers.prism_silhouette import (
+from protoboard.services.rendering.packages.base import register_renderer
+from protoboard.services.rendering.packages.body_label import make_body_label
+from protoboard.services.rendering.packages.canvas import BodyCanvas
+from protoboard.services.rendering.packages.prism import PrismRenderer
+from protoboard.services.rendering.prism_silhouette import (
     PrismSilhouette,
     SilSilhouette,
     dip_silhouette,
 )
-from protoboard.gui.renderers.text_contrast import best_ink
+from protoboard.services.rendering.text_contrast import best_ink
 
 
 @register_renderer(kind=("dip_ic", "wdip_ic"))

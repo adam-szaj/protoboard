@@ -27,7 +27,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.gui.renderers.component_renderer import _render_one
+from protoboard.services.rendering.component_renderer import _render_one
 
 _SIL2_FAMILY = sil_family(2)
 assert _SIL2_FAMILY is not None

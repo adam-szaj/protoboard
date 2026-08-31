@@ -35,7 +35,7 @@ from protoboard.domain.components.value_codes import (
     parse_value,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages import (
+from protoboard.services.rendering.packages import (
     CylinderRenderer,
     qcolor_from_css,
     register_renderer,
