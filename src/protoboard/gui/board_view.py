@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import math
 import os
 import time
 import uuid
@@ -46,6 +45,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 
 from protoboard.controller.view_options.layers import LayerOverrides  # noqa: E402
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme  # noqa: E402
+from protoboard.domain.layout.snapping import SnapRequest, snap_point  # noqa: E402
 from protoboard.geometry import Point  # noqa: E402
 from protoboard.gui.board_view_tool import _Tool  # noqa: E402
 from protoboard.gui.highlight.renderer import HighlightRenderer  # noqa: E402
@@ -679,15 +679,6 @@ class BoardView(QGraphicsView):
                     exported_pins.add((ep.component_id, ep.pin_number))
 
         sx, sy = scene_pt.x, scene_pt.y
-        best: Point | None = None
-        best_d = math.inf
-
-        def _check(px: float, py: float) -> None:
-            nonlocal best, best_d
-            d = (sx - px) * (sx - px) + (sy - py) * (sy - py)
-            if d < best_d:
-                best_d = d
-                best = Point(px, py)
 
         # Board pads — use spatial index (3×3 cells around cursor).
         # Ensure index is built even if refresh() hasn't been called yet.
@@ -701,10 +692,10 @@ class BoardView(QGraphicsView):
         elif not self._pad_spatial:
             self.rebuild_pad_cache()
         cx, cy = int(round(sx)), int(round(sy))
+        pad_candidates: list[Point] = []
         for dcx in (-1, 0, 1):
             for dcy in (-1, 0, 1):
-                for p in self._pad_spatial.get((cx + dcx, cy + dcy), []):
-                    _check(p.x, p.y)
+                pad_candidates.extend(self._pad_spatial.get((cx + dcx, cy + dcy), []))
 
         # Component pin positions — use comp spatial index; skip locked pins.
         candidates: set[uuid.UUID] = set()
@@ -714,6 +705,7 @@ class BoardView(QGraphicsView):
                 for cid in comp_idx.get((cx + dcx, cy + dcy), []):
                     candidates.add(cid)
 
+        pin_candidates: list[Point] = []
         for comp_id in candidates:
             if exclude_ids and comp_id in exclude_ids:
                 continue
@@ -721,18 +713,18 @@ class BoardView(QGraphicsView):
                 for pin_num, p in self._session.iter_pin_positions(comp_id):
                     if (comp_id, pin_num) not in exported_pins:
                         continue
-                    _check(p.x, p.y)
+                    pin_candidates.append(p)
             else:
                 for _pin_num, p in self._session.iter_pin_positions(comp_id):
-                    _check(p.x, p.y)
+                    pin_candidates.append(p)
 
-        if best is not None:
-            return best
-        # No real pad or pin within the 3×3 search window — return the
-        # nearest hypothetical pad-grid centre so off-board cursors still
-        # snap to a half-integer grid.  Prevents drag-then-return from
-        # leaving components at fractional positions.
-        return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
+        return snap_point(
+            SnapRequest(
+                scene_point=scene_pt,
+                pad_candidates=tuple(pad_candidates),
+                pin_candidates=tuple(pin_candidates),
+            )
+        )
 
     @traced()
     def is_locked_pin(self, scene_pt: Point, tol: float = 0.6) -> bool:

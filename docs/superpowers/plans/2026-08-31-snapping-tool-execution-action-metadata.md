@@ -35,11 +35,11 @@
 - `snap_point` chooses the nearest candidate by squared distance, evaluates pads before pins so exact ties prefer pads, and falls back to `Point(floor(x)+0.5, floor(y)+0.5)`.
 - Controller/view continue filtering locked, exported, and excluded pins before constructing the request.
 
-- [ ] **Step 1: Add failing pure-operation tests**
+- [x] **Step 1: Add failing pure-operation tests**
 
 Cover pad-before-pin tie-breaking, nearest candidate selection, empty candidates, and negative-coordinate half-grid fallback.
 
-- [ ] **Step 2: Verify tests fail**
+- [x] **Step 2: Verify tests fail**
 
 Run:
 ```bash
@@ -47,11 +47,11 @@ Run:
 ```
 Expected: FAIL because the pure snap module does not exist.
 
-- [ ] **Step 3: Implement and migrate adapters**
+- [x] **Step 3: Implement and migrate adapters**
 
 Implement the request and pure operation. Replace only the duplicated nearest-candidate/fallback blocks in `EditController.snap` and `BoardView.snap`; keep preview-state and group accessibility gathering in their current owners.
 
-- [ ] **Step 4: Verify snap parity and static checks**
+- [x] **Step 4: Verify snap parity and static checks**
 
 Run:
 ```bash
@@ -60,7 +60,7 @@ Run:
 /home/yvdev/.local/venv/bin/uv run mypy --strict src/protoboard/domain/layout/snapping.py src/protoboard/controller/editing/controller.py
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/protoboard/domain/layout/snapping.py src/protoboard/controller/editing/controller.py src/protoboard/gui/board_view.py tests/unit/test_snapping.py tests/unit/test_edit_controller_armed_transform.py tests/gui/test_board_view.py

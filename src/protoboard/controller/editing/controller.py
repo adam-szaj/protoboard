@@ -1506,9 +1506,7 @@ class EditController:
         dragged). Off-board — nothing within the window — falls back to the
         nearest half-integer pad-grid centre.
         """
-        import math
-
-        from protoboard.geometry import Point
+        from protoboard.domain.layout.snapping import SnapRequest, snap_point
 
         # While a transform is armed, snap against its PREVIEW pose (the live
         # layout stays pristine) so a pivot-click lands on the moved pins.
@@ -1533,15 +1531,6 @@ class EditController:
                     exported_pins.add((ep.component_id, ep.pin_number))
 
         sx, sy = scene_pt.x, scene_pt.y
-        best: Point | None = None
-        best_d = math.inf
-
-        def _check(px: float, py: float) -> None:
-            nonlocal best, best_d
-            d = (sx - px) * (sx - px) + (sy - py) * (sy - py)
-            if d < best_d:
-                best_d = d
-                best = Point(px, py)
 
         # Board pads — bucket centres into the same round-keyed 3×3 grid the
         # view uses, sourced from the shared Board.pad_positions() so the two
@@ -1552,10 +1541,10 @@ class EditController:
         for _p in state.board.pad_positions():
             pad_spatial[(int(round(_p.x)), int(round(_p.y)))].append(_p)
         cx, cy = int(round(sx)), int(round(sy))
+        pad_candidates: list[Point] = []
         for dcx in (-1, 0, 1):
             for dcy in (-1, 0, 1):
-                for p in pad_spatial.get((cx + dcx, cy + dcy), []):
-                    _check(p.x, p.y)
+                pad_candidates.extend(pad_spatial.get((cx + dcx, cy + dcy), []))
 
         # Component pin positions — use comp spatial index; skip locked pins.
         candidates: set[uuid.UUID] = set()
@@ -1565,6 +1554,7 @@ class EditController:
                 for cid in comp_idx.get((cx + dcx, cy + dcy), []):
                     candidates.add(cid)
 
+        pin_candidates: list[Point] = []
         for comp_id in candidates:
             if exclude_ids and comp_id in exclude_ids:
                 continue
@@ -1572,17 +1562,18 @@ class EditController:
                 for pin_num, p in state.iter_pin_positions(comp_id):
                     if (comp_id, pin_num) not in exported_pins:
                         continue
-                    _check(p.x, p.y)
+                    pin_candidates.append(p)
             else:
                 for _pin_num, p in state.iter_pin_positions(comp_id):
-                    _check(p.x, p.y)
+                    pin_candidates.append(p)
 
-        if best is not None:
-            return best
-        # No real pad or pin within the 3×3 search window — return the
-        # nearest hypothetical pad-grid centre so off-board cursors still
-        # snap to a half-integer grid.
-        return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
+        return snap_point(
+            SnapRequest(
+                scene_point=scene_pt,
+                pad_candidates=tuple(pad_candidates),
+                pin_candidates=tuple(pin_candidates),
+            )
+        )
 
     def find_paths(
         self,
