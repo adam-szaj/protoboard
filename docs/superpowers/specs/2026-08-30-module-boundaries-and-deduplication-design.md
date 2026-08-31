@@ -378,6 +378,13 @@ PySide disconnect warning), and Ruff, Black, strict mypy, Pyright, and
 `git diff --check` are clean. The source tree remains at 96,972 physical lines;
 manual real-display GUI smoke is still the only unexecuted verification.
 
+The follow-up alias pass also removed obsolete routing-discovery names and
+migrated tests to `discover_router_plugins` and the canonical router registry.
+After the final rerun, 2,870 unit tests passed (68 skipped), 1,495 GUI tests
+passed offscreen (1 expected xfail and 1 known PySide warning), and Ruff,
+Black, strict mypy, Pyright, and `git diff --check` remain clean. The source
+tree is at 96,972 physical lines; only real-display GUI smoke is outstanding.
+
 The selection-port migration was followed by another complete unit/GUI and
 static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
