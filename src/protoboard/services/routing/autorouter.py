@@ -48,6 +48,9 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.layout.wire_utils import (
+    plated_through_pads as board_plated_through_pads,
+)
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -600,7 +603,7 @@ def autoroute(
             p.position for p in pad_index.iter_pads() if p.layers.plated_through
         }
     else:
-        plated_through_pads = _collect_plated_through_pads(board)
+        plated_through_pads = board_plated_through_pads(board)
 
     # Build a penalty map for pads on the top layer that lie under a component
     # body.  Routing there is legal but physically awkward; bottom is preferred.
@@ -1409,26 +1412,6 @@ def _run_one_pass(
         nets=_pass_net_stats,
     )
     return new_wires, unrouted, ps
-
-
-def _collect_plated_through_pads(board: Board) -> set[Point]:
-    """Return positions of all plated-through pads on the board."""
-    pts: set[Point] = set()
-    for atom, pos in board.atoms():
-        if isinstance(atom, PadAtom) and atom.layers.plated_through:
-            pts.add(pos)
-        elif isinstance(atom, StripAtom) and atom.layers.plated_through:
-            # Each hole of the strip is a plated-through pad.
-            n = int(atom.length) if isinstance(atom.length, int) else 1
-            if atom.orientation == "horizontal":
-                start_x = pos.x - n / 2.0 + 0.5
-                for i in range(n):
-                    pts.add(Point(start_x + i, pos.y))
-            else:
-                start_y = pos.y - n / 2.0 + 0.5
-                for i in range(n):
-                    pts.add(Point(pos.x, start_y + i))
-    return pts
 
 
 def _build_pin_positions(

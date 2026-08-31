@@ -44,6 +44,9 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire_utils import (
+    plated_through_pads as board_plated_through_pads,
+)
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
@@ -195,25 +198,6 @@ def _under_component_pads(
         for atom, pos in board.atoms():
             if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):
                 out.add(pos)
-    return out
-
-
-def _plated_through_pads(board: Board) -> set[Point]:
-    """Pads that have both layers electrically joined (used for via charging)."""
-    out: set[Point] = set()
-    for atom, pos in board.atoms():
-        if isinstance(atom, PadAtom) and atom.layers.plated_through:
-            out.add(pos)
-        elif isinstance(atom, StripAtom) and atom.layers.plated_through:
-            n = int(atom.length) if isinstance(atom.length, int) else 1
-            if atom.orientation == "horizontal":
-                start_x = pos.x - n / 2.0 + 0.5
-                for i in range(n):
-                    out.add(Point(start_x + i, pos.y))
-            else:
-                start_y = pos.y - n / 2.0 + 0.5
-                for i in range(n):
-                    out.add(Point(pos.x, start_y + i))
     return out
 
 
@@ -684,7 +668,7 @@ def analyze_wires(
                 "analyze_wires needs board or a precomputed "
                 "plated_through_pads set when layer_change > 0"
             )
-        _plated_set = _plated_through_pads(board)
+        _plated_set = board_plated_through_pads(board)
 
     n_ortho = 0
     n_diag = 0

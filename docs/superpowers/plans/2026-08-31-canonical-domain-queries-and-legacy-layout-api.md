@@ -281,6 +281,7 @@ git commit -m "refactor(layout): use indexed wire lookup"
 ### Task 4: Reuse the canonical plated-through-pad query
 
 **Files:**
+- Modify: `src/protoboard/headless_session.py`
 - Modify: `src/protoboard/services/routing/autorouter.py`
 - Modify: `src/protoboard/services/routing/cost_analyzer.py`
 - Test: `tests/unit/test_wire_utils.py`
@@ -291,12 +292,12 @@ git commit -m "refactor(layout): use indexed wire lookup"
 - Consumes: `domain.layout.wire_utils.plated_through_pads(board) -> set[Point]`.
 - Produces: no private routing copy of board plated-pad enumeration.
 
-- [ ] **Step 1: Add parity fixtures for pad and strip atoms**
+- [x] **Step 1: Add parity fixtures for pad and strip atoms**
 
 Ensure the canonical query test covers horizontal and vertical plated strips,
 a plated single pad, and non-plated atoms that must be excluded.
 
-- [ ] **Step 2: Run characterization tests**
+- [x] **Step 2: Run characterization tests**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_wire_utils.py::TestBoardPadsForSide tests/unit/test_cost_analyzer.py -q
@@ -304,14 +305,14 @@ a plated single pad, and non-plated atoms that must be excluded.
 
 Expected: PASS before implementation.
 
-- [ ] **Step 3: Replace both duplicate enumerators**
+- [x] **Step 3: Replace both duplicate enumerators**
 
 Import `plated_through_pads` in autorouter and cost analyzer, replace
 `_collect_plated_through_pads(board)` and `_plated_through_pads(board)`, then
 delete both private functions and their now-unused `PadAtom`/`StripAtom`
 imports only where unused.
 
-- [ ] **Step 4: Verify routing behaviour and absence**
+- [x] **Step 4: Verify routing behaviour and absence**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_wire_utils.py tests/unit/test_autorouter.py tests/unit/test_cost_analyzer.py -q
@@ -320,10 +321,10 @@ rg -n 'def (_collect_plated_through_pads|_plated_through_pads)' src/protoboard/s
 
 Expected: tests pass and the audit has no output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/protoboard/services/routing/autorouter.py src/protoboard/services/routing/cost_analyzer.py tests/unit/test_wire_utils.py
+git add src/protoboard/headless_session.py src/protoboard/services/routing/autorouter.py src/protoboard/services/routing/cost_analyzer.py tests/unit/test_wire_utils.py
 git commit -m "refactor(routing): reuse canonical plated pad query"
 ```
 

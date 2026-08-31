@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy, StripAtom
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.layout.wire_utils import (
@@ -140,6 +140,51 @@ class TestBoardPadsForSide:
         pads = plated_through_pads(board)
         assert len(pads) == 4
         assert Point(0.5, 0.5) in pads
+
+    def test_plated_through_pads_expand_strips_and_exclude_plain_pads(self) -> None:
+        plated = PadLayers(top=True, bottom=True, plated_through=True)
+        plain = PadLayers(top=True, bottom=False, plated_through=False)
+        horizontal = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=3,
+            orientation="horizontal",
+            layers=plated,
+        )
+        vertical = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=3,
+            orientation="vertical",
+            layers=plated,
+        )
+        plated_pad = PadAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            layers=plated,
+        )
+        plain_pad = PadAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            layers=plain,
+        )
+        board = Board(root=plain_pad)
+        board._["_atoms_list"] = (
+            (horizontal, Point(1.5, 0.5)),
+            (vertical, Point(4.5, 1.5)),
+            (plated_pad, Point(6.5, 0.5)),
+            (plain_pad, Point(7.5, 0.5)),
+        )
+
+        assert plated_through_pads(board) == {
+            Point(0.5, 0.5),
+            Point(1.5, 0.5),
+            Point(2.5, 0.5),
+            Point(4.5, 0.5),
+            Point(4.5, 1.5),
+            Point(4.5, 2.5),
+            Point(6.5, 0.5),
+        }
 
 
 def _wire(path: list[Point]) -> Wire:

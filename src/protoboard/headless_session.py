@@ -371,11 +371,9 @@ class HeadlessSession:
         """
         cache = self._plated_through_pads_cache
         if cache is None:
-            from protoboard.services.routing.cost_analyzer import (
-                _plated_through_pads,
-            )
+            from protoboard.domain.layout.wire_utils import plated_through_pads
 
-            cache = _plated_through_pads(self.board)
+            cache = plated_through_pads(self.board)
             self._plated_through_pads_cache = cache
         return cache
 
