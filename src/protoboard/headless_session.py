@@ -133,11 +133,6 @@ class HeadlessSession:
         # every selection click.  Invalidated alongside the graph since
         # it derives from ConnectivityGraph.
         self._wire_net_map_cache: dict[uuid.UUID, uuid.UUID] | None = None
-        # wire.id → Wire lookup, populated lazily by
-        # ``wire_by_id()``.  SelectTool's click handlers used to scan
-        # ``layout.wires`` for every highlight redraw — O(N²) when the
-        # active net has many wires.  Invalidated on every layout change.
-        self._wire_by_id_cache: dict[uuid.UUID, Wire] | None = None
         # Axis-label settings feed DRC (off-board / label checks). A plain
         # domain default here; the GUI exposes a settings panel over it.
         self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
@@ -289,10 +284,6 @@ class HeadlessSession:
         self._under_component_pads_cache = None
         # Wire→net map depends on the graph; recompute lazily next time.
         self._wire_net_map_cache = None
-        # Wire-by-id index depends only on the wires list; rebuilt on
-        # demand.  layout_changed invalidates the graph (via this method),
-        # so this also stays in sync.
-        self._wire_by_id_cache = None
 
     def rebuild_all_pin_identities(self) -> None:
         """Bind every placed instance and (re)build its PinIdentity groups.
@@ -343,17 +334,8 @@ class HeadlessSession:
         return cache
 
     def wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
-        """O(1) wire lookup by id.
-
-        Replaces the ``next((w for w in layout.wires if w.id == X), None)``
-        idiom that select_tool was running per highlight redraw — at O(N)
-        per call, that becomes O(N²) when the active net is large.
-        """
-        cache = self._wire_by_id_cache
-        if cache is None:
-            cache = {w.id: w for w in self.layout.wires}
-            self._wire_by_id_cache = cache
-        return cache.get(wire_id)
+        """Return the wire indexed by its stable id."""
+        return self.layout.wires.get(wire_id)
 
     def cached_wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
         """Return cached wire.id → net.id mapping.

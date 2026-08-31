@@ -835,7 +835,7 @@ class WireEditTool(ControllerTool):
         )
 
     def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
-        return next((w for w in self._session.layout.wires if w.id == wire_id), None)
+        return self._session.layout.wires.get(wire_id)
 
     def _wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
         return self._session.cached_wire_net_map()

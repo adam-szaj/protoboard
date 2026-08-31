@@ -955,8 +955,9 @@ def check_group_move_conflicts(
         protected_parents=[str(g)[:8] for g in protected_parent_gids],
     )
 
+    wires_by_id = {wire.id: wire for wire in layout_wires}
     for wire_id in crossing_ids:
-        wire = next((w for w in layout_wires if w.id == wire_id), None)
+        wire = wires_by_id.get(wire_id)
         if wire is None:
             continue
         # Is this wire internal to any subgroup?

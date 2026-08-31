@@ -407,9 +407,7 @@ def _resolve_wire_conflicts(
         for c in wire_conflicts:
             if c.wire_id is not None and c.wire_id not in seen:
                 seen.add(c.wire_id)
-                wire_obj = next(
-                    (w for w in session.layout.wires if w.id == c.wire_id), None
-                )
+                wire_obj = session.layout.wires.get(c.wire_id)
                 cmds.append(RemoveWireCommand(wire_id=c.wire_id))
                 if wire_obj is not None:
                     reroute_cmd = _try_reroute_wire(

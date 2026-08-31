@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Tests for WireCollection.get_or_raise / get_or_return."""
+"""Tests for indexed WireCollection lookup helpers."""
 
 import uuid
 
@@ -12,6 +12,18 @@ from protoboard.geometry import Point
 def _wire() -> Wire:
     frag = Fragment(path=[Point(0, 0), Point(1, 0)], side="top")
     return Wire(id=uuid.uuid4(), fragments=[frag], insulated=True)
+
+
+def test_indexed_lookup_preserves_iteration_order_and_uuid_membership() -> None:
+    first = _wire()
+    second = _wire()
+    coll = WireCollection([first, second])
+
+    assert coll.get(first.id) is first
+    assert coll.get(uuid.uuid4()) is None
+    assert list(coll) == [first, second]
+    assert first.id in coll
+    assert uuid.uuid4() not in coll
 
 
 def test_get_or_raise_hit_returns_wire() -> None:

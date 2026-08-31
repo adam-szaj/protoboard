@@ -54,7 +54,7 @@ def compute_simplified_wire(
     the path further.  Callers wanting the raw path use ``result.path``.
     """
     layout = session.layout
-    wire = next((w for w in layout.wires if w.id == wire_id), None)
+    wire = layout.wires.get(wire_id)
     if wire is None:
         return None
 
@@ -160,10 +160,7 @@ class SimplifyTool(SelectTool):
         if self._draft_path is None:
             return True
         new_path = list(self._draft_path)
-        old_wire = next(
-            (w for w in self._session.layout.wires if w.id == wire_id),
-            None,
-        )
+        old_wire = self._session.layout.wires.get(wire_id)
         if old_wire is None:
             self._clear_draft()
             return True

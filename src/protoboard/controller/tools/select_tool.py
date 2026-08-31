@@ -2251,7 +2251,7 @@ class SelectTool(ControllerTool):
         self._refresh_highlight()
 
     def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
-        return next((w for w in self._session.layout.wires if w.id == wire_id), None)
+        return self._session.layout.wires.get(wire_id)
 
     def _refresh_after_wire_op(self) -> None:
         self._refresh_highlight()
@@ -3812,13 +3812,14 @@ class SelectTool(ControllerTool):
         inputs = build_simplify_inputs(session)
         simplify_wire = session.edit_controller.simplify_wire
         all_wires = list(session.layout.wires)
+        wires_by_id = {wire.id: wire for wire in all_wires}
         wid_list = list(wire_ids)
 
         def _simplify_in_worker(progress_cb):  # type: ignore[no-untyped-def]
             results: list[tuple[uuid.UUID, list[Point], list[Point]]] = []
             n = len(wid_list)
             for i, wid in enumerate(wid_list):
-                wire = next((w for w in all_wires if w.id == wid), None)
+                wire = wires_by_id.get(wid)
                 if wire is None:
                     progress_cb(i + 1, n)
                     continue
@@ -3852,7 +3853,7 @@ class SelectTool(ControllerTool):
 
         cmds: list[object] = []
         for wid, new_path, orig_path in worker_out:
-            wire = next((w for w in session.layout.wires if w.id == wid), None)
+            wire = session.layout.wires.get(wid)
             if wire is None:
                 continue  # vanished mid-flight (concurrent edit)
             cmds.append(
@@ -3947,7 +3948,7 @@ class SelectTool(ControllerTool):
         n_fragment_wires = 0
         n_fragments_removed = 0
         for wid in post_fuse_ids:
-            wire = next((w for w in all_wires if w.id == wid), None)
+            wire = all_wires.get(wid)
             if wire is None or len(wire.fragments) < 2:
                 continue
             coalesced = coalesce_same_side_fragments(wire.fragments)

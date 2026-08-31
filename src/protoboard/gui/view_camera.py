@@ -285,7 +285,7 @@ class ViewCamera:
             ys += [bbox.y, bbox.y + bbox.ly]
 
         for wid in sel_wire_ids:
-            wire = next((w for w in session.layout.wires if w.id == wid), None)
+            wire = session.layout.wires.get(wid)
             if wire is None:
                 continue
             for pt in wire.path:

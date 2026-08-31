@@ -225,6 +225,7 @@ git commit -m "refactor(layout): remove group query shims"
 ### Task 3: Use indexed wire lookup at live-layout call sites
 
 **Files:**
+- Modify: `src/protoboard/headless_session.py`
 - Modify: `src/protoboard/gui/view_camera.py`
 - Modify: `src/protoboard/controller/tools/simplify_tool.py`
 - Modify: `src/protoboard/controller/tools/select_tool.py`
@@ -240,13 +241,13 @@ git commit -m "refactor(layout): remove group query shims"
 - Produces: no scan-based `next((wire ... if wire.id == ...), None)` against a
   live `Layout.wires` collection.
 
-- [ ] **Step 1: Characterize lookup parity**
+- [x] **Step 1: Characterize lookup parity**
 
 Extend `test_wire_collection_lookup.py` to assert hit, miss, insertion-order
 iteration, and UUID membership. These behaviours permit replacing scans
 without changing selection order.
 
-- [ ] **Step 2: Run characterization tests**
+- [x] **Step 2: Run characterization tests**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_wire_collection_lookup.py -q
@@ -254,14 +255,14 @@ without changing selection order.
 
 Expected: PASS before implementation.
 
-- [ ] **Step 3: Replace live collection scans**
+- [x] **Step 3: Replace live collection scans**
 
 Use `layout.wires.get(wire_id)` at every listed live-layout call site. For
 worker snapshots, create one `dict[UUID, Wire]` before the loop and use
 `snapshot_by_id.get(wid)`; retain `Sequence[Wire]` scans only in functions that
 genuinely accept arbitrary sequences.
 
-- [ ] **Step 4: Verify focused behaviour and audit scans**
+- [x] **Step 4: Verify focused behaviour and audit scans**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_wire_collection_lookup.py tests/unit/test_placement_conflict_variant.py tests/unit/test_pad_conflict.py tests/gui/test_select_tool.py tests/gui/test_wire_edit_tool.py -q
@@ -270,10 +271,10 @@ rg -n 'next\(\(w for w in ((self\._session|session)\.layout|layout)\.wires if w\
 
 Expected: tests pass and the audit has no output.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add src/protoboard/gui/view_camera.py src/protoboard/controller/tools/simplify_tool.py src/protoboard/controller/tools/select_tool.py src/protoboard/controller/tools/wire_edit_tool.py src/protoboard/controller/editing/placement_conflict.py src/protoboard/domain/layout/pad_conflict.py tests/unit/test_wire_collection_lookup.py
+git add src/protoboard/headless_session.py src/protoboard/gui/view_camera.py src/protoboard/controller/tools/simplify_tool.py src/protoboard/controller/tools/select_tool.py src/protoboard/controller/tools/wire_edit_tool.py src/protoboard/controller/editing/placement_conflict.py src/protoboard/domain/layout/pad_conflict.py tests/unit/test_wire_collection_lookup.py
 git commit -m "refactor(layout): use indexed wire lookup"
 ```
 
