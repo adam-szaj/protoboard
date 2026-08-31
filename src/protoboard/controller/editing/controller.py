@@ -15,10 +15,8 @@ by both :class:`~protoboard.headless_session.HeadlessSession`
 and the GUI ``EditorSession``. Qt-free by construction — the same mechanical
 rule that keeps ``domain/`` display-independent (CLAUDE.md §3).
 
-Verbs are added incrementally, each repointing the GUI tool that used to build
-the command inline: :meth:`~EditController.delete` is the first. The
-command-execution substrate (:meth:`EditController._execute`, a Qt-free copy of
-the tools' old ``_execute_command``) underpins them all.
+The public command-execution port is Qt-free and is shared by controller verbs
+and GUI tools.
 """
 
 from __future__ import annotations

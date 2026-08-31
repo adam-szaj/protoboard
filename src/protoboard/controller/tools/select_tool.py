@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""``SelectTool`` — the selection tool (rewritten as a service).
+"""``SelectTool`` — the selection tool.
 
 A thin ``ControllerTool`` that wires the headless-tested pieces together:
 
@@ -15,7 +15,7 @@ A thin ``ControllerTool`` that wires the headless-tested pieces together:
 Covers: hit-test → selection (SET/ADD/REMOVE via the modifier matrix),
 rubber-band area-select, drag / floating of the selection, rotate / flip /
 rotate-around-point, ESC-pop, group enter/exit, and routing clicks into an
-active pick.  Wire-edit and net-relation selection arrive in later phases.
+active pick, wire editing, and net-relation selection.
 
 The tool keeps almost no logic of its own — on press it arms a mouse-interaction
 controller or mutates the selection; pointer events and translated intents

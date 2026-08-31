@@ -79,12 +79,12 @@ class ActionSpec:
         menu_path: Where the action lives in the main menu, or ``None``
             for intentional orphans (accessible only via shortcut or
             context menu).  Orphans MUST have a one-line ``# orphan: …``
-            justification next to the spec entry — Phase 3 enforces this.
+            justification next to the spec entry.
         checkable: True for toggle-style QActions (e.g. layer visibility).
         enabled: Initial enabled state.  Most actions stay enabled and
             rely on context updates from session signals.
         icon: Theme icon name (``QIcon.fromTheme(name)``) or ``None`` for
-            text-only.  Phase 4 falls back to first-letter text for
+            text-only.  The toolbar builder falls back to first-letter text for
             icon-less actions added to a user-customised toolbar.
         tooltip: Optional ``setToolTip`` string.  Falls back to label.
         action_group: Name of an exclusive QActionGroup.  All specs that
@@ -1036,10 +1036,8 @@ def _build_display_names(specs: tuple[ActionSpec, ...]) -> dict[str, str]:
     return {s.id: strip_mnemonic(s.label) for s in specs}
 
 
-#: Phase 1 derives display names directly from the spec list.  The
-#: ``KB.DISPLAY_NAMES`` dict in ``keybindings.py`` stays as a fallback
-#: for any spec missing from the list (currently the two wire-pin
-#: convert actions which Phase 2 will add).
+#: Display names are derived directly from the spec list for preferences and
+#: shortcut help.
 DISPLAY_NAMES_FROM_SPECS: dict[str, str] = _build_display_names(ALL_ACTIONS)
 
 
