@@ -290,9 +290,10 @@ utility for the repeated single-command versus `MacroCommand` decision and
 migrated controller, selection, and GUI callers to it. `WireEditTool` also
 centralizes its repeated armed-fragment status hint. The tree currently has
 321 source modules and 97,074 physical lines; 190 focused command and wire-edit
-tests pass, and Ruff, Black, strict mypy, Pyright, and `git diff --check` are
-clean. Manual GUI smoke testing remains deferred to the final Workstream 4
-gate.
+tests pass. The complete rerun passes 2,867 unit tests (68 skipped) and 1,496
+offscreen GUI tests (1 expected xfail and 1 known PySide disconnect warning).
+Ruff, Black, strict mypy, Pyright, and `git diff --check` are clean. Manual GUI
+smoke testing remains deferred to the final Workstream 4 gate.
 
 Within those workstreams, the order is:
 
