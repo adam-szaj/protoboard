@@ -454,6 +454,12 @@ helper in both MainWindow session initialisation paths. This removes two
 duplicated five-call sequences while preserving refresh order; the focused
 session/panel/shortcut suite (79 tests) and all static checks pass.
 
+Layer presentation now likewise goes through `_refresh_layer_presentation()`;
+the cycle, reset, and panel-change paths share one repaint/menu-update block,
+while session assignment and panel synchronisation stay local to the paths
+that require them. The focused layer/shortcut suite (48 tests) and all static
+checks pass.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.

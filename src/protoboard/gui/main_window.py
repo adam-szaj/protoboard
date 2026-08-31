@@ -631,21 +631,20 @@ class MainWindow(QMainWindow):
         current = getattr(self._layer_overrides, field_name)
         setattr(self._layer_overrides, field_name, current.cycle())
         self._session.layer_overrides = self._layer_overrides
-        self._board_view.layer_overrides = self._layer_overrides
-        self._refresh_layer_menu()
+        self._refresh_layer_presentation()
         self._layers_panel.sync()
-        self._board_view.refresh()
 
     def _reset_layers(self) -> None:
         self._layer_overrides.reset()
         self._session.layer_overrides = self._layer_overrides
-        self._board_view.layer_overrides = self._layer_overrides
-        self._refresh_layer_menu()
+        self._refresh_layer_presentation()
         self._layers_panel.sync()
-        self._board_view.refresh()
 
     def _on_layer_panel_changed(self) -> None:
         """Called when user clicks a button in the Layers panel."""
+        self._refresh_layer_presentation()
+
+    def _refresh_layer_presentation(self) -> None:
         self._board_view.layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._board_view.refresh()
