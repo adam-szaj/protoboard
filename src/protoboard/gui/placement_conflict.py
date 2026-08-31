@@ -30,7 +30,6 @@ from protoboard.controller.editing.placement_conflict import (
 from protoboard.controller.editing.placement_conflict import (
     check_and_resolve as _check_and_resolve,
 )
-from protoboard.geometry import round_coord as _round  # noqa: F401  legacy alias
 
 if TYPE_CHECKING:
     from collections.abc import Callable
