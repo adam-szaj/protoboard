@@ -114,7 +114,7 @@ class ControllerTool:
         self._view = None
 
     @traced()
-    def _key_matches(self, inp: KeyInput, action_id: str) -> bool:
+    def matches_key(self, inp: KeyInput, action_id: str) -> bool:
         """True when *inp* equals *action_id*'s currently-resolved shortcut.
 
         Resolves through the view's :class:`KeyMap`, so a tool dispatches and
@@ -229,7 +229,7 @@ class ControllerTool:
         *when*; the matching itself is uniform (KeyMap, rebind-safe).
         """
         return any(
-            gate() and self._key_matches(inp, action_id)
+            gate() and self.matches_key(inp, action_id)
             for action_id, gate in self.key_claims()
         )
 
@@ -251,7 +251,7 @@ class ControllerTool:
         not offered the key even when the handler declines.
         """
         for action_id, handler in self.key_dispatch():
-            if self._key_matches(inp, action_id):
+            if self.matches_key(inp, action_id):
                 return handler(inp)
         return False
 

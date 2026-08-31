@@ -42,19 +42,19 @@ def test_controller_tool_is_qt_free_source():
     assert "gui.theme" not in src
 
 
-def test_key_matches_resolves_through_view_keymap():
+def test_matches_key_resolves_through_view_keymap():
     tool = ControllerTool()
     tool._view = _FakeView()  # type: ignore[assignment]
     inp = KeyInput(key=42, native_mods=0, is_auto_repeat=False, mods=Mods())
-    assert tool._key_matches(inp, "test.hit") is True
-    assert tool._key_matches(inp, "test.miss") is False
+    assert tool.matches_key(inp, "test.hit") is True
+    assert tool.matches_key(inp, "test.miss") is False
 
 
-def test_key_matches_false_without_view():
+def test_matches_key_false_without_view():
     tool = ControllerTool()
     tool._view = None  # type: ignore[assignment]
     inp = KeyInput(key=42, native_mods=0, is_auto_repeat=False, mods=Mods())
-    assert tool._key_matches(inp, "test.hit") is False
+    assert tool.matches_key(inp, "test.hit") is False
 
 
 def test_execute_command_is_shared_by_controller_tools():

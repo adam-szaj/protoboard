@@ -85,7 +85,7 @@ def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
 
     The command-dispatch counterpart of the old ``ControllerTool._dispatch_
     key`` (removed from the controller tools — Task 7): the View now owns the
-    key→action-id resolution (``tool._key_matches``, KeyMap-backed); the
+    key→action-id resolution (``tool.matches_key``, KeyMap-backed); the
     command table itself comes from the Controller facade
     (``EditController.tool_commands()``) so it is read from the same place a
     headless driver would. Mirrors an ``elif`` ladder — the first matching
@@ -95,7 +95,7 @@ def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
     """
     commands = tool._session.edit_controller.tool_commands()  # type: ignore[attr-defined]
     for action_id, handler in commands.items():
-        if tool._key_matches(inp, action_id):  # type: ignore[attr-defined]
+        if tool.matches_key(inp, action_id):  # type: ignore[attr-defined]
             return bool(handler())
     return False
 
@@ -405,23 +405,23 @@ class SelectTool(
         # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
         # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it
         # works headless where the KeyMap may be absent.
-        if self._key_matches(inp, _ACT_RELATION_CYCLE_BACK) or (
+        if self.matches_key(inp, _ACT_RELATION_CYCLE_BACK) or (
             key == Qt.Key.Key_QuoteLeft and shift
         ):
             self._cycle_relation(forward=False)
             return True
-        if self._key_matches(inp, _ACT_RELATION_CYCLE) or (
+        if self.matches_key(inp, _ACT_RELATION_CYCLE) or (
             key == Qt.Key.Key_QuoteLeft and not shift
         ):
             self._cycle_relation(forward=True)
             return True
 
-        if self._key_matches(inp, _ACT_DELETE) or (
+        if self.matches_key(inp, _ACT_DELETE) or (
             key == Qt.Key.Key_Backspace and not ctrl
         ):
             return self._delete_selection(force=shift)
 
-        if self._key_matches(inp, _ACT_EDIT):
+        if self.matches_key(inp, _ACT_EDIT):
             self._begin_edit_selected()  # edit the selected object
             return True
 
@@ -429,17 +429,17 @@ class SelectTool(
             self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
             return True
 
-        if self._key_matches(inp, _ACT_MOVE) and not self._selection.is_empty():
+        if self.matches_key(inp, _ACT_MOVE) and not self._selection.is_empty():
             self.arm_move()  # [G] — keyboard float-move (arrows / WSAD)
             return True
 
         # Alt+R flips (immediate 2-pin flip, kept as a one-shot until flip joins
         # the armed transform mode); the bare rotate action arms float-rotate.
-        if self._key_matches(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
+        if self.matches_key(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
             self.flip_selected()
             return True
 
-        if self._key_matches(inp, _ACT_ROTATE) and not ctrl:
+        if self.matches_key(inp, _ACT_ROTATE) and not ctrl:
             self.arm_rotate()
             return True
 

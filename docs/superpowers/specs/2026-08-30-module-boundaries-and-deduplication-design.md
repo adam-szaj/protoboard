@@ -419,6 +419,14 @@ static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
 the removed private selection fields; only the explicit typed ports remain.
 
+The key-resolution seam was then made explicit: controller tools expose
+`matches_key(...)` as a public port, and GUI composition no longer calls the
+removed `_key_matches` implementation. The focused base-tool contract, full
+unit suite (2,870 passed, 68 skipped), and full offscreen GUI suite (1,495
+passed, 1 expected xfail) remain green; Ruff, Black, strict mypy, Pyright, and
+`git diff --check` are clean. The only outstanding verification is the manual
+GUI smoke test on a real display.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
