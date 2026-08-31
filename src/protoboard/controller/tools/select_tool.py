@@ -1327,7 +1327,7 @@ class SelectTool(ControllerTool):
           can't stick after the cursor leaves the conflict zone.
         """
         # 1) Glide the dragged items to their current (already-mutated) layout
-        #    positions.  _on_drag_moved reads layout.placements / wires directly.
+        #    positions.  The view reads layout.placements / wires directly.
         self._view.notify_drag_moved()
 
         # 2) Conflict label + outline colour — cleared whenever the drop is clear.

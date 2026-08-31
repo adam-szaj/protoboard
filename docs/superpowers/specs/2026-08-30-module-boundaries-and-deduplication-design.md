@@ -306,9 +306,14 @@ The next boundary checkpoint removed controller-tool access to
 `_ViewProto.window()`. `SelectTool` and `RouteTool` now receive explicit GUI
 callbacks for parameterized menu actions and route-option persistence; only the
 GUI composition layer binds those callbacks to window services. The tree has
-321 source modules and 97,103 physical lines, and the focused callback/tool
+321 source modules and 97,104 physical lines, and the focused callback/tool
 suite passes 166 tests. The controller view protocol no longer exposes the
 top-level window.
+
+The follow-up interaction cleanup routed drag refresh and highlight-mode
+notifications through explicit view/context ports, then removed the obsolete
+Qt `drag_moved` signal path. The focused view/session regression suite passes
+153 tests; no controller module emits Qt signals or exposes a top-level window.
 
 Within those workstreams, the order is:
 
