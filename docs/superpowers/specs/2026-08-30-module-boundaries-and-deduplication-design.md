@@ -363,6 +363,15 @@ retained only for existing external/test imports; no controller implementation
 depends on the old name. The source tree is at 97,085 physical lines, and the
 focused wire-edit/select gate passes 172 tests.
 
+The final alias cleanup removed obsolete action, mirror, settings, renderer,
+group-ownership, keymap, and routing-discovery compatibility shims where
+canonical APIs already existed. Production code now uses direct canonical
+helpers and registries; compatibility-only tests were removed or migrated.
+The source tree is at 96,972 physical lines, with focused gates green. The
+remaining private calls from `MainWindow` are intentional action entry points
+on the concrete selection tool, not state access; replacing them with wrappers
+would add indirection without reducing coupling.
+
 The selection-port migration was followed by another complete unit/GUI and
 static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
