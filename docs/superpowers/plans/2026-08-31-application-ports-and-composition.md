@@ -656,7 +656,8 @@ git commit -m "docs(architecture): record application port boundary"
   checkpoint. LOC is informational, not a gate; the aspirational one-third
   reduction is explicitly not an acceptance criterion.
 - Subsequent focused refactors were committed separately: `f8c1ca17`,
-  `aa2392db`, `0b55ce69`, `a53a08c5`, `af17498c`, and `407eef52`.
+  `aa2392db`, `0b55ce69`, `a53a08c5`, `af17498c`, `407eef52`, `e41bb0fb`,
+  and `04708e82`.
 
 ## Self-Review Checklist
 
