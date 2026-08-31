@@ -180,7 +180,7 @@ class TestAutoHighlightOnClick:
         tool = _v2(board_view)
         board_view.refresh()
         _press(tool, 0.5, 0.5)
-        assert tool._selected_id == inst.id
+        assert tool.primary_component_id == inst.id
 
     def test_relation_none_no_auto_entry(
         self, board_view: BoardView, session: EditorSession
@@ -249,9 +249,9 @@ class TestRelationBasisSelection:
             SetOp.SET,
             BasisScope.RELATION,
         )
-        selected = set(tool._selected_ids)
-        if tool._selected_id is not None:
-            selected.add(tool._selected_id)
+        selected = set(tool.selected_component_ids)
+        if tool.primary_component_id is not None:
+            selected.add(tool.primary_component_id)
         assert i1.id in selected
         assert i2.id in selected
 
@@ -296,13 +296,13 @@ class TestRelationBasisSelection:
 
         # 1. Plain click selects only w1 (its midpoint).
         _press(tool, 1.5, 0.5)
-        assert w1.id in tool._selected_wire_ids
-        assert w2.id not in tool._selected_wire_ids  # not yet
+        assert w1.id in tool.selected_wire_ids
+        assert w2.id not in tool.selected_wire_ids  # not yet
 
         # 2. Alt+click the *already-selected* w1 → expands to the whole net.
         _press(tool, 1.5, 0.5, modifiers=Qt.KeyboardModifier.AltModifier)
-        assert w1.id in tool._selected_wire_ids
-        assert w2.id in tool._selected_wire_ids  # net expansion applied
+        assert w1.id in tool.selected_wire_ids
+        assert w2.id in tool.selected_wire_ids  # net expansion applied
 
     def test_ctrl_alt_accumulates_across_nets(
         self, board_view: BoardView, session: EditorSession
@@ -333,7 +333,7 @@ class TestRelationBasisSelection:
 
         tool._apply_selection(_sel(a), SetOp.ADD, BasisScope.RELATION)
         tool._apply_selection(_sel(c), SetOp.ADD, BasisScope.RELATION)
-        sel = set(tool._selected_ids)
+        sel = set(tool.selected_component_ids)
         # Both nets accumulated: A (a,b) ∪ B (c,d).
         assert {a.id, b.id, c.id, d.id} <= sel
 
@@ -465,9 +465,9 @@ class TestGroupedComponentProtection:
         _press(tool, 0.5, 0.5)
         # From outside the group the component (or its group) is selectable.
         assert (
-            inst.id == tool._selected_id
-            or inst.id in tool._selected_ids
-            or tool._selected_group_id is not None
+            inst.id == tool.primary_component_id
+            or inst.id in tool.selected_component_ids
+            or tool.selected_group_id is not None
         )
 
     def test_delete_vetoed_for_grouped_from_outside(
@@ -476,7 +476,7 @@ class TestGroupedComponentProtection:
         inst = _place(board_view, session, 0.5, 0.5)
         _make_group(session, [inst.id])
         tool = _v2(board_view)
-        tool._selected_ids = {inst.id}
+        tool.selected_component_ids = {inst.id}
         tool._delete_selection()
         assert inst.id in session.layout.placements  # mutation blocked
 
@@ -487,7 +487,7 @@ class TestGroupedComponentProtection:
         _make_group(session, [inst.id])
         rot0 = session.layout.placements[inst.id].rotation
         tool = _v2(board_view)
-        tool._selected_ids = {inst.id}
+        tool.selected_component_ids = {inst.id}
         tool._rotate_multi(delta=90)
         assert session.layout.placements[inst.id].rotation == rot0
 
@@ -498,7 +498,7 @@ class TestGroupedComponentProtection:
         grouped = _place(board_view, session, 1.5, 0.5)
         _make_group(session, [grouped.id])
         tool = _v2(board_view)
-        tool._selected_ids = {free.id, grouped.id}
+        tool.selected_component_ids = {free.id, grouped.id}
         tool._delete_selection()
         assert free.id not in session.layout.placements  # free deleted
         assert grouped.id in session.layout.placements  # grouped survives
@@ -510,7 +510,7 @@ class TestGroupedComponentProtection:
         gid = _make_group(session, [inst.id])
         tool = _v2(board_view)
         tool._group_stack.append(gid)  # step inside (double-click flow)
-        tool._selected_ids = {inst.id}
+        tool.selected_component_ids = {inst.id}
         tool._delete_selection()
         assert inst.id not in session.layout.placements  # now mutable
 
@@ -527,7 +527,7 @@ class TestGroupFlipEntry:
         i2 = _place(board_view, session, 2.5, 0.5)
         gid = _make_group(session, [i1.id, i2.id])
         tool = _v2(board_view)
-        tool._selected_group_id = gid
+        tool.selected_group_id = gid
         tool._flip_multi()
         # The flip folded a reflection (det = -1) into the group transform;
         # member placements are untouched (compose-on-read seam).
@@ -542,7 +542,7 @@ class TestGroupFlipEntry:
         i1 = _place(board_view, session, 0.5, 0.5)
         gid = _make_group(session, [i1.id])
         tool = _v2(board_view)
-        tool._selected_group_id = gid
+        tool.selected_group_id = gid
         tool._flip_multi()
         assert session.layout.groups[gid].transform.determinant() < 0
         session.stack.undo(session)  # type: ignore[arg-type]
@@ -555,7 +555,7 @@ class TestGroupFlipEntry:
         # runs (no group transform is touched).
         i1 = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
-        tool._selected_ids = {i1.id}
+        tool.selected_component_ids = {i1.id}
         tool._flip_multi()
         root = session.layout.groups[ROOT_GROUP_ID]
         assert root.transform.determinant() > 0

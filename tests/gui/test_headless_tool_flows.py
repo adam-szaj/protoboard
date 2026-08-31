@@ -125,7 +125,7 @@ class TestSelectComponent:
         tool = _select_tool(view)
         tool.on_press(pointer(0.5, 0.5))
         assert _selected_kinds(tool) == {"component"}
-        assert inst.id in tool._selected_ids
+        assert inst.id in tool.selected_component_ids
 
     def test_click_empty_space_selects_nothing(self, session: EditorSession) -> None:
         view = _headless(session)
@@ -170,7 +170,7 @@ class TestSelectWire:
         tool = _select_tool(view)
         tool._selection.set(WireSelectable(wire=wire))
         assert _selected_kinds(tool) == {"wire"}
-        assert wire.id in tool._selected_wire_ids
+        assert wire.id in tool.selected_wire_ids
 
     def test_wire_click_midspan_selects_wire(self, session: EditorSession) -> None:
         # A point on the wire body that is NOT a component pin resolves to the
@@ -207,8 +207,8 @@ class TestMultiSelect:
                 for cid, pl in session.layout.placements.items()
             ]
         )
-        assert tool._selected_ids == set(session.layout.placements.keys())
-        assert len(tool._selected_ids) == 2
+        assert tool.selected_component_ids == set(session.layout.placements.keys())
+        assert len(tool.selected_component_ids) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -229,7 +229,7 @@ class TestVerbParity:
         consumed = tool.default_action(Point(0.5, 0.5), Mods())
         assert consumed is True
         assert _selected_kinds(tool) == {"component"}
-        assert inst.id in tool._selected_ids
+        assert inst.id in tool.selected_component_ids
 
     def test_default_action_empty_space_selects_nothing(
         self, session: EditorSession

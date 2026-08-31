@@ -546,7 +546,7 @@ class TestFloatTransformGroupFrames:
         b = _place(board_view, session, 3.5, 1.5)
         gid = _make_group(session, [a.id, b.id])
         select = _select(board_view)
-        select._selected_group_id = gid
+        select.selected_group_id = gid
         select._rotate_multi(delta=90)  # folds R90 into group.transform
         assert session.layout.groups[gid].transform != Transform2D.identity()
         return a, b, gid, select
@@ -616,7 +616,7 @@ class TestFloatTransformGroupFrames:
             child_group_ids=frozenset({child_gid}),
         )
         select = _select(board_view)
-        select._selected_group_id = parent_gid
+        select.selected_group_id = parent_gid
         select._rotate_multi(delta=90)
         b0 = session.layout.placements[b.id].position
         armed = self._arm(board_view, select, Qt.Key.Key_G)

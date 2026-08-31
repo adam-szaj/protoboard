@@ -119,7 +119,7 @@ def test_menu_slot_sets_insulated(qtbot: QtBot) -> None:
     try:
         tool = mw._get_select_tool()
         assert tool is not None
-        tool._selected_wire_ids = {w1, w2}
+        tool.selected_wire_ids = {w1, w2}
         signals: list[None] = []
         session.layout_changed.connect(lambda: signals.append(None))
 
@@ -160,7 +160,7 @@ def test_menu_and_ctx_call_verb_with_same_args(
     try:
         menu_tool = mw._get_select_tool()
         assert menu_tool is not None
-        menu_tool._selected_wire_ids = {w1, w2}
+        menu_tool.selected_wire_ids = {w1, w2}
         mw._set_selected_wire_insulated(False)
 
         assert len(calls) == 2

@@ -508,7 +508,7 @@ class SelectTool(ControllerTool):
 
         if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
             gid = self._draggable_group_for(hit.id)
-            if gid is not None and gid in self._selected_group_ids:
+            if gid is not None and gid in self.selected_group_ids:
                 return True
         return False
 
@@ -615,17 +615,6 @@ class SelectTool(ControllerTool):
         sel = self._selection.selected()
         return sel[0] if sel else None
 
-    # -- legacy selection-state contract -----------------------------------
-    #
-    # ``main_window``/panels reach into the tool for the *raw id-set* view of
-    # the selection (``_selected_id``/``_selected_ids``/``_selected_wire_ids``/
-    # ``_selected_group_id``) and broadcast/summary helpers.  v2 keeps the
-    # selection as ``Selectable``s inside the ``SelectionService``; these
-    # accessors *project* that state into the id sets the old tool exposed, and
-    # the setters *rebuild* the service from ids (wrapping each id in its
-    # adapter via ``set_many``).  This is the compat surface that lets the GUI
-    # drive v2 unchanged.
-
     def _selected_by_kind(self, kind: str) -> set[uuid.UUID]:
         """All selected ids of one Hit kind (``component`` / ``wire`` / ``group``)."""
         tag = ItemTag.parse(kind)
@@ -667,11 +656,6 @@ class SelectTool(ControllerTool):
         self._selection.set_many(targets)
         self._refresh_highlight()
 
-    @property
-    def _selected_id(self) -> uuid.UUID | None:
-        """The primary component id (first selected component), or None."""
-        return self.primary_component_id
-
     def _primary_id(self, kind: str) -> uuid.UUID | None:
         """Return the first selected id with the requested hit kind."""
         if self._selection is None:
@@ -690,7 +674,7 @@ class SelectTool(ControllerTool):
     @selected_component_ids.setter
     def selected_component_ids(self, value: set[uuid.UUID]) -> None:
         self._set_selection_from_ids(
-            set(value), self._selected_by_kind("wire"), self._selected_group_ids
+            set(value), self._selected_by_kind("wire"), self.selected_group_ids
         )
 
     @property
@@ -701,7 +685,7 @@ class SelectTool(ControllerTool):
     @selected_wire_ids.setter
     def selected_wire_ids(self, value: set[uuid.UUID]) -> None:
         self._set_selection_from_ids(
-            self._selected_by_kind("component"), set(value), self._selected_group_ids
+            self._selected_by_kind("component"), set(value), self.selected_group_ids
         )
 
     @property
@@ -732,38 +716,6 @@ class SelectTool(ControllerTool):
             {value} if value is not None else set(),
         )
 
-    @property
-    def _selected_ids(self) -> set[uuid.UUID]:
-        return self.selected_component_ids
-
-    @_selected_ids.setter
-    def _selected_ids(self, value: set[uuid.UUID]) -> None:
-        self._set_selection_from_ids(
-            set(value), self._selected_by_kind("wire"), self._selected_group_ids
-        )
-
-    @property
-    def _selected_wire_ids(self) -> set[uuid.UUID]:
-        return self.selected_wire_ids
-
-    @_selected_wire_ids.setter
-    def _selected_wire_ids(self, value: set[uuid.UUID]) -> None:
-        self._set_selection_from_ids(
-            self._selected_by_kind("component"), set(value), self._selected_group_ids
-        )
-
-    @property
-    def _selected_group_ids(self) -> set[uuid.UUID]:
-        return self.selected_group_ids
-
-    @property
-    def _selected_group_id(self) -> uuid.UUID | None:
-        return self.selected_group_id
-
-    @_selected_group_id.setter
-    def _selected_group_id(self, value: uuid.UUID | None) -> None:
-        self.selected_group_id = value
-
     def _select_primary(self, comp_id: uuid.UUID) -> None:
         """Set *comp_id* as the sole (primary) selection and broadcast it.
 
@@ -777,13 +729,13 @@ class SelectTool(ControllerTool):
     def _deselect(self) -> None:
         """Drop the component part of the selection (keep wires/groups)."""
         self._set_selection_from_ids(
-            set(), self._selected_by_kind("wire"), self._selected_group_ids
+            set(), self._selected_by_kind("wire"), self.selected_group_ids
         )
 
     def _deselect_wire(self) -> None:
         """Drop the wire part of the selection (keep components/groups)."""
         self._set_selection_from_ids(
-            self._selected_by_kind("component"), set(), self._selected_group_ids
+            self._selected_by_kind("component"), set(), self.selected_group_ids
         )
 
     def _clear_multi_selection(self) -> None:
@@ -868,8 +820,8 @@ class SelectTool(ControllerTool):
         if not comp_ids and not wire_ids:
             return "select: none"
 
-        sel_id = self._selected_id
-        sel_wire = self._selected_wire_id
+        sel_id = self.primary_component_id
+        sel_wire = self.primary_wire_id
         if sel_id is not None:
             pri: str | None = f"pri:c:{str(sel_id)[:8]}"
         elif sel_wire is not None:
@@ -894,7 +846,7 @@ class SelectTool(ControllerTool):
                 if n is not None:
                     net_ids.add(n)
 
-        group_count = len(self._selected_group_ids)
+        group_count = len(self.selected_group_ids)
         multi = (
             f"multi:[c:{len(comp_ids)} w:{len(wire_ids)} "
             f"n:{len(net_ids)} g:{group_count}]"
@@ -2079,8 +2031,8 @@ class SelectTool(ControllerTool):
         ``if``-ladder.  Group takes priority over wire when both are selected
         (entering the group is the coarser, containing edit).
         """
-        gid = self._selected_group_id
-        wid = self._selected_wire_id
+        gid = self.selected_group_id
+        wid = self.primary_wire_id
         if gid is not None:
             target = ItemId.group(gid)
         elif wid is not None:
@@ -2110,7 +2062,7 @@ class SelectTool(ControllerTool):
         from protoboard.controller.selection.hit_test import WireEditCycle
         from protoboard.controller.selection.selectable import Stop
 
-        wire_id = self._selected_wire_id
+        wire_id = self.primary_wire_id
         if wire_id is None:
             self._status("Wire-edit: select a wire first")
             return
@@ -2161,10 +2113,6 @@ class SelectTool(ControllerTool):
             list(wire.path),
         )
         self._execute(cmd)
-
-    @property
-    def _selected_wire_id(self) -> uuid.UUID | None:
-        return self.primary_wire_id
 
     def _range_progress(self, picked: list[Selectable]) -> None:
         """Repaint the overlay as the two range vertices come in."""
@@ -2512,7 +2460,7 @@ class SelectTool(ControllerTool):
         A selected group rotates as a monolith (all its components, group id
         returned); otherwise loose components not locked in a sub-group.
         """
-        group_id = self._selected_group_id
+        group_id = self.selected_group_id
         if group_id is not None:
             from protoboard.domain.layout.group_tree import GroupTree
 
@@ -2522,7 +2470,7 @@ class SelectTool(ControllerTool):
             )
         loose = frozenset(
             cid
-            for cid in self._selected_ids
+            for cid in self.selected_component_ids
             if not self._is_locked_in_group(cid)
             and self._session.layout.placements.get(cid) is not None
         )
@@ -2648,7 +2596,7 @@ class SelectTool(ControllerTool):
         code applied (group: status + refresh + notify; loose: none — the plain
         ``layout_changed`` from the command execution suffices).
         """
-        has_group = bool(self._selected_group_ids)
+        has_group = bool(self.selected_group_ids)
         removed = self._session.edit_controller.flip(
             active_group_id=self._current_group_id,
         )
@@ -2750,14 +2698,14 @@ class SelectTool(ControllerTool):
             scene_pos=scene_pt,
             view_pos=view_pos,
             hit=hit,
-            selection=tuple(self._selected_ids),
+            selection=tuple(self.selected_component_ids),
             actions=tuple(options),
             kind="selection" if comp_id is not None else "wire",
         )
 
     def _menu_comp_at(self, scene_pt: Point) -> uuid.UUID | None:
         """Component under the cursor (selected one wins, else hit-test)."""
-        sel_comp = self._selected_id
+        sel_comp = self.primary_component_id
         if sel_comp is not None:
             return sel_comp
         hit = self._hit_tester().hit(scene_pt.x, scene_pt.y, self._filters())
@@ -2768,7 +2716,7 @@ class SelectTool(ControllerTool):
 
     def _menu_wire_at(self, scene_pt: Point) -> uuid.UUID | None:
         """Wire under the cursor (selected primary wins, else hit-test)."""
-        sel_wires = self._selected_wire_ids
+        sel_wires = self.selected_wire_ids
         if sel_wires:
             return next(iter(sel_wires))
         return self._hit_test_wire(scene_pt)
@@ -2887,7 +2835,7 @@ class SelectTool(ControllerTool):
                 )
 
         # ── Lock / Unlock (whole current selection, falling back to clicked) ──
-        lock_targets: set[uuid.UUID] = {comp_id} | set(self._selected_ids)
+        lock_targets: set[uuid.UUID] = {comp_id} | set(self.selected_component_ids)
         placements = self._session.layout.placements
         present = [t for t in lock_targets if t in placements]
         if present:
@@ -3086,7 +3034,7 @@ class SelectTool(ControllerTool):
             return []
 
         # Operate on the multi-selection when the clicked wire is part of it.
-        effective = set(self._selected_wire_ids)
+        effective = set(self.selected_wire_ids)
         target_ids = (
             effective if wire.id in effective and len(effective) > 1 else {wire.id}
         )
@@ -3425,8 +3373,8 @@ class SelectTool(ControllerTool):
             HighlightEntry,
         )
 
-        comp_ids = frozenset(self._selected_ids)
-        wire_ids = frozenset(self._selected_wire_ids)
+        comp_ids = frozenset(self.selected_component_ids)
+        wire_ids = frozenset(self.selected_wire_ids)
         if not comp_ids and not wire_ids:
             return
         self._session.highlight_stack.push(
@@ -3622,8 +3570,8 @@ class SelectTool(ControllerTool):
         (``_group_prompt``) and the select-the-result side effect — and hands the
         actual promotion / add-to-existing to :class:`EditController`.
         """
-        ids = frozenset(self._selected_ids)
-        sel_id = self._selected_id
+        ids = frozenset(self.selected_component_ids)
+        sel_id = self.primary_component_id
         if sel_id and sel_id not in ids:
             ids = ids | {sel_id}
         if not ids:
@@ -4028,7 +3976,7 @@ class SelectTool(ControllerTool):
         context, and clears the selection (the old monolith no longer applies
         inside its own context).  Returns True when a group was entered.
         """
-        gid = group_id if group_id is not None else self._selected_group_id
+        gid = group_id if group_id is not None else self.selected_group_id
         if gid is None or gid not in self._session.layout.groups:
             return False
         if gid == self._current_group_id:

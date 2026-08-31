@@ -77,7 +77,7 @@ def session_with_mixed_wire() -> tuple[EditorSession, SelectTool, uuid.UUID]:
     tool = SelectTool()
     tool._session = session  # type: ignore[assignment]
     tool._selection = SelectionService()
-    tool._selected_wire_ids = {wid}
+    tool.selected_wire_ids = {wid}
 
     return session, tool, wid
 

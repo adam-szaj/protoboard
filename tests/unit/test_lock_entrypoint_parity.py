@@ -118,7 +118,7 @@ def test_menu_toggle_unlocks_when_all_locked(qtbot: QtBot) -> None:
     try:
         tool = mw._get_select_tool()
         assert tool is not None
-        tool._selected_ids = {c1, c2}  # type: ignore[assignment]
+        tool.selected_component_ids = {c1, c2}  # type: ignore[assignment]
 
         mw._lock_toggle()
 
@@ -141,7 +141,7 @@ def test_menu_toggle_locks_when_mixed_selection(qtbot: QtBot) -> None:
     try:
         tool = mw._get_select_tool()
         assert tool is not None
-        tool._selected_ids = {c1, c2}  # type: ignore[assignment]
+        tool.selected_component_ids = {c1, c2}  # type: ignore[assignment]
 
         mw._lock_toggle()
 
@@ -175,7 +175,7 @@ def test_menu_and_ctx_call_verb_with_same_args(
     try:
         menu_tool = mw._get_select_tool()
         assert menu_tool is not None
-        menu_tool._selected_ids = {c1, c2}  # type: ignore[assignment]
+        menu_tool.selected_component_ids = {c1, c2}  # type: ignore[assignment]
         # Both already locked from the ctx call -> toggle should unlock.
         mw._lock_toggle()
 

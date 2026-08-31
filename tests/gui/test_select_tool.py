@@ -271,7 +271,7 @@ class TestGroupSelectAndEdit:
         gid = self._make_group(board_view, session)
         tool = _v2(board_view)
         _click(tool, 3.0, 3.0)  # interior, between the two members
-        assert gid in set(tool._selected_group_ids)
+        assert gid in set(tool.selected_group_ids)
 
     def test_selected_group_outline_turns_cyan(
         self, board_view: BoardView, session: EditorSession
@@ -359,7 +359,7 @@ class TestRubberBand:
         _press(tool, 1.0, 1.0)
         _move(tool, 5.0, 2.0)
         _release(tool, 5.0, 2.0)
-        assert wire.id in tool._selected_wire_ids
+        assert wire.id in tool.selected_wire_ids
 
     def test_band_catches_groups(self, qtbot) -> None:
         """A rubber-band over a group's members selects the group."""
@@ -392,7 +392,7 @@ class TestRubberBand:
         _press(tool, 0.5, 0.5)
         _move(tool, 3.0, 3.0)
         _release(tool, 3.0, 3.0)
-        assert gid in tool._selected_group_ids
+        assert gid in tool.selected_group_ids
 
     def test_ctrl_band_adds_to_selection(
         self, board_view: BoardView, session: EditorSession
@@ -2225,7 +2225,7 @@ class TestContextMenu:
             if o.action_id == "select-tool.ctx.select_net_wires"
         )
         self._run(tool, opt)
-        assert wire.id in tool._selected_wire_ids
+        assert wire.id in tool.selected_wire_ids
 
     def test_highlight_section_and_push(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
