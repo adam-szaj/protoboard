@@ -22,9 +22,9 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 def _perfboard(rows: int = 8, cols: int = 8) -> Board:

@@ -48,18 +48,18 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
-from protoboard.services.routing.cost_model import RoutingCostModel
 from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
     from protoboard.services.drc.engine import DRCIssue
-    from protoboard.services.routing.postprocess import SimplifyMode
 
 # Higher direction_change discourages long detours and keeps wires closer
 # to straight-line paths, leaving more corridors free for other nets.
@@ -1369,8 +1369,8 @@ def _run_one_pass(
             # on dense boards where a stray L-shape would otherwise
             # block a parallel neighbour's diagonal shortcut.
             if simplify_after_each_wire and routed_wires:
+                from protoboard.domain.routing.simplify_mode import SimplifyMode
                 from protoboard.services.routing.postprocess import (
-                    SimplifyMode,
                     simplify_wires_generic,
                 )
 

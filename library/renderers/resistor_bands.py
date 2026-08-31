@@ -29,16 +29,16 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.definition import ComponentClass
 from protoboard.domain.components.package.shapes import Cylinder
+from protoboard.domain.components.value_codes import (
+    code_digits,
+    parse_tolerance,
+    parse_value,
+)
 from protoboard.geometry import Point
 from protoboard.gui.renderers.packages import (
     CylinderRenderer,
     qcolor_from_css,
     register_renderer,
-)
-from protoboard.gui.renderers.value_codes import (
-    code_digits,
-    parse_tolerance,
-    parse_value,
 )
 
 # ---------------------------------------------------------------------------

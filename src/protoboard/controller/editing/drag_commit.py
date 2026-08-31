@@ -45,8 +45,8 @@ def classify_drag_commit(
     Pure logic — never constructs a Qt dialog.
     """
     from protoboard.domain.layout.group_tree import GroupTree
+    from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
     from protoboard.services.drag_detector import DragDetector, DragSnapshot
-    from protoboard.services.pad_strategy import DRCEnforcingStrategy
 
     pad_index = _build_drag_pad_index(session)
     drag_set = drag_set_members or frozenset()

@@ -549,7 +549,7 @@ class HeadlessSession:
         override = self._strategy_overrides.get(subsystem)
         if override is not None:
             return override
-        from protoboard.services.pad_strategy import (
+        from protoboard.domain.layout.pad_strategy import (
             StrategyConfig,
             make_strategy,
         )

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     _build_bare_seg_index,
@@ -18,7 +19,6 @@ from protoboard.services.routing.astar import (
     _is_perpendicular_diagonal_crossing,
     _segs_cross,
 )
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 # ---------------------------------------------------------------------------
 # _segs_cross — pure geometry

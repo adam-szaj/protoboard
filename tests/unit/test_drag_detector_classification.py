@@ -27,13 +27,13 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, PinKnot
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.drag_detector import DragDetector, DragSnapshot
-from protoboard.services.pad_strategy import DRCEnforcingStrategy
 from tests.unit._autoroute_invariants import make_sil, sil_families
 
 # ---------------------------------------------------------------------------

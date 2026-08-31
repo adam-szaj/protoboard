@@ -10,6 +10,15 @@ from protoboard.services.persistence.project_yaml import (
 )
 
 
+def test_routing_settings_use_domain_owned_types() -> None:
+    from protoboard.domain.routing.cost_model import RoutingCostModel
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
+
+    settings = RoutingSettings()
+    assert isinstance(settings.cost_model(), RoutingCostModel)
+    assert settings.simplify_mode is SimplifyMode.BARE_PARITY
+
+
 class TestRoutingSettingsModel:
     def test_defaults_are_sane(self) -> None:
         s = RoutingSettings()

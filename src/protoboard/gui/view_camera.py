@@ -16,7 +16,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from protoboard.geometry import Point, Rect, Transform2D
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.controller.ports import ViewportPort, WheelInput

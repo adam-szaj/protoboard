@@ -45,7 +45,7 @@ from protoboard.domain.layout.placement import (
     unrotate,
 )
 from protoboard.geometry import Point, Vector
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.controller.editing import EditState

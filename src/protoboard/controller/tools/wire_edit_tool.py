@@ -37,7 +37,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from protoboard.controller.tools.base import ControllerTool
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.controller.editing import EditState
@@ -401,7 +401,7 @@ class WireEditTool(ControllerTool):
     def _simplify_wire_fragment(self) -> None:
         """Simplify the selected fragment — ``[S]`` (a range op; stays armed)."""
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
-        from protoboard.services.routing.postprocess import SimplifyMode
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
 
         state = self._wire_edit
         arm = self._arm

@@ -162,11 +162,11 @@ class TestDragDetectorLockPromotion:
         # hard_locked_wire_pads.
         from protoboard.controller.tools.drag_commit_decision import DragSeverity
         from protoboard.domain.board.pad_state import PadIndex
+        from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
         from protoboard.services.drag_detector import (
             DragDetector,
             DragSnapshot,
         )
-        from protoboard.services.pad_strategy import DRCEnforcingStrategy
 
         defn = make_sil("R", 2)
         families = sil_families(defn)

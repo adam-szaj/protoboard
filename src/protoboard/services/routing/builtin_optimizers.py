@@ -188,11 +188,9 @@ class SimplifyOptimizer:
         result: AutorouteResult,
         sink: ProgressSink,
     ) -> AutorouteResult:
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
         from protoboard.services.routing.autorouter import AutorouteResult
-        from protoboard.services.routing.postprocess import (
-            SimplifyMode,
-            simplify_wires_generic,
-        )
+        from protoboard.services.routing.postprocess import simplify_wires_generic
 
         if not result.wires:
             return result

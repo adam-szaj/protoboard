@@ -18,6 +18,7 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
@@ -26,7 +27,6 @@ from protoboard.services.routing.astar import (
     split_path_by_side,
 )
 from protoboard.services.routing.autorouter import _truncate_at_same_net_wire
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 def _perfboard(rows: int, cols: int) -> Board:

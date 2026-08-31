@@ -42,7 +42,7 @@ from PySide6.QtGui import QKeySequence
 from typing_extensions import override
 
 from protoboard.errors import ProtoboardError
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 __all__ = [
     "KeyAction",

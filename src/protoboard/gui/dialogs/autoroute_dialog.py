@@ -26,13 +26,13 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
     from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.services.routing.postprocess import SimplifyMode
 
 
 def _simplify_mode_from_combo(raw: object) -> SimplifyMode:
     """Translate combobox data-role into SimplifyMode (defaults to BARE_PARITY)."""
-    from protoboard.services.routing.postprocess import SimplifyMode
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
     if isinstance(raw, str):
         try:

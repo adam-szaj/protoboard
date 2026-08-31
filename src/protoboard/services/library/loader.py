@@ -42,8 +42,8 @@ from protoboard.domain.components.package import (
 )
 from protoboard.domain.components.package.generators import ResidualKind
 from protoboard.errors import SerializationError
+from protoboard.instrumentation.debug_trace import traced
 from protoboard.paths import BUILTIN_ASSETS_DIR
-from protoboard.services.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")

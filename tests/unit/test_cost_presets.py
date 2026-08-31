@@ -7,8 +7,8 @@ import math
 
 import pytest
 
-from protoboard.services.routing.cost_model import COST_KEY_DOCS, RoutingCostModel
-from protoboard.services.routing.cost_presets import (
+from protoboard.domain.routing.cost_model import COST_KEY_DOCS, RoutingCostModel
+from protoboard.domain.routing.cost_presets import (
     builtin_preset_names,
     get_builtin_preset,
     resolve_weights,

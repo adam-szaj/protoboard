@@ -46,7 +46,7 @@ from protoboard.gui.layer_state import (
     Z_PIN_PADS,
     LayerState,
 )
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 # ---------------------------------------------------------------------------
 # Shape geometry

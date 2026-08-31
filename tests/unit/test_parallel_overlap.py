@@ -10,8 +10,8 @@ is electrically fine and incurs no cost.
 
 from __future__ import annotations
 
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 def _tiny_graph_5x5():

@@ -47,7 +47,7 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.components.package.solver import RASTER_MM
 from protoboard.geometry import Insets, Point, Size3D, Vector
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
 

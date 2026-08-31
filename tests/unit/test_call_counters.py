@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from protoboard.services.call_counters import (
+from protoboard.instrumentation.call_counters import (
     counted,
     counters_enabled,
     current_path,

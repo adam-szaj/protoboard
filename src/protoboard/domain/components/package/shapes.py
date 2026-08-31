@@ -51,7 +51,7 @@ def _empty_bendable_pins() -> Mapping[int, PinBendSpec]:
     return MappingProxyType({})
 
 
-from protoboard.services.debug_trace import traced  # noqa: E402
+from protoboard.instrumentation.debug_trace import traced  # noqa: E402
 
 # Sentinels for board_offset source (see spec): a literal list of step vectors,
 # or one of these strings.

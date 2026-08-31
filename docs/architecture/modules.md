@@ -23,10 +23,10 @@ against the `EditState` protocol. Both the GUI `EditorSession` and the headless
 verbs on one controller instance — `EditorSession(HeadlessSession, QObject)`
 inherits the headless implementation and only adds Qt.
 
-The controller-layer migration (this diagram's previous "Planned" section) has
-**landed**: `controller/` is a single Qt-free top-level package —
-`tests/unit/test_controller_no_gui_import.py` asserts no file under it imports
-`protoboard.gui`, anywhere, including `TYPE_CHECKING`-only imports.
+The controller-layer migration has landed: `controller/` is a single Qt-free
+top-level package. `tests/unit/test_layer_import_contract.py` parses every
+Python module's AST, so local and `TYPE_CHECKING` imports are covered as well
+as top-level imports.
 
 ## Diagram
 
@@ -76,25 +76,32 @@ graph TD
         AR[routing/autorouter]
         ASTAR[routing/astar]
         RS[("routing/astar_rs — Rust")]
-        CM[routing/cost_model]
         HIER[routing/hierarchical]
         PROTO["routing/protocol — registry"]
+        META["routing/cost_metadata — plugin integration"]
         DRCE[drc/engine]
         PY[persistence/project_yaml]
         BY[persistence/board_yaml]
         EXP["export/* — Qt"]
         KIC["kicad/* — parser/importer/exporter"]
-        DBG["debug_trace — imports Qt!"]
         DD[drag_detector]
     end
 
-    subgraph DOMAIN["Domain Model — declared Qt-free"]
+    subgraph DOMAIN["Domain Model — enforced outer-layer independence"]
         BOARD[board]
         COMP[components]
+        VC["components/value_codes"]
         SCHEM[schematic]
         LAYOUT[layout]
+        PAD["layout/pad_strategy"]
+        RCFG["routing/{cost_model,cost_presets,simplify_mode}"]
         CONN[connectivity]
         CMDS["commands / CommandStack"]
+    end
+
+    subgraph INST["Instrumentation — dependency-neutral"]
+        CC[instrumentation/call_counters]
+        TRACE[instrumentation/debug_trace]
     end
 
     %% GUI internal
@@ -143,9 +150,11 @@ graph TD
     %% routing internals
     AR --> ASTAR
     ASTAR -. optional .-> RS
-    ASTAR --> CM
-    AR --> CM
+    ASTAR --> RCFG
+    AR --> RCFG
     HIER --> AR
+    META --> RCFG
+    META --> PROTO
 
     %% persistence
     PY --> BY
@@ -163,27 +172,29 @@ graph TD
     EXP -->|"runtime ⚠"| RND
     DD -->|"runtime ⚠"| DCD
 
-    %% === Transitive Qt leak into domain ===
-    COMP -->|"@traced ⚠"| DBG
+    %% dependency-neutral diagnostics
+    GUI --> INST
+    CTRL --> INST
+    SVC --> INST
+    DOMAIN --> INST
 
     classDef qtfree fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
     classDef qttaint fill:#ffebee,stroke:#c62828,color:#b71c1c;
-    class DOMAIN,BOARD,COMP,SCHEM,LAYOUT,CONN,CMDS,CTRL,EC,ES,HS,CLI,AT,PS,DGC,PORTS,CTOOLS,DCD,CPREV,CTO,CSEL,CTHEME qtfree;
-    class DBG,EXP qttaint;
+    class DOMAIN,BOARD,COMP,VC,SCHEM,LAYOUT,PAD,RCFG,CONN,CMDS,INST,CC,TRACE,CTRL,EC,ES,HS,CLI,AT,PS,DGC,PORTS,CTOOLS,DCD,CPREV,CTO,CSEL,CTHEME qtfree;
+    class EXP qttaint;
 ```
 
 ## Reading the diagram
 
-- **Green** nodes are (declared) Qt-free — includes the whole `controller/`
-  subgraph now that the guard test enforces it. **Red** nodes import Qt.
+- **Green** nodes have enforced inward dependencies; this includes
+  `domain/`, `instrumentation/`, and the GUI-free `controller/`. **Red**
+  nodes import Qt.
 - Solid arrows = imports / calls. Dashed = protocol satisfaction / inheritance
   / implementation.
 - Arrows labelled **⚠** are edges that violate the declared layer direction —
-  see below. The two edges the controller migration was scoped to resolve
-  (`armed_transform → gui.ports`, `drag_detector →
-  gui.tools.drag_commit_decision`) are gone: both targets now live in
-  `controller/`, so what were upward violations are intra-`controller/` edges
-  (`AT --> PORTS`, `CTOOLS --> DCD` above).
+  see below. The former `armed_transform → gui.ports` edge is now the
+  intra-controller `AT --> PORTS` edge. The drag-decision type also moved out
+  of GUI, but `DD --> DCD` remains an upward `services → controller` edge.
 
 ## The seam: EditController / EditState
 
@@ -222,16 +233,24 @@ declares `TransformOverlaysPort`; the matching `gui/tools/*_preview.py` /
 implementations, injected by `gui_tools.py`'s `activate()` as the Qt default
 when the tool wasn't constructed with one already (tests inject fakes instead).
 
-## Known layer violations (as of 2026-07)
+## Enforced boundaries
+
+`domain/` has no imports from `controller`, `services`, or `gui`. The rule is
+enforced from the parsed AST, including deferred and `TYPE_CHECKING` imports.
+
+Pure pad policy lives in `domain/layout/pad_strategy.py`; component-value
+decoding lives in `domain/components/value_codes.py`; routing cost values,
+presets, and simplify mode live under `domain/routing/`. Cross-layer tracing
+and call counting live under the dependency-neutral `instrumentation/`
+package. Plugin discovery and metadata merging remain application services.
+
+## Known layer violations (as of 2026-08)
 
 These are real edges in the runtime import graph that invert the declared
 "services below GUI" direction. Flagged for visibility, not necessarily bugs —
 several move Qt-free DTOs, following an established precedent.
 
-1. **services → gui (upward), runtime, top-level imports**
-   - `services/drag_detector.py` → `controller.tools.drag_commit_decision`
-     (`DragCommitDecision`, Qt-free DTO) — no longer a `gui` import after the
-     controller migration, but still upward relative to `services/`.
+1. **services → gui (upward), runtime imports**
    - `services/persistence/project_yaml.py` → `gui.layer_state`
      (`LayerOverrides`, `LayerVisibility`)
    - `services/export/{snapshot,paint,png,pdf,svg}.py` → `gui.{layer_state,
@@ -239,14 +258,12 @@ several move Qt-free DTOs, following an established precedent.
      longer part of this violation — `gui/theme.py` moved to
      `controller/theme.py`, so export now imports `controller.theme` directly.
 
-2. **domain → services → Qt (transitive Qt leak)**
-   - `domain/components/package/{solver,loader,reach,shapes}.py` →
-     `services/debug_trace` → `PySide6.QtCore` (top-level, unguarded).
-   - The domain source is Qt-free in *content*, but importing these package
-     modules pulls in `PySide6.QtCore` at runtime through the `@traced`
-     decorator. The rule "domain must be testable without a display server"
-     holds behaviourally (offscreen), but the import graph is not strictly
-     clean.
+2. **services → controller (upward, concrete dependencies)**
+   - `services/drag_detector.py` → `controller.tools.drag_commit_decision`
+     (`DragCommitDecision`, a Qt-free DTO).
+   - `services/export/*` → `controller.theme`.
+   These remain candidates for explicit ports or neutral value modules in a
+   later workstream.
 
 3. **gui → services (downward, legitimate)**
    - `gui/scene_composer.py` → `services.routing.net_status.routed_net_ids`.

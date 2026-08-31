@@ -11,6 +11,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.cost_analyzer import (
     _bend_kind,
@@ -18,7 +19,6 @@ from protoboard.services.routing.cost_analyzer import (
     _step_kind,
     analyze_wires,
 )
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 def _perfboard(rows: int, cols: int, *, plated_through: bool = False) -> Board:

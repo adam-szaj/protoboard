@@ -6,9 +6,9 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.geometry import Point
 from protoboard.services.routing.postprocess import (
-    SimplifyMode,
     corner_cut_wire,
     generic_simplify_wire,
     simplify_wires,

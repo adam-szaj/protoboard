@@ -6,7 +6,7 @@ import json
 import pytest
 import structlog
 
-from protoboard.services.debug_trace import (
+from protoboard.instrumentation.debug_trace import (
     _json,
     is_enabled,
     set_enabled,

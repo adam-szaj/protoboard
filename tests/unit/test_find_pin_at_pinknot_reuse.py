@@ -23,12 +23,12 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_strategy import Decision, Verdict
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.domain.layout.wire_utils import find_pin_at
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
-from protoboard.services.pad_strategy import Decision, Verdict
 from tests.unit._autoroute_invariants import make_sil, sil_families
 
 

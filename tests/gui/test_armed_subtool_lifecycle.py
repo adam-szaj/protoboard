@@ -130,8 +130,8 @@ class TestWholeWireVsFragmentSimplifyParity:
             build_simplify_range_command,
         )
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
         from protoboard.gui.tools.gui_tools import WireEditTool
-        from protoboard.services.routing.postprocess import SimplifyMode
 
         # An L-shaped (corner-cut) wire — simplify actually shortens this,
         # unlike a straight wire over pads (memory Stage-5 TRAP).  Routed

@@ -57,8 +57,8 @@ from typing import IO, ParamSpec, TypeVar, cast
 import structlog
 
 from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 _log = structlog.get_logger(__name__)
 

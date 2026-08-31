@@ -44,6 +44,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     _intersection_point,
@@ -51,7 +52,6 @@ from protoboard.services.routing.astar import (
     _is_perpendicular_diagonal_crossing,
     _segs_cross,
 )
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 @dataclass

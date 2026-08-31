@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Protocol
 
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     import uuid

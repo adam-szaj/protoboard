@@ -42,7 +42,7 @@ from protoboard.gui.keymap import AbstractKeyMap
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QComboBox, QFormLayout
 
-    from protoboard.services.routing.postprocess import SimplifyMode
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
 
 # ---------------------------------------------------------------------------
@@ -1152,7 +1152,7 @@ class _RoutingPage(QWidget):
         vbox.addWidget(gen_grp)
 
         # --- Cost preset group ---
-        from protoboard.services.routing.cost_presets import builtin_preset_names
+        from protoboard.domain.routing.cost_presets import builtin_preset_names
 
         preset_grp = QGroupBox("Cost preset")
         preset_form = _RoutingFormLayout(preset_grp)
@@ -1224,7 +1224,7 @@ class _RoutingPage(QWidget):
         # before we ask for their supported / user-tunable cost keys.
         import protoboard.services.routing.builtin  # noqa: F401
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
-        from protoboard.services.routing.cost_model import (
+        from protoboard.services.routing.cost_metadata import (
             merged_cost_key_docs,
             merged_user_tunable_cost_keys,
         )
@@ -1376,7 +1376,7 @@ class _RoutingPage(QWidget):
         from PySide6.QtWidgets import QInputDialog, QMessageBox
 
         from protoboard.controller.app_settings import save_app_settings
-        from protoboard.services.routing.cost_presets import builtin_preset_names
+        from protoboard.domain.routing.cost_presets import builtin_preset_names
 
         # Snapshot the current effective weights as the user sees them in
         # the grid.  Sentinel -1 → ∞.  Zero values are omitted (sparse).
@@ -1548,7 +1548,7 @@ class _RoutingPage(QWidget):
 
 def _resolve_simplify_mode(raw: object) -> SimplifyMode:
     """Translate the QComboBox data role back into a SimplifyMode enum."""
-    from protoboard.services.routing.postprocess import SimplifyMode
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
     if isinstance(raw, str):
         try:

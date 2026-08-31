@@ -33,7 +33,7 @@ from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.drc.engine import DRCIssue
 
 if TYPE_CHECKING:

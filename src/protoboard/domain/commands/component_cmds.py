@@ -99,9 +99,9 @@ def _dbg_enabled() -> bool:
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.appearance import Appearance
+    from protoboard.domain.layout.pad_strategy import PadStrategy
     from protoboard.domain.schematic.net import Net
     from protoboard.domain.schematic.schematic import PinGroupUndo
-    from protoboard.services.pad_strategy import PadStrategy
 
 
 def _strategy_from_state(state: ComponentState) -> PadStrategy | None:

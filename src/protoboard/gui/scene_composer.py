@@ -31,7 +31,7 @@ from protoboard.gui.renderers.wire_renderer import (
     update_wire_groups_v2,
 )
 from protoboard.gui.view_camera import GRID_PX
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:

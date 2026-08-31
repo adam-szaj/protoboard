@@ -15,7 +15,7 @@ import structlog
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragments
 from protoboard.geometry import Point
-from protoboard.services.call_counters import counted
+from protoboard.instrumentation.call_counters import counted
 
 _log = structlog.get_logger(__name__)
 
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.layout.pad_strategy import PadStrategy
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import (
         Fragment,
@@ -37,7 +38,6 @@ if TYPE_CHECKING:
     )
     from protoboard.domain.schematic.net import PinRef
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.services.pad_strategy import PadStrategy
 
 
 class TJunctionVerdict(Enum):
@@ -1214,7 +1214,7 @@ def can_form_t_junction(
         # match). Strategy's ASSIGN_NET is ignored here because the
         # net-inheritance path already handles it via the verdict
         # returned by `_classify_t_junction`.
-        from protoboard.services.pad_strategy import Verdict
+        from protoboard.domain.layout.pad_strategy import Verdict
 
         ep_point = (
             w_incoming.path[0] if incoming_endpoint == "a" else w_incoming.path[-1]
@@ -2021,7 +2021,7 @@ def find_pin_at(
                 pad = pad_index.pad_at(pos)
                 if pad is not None:
                     d = strategy.can_place_pin(pad, our_net)
-                    from protoboard.services.pad_strategy import Verdict
+                    from protoboard.domain.layout.pad_strategy import Verdict
 
                     if d.verdict is Verdict.REJECT:
                         # Rule 8: foreign-net wire cannot solder to
@@ -2075,7 +2075,7 @@ def joint_accepts_wire(
     Pulled out of :func:`find_joint_at` so the strategy-driven and
     legacy-inline branches share the per-incident-wire loop.
     """
-    from protoboard.services.pad_strategy import Verdict
+    from protoboard.domain.layout.pad_strategy import Verdict
 
     pad = pad_index.pad_at(knot.position) if pad_index is not None else None
     for wid in knot.wire_ids:

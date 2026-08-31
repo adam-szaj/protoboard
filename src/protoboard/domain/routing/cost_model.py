@@ -132,60 +132,6 @@ USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset(
 )
 
 
-# ---------------------------------------------------------------------------
-# Plugin-aware UI helpers
-# ---------------------------------------------------------------------------
-
-
-def merged_cost_key_docs() -> dict[str, str]:
-    """Built-in COST_KEY_DOCS ∪ every registered router's cost_key_docs().
-
-    Plugin routers can introduce new cost keys with their own tooltips;
-    UI components (CostPresetsDialog, _RoutingPage) use this helper so
-    those keys render with proper labels.  Built-in docs take precedence
-    on key collisions.
-    """
-    from protoboard.services.routing.protocol import registry
-
-    merged: dict[str, str] = {}
-    for name in registry.list_available():
-        try:
-            router = registry.get(name)
-            extra: object = getattr(router, "cost_key_docs", lambda: {})()
-            if isinstance(extra, dict):
-                merged.update(
-                    {str(k): str(v) for k, v in extra.items() if isinstance(k, str)}
-                )
-        except Exception:  # noqa: BLE001
-            continue
-    # Built-ins win on collision.
-    merged.update(COST_KEY_DOCS)
-    return merged
-
-
-def merged_user_tunable_cost_keys() -> frozenset[str]:
-    """USER_TUNABLE_COST_KEYS ∪ every registered router's tunable keys.
-
-    Plugin routers that introduce keys via cost_key_docs() should also
-    advertise them as tunable via user_tunable_cost_keys() if they want
-    UI controls.  Built-in tunables are always included.
-    """
-    from protoboard.services.routing.protocol import registry
-
-    keys: set[str] = set(USER_TUNABLE_COST_KEYS)
-    for name in registry.list_available():
-        try:
-            router = registry.get(name)
-            extra: object = getattr(
-                router, "user_tunable_cost_keys", lambda: frozenset()
-            )()
-            if isinstance(extra, (set, frozenset)):
-                keys |= {str(k) for k in extra if isinstance(k, str)}
-        except Exception:  # noqa: BLE001
-            continue
-    return frozenset(keys)
-
-
 # Legacy default values — preserved verbatim so that constructing
 # ``RoutingCostModel()`` with no args produces the same numeric weights as
 # the original frozen-dataclass implementation.

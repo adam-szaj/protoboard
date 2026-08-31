@@ -23,9 +23,9 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _try_mid_cell_reroute
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 def _perfboard(rows: int = 6, cols: int = 6) -> Board:

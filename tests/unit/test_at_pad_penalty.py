@@ -16,9 +16,9 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _build_at_pad_wire_index
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 # ---------------------------------------------------------------------------
 # _build_at_pad_wire_index — pure helper, no Qt / board needed

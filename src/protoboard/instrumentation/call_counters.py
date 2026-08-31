@@ -27,7 +27,7 @@ on at once.
 
 Example::
 
-    from protoboard.services.call_counters import (
+    from protoboard.instrumentation.call_counters import (
         counted, counters_enabled, snapshot,
     )
 

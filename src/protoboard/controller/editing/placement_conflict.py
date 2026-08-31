@@ -443,8 +443,8 @@ def _try_reroute_wire(
     Returns an AddWireWithNetsCommand if a path is found, else None.
     """
     from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.routing.cost_model import RoutingCostModel
     from protoboard.services.routing.astar import find_paths
-    from protoboard.services.routing.cost_model import RoutingCostModel
 
     if not isinstance(wire, Wire) or len(wire.path) < 2:
         return None

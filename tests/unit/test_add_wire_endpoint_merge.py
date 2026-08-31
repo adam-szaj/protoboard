@@ -529,7 +529,7 @@ class _StrategyState(_SchematicState):
         self._pad_index_cache = None
 
     def strategy_for(self, subsystem: str):
-        from protoboard.services.pad_strategy import (
+        from protoboard.domain.layout.pad_strategy import (
             StrategyConfig,
             SubsystemName,
             make_strategy,

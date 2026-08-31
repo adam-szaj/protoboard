@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from protoboard.domain.components.definition import ComponentClass
-from protoboard.gui.renderers.value_codes import (
+from protoboard.domain.components.value_codes import (
     code_digits,
     parse_capacitance,
     parse_inductance,

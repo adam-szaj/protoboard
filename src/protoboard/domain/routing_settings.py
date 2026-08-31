@@ -11,20 +11,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from protoboard.services.routing.cost_model import RoutingCostModel
-from protoboard.services.routing.cost_presets import resolve_weights
+from protoboard.domain.routing.cost_model import RoutingCostModel
+from protoboard.domain.routing.cost_presets import resolve_weights
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.types import Side
-
-if TYPE_CHECKING:
-    from protoboard.services.routing.postprocess import SimplifyMode
 
 
 def _default_simplify_mode() -> SimplifyMode:
-    """Late-import default for SimplifyMode to avoid a cycle with postprocess."""
-    from protoboard.services.routing.postprocess import SimplifyMode
-
     return SimplifyMode.BARE_PARITY
 
 

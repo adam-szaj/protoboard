@@ -1445,7 +1445,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
     wire_mode = data.get("wire_mode", "auto")
     if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
         wire_mode = "auto"
-    from protoboard.services.routing.postprocess import SimplifyMode
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
     simplify_mode_raw = data.get("simplify_mode", SimplifyMode.BARE_PARITY.value)
     try:

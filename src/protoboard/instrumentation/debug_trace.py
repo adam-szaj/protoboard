@@ -6,14 +6,14 @@ its return value (or raised exception). Disabled by default; flip on with the
 ``PROTOBOARD_TRACE=1`` environment variable at import time, or the
 :func:`tracing_enabled` context manager at runtime.
 
-Companion to :mod:`protoboard.services.call_counters` (same env-gated,
+Companion to :mod:`protoboard.instrumentation.call_counters` (same env-gated,
 zero-overhead-when-off, method-binding style) but a different purpose: counters
 answer "how many times", tracing answers "with what and returning what".
 
 When disabled the wrapper still exists but its ``active`` flag is False — one
 attribute load + branch per call. ::
 
-    from protoboard.services.debug_trace import traced, tracing_enabled
+    from protoboard.instrumentation.debug_trace import traced, tracing_enabled
 
     @traced("solve")
     def solve(x, y=2):

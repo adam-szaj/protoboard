@@ -33,10 +33,10 @@ _log = structlog.get_logger(__name__)
 # diagnose "uparty wire" reports where simplify is expected to shorten
 # a path but produces no change.
 _SIMPLIFY_TRACE = os.environ.get("SIMPLIFY_TRACE", "").lower() in ("1", "true", "yes")
-from enum import StrEnum  # noqa: E402
 from typing import TYPE_CHECKING  # noqa: E402
 
 from protoboard.domain.layout.wire import Wire  # noqa: E402
+from protoboard.domain.routing.simplify_mode import SimplifyMode  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
 from protoboard.services.routing.astar import (  # noqa: E402
     _build_bare_seg_index,
@@ -45,25 +45,6 @@ from protoboard.services.routing.astar import (  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import Pad
-
-
-class SimplifyMode(StrEnum):
-    """How aggressively to shorten a wire path.
-
-    CHEBYSHEV:   replace any subpath with the shortest grid-aligned path
-                 (diagonal where possible, ortho where forced).  Ignores the
-                 bare-diagonal parity rule — use only when the user understands
-                 that the produced diagonal may cross perpendicular bare
-                 diagonals at cell centres.  Best visual result.
-
-    BARE_PARITY: same as CHEBYSHEV for insulated wires; for bare wires, every
-                 new diagonal segment must respect the source pad's parity
-                 family (the anti-short rule that bare_diagonal routing relies
-                 on).  Default — preserves the invariants used by autoroute.
-    """
-
-    CHEBYSHEV = "chebyshev"
-    BARE_PARITY = "bare_parity"
 
 
 # ---------------------------------------------------------------------------

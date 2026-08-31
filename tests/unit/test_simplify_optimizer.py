@@ -18,6 +18,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -29,7 +30,6 @@ from protoboard.services.routing.optimizer import (
     WireOptimizer,
     registry,
 )
-from protoboard.services.routing.postprocess import SimplifyMode
 from protoboard.services.routing.protocol import ProgressSink
 from protoboard.services.routing.snapshot import RouteRequest
 from tests.instance_utils import bind

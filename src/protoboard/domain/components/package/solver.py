@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from protoboard.geometry import Vector
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 # Canonical raster: 2.54 mm / 0.1" is represented internally as 2.5 mm.
 RASTER_MM = 2.5

@@ -27,7 +27,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 from protoboard.controller.theme import Theme
 from protoboard.geometry import Point
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 #: Rounding for addRect: a single radius, per-corner radii
 #: (top-left, top-right, bottom-right, bottom-left), or None for sharp corners.

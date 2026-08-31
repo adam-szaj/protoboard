@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import Z_PIN_MODIFIERS
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 
 @traced()

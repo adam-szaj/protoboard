@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 from typing_extensions import override
 
 from protoboard.controller.tools.base import ControllerTool
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

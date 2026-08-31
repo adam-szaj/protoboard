@@ -19,7 +19,7 @@ from protoboard.domain.board.boxes import (
 )
 from protoboard.domain.board.layout_engine import LayoutNode, layout
 from protoboard.geometry import Point, Rect, Size
-from protoboard.services.call_counters import counted
+from protoboard.instrumentation.call_counters import counted
 from protoboard.units import DEFAULT_PITCH_MM, Millimeter
 
 if TYPE_CHECKING:

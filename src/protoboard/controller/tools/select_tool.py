@@ -58,7 +58,7 @@ from protoboard.controller.selection_fsm import BasisScope, SetOp
 from protoboard.controller.tools.base import ControllerTool, _ViewProto
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
 
@@ -3802,8 +3802,8 @@ class SelectTool(ControllerTool):
 
         from protoboard.controller.ports import BlockingJob
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
         from protoboard.services.routing.postprocess import (
-            SimplifyMode,
             generic_simplify_wire,
         )
 

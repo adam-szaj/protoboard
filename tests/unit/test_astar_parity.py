@@ -8,9 +8,9 @@ safely cross at a mesh-cell centre (where they are guaranteed perpendicular).
 
 from __future__ import annotations
 
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _astar_parallel
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 
 def _empty_board(n: int = 10) -> dict[str, set[Point]]:

@@ -41,7 +41,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from protoboard.services.call_counters import counted
+from protoboard.instrumentation.call_counters import counted
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition

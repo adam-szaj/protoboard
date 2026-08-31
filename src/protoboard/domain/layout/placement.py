@@ -12,7 +12,7 @@ import structlog
 
 from protoboard.domain.components.footprints import Footprint
 from protoboard.geometry import Point, Rect, Transform2D, Vector, round_coord
-from protoboard.services.call_counters import counted
+from protoboard.instrumentation.call_counters import counted
 from protoboard.types import Side
 
 if TYPE_CHECKING:

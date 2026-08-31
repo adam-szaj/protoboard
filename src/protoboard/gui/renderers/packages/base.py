@@ -78,7 +78,7 @@ from protoboard.gui.renderers.packages.canvas import (
 )
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.renderers.text_contrast import best_ink
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 __all__ = [
     "BodyCanvas",

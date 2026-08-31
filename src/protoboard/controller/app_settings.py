@@ -60,7 +60,7 @@ class AppSettings:
     # User-defined cost-model presets.  Built-in presets ("default",
     # "clean_routing") are always available without being stored here.
     # Each entry maps preset_name → {cost_key: weight}.  Editing via
-    # PreferencesDialog.  See protoboard.services.routing.cost_presets.
+    # PreferencesDialog.  See protoboard.domain.routing.cost_presets.
     cost_presets: dict[str, dict[str, float]] = field(default_factory=dict)
     # Drag-time soft conflict resolution.  Each field is one of
     # "auto-remove" / "ask-remove" / "auto-reroute" / "ask-reroute" /
@@ -160,7 +160,7 @@ def load_app_settings() -> AppSettings:
                 s.drag_default_lock_internal_wires = lock
         cp = data.get("cost_presets")
         if isinstance(cp, dict):
-            from protoboard.services.routing.cost_presets import builtin_preset_names
+            from protoboard.domain.routing.cost_presets import builtin_preset_names
 
             builtins = builtin_preset_names()
             user_presets: dict[str, dict[str, float]] = {}

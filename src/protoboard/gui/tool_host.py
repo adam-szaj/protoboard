@@ -33,7 +33,7 @@ from protoboard.gui.keymap import (
 )
 from protoboard.gui.qt_geometry import from_qpointf, to_qpointf
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     from collections.abc import Callable

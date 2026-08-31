@@ -24,13 +24,13 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily, PackageVariant
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_strategy import DRCEnforcingStrategy
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
 from protoboard.services.drag_detector import DragDetector, DragSnapshot
-from protoboard.services.pad_strategy import DRCEnforcingStrategy
 from tests.unit._autoroute_invariants import make_sil, sil_families
 
 _TEST_FAMILIES: dict[str, PackageFamily] = {}

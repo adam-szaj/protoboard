@@ -93,7 +93,7 @@ def test_simplify_full_span_equals_whole_wire() -> None:
     equivalent to calling ``build_simplify_range_command(...)`` directly — the
     unit-level proof that the arm's simplify == the builder."""
     from protoboard.controller.selection.wire_ops import build_simplify_inputs
-    from protoboard.services.routing.postprocess import SimplifyMode
+    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
     sess = _session()
     wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), insulated=True)

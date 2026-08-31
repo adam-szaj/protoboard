@@ -9,7 +9,7 @@ prints nothing.  Pure — no Qt — so the policy is testable headless.
 
 from __future__ import annotations
 
-from protoboard.gui.renderers.value_codes import parse_value, smd_code
+from protoboard.domain.components.value_codes import parse_value, smd_code
 
 
 def body_print_text(component_class: str, value: str) -> str | None:

@@ -43,6 +43,7 @@ from protoboard.domain.layout.pad_conflict import (
     find_wires_crossing_pads,
     footprint_of,
 )
+from protoboard.domain.layout.pad_strategy import PadStrategy, Verdict
 from protoboard.domain.layout.placement import (
     component_bbox,
     pin_world_position,
@@ -50,7 +51,6 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire_utils import find_skewed_wires
 from protoboard.geometry import Point
 from protoboard.geometry import round_coord as _round
-from protoboard.services.pad_strategy import PadStrategy, Verdict
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex

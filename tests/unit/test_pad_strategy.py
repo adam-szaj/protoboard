@@ -20,8 +20,7 @@ from protoboard.domain.board.pad_state import (
     Pad,
 )
 from protoboard.domain.board.pads import PadLayers
-from protoboard.geometry import Point
-from protoboard.services.pad_strategy import (
+from protoboard.domain.layout.pad_strategy import (
     AutorouterPermissiveStrategy,
     Decision,
     DRCEnforcingStrategy,
@@ -31,6 +30,7 @@ from protoboard.services.pad_strategy import (
     Verdict,
     make_strategy,
 )
+from protoboard.geometry import Point
 
 
 def _net() -> uuid.UUID:

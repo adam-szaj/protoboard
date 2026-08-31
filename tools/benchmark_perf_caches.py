@@ -4,7 +4,7 @@
 
 Loads a fixture once, then runs a fixed workload exercising each hot
 path the caches accelerate.  Reports per-action call counts collected
-via :mod:`protoboard.services.call_counters` so before/after
+via :mod:`protoboard.instrumentation.call_counters` so before/after
 comparisons are deterministic — no wall-clock noise, no PID-tied
 sampling — and so the observed counts can be compared against the
 theoretical complexity each fix targets.
@@ -51,12 +51,12 @@ from typing import Callable
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
-from protoboard.paths import BUILTIN_LIBRARY_DIR
-from protoboard.services.call_counters import (
+from protoboard.instrumentation.call_counters import (
     counted,
     fresh_counters,
     snapshot,
 )
+from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import (
     load_project,

@@ -28,6 +28,7 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     _RUST_AVAILABLE,
@@ -37,7 +38,6 @@ from protoboard.services.routing.astar import (
     _find_paths_rust,
     find_paths,
 )
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 pytestmark = pytest.mark.skipif(not _RUST_AVAILABLE, reason="Rust extension not built")
 

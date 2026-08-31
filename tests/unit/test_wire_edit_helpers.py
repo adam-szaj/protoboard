@@ -197,7 +197,7 @@ class TestBuildSimplifyRange:
             build_simplify_range_command,
         )
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
-        from protoboard.services.routing.postprocess import SimplifyMode
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
 
         sess = _session()
         # Collinear detour (1,0),(2,0) between endpoints → straightens to [(0,0),(3,0)].
@@ -221,7 +221,7 @@ class TestBuildSimplifyRange:
             build_simplify_range_command,
         )
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
-        from protoboard.services.routing.postprocess import SimplifyMode
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
 
         sess = _session()
         # Two collinear runs; simplify only the middle slice [1..4], keep the
@@ -247,7 +247,7 @@ class TestBuildSimplifyRange:
             WireRange,
             build_simplify_range_command,
         )
-        from protoboard.services.routing.postprocess import SimplifyMode
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
 
         a = _wire((0, 0), (1, 0), insulated=True)
         b = _wire((1, 0), (2, 0), insulated=True)
@@ -266,7 +266,7 @@ class TestBuildSimplifyRange:
             WireRange,
             build_simplify_range_command,
         )
-        from protoboard.services.routing.postprocess import SimplifyMode
+        from protoboard.domain.routing.simplify_mode import SimplifyMode
 
         # Already-minimal straight wire → no change.
         wire = _wire((0, 0), (3, 0), insulated=True)

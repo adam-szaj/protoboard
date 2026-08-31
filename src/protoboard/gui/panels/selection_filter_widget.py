@@ -7,7 +7,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from protoboard.controller.selection_axes import SelectionFilter
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 
 class SelectionFilterWidget(QWidget):

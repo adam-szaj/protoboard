@@ -35,7 +35,7 @@ from protoboard.domain.components.package.solver import (
     OffsetRange,
 )
 from protoboard.geometry import Point, Vector
-from protoboard.services.debug_trace import traced
+from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import (

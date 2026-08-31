@@ -64,7 +64,7 @@ from protoboard.gui.session import EditorSession  # noqa: E402
 from protoboard.gui.tool_host import ToolHost  # noqa: E402
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX  # noqa: E402
 from protoboard.gui.view_camera import ViewCamera  # noqa: E402
-from protoboard.services.debug_trace import traced  # noqa: E402
+from protoboard.instrumentation.debug_trace import traced  # noqa: E402
 
 
 class BoardView(QGraphicsView):

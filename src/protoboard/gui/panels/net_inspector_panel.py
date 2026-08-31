@@ -25,10 +25,10 @@ if TYPE_CHECKING:
 
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.routing.cost_model import RoutingCostModel
     from protoboard.domain.schematic.net import Net
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
-    from protoboard.services.routing.cost_model import RoutingCostModel
 
 _COL_NAME = 0
 _COL_PINS = 1

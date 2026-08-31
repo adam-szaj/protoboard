@@ -778,8 +778,8 @@ def autoroute_fragment_path(
     from typing import cast
 
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
+    from protoboard.domain.routing.cost_model import RoutingCostModel
     from protoboard.services.routing.astar import find_paths
-    from protoboard.services.routing.cost_model import RoutingCostModel
 
     results = find_paths(
         graph=cast(ConnectivityGraph, graph),

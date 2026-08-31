@@ -31,11 +31,9 @@ from protoboard.controller.tools.select_tool import SelectTool
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.geometry import Point
-from protoboard.services.routing.postprocess import (
-    SimplifyMode,
-    generic_simplify_wire,
-)
+from protoboard.services.routing.postprocess import generic_simplify_wire
 
 if TYPE_CHECKING:
     from protoboard.controller.editing import EditState

@@ -12,9 +12,9 @@ from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
-from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -134,7 +134,7 @@ class Router(Protocol):
     #         omitting them here.  Default = everything supported.'''
     #         return self.supported_cost_keys()
     #
-    # ``cost_model.merged_cost_key_docs()`` and
+    # ``cost_metadata.merged_cost_key_docs()`` and
     # ``merged_user_tunable_cost_keys()`` discover these via getattr
     # with sensible empty defaults, so legacy routers without the hooks
     # keep working unchanged.
