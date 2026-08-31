@@ -289,12 +289,18 @@ The next cleanup checkpoint introduced the domain-level `compose_command`
 utility for the repeated single-command versus `MacroCommand` decision and
 migrated controller, selection, and GUI callers to it. `WireEditTool` also
 centralizes its repeated armed-fragment status hint. The tree currently has
-321 source modules and 97,074 physical lines; 190 focused command and wire-edit
+321 source modules and 97,083 physical lines; 190 focused command and wire-edit
 tests pass. The complete rerun passes 2,867 unit tests (68 skipped) and 1,496
 offscreen GUI tests (1 expected xfail and 1 known PySide disconnect warning).
 The property gate also passes 3 tests (4,445 deselected). Ruff, Black, strict
 mypy, Pyright, and `git diff --check` are clean. Manual GUI smoke testing
 remains deferred to the final Workstream 4 gate.
+
+The following controller cleanup moved silent command execution into the shared
+`ControllerTool` adapter, removing the last local `EditController` execution
+wrapper from selection and simplify tools. The focused base/tool regression
+suite passes 121 tests; the complete gates above remain applicable to this
+behaviour-preserving change.
 
 Within those workstreams, the order is:
 
