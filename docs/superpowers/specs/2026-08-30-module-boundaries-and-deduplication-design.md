@@ -282,6 +282,8 @@ source modules and 97,135 physical lines; the complete automated gate passes
 2,864 unit tests (68 skipped), 1,496 offscreen GUI tests (1 expected xfail,
 1 known PySide disconnect warning), and 3 property tests (4,442 deselected).
 Manual GUI smoke testing remains deferred to the final Workstream 4 gate.
+An offscreen `uv run protoboard` startup also reached the Qt event loop without
+a traceback (the controlled run ended only at its timeout).
 
 Within those workstreams, the order is:
 
