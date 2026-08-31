@@ -59,9 +59,7 @@ def compute_simplified_wire(
         return None
 
     if mode is None:
-        rs = session.routing_settings
-        mode = getattr(rs, "simplify_mode", SimplifyMode.BARE_PARITY)
-    assert mode is not None
+        mode = session.routing_settings.simplify_mode
 
     from protoboard.controller.selection.wire_ops import build_simplify_inputs
 

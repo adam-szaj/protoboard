@@ -3684,9 +3684,7 @@ class SelectTool(ControllerTool):
         elif mode_override == "bare_parity":
             mode = SimplifyMode.BARE_PARITY
         else:
-            mode = getattr(
-                session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
-            )
+            mode = session.routing_settings.simplify_mode
 
         inputs = build_simplify_inputs(session)
         simplify_wire = session.edit_controller.simplify_wire

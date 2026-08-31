@@ -393,7 +393,6 @@ class WireEditTool(ControllerTool):
     def _simplify_wire_fragment(self) -> None:
         """Simplify the selected fragment — ``[S]`` (a range op; stays armed)."""
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
-        from protoboard.domain.routing.simplify_mode import SimplifyMode
 
         state = self._wire_edit
         arm = self._arm
@@ -402,9 +401,7 @@ class WireEditTool(ControllerTool):
                 "Simplify: pick a fragment on a single wire (two vertices apart)."
             )
             return
-        mode = getattr(
-            self._session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
-        )
+        mode = self._session.routing_settings.simplify_mode
         cmd = arm.simplify(
             self._session.layout,
             list(self._session.layout.wires),
