@@ -56,7 +56,6 @@ from protoboard.gui.panels.netlist_panel import NetlistPanel
 from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
 from protoboard.gui.panels.performance_panel import PerformancePanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
-from protoboard.gui.qt_geometry import to_qpointf
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import (
     CutTool,
@@ -80,6 +79,7 @@ from protoboard.services.persistence.project_yaml import (
 )
 from protoboard.services.placement.auto_placer import AutoPlaceResult, auto_place
 from protoboard.services.placement.spreader import spread_components
+from protoboard.services.rendering.qt_geometry import to_qpointf
 
 _log = structlog.get_logger(__name__)
 

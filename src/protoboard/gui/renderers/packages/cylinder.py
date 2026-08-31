@@ -21,12 +21,12 @@ from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
 )
 from protoboard.geometry import Point, Rect, Vector
-from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.packages.base import (
     PackageRenderer,
     _lead_pen,
 )
 from protoboard.gui.renderers.packages.canvas import _body_pen
+from protoboard.services.rendering.qt_geometry import to_qrectf
 
 
 class CylinderRenderer(PackageRenderer):

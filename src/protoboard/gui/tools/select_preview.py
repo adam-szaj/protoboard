@@ -111,7 +111,7 @@ class _RubberBandRect:
 
         x0, y0 = min(a.x, b.x), min(a.y, b.y)
         from protoboard.geometry import Rect
-        from protoboard.gui.qt_geometry import to_qrectf
+        from protoboard.services.rendering.qt_geometry import to_qrectf
 
         rect = to_qrectf(Rect.of(x0, y0, abs(b.x - a.x), abs(b.y - a.y)))
         if self.item is None:

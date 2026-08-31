@@ -47,7 +47,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.geometry import Point
-from protoboard.gui.qt_geometry import to_qrectf
+from protoboard.services.rendering.qt_geometry import to_qrectf
 
 # Per-pad colour mapping passed to ``build_board_display_list``.
 # Key is the pad centre (cx, cy) rounded to 3 decimals; value is either

@@ -67,7 +67,6 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.value_text import body_print_text
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point, Rect, Transform2D
-from protoboard.gui.qt_geometry import to_qrectf, to_qtransform
 from protoboard.gui.renderers.packages.body_label import make_body_label
 from protoboard.gui.renderers.packages.canvas import (
     BodyCanvas,
@@ -79,6 +78,7 @@ from protoboard.gui.renderers.packages.canvas import (
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.renderers.text_contrast import best_ink
 from protoboard.instrumentation.debug_trace import traced
+from protoboard.services.rendering.qt_geometry import to_qrectf, to_qtransform
 
 __all__ = [
     "BodyCanvas",

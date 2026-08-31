@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, cast
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsItemGroup, QGraphicsScene
 
 from protoboard.geometry import Insets, Rect
-from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.component_renderer import (
     render_groups,
     update_component_groups,
@@ -32,6 +31,7 @@ from protoboard.gui.renderers.wire_renderer import (
 )
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.instrumentation.debug_trace import traced
+from protoboard.services.rendering.qt_geometry import to_qrectf
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:

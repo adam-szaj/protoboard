@@ -32,7 +32,7 @@ from PySide6.QtGui import QPainterPath
 from protoboard.controller.view_options.theme import Theme
 from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
-from protoboard.gui.qt_geometry import to_qrectf
+from protoboard.services.rendering.qt_geometry import to_qrectf
 
 # Pins within this many holes of one another share a column.  DIP rows sit
 # whole holes apart (rows_spacing >= 2), so a generous tolerance still separates

@@ -30,8 +30,8 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.geometry import Insets
-from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.instrumentation.debug_trace import traced
+from protoboard.services.rendering.qt_geometry import to_qrectf
 
 if TYPE_CHECKING:
     from protoboard.controller.view_options.theme import Theme

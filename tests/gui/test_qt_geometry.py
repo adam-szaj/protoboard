@@ -11,7 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF
 
 from protoboard.geometry import Point, Rect, Transform2D, Vector
-from protoboard.gui.qt_geometry import (
+from protoboard.services.rendering.qt_geometry import (
     from_qpointf,
     from_qrectf,
     from_qtransform,

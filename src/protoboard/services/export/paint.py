@@ -26,7 +26,6 @@ from protoboard.domain.layout.pin_pad_classification import (
     classify_pin_pads,
 )
 from protoboard.geometry import Insets
-from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.board_renderer import (
     build_pad_net_map,
     render_board,
@@ -46,6 +45,7 @@ from protoboard.gui.renderers.wire_renderer import (
     render_wires_with_nets,
 )
 from protoboard.services.export.snapshot import BoardSnapshot
+from protoboard.services.rendering.qt_geometry import to_qrectf
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:

@@ -16,7 +16,7 @@ from PySide6.QtCore import QPoint, Qt
 
 from protoboard.controller.ports.viewport import CursorKind, ScreenMetrics
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
-from protoboard.gui.qt_geometry import (
+from protoboard.services.rendering.qt_geometry import (
     from_qpointf,
     from_qtransform,
     to_qpointf,

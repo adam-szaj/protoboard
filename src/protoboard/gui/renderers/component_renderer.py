@@ -35,8 +35,8 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect, Vector
-from protoboard.gui.qt_geometry import to_qrectf
 from protoboard.gui.renderers.body_shapes import body_shape_for
+from protoboard.services.rendering.qt_geometry import to_qrectf
 
 _ALPHA_ACTIVE = 1.0  # components in the active group
 _ALPHA_SUBGROUP = 0.45  # components inside a child group of the active group
