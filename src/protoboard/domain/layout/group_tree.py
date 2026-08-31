@@ -390,27 +390,18 @@ class GroupTree:
         ``@staticmethod``. The group's origin invariant is "(0,0) lives at the
         top-left pin".
         """
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.layout.placement import (
-            ComponentPlacement,
-            pin_world_position,
-        )
+        from protoboard.domain.components.resolution import resolve_component
+        from protoboard.domain.layout.placement import pin_world_position
 
         best: Point | None = None
         best_key = float("inf")
         for cid in component_ids:
-            pl = placements.get(cid)
-            inst = instances.get(cid) if pl is not None else None
-            defn = definitions.get(inst.definition_ref) if inst is not None else None
-            if not isinstance(pl, ComponentPlacement) or not isinstance(
-                defn, ComponentDefinition
-            ):
+            component = resolve_component(cid, placements, instances, definitions)
+            if component is None or component.package is None:
                 continue
-            assert inst is not None  # defn non-None implies inst non-None
-            fp = resolved_footprint(defn, inst, inst.families)
+            fp = component.package
             for n in range(fp.pin_count()):
-                p = pin_world_position(fp, pl, n + 1)
+                p = pin_world_position(fp, component.placement, n + 1)
                 key = p.x + p.y
                 if key < best_key:
                     best_key, best = key, p

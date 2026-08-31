@@ -52,7 +52,7 @@ Pyright.
   `resolve_component(component_id, placements, instances, definitions) ->
   ResolvedComponent | None`.
 
-- [ ] **Step 1: Write failing resolver tests**
+- [x] **Step 1: Write failing resolver tests**
 
 Cover the complete result, each missing structural record, an unbound instance
 whose `package` is `None`, and propagation of an invalid package selection:
@@ -71,7 +71,7 @@ assert resolve_component(cid, placements, {}, definitions) is None
 assert resolve_component(cid, placements, instances, {}) is None
 ```
 
-- [ ] **Step 2: Verify the new tests fail**
+- [x] **Step 2: Verify the new tests fail**
 
 Run:
 
@@ -81,7 +81,7 @@ Run:
 
 Expected: collection fails because `resolution.py` does not exist.
 
-- [ ] **Step 3: Implement the pure query**
+- [x] **Step 3: Implement the pure query**
 
 Use a frozen, slotted dataclass. Return `None` only when placement, instance, or
 definition is absent. Resolve the selected option without suppressing
@@ -115,14 +115,14 @@ def resolve_component(
     return ResolvedComponent(instance, definition, placement, option, package)
 ```
 
-- [ ] **Step 4: Migrate two complete repeated pipelines**
+- [x] **Step 4: Migrate two complete repeated pipelines**
 
 Use the query in `GroupTree.group_origin` and
 `group_ownership.group_bbox_with_owned_wires`. Each caller must explicitly skip
 `None` and `package is None`; obtain footprint geometry from the resolved
 package. Do not migrate partial lookups that do not need placement or package.
 
-- [ ] **Step 5: Run focused and static checks**
+- [x] **Step 5: Run focused and static checks**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit/test_component_resolution.py tests/unit/test_group_tree.py tests/unit/test_group_ownership.py -q
@@ -132,7 +132,7 @@ package. Do not migrate partial lookups that do not need placement or package.
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/protoboard/domain/components/resolution.py src/protoboard/domain/components/__init__.py src/protoboard/domain/layout/group_tree.py src/protoboard/domain/layout/group_ownership.py tests/unit/test_component_resolution.py

@@ -479,25 +479,19 @@ def group_bbox_with_owned_wires(
     Returns ``(x0, y0, x1, y1)`` with a ``pad`` margin, or ``None`` if
     the group has no resolvable pins (and therefore no meaningful bbox).
     """
-    from protoboard.domain.components.package import resolved_footprint
+    from protoboard.domain.components.resolution import resolve_component
     from protoboard.domain.layout.placement import pin_world_position
 
     xs: list[float] = []
     ys: list[float] = []
 
     for cid in group_comp_ids:
-        pl = placements.get(cid)
-        if pl is None:
+        component = resolve_component(cid, placements, instances, definitions)
+        if component is None or component.package is None:
             continue
-        inst = instances.get(cid)
-        if inst is None:
-            continue
-        defn = definitions.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = resolved_footprint(defn, inst, inst.families)
+        fp = component.package
         for n in range(fp.pin_count()):
-            p = pin_world_position(fp, pl, n + 1)
+            p = pin_world_position(fp, component.placement, n + 1)
             xs.append(p.x)
             ys.append(p.y)
 
