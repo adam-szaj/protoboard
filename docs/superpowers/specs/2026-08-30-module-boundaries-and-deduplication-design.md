@@ -378,6 +378,13 @@ PySide disconnect warning), and Ruff, Black, strict mypy, Pyright, and
 `git diff --check` are clean. The source tree remains at 96,972 physical lines;
 manual real-display GUI smoke is still the only unexecuted verification.
 
+The latest boundary pass exposed the component and wire operations of
+`SelectTool` as explicit public ports and migrated GUI, controller, and test
+callers away from their underscore-named entry points. This removes the last
+high-level GUI-to-tool method leak without adding wrapper layers. The focused
+selection/transform gate passes 178 tests; the source tree remains at 96,963
+physical lines and the full static gate is clean.
+
 The latest idiom pass also centralised effective wire-selection assembly for
 properties, simplify, unweave, and merge actions. The current source tree has
 96,963 physical lines; the focused wire-flow gate passes 111 tests. The full
