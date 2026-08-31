@@ -169,19 +169,27 @@ git commit -m "refactor(persistence): centralize recent-value storage"
 - Modify: `docs/superpowers/plans/2026-08-31-command-serialization-export-snapshots-mru.md`
 - Modify: `docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md`
 
-- [ ] **Step 1: Run the relevant automated gate**
+- [x] **Step 1: Run the relevant automated gate**
 
-Run the focused tests from Tasks 1–3, the full unit suite, the offscreen GUI suite, Ruff, Black, strict mypy, Pyright, and `git diff --check`. Run the marked property suite only if production changes affect its inputs.
+The focused tests from Tasks 1–3 passed. The full unit suite passed `2848
+tests` with `68 skipped`; the offscreen GUI suite passed `1494 tests` with `1
+expected xfail` and the existing PySide disconnect warning. Ruff, Black, strict
+mypy, Pyright, and `git diff --check` passed. The marked property suite was
+already green at the preceding Workstream 3A gate and these changes do not
+alter its inputs.
 
-- [ ] **Step 2: Audit superseded paths**
+- [x] **Step 2: Audit superseded paths**
 
-Verify there is one command codec registry, one snapshot builder used by all file exporters, and one MRU persistence implementation. Record any intentionally retained public wrappers.
+There are two indexes over one `Codec` record type (by command type and wire
+name), one `build_snapshot` call path used by SVG/PDF/PNG, and one
+`RecentStore` implementation for all three histories. Public exporter and MRU
+wrappers remain intentionally for existing callers.
 
-- [ ] **Step 3: Update design and plan status**
+- [x] **Step 3: Update design and plan status**
 
 Mark this plan complete, record test totals/LOC metrics, and identify Workstream 3C (snapping, tool execution, and action metadata) as next. Interactive GUI smoke testing remains deferred.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-31-command-serialization-export-snapshots-mru.md docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md
@@ -190,8 +198,8 @@ git commit -m "docs(architecture): complete serialization export and MRU"
 
 ## Self-Review Checklist
 
-- [ ] Explicit command codecs remain visible and replay schema is unchanged.
-- [ ] All three file exporters share one snapshot builder.
-- [ ] MRU validation, deduplication, truncation, and atomic writing have one implementation.
-- [ ] Domain modules do not import persistence or GUI MRU code.
-- [ ] Every task has its own verified commit and no merge was performed.
+- [x] Explicit command codecs remain visible and replay schema is unchanged.
+- [x] All three file exporters share one snapshot builder.
+- [x] MRU validation, deduplication, truncation, and atomic writing have one implementation.
+- [x] Domain modules do not import persistence or GUI MRU code.
+- [x] Every task has its own verified commit and no merge was performed.
