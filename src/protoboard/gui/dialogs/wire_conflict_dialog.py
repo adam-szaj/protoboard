@@ -26,10 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-# The decision enum lives with the (Qt-free) resolution policy in
-# placement_conflict.py; re-exported here so dialog-side imports keep
-# working (qt-ports D4).
-from protoboard.gui.placement_conflict import WireConflictAction
+# Keep the dialog dependent on the Qt-free policy module, not on the GUI seam
+# that opens this dialog. This prevents a runtime import cycle.
+from protoboard.controller.editing.placement_conflict import WireConflictAction
 
 if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import PadConflict
