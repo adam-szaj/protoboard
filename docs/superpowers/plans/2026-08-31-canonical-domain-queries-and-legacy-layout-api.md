@@ -17,6 +17,8 @@ Pyright.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md`
 
+**Status:** Complete (Workstream 3A)
+
 ## Global Constraints
 
 - Preserve observable application behaviour and command/undo semantics.
@@ -403,7 +405,7 @@ git commit -m "refactor(geometry): centralize segment predicates"
   export, MRU, snapping, tool execution, and action metadata as remaining 3B/3C
   work.
 
-- [ ] **Step 1: Run the full automated gate**
+- [x] **Step 1: Run the full automated gate**
 
 ```bash
 /home/yvdev/.local/venv/bin/uv run pytest tests/unit -q
@@ -416,20 +418,26 @@ QT_QPA_PLATFORM=offscreen /home/yvdev/.local/venv/bin/uv run pytest tests/gui -q
 git diff --check
 ```
 
-Expected: all commands pass; record existing xfails and warnings separately.
+Results: unit `2842 passed, 68 skipped`; GUI `1494 passed, 1 xfailed, 1
+warning` (the existing PySide disconnect warning); property `3 passed` in
+12m38s. Ruff, Black, strict mypy, Pyright, and `git diff --check` passed.
+The property suite is marked and therefore requires `-m property` explicitly.
 
-- [ ] **Step 2: Audit superseded paths**
+- [x] **Step 2: Audit superseded paths**
 
-Run the exact absence searches from Tasks 2–5 and verify the blanket layer
-contract still passes. Record removed functions and migrated call-site counts.
+The exact absence searches found no group query shims, duplicate plated-pad
+enumerators, or A* private geometry imports in production. The blanket layer
+contract passed all five tests. The remaining `next`/scan usages are on
+arbitrary sequences or intentional filtering, not indexed `WireCollection`
+lookups.
 
-- [ ] **Step 3: Update design and plan status**
+- [x] **Step 3: Update design and plan status**
 
 Mark this plan complete, add automated gate results and LOC metrics, and mark
 Workstream 3B (serialization/export/MRU) next. Interactive GUI smoke testing
 remains explicitly deferred.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-31-canonical-domain-queries-and-legacy-layout-api.md docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md tests/unit/test_layer_import_contract.py
@@ -438,12 +446,12 @@ git commit -m "docs(architecture): complete canonical domain queries"
 
 ## Self-Review Checklist
 
-- [ ] Every new abstraction has at least two production consumers.
-- [ ] Missing component records return `None`; invalid package choices are not
+- [x] Every new abstraction has at least two production consumers.
+- [x] Missing component records return `None`; invalid package choices are not
   hidden.
-- [ ] No group query compatibility wrapper or re-export remains.
-- [ ] Live wire lookups are indexed; arbitrary sequence helpers remain honest
+- [x] No group query compatibility wrapper or re-export remains.
+- [x] Live wire lookups are indexed; arbitrary sequence helpers remain honest
   about linear lookup.
-- [ ] Plated-pad enumeration has one implementation.
-- [ ] Geometry owns only mathematical predicates; routing owns policy.
-- [ ] Every task has its own verified commit and no merge was performed.
+- [x] Plated-pad enumeration has one implementation.
+- [x] Geometry owns only mathematical predicates; routing owns policy.
+- [x] Every task has its own verified commit and no merge was performed.

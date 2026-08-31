@@ -219,13 +219,18 @@ Implementation status as of 2026-08-31:
   `PreviewState` to 98 lines, and moved all routing implementation selection
   behind service adapters. The blanket AST contract now reports zero
   controller imports from `services` or `gui`.
-- Workstream 3 is next: introduce canonical reusable operations and delete
-  superseded legacy paths.
+- Workstream 3A completed canonical reusable operations for component
+  resolution, indexed wire lookup, plated-pad enumeration, and geometry
+  predicates; superseded group shims and duplicate implementations were
+  deleted. Workstream 3B is next: command serialization, export snapshots, and
+  generic MRU persistence.
 
 The Workstream 2B exit gate covered 315 source modules and 97,346 physical
-lines: 2,830 unit tests passed (68 skipped), 1,494 offscreen GUI tests passed
-(1 expected xfail and 1 existing PySide disconnect warning), and both property
-tests passed. Ruff, Black, strict mypy, and Pyright reported no errors.
+lines. The Workstream 3A exit gate covers 316 source modules and 97,121
+physical lines: 2,842 unit tests passed (68 skipped), 1,494 offscreen GUI
+tests passed (1 expected xfail and 1 existing PySide disconnect warning), and 3
+property tests passed. Ruff, Black, strict mypy, and Pyright reported no
+errors.
 
 Within those workstreams, the order is:
 
