@@ -2552,7 +2552,9 @@ class SelectTool(ControllerTool):
 
     @traced()
     def _flip_selected(self) -> None:
-        from protoboard.domain.commands.base import MacroCommand
+        from typing import cast
+
+        from protoboard.domain.commands.base import compose_command
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
         from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import flip_component
@@ -2580,7 +2582,10 @@ class SelectTool(ControllerTool):
             )
         if not cmds:
             return
-        self._execute(MacroCommand(cmds, description=f"Flip {len(cmds)} components"))  # type: ignore[arg-type]
+        typed = cast("list[Command[ComponentState]]", cmds)
+        cmd = compose_command(typed, description=f"Flip {len(cmds)} components")
+        assert cmd is not None
+        self._execute(cmd)
         self._notify_selection()  # refresh Properties panel after flip
 
     # -- legacy multi rotate / flip / redrag entry points -------------------
