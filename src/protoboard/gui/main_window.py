@@ -982,12 +982,7 @@ class MainWindow(QMainWindow):
         from protoboard.gui.workers.operation_worker import run_with_progress
         from protoboard.services.placement.spreader import SpreadState
 
-        tool = self._get_select_tool()
-        selected: set[uuid.UUID] = set()
-        if tool is not None:
-            selected.update(tool.selected_component_ids)
-            if tool.primary_component_id is not None:
-                selected.add(tool.primary_component_id)
+        selected = self._selected_component_ids()
 
         if selected:
             comp_ids = [
@@ -1619,6 +1614,16 @@ class MainWindow(QMainWindow):
         tool = self._board_view.active_tool
         return tool if isinstance(tool, SelectTool) else None
 
+    def _selected_component_ids(self) -> set[uuid.UUID]:
+        """Return the effective component selection, including the primary item."""
+        tool = self._get_select_tool()
+        if tool is None:
+            return set()
+        ids = set(tool.selected_component_ids)
+        if tool.primary_component_id is not None:
+            ids.add(tool.primary_component_id)
+        return ids
+
     # ------------------------------------------------------------------
     # Edit actions — delete, rotate, flip, exit group
     # ------------------------------------------------------------------
@@ -1821,14 +1826,7 @@ class MainWindow(QMainWindow):
         reads current placements); the command build is
         EditController.set_locked.
         """
-        tool = self._get_select_tool()
-        if tool is None:
-            return
-        targets: set[uuid.UUID] = set()
-        if tool.selected_component_ids:
-            targets.update(tool.selected_component_ids)
-        if tool.primary_component_id is not None:
-            targets.add(tool.primary_component_id)
+        targets = self._selected_component_ids()
         if not targets:
             self._status.showMessage("Nothing selected to lock.", 3000)
             return
@@ -1881,11 +1879,9 @@ class MainWindow(QMainWindow):
     def _move_component_to_side(self) -> None:
         """Move the selected component(s) to the other board side (Alt+B)."""
         tool = self._get_select_tool()
+        targets = self._selected_component_ids()
         if tool is None:
             return
-        targets = set(tool.selected_component_ids)
-        if tool.primary_component_id is not None:
-            targets.add(tool.primary_component_id)
         for cid in targets:
             tool._menu_flip_component_side(cid)
 
