@@ -33,7 +33,6 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
 )
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, ParamSpec, TypeVar, cast
 
@@ -57,6 +56,7 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
+from protoboard.services.routing.results import AutorouteResult, NetStats, PassStats
 from protoboard.types import Side
 
 if TYPE_CHECKING:
@@ -300,45 +300,6 @@ class AutoroutePreconditionError(Exception):
 _AUTOROUTE_BLOCKING_DRC_CODES: frozenset[str] = frozenset(
     {"SHORT", "GROUP_MISSING_EXPORT", "OFF_BOARD_PIN"}
 )
-
-
-@dataclass
-class NetStats:
-    """Per-net routing statistics for one pass."""
-
-    net_name: str
-    routed: bool
-    nodes_expanded: int  # total A* nodes expanded across all segments/attempts
-    over_budget_hits: int  # times over_budget cutoff fired
-    rip_up_attempts: int  # number of rip-up retries (0 = routed on first try)
-    path_hops_min: int  # shortest segment path (in raster hops)
-    path_hops_max: int  # longest segment path
-    path_hops_final: int  # total hops in final routed path
-    segments_found: int  # number of wire segments placed
-
-
-@dataclass
-class PassStats:
-    """Statistics for one full routing pass (greedy or optimize iteration)."""
-
-    pass_index: int  # 0 = greedy, 1..N = optimize iterations
-    seed: int  # net-order seed (0 for greedy)
-    routed_count: int
-    unrouted_count: int
-    total_wires: int
-    total_nodes_expanded: int
-    total_over_budget_hits: int
-    total_rip_up_attempts: int
-    nets: list[NetStats] = field(default_factory=list)
-
-
-@dataclass
-class AutorouteResult:
-    """Result returned by :func:`autoroute`."""
-
-    wires: list[Wire] = field(default_factory=list)
-    unrouted_nets: list[str] = field(default_factory=list)  # net names
-    pass_stats: list[PassStats] = field(default_factory=list)
 
 
 _ORPHAN_EPS = 1e-4

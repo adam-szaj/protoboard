@@ -17,6 +17,7 @@ from protoboard.services.routing.optimizer import (
     WireOptimizer,
     registry,
 )
+from protoboard.services.routing.results import AutorouteResult
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -24,7 +25,6 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
-    from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.services.routing.protocol import ProgressSink
     from protoboard.services.routing.snapshot import RouteRequest
 
@@ -189,7 +189,6 @@ class SimplifyOptimizer:
         sink: ProgressSink,
     ) -> AutorouteResult:
         from protoboard.domain.routing.simplify_mode import SimplifyMode
-        from protoboard.services.routing.autorouter import AutorouteResult
         from protoboard.services.routing.postprocess import simplify_wires_generic
 
         if not result.wires:
@@ -266,7 +265,6 @@ class InsulatedToBareOptimizer:
         result: AutorouteResult,
         sink: ProgressSink,
     ) -> AutorouteResult:
-        from protoboard.services.routing.autorouter import AutorouteResult
         from protoboard.services.routing.postprocess import (
             _candidate_pins_alien,
             _candidate_safe_against_others,
