@@ -143,12 +143,12 @@ class SimplifyTool(SelectTool):
         )
         self._clear_draft()
         if new_wire is None:
-            self._status_msg("Simplify: nothing to shorten on this wire.")
+            self._status("Simplify: nothing to shorten on this wire.")
             return True
         self._draft_wire_id = wire_id
         self._draft_path = list(new_wire.path)
         self.draft_preview.show_draft(self._draft_path)
-        self._status_msg(
+        self._status(
             "Simplify: draft ready — Shift+LPM again on the wire to apply,"
             " ESC or LPM elsewhere to cancel."
         )
@@ -178,7 +178,7 @@ class SimplifyTool(SelectTool):
         self._execute_command_silent(cmd)
         self._session.notify_changed()
         self._clear_draft()
-        self._status_msg("Simplify: applied.")
+        self._status("Simplify: applied.")
         return True
 
     def _clear_draft(self) -> None:

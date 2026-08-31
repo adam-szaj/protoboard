@@ -811,10 +811,6 @@ class SelectTool(ControllerTool):
             self._session, wire_id, active_group_id=self._current_group_id
         )
 
-    def _status_msg(self, msg: str, timeout_ms: int = 4000) -> None:
-        """Status-bar message (legacy name; v2's primitive is ``_status``)."""
-        self._status(msg, timeout_ms)
-
     def selection_summary(self) -> str:
         """One-line status-bar summary of the selection (parity with legacy)."""
         session = self._session
@@ -2155,7 +2151,7 @@ class SelectTool(ControllerTool):
 
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
-            self._status_msg("Wire edit: pick two different vertices on one wire.")
+            self._status("Wire edit: pick two different vertices on one wire.")
             self._wire_edit_clear()
             return
         v0, v1 = verts[0], verts[1]
@@ -2165,7 +2161,7 @@ class SelectTool(ControllerTool):
         # length range is not a fragment.
         if start_wire == end_wire:
             if start_idx == end_idx:
-                self._status_msg("Wire edit: pick two different vertices on one wire.")
+                self._status("Wire edit: pick two different vertices on one wire.")
                 self._wire_edit_clear()
                 return
             if end_idx < start_idx:
@@ -2597,7 +2593,7 @@ class SelectTool(ControllerTool):
             active_group_id=self._current_group_id,
         )
         if removed:
-            self._status_msg(f"Removed {removed} colliding wire(s) after move.")
+            self._status(f"Removed {removed} colliding wire(s) after move.")
         self._refresh_highlight()
         self._notify_selection()  # refresh Properties panel after multi-rotate
 
@@ -2617,7 +2613,7 @@ class SelectTool(ControllerTool):
         )
         if has_group:
             if removed:
-                self._status_msg(f"Removed {removed} colliding wire(s) after move.")
+                self._status(f"Removed {removed} colliding wire(s) after move.")
             self._refresh_highlight()
             self._notify_selection()
 
@@ -3424,7 +3420,7 @@ class SelectTool(ControllerTool):
 
         wire_id = self._single_selected_wire_id()
         if wire_id is None:
-            self._status_msg(
+            self._status(
                 "Convert endpoint to wire-pin: select one wire "
                 "(right-click its endpoint for context menu)."
             )
@@ -3443,7 +3439,7 @@ class SelectTool(ControllerTool):
                     eligible = side
                     break
         if eligible is None:
-            self._status_msg(
+            self._status(
                 "Convert endpoint to wire-pin: no eligible half-orphan endpoint "
                 "on a plated-through pad."
             )
@@ -3472,7 +3468,7 @@ class SelectTool(ControllerTool):
 
         sel = self._selected_by_kind("wire")
         if not sel:
-            self._status_msg(
+            self._status(
                 "Convert wire-pin to endpoint: select one or more wires that "
                 "own a wire-pin endpoint."
             )
@@ -3489,7 +3485,7 @@ class SelectTool(ControllerTool):
                 if isinstance(knot, WirePinKnot) and knot.id not in targets:
                     targets.append(knot.id)
         if not targets:
-            self._status_msg(
+            self._status(
                 "Convert wire-pin to endpoint: selected wires have no wire-pin "
                 "endpoints."
             )
@@ -3558,7 +3554,7 @@ class SelectTool(ControllerTool):
         self._session.edit_controller.set_wires_side(
             wire_ids, side=cast(Side, target_side)
         )
-        self._status_msg(f"Moved {len(wire_ids)} wire(s) to {target_side} layer.")
+        self._status(f"Moved {len(wire_ids)} wire(s) to {target_side} layer.")
 
     def _flip_selected_wires(self) -> None:
         """Flip all selected whole wires by toggling each fragment's side.
@@ -3570,7 +3566,7 @@ class SelectTool(ControllerTool):
         if not wire_ids:
             return
         self._session.edit_controller.flip_wires(wire_ids)
-        self._status_msg(f"Flipped {len(wire_ids)} wire(s).")
+        self._status(f"Flipped {len(wire_ids)} wire(s).")
 
     # -- group creation dialog (Ctrl+G) -------------------------------------
 
@@ -3721,7 +3717,7 @@ class SelectTool(ControllerTool):
                 replace_wire_path_cmd(session.layout, wire, new_path, orig_path)
             )
         if not cmds:
-            self._status_msg("Simplify: nothing to shorten.")
+            self._status("Simplify: nothing to shorten.")
             return
         self._commit_wire_macro(cmds, f"Simplify {len(cmds)} wire(s)")
 
@@ -3738,7 +3734,7 @@ class SelectTool(ControllerTool):
         session = self._session
         targets = [w for w in session.layout.wires if w.id in wire_ids]
         if len(targets) < 2:
-            self._status_msg("Unweave: at least 2 valid wires required.")
+            self._status("Unweave: at least 2 valid wires required.")
             return
 
         def _unweave_in_worker() -> object:
@@ -3758,7 +3754,7 @@ class SelectTool(ControllerTool):
             return
         before = out.before_crossings
         if before == 0:
-            self._status_msg("Unweave: no crossings to resolve.")
+            self._status("Unweave: no crossings to resolve.")
             return
         output_wires = list(out.wires)
         after = out.after_crossings
@@ -3768,9 +3764,7 @@ class SelectTool(ControllerTool):
             for a, b in zip(targets, output_wires)
         )
         if same:
-            self._status_msg(
-                f"Unweave: {before} crossings already at topological minimum."
-            )
+            self._status(f"Unweave: {before} crossings already at topological minimum.")
             return
 
         cmds: list[object] = [RemoveWireCommand(wire_id=w.id) for w in targets]
@@ -3785,7 +3779,7 @@ class SelectTool(ControllerTool):
             if len(targets) != len(output_wires)
             else ""
         )
-        self._status_msg(f"Unweave: {before} → {after} crossings{seg}")
+        self._status(f"Unweave: {before} → {after} crossings{seg}")
 
     def _compute_fragment_collapse_commands(
         self, post_fuse_ids: set[uuid.UUID]
@@ -3867,7 +3861,7 @@ class SelectTool(ControllerTool):
 
         if n_fused == 0 and not frag_cmds:
             scope_label = "selection" if wire_ids is not None else "layout"
-            self._status_msg(f"Merge wires: nothing to merge in {scope_label}.")
+            self._status(f"Merge wires: nothing to merge in {scope_label}.")
             return
 
         parts_cmds: list[object] = []
@@ -3885,7 +3879,7 @@ class SelectTool(ControllerTool):
                 f"collapsed {n_fragments_removed} fragment boundaries in "
                 f"{n_fragment_wires} wire(s)"
             )
-        self._status_msg("Merge wires: " + "; ".join(parts) + ".")
+        self._status("Merge wires: " + "; ".join(parts) + ".")
 
     def _optimize_selected_wires(
         self,
@@ -3906,21 +3900,21 @@ class SelectTool(ControllerTool):
 
         session = self._session
         if not wire_ids:
-            self._status_msg("Optimize: nothing selected.")
+            self._status("Optimize: nothing selected.")
             return
         selected_wires = [w for w in session.layout.wires if w.id in wire_ids]
         if not selected_wires:
-            self._status_msg("Optimize: no matching wires in layout.")
+            self._status("Optimize: no matching wires in layout.")
             return
         try:
             output_wires = session.edit_controller.optimize_wires(
                 opt_name, selected_wires
             )
         except KeyError:
-            self._status_msg(f"Optimize: plugin {opt_name!r} is not registered.")
+            self._status(f"Optimize: plugin {opt_name!r} is not registered.")
             return
         except Exception as exc:  # noqa: BLE001
-            self._status_msg(f"Optimize: plugin failed — {exc}")
+            self._status(f"Optimize: plugin failed — {exc}")
             return
 
         out_by_id = {w.id: w for w in output_wires}
@@ -3952,7 +3946,7 @@ class SelectTool(ControllerTool):
             opt_name,
         )
         if not cmds:
-            self._status_msg(f"Optimize ({label}): nothing changed.")
+            self._status(f"Optimize ({label}): nothing changed.")
             return
         self._commit_wire_macro(
             cmds, f"Optimize {len(selected_wires)} wire(s) via {label}"
