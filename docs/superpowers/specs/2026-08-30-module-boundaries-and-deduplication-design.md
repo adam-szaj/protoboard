@@ -385,6 +385,12 @@ high-level GUI-to-tool method leak without adding wrapper layers. The focused
 selection/transform gate passes 178 tests; the source tree remains at 96,963
 physical lines and the full static gate is clean.
 
+The selection-presentation pass then exposed `SelectTool.select_primary()` and
+`replace_selection()` as the sanctioned GUI ports, eliminating direct
+`BoardView` access to private selection mutation and notification helpers. The
+focused selection/synchronisation gate passes 134 tests; the source tree is at
+96,968 physical lines.
+
 The latest idiom pass also centralised effective wire-selection assembly for
 properties, simplify, unweave, and merge actions. The current source tree has
 96,963 physical lines; the focused wire-flow gate passes 111 tests. The full
