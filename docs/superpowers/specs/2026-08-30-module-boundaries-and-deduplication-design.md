@@ -356,6 +356,13 @@ traceback before the controlled timeout. No production GUI consumer accesses
 `BoardView`'s private tool or layer state, and the only remaining verification
 item is manual smoke testing with a real display server.
 
+The wire-edit boundary pass also migrated all production annotations and
+imports from the historical `WireEditState` name to the canonical `WireRange`
+value object. The compatibility alias is no longer part of `__all__` and is
+retained only for existing external/test imports; no controller implementation
+depends on the old name. The source tree is at 97,085 physical lines, and the
+focused wire-edit/select gate passes 172 tests.
+
 The selection-port migration was followed by another complete unit/GUI and
 static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
