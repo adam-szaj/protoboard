@@ -2,7 +2,7 @@
 # Module Boundaries and Deduplication Design
 
 **Date:** 2026-08-30
-**Status:** approved; Workstreams 1 and 2 implemented, Workstream 3 next
+**Status:** approved; Workstreams 1–3 implemented, Workstream 4 next
 
 ## Purpose
 
@@ -223,8 +223,10 @@ Implementation status as of 2026-08-31:
   resolution, indexed wire lookup, plated-pad enumeration, and geometry
   predicates; superseded group shims and duplicate implementations were
   deleted. Workstream 3B completed typed command codecs, shared export snapshot
-  construction, and generic atomic MRU persistence. Workstream 3C is next:
-  snapping, tool execution, and action metadata.
+  construction, and generic atomic MRU persistence. Workstream 3C completed the
+  pure snapping operation, controller-owned tool command execution, and the
+  action metadata registry. Workstream 4 is next: GUI/controller decomposition,
+  selective comment cleanup, and the final audit.
 
 The Workstream 2B exit gate covered 315 source modules and 97,346 physical
 lines. The Workstream 3A exit gate covers 316 source modules and 97,121
@@ -238,6 +240,13 @@ lines: 2,848 unit tests passed (68 skipped), 1,494 offscreen GUI tests passed
 (1 expected xfail and 1 existing PySide disconnect warning). Ruff, Black,
 strict mypy, and Pyright reported no errors; the Workstream 3A property gate
 remains valid because 3B changes do not affect routing or geometry inputs.
+
+The Workstream 3C exit gate covers 318 source modules and 97,128 physical
+lines: 2,854 unit tests passed (68 skipped), 1,496 offscreen GUI tests passed
+(1 expected xfail and 1 existing PySide disconnect warning). Ruff, Black,
+strict mypy, Pyright, and `git diff --check` reported no errors. The audit
+found one canonical snap operation and no direct command-stack execution in
+the migrated tools. Manual GUI smoke testing remains deferred to Workstream 4.
 
 Within those workstreams, the order is:
 

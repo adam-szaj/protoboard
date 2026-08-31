@@ -153,19 +153,19 @@ git commit -m "refactor(gui): centralize action metadata"
 - Modify: `docs/superpowers/plans/2026-08-31-snapping-tool-execution-action-metadata.md`
 - Modify: `docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md`
 
-- [ ] **Step 1: Run the full relevant automated gate**
+- [x] **Step 1: Run the full relevant automated gate**
 
 Run full unit and offscreen GUI suites, the marked property suite if production routing inputs changed, Ruff, Black, strict mypy, Pyright, and `git diff --check`.
 
-- [ ] **Step 2: Audit superseded paths**
+- [x] **Step 2: Audit superseded paths**
 
 Verify one snap operation, no direct stack execution in migrated tools, one authoritative action metadata registry, and no stale private aliases remain.
 
-- [ ] **Step 3: Update design and plan status**
+- [x] **Step 3: Update design and plan status**
 
 Mark this plan complete, record test totals/LOC metrics, identify Workstream 4 (GUI/controller decomposition, comment cleanup, final audit) as next, and retain the manual-GUI deferral.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/superpowers/plans/2026-08-31-snapping-tool-execution-action-metadata.md docs/superpowers/specs/2026-08-30-module-boundaries-and-deduplication-design.md
@@ -174,7 +174,7 @@ git commit -m "docs(architecture): complete snapping and action metadata"
 
 ## Self-Review Checklist
 
-- [ ] Snap tie-breaking and accessibility semantics are unchanged.
-- [ ] Tools have no direct command-stack access.
-- [ ] Action identifiers and persisted shortcuts remain backward compatible.
-- [ ] Every task has its own verified commit and no merge was performed.
+- [x] Snap tie-breaking and accessibility semantics are unchanged.
+- [x] Tools have no direct command-stack access.
+- [x] Action identifiers and persisted shortcuts remain backward compatible.
+- [x] Every task has its own verified commit and no merge was performed.
