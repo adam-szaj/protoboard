@@ -315,12 +315,13 @@ notifications through explicit view/context ports, then removed the obsolete
 Qt `drag_moved` signal path. The focused view/session regression suite passes
 153 tests; no controller module emits Qt signals or exposes a top-level window.
 
-The typed-state cleanup then removed two unnecessary reflective queries from
-controller tools while retaining the pre-activation headless fallback. The
-focused interaction suite passes 171 tests, mypy and Pyright remain clean, and
-the tree contains 321 source modules and 97,102 physical lines. A final
-boundary scan reports no controller signal emission, Qt import, or top-level
-window access; manual GUI smoke testing remains deferred to the final
+The typed-state cleanup then removed unnecessary reflective queries from
+controller tools while retaining the pre-activation headless fallback and
+using the required `RoutingSettings.simplify_mode` field directly. The focused
+interaction/simplification suite passes 184 tests, mypy and Pyright remain
+clean, and the tree contains 321 source modules and 97,095 physical lines. A
+final boundary scan reports no controller signal emission, Qt import, or
+top-level window access; manual GUI smoke testing remains deferred to the final
 Workstream 4 gate.
 
 The full regression gate has now been rerun after this cleanup: 2,870 unit
