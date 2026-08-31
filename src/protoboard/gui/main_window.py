@@ -1848,18 +1848,18 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         if tool.selected_component_ids:
-            tool._rotate_multi(delta=90)
+            tool.rotate_multi(delta=90)
         elif tool.primary_component_id is not None:
-            tool._rotate_selected(delta=90)
+            tool.rotate_selected(delta=90)
 
     def _rotate_ccw(self) -> None:
         tool = self._get_select_tool()
         if tool is None:
             return
         if tool.selected_component_ids:
-            tool._rotate_multi(delta=-90)
+            tool.rotate_multi(delta=-90)
         elif tool.primary_component_id is not None:
-            tool._rotate_selected(delta=-90)
+            tool.rotate_selected(delta=-90)
 
     def _rotate_around_point(self) -> None:
         tool = self._get_select_tool()
@@ -1872,9 +1872,9 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         if tool.selected_component_ids:
-            tool._flip_multi()
+            tool.flip_multi()
         elif tool.primary_component_id is not None:
-            tool._flip_selected()
+            tool.flip_selected()
 
     def _move_component_to_side(self) -> None:
         """Move the selected component(s) to the other board side (Alt+B)."""
@@ -1883,7 +1883,7 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         for cid in targets:
-            tool._menu_flip_component_side(cid)
+            tool.menu_flip_component_side(cid)
 
     def _exit_group(self) -> None:
         tool = self._get_select_tool()
@@ -2044,7 +2044,7 @@ class MainWindow(QMainWindow):
         if not has_selection:
             self._status.showMessage("Select at least one component to group", 2000)
             return
-        tool._group_for_selection()
+        tool.group_for_selection()
 
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""

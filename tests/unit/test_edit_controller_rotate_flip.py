@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 """EditController.rotate / flip — dispatch + group-lock parity, headless (no Qt).
 
-Mirrors the SelectTool multi rotate/flip parity (the ``_rotate_multi`` /
-``_flip_multi`` dispatch: pivot -> group -> loose, group-lock filtered) at the
+Mirrors the SelectTool multi rotate/flip parity (the ``rotate_multi`` /
+``flip_multi`` dispatch: pivot -> group -> loose, group-lock filtered) at the
 controller seam, exercised directly on a :class:`HeadlessSession`. The tool
 tests keep asserting the same behaviour through the tool, which now delegates
 here.

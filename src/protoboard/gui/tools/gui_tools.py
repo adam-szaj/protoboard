@@ -436,7 +436,7 @@ class SelectTool(
         # Alt+R flips (immediate 2-pin flip, kept as a one-shot until flip joins
         # the armed transform mode); the bare rotate action arms float-rotate.
         if self._key_matches(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
-            self._flip_selected()
+            self.flip_selected()
             return True
 
         if self._key_matches(inp, _ACT_ROTATE) and not ctrl:

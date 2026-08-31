@@ -2276,7 +2276,7 @@ class SelectTool(ControllerTool):
     # command methods kept here: :meth:`_clear_pivot`, :meth:`_dispatch_intent`
     # (via ``_key_to_intent``), :meth:`_cycle_relation`,
     # :meth:`_delete_selection`, :meth:`_begin_edit_selected`, :meth:`begin_redrag`,
-    # :meth:`arm_move`, :meth:`_flip_selected`, :meth:`arm_rotate`,
+    # :meth:`arm_move`, :meth:`flip_selected`, :meth:`arm_rotate`,
     # :meth:`exit_group`.  ``ControllerTool.on_key`` (do-nothing default from
     # :class:`~protoboard.controller.tools.base.ControllerTool`) covers the
     # headless/no-view case.
@@ -2310,7 +2310,7 @@ class SelectTool(ControllerTool):
             _ACT_CANCEL: self._wire_edit_clear,
             _ACT_ROTATE: self.arm_rotate,
             _ACT_MOVE: self.arm_move,
-            _ACT_FLIP: self._flip_selected,
+            _ACT_FLIP: self.flip_selected,
             _ACT_RELATION_CYCLE: self._cycle_relation,
             _ACT_RELATION_CYCLE_BACK: self._cycle_relation_back,
         }
@@ -2516,7 +2516,7 @@ class SelectTool(ControllerTool):
         return frozenset(out)
 
     @traced()
-    def _rotate_selected(self, delta: int = 90) -> None:
+    def rotate_selected(self, delta: int = 90) -> None:
         from protoboard.domain.commands.group_cmds import (
             RotateAroundPointCommand,
             RotateComponentsCommand,
@@ -2535,7 +2535,7 @@ class SelectTool(ControllerTool):
         self._notify_selection()  # refresh Properties panel rotation, etc.
 
     @traced()
-    def _flip_selected(self) -> None:
+    def flip_selected(self) -> None:
         from typing import cast
 
         from protoboard.domain.commands.base import compose_command
@@ -2574,7 +2574,7 @@ class SelectTool(ControllerTool):
 
     # -- multi rotate / flip entry points ------------------------------------
 
-    def _rotate_multi(self, delta: int = 90) -> None:
+    def rotate_multi(self, delta: int = 90) -> None:
         """Rotate the multi/loose selection (or selected group) via the controller.
 
         Target resolution (group vs loose) and the pivot are interaction state
@@ -2594,11 +2594,11 @@ class SelectTool(ControllerTool):
         self._refresh_highlight()
         self._notify_selection()  # refresh Properties panel after multi-rotate
 
-    def _flip_multi(self) -> None:
+    def flip_multi(self) -> None:
         """Flip the multi/loose selection (or selected group) via the controller.
 
         A selected group flips as a rigid body (with crossing-wire cleanup +
-        highlight refresh, the flip analogue of ``_rotate_multi``); a loose
+        highlight refresh, the flip analogue of ``rotate_multi``); a loose
         selection flips its 2-pin components in place.  The controller builds the
         commands; the tool keeps the per-branch presentation tail that the legacy
         code applied (group: status + refresh + notify; loose: none — the plain
@@ -3220,7 +3220,7 @@ class SelectTool(ControllerTool):
                 cast(str, data["side"]),
             )
         elif action == "component_side":
-            self._menu_flip_component_side(cast("uuid.UUID", data["component_id"]))
+            self.menu_flip_component_side(cast("uuid.UUID", data["component_id"]))
         elif action == "simplify_wire":
             self.simplify_wires(
                 set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
@@ -3258,7 +3258,7 @@ class SelectTool(ControllerTool):
             return
         self._session.edit_controller.set_wires_side(wire_ids, side=cast(Side, side))
 
-    def _menu_flip_component_side(self, comp_id: uuid.UUID) -> None:
+    def menu_flip_component_side(self, comp_id: uuid.UUID) -> None:
         """Move a component to the other board side (top ↔ bottom).
 
         A physical flip: :func:`flip_component_side` toggles ``side`` and shifts
@@ -3563,7 +3563,7 @@ class SelectTool(ControllerTool):
         """Select a single group as a monolith (post-create / post-merge)."""
         self._set_selection_from_ids(set(), set(), {group_id})
 
-    def _group_for_selection(self) -> uuid.UUID | None:
+    def group_for_selection(self) -> uuid.UUID | None:
         """Group the current selection: dialog to create new or add to existing.
 
         The tool owns the interaction shell — the target-picker dialog

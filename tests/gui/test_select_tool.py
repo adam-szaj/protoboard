@@ -1794,7 +1794,7 @@ class TestDragConflictOutline:
         assert rect is not None  # dashed bbox drawn for the selection
         before = (round(rect.rect().width(), 2), round(rect.rect().height(), 2))
 
-        tool._rotate_selected(delta=90)
+        tool.rotate_selected(delta=90)
         board_view.refresh()
         after = (round(rect.rect().width(), 2), round(rect.rect().height(), 2))
         # A 2-pin part's bbox swaps width/height on a 90° turn → the overlay must
@@ -2032,7 +2032,7 @@ class TestNetContext:
         tool = _v2(view)
         _click(tool, 2.5, 2.5)  # physical pad 1 → MetaPin 2 → netB
         assert tool.context_net_id == nb.id
-        tool._rotate_selected(delta=90)
+        tool.rotate_selected(delta=90)
         assert tool.context_net_id == nb.id  # context survives the rotate
 
     def test_empty_click_clears_context(self, qtbot) -> None:

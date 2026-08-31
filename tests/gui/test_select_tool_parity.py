@@ -488,7 +488,7 @@ class TestGroupedComponentProtection:
         rot0 = session.layout.placements[inst.id].rotation
         tool = _v2(board_view)
         tool.selected_component_ids = {inst.id}
-        tool._rotate_multi(delta=90)
+        tool.rotate_multi(delta=90)
         assert session.layout.placements[inst.id].rotation == rot0
 
     def test_multi_delete_filters_grouped(
@@ -516,7 +516,7 @@ class TestGroupedComponentProtection:
 
 
 class TestGroupFlipEntry:
-    """_flip_multi routes a selected group to FlipGroupCommand (rigid-body
+    """flip_multi routes a selected group to FlipGroupCommand (rigid-body
     flip folded into group.transform), mirroring the RotateGroupCommand
     dispatch — not the per-component 2-pin flip loop."""
 
@@ -528,7 +528,7 @@ class TestGroupFlipEntry:
         gid = _make_group(session, [i1.id, i2.id])
         tool = _v2(board_view)
         tool.selected_group_id = gid
-        tool._flip_multi()
+        tool.flip_multi()
         # The flip folded a reflection (det = -1) into the group transform;
         # member placements are untouched (compose-on-read seam).
         t = session.layout.groups[gid].transform
@@ -543,7 +543,7 @@ class TestGroupFlipEntry:
         gid = _make_group(session, [i1.id])
         tool = _v2(board_view)
         tool.selected_group_id = gid
-        tool._flip_multi()
+        tool.flip_multi()
         assert session.layout.groups[gid].transform.determinant() < 0
         session.stack.undo(session)  # type: ignore[arg-type]
         assert session.layout.groups[gid].transform == Transform2D.identity()
@@ -556,6 +556,6 @@ class TestGroupFlipEntry:
         i1 = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         tool.selected_component_ids = {i1.id}
-        tool._flip_multi()
+        tool.flip_multi()
         root = session.layout.groups[ROOT_GROUP_ID]
         assert root.transform.determinant() > 0

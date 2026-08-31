@@ -284,7 +284,7 @@ class TestGroupPromptHeadless:
         view.tools.set_tool(tool)
         self._select_all(tool, session)
 
-        gid = tool._group_for_selection()
+        gid = tool.group_for_selection()
         assert gid is not None
         grp = session.layout.groups[gid]
         assert grp.name == "G-headless"
@@ -300,7 +300,7 @@ class TestGroupPromptHeadless:
         view.tools.set_tool(tool)
         self._select_all(tool, session)
 
-        assert tool._group_for_selection() is None
+        assert tool.group_for_selection() is None
         assert set(session.layout.groups) == groups_before
 
 
