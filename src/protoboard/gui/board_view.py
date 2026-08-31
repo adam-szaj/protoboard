@@ -216,7 +216,6 @@ class BoardView(QGraphicsView):
         self._label_vis_timer = TimerWrap(80, self._apply_label_visibility)
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
-        session.drag_moved.connect(self._on_drag_moved)
 
     # ------------------------------------------------------------------
     # Public
@@ -378,11 +377,6 @@ class BoardView(QGraphicsView):
             )
 
     @traced()
-    def _on_drag_moved(self) -> None:
-        """Live drag (delegates to the composer; parked Qt slot)."""
-        self.notify_drag_moved()
-
-    @traced()
     def notify_drag_moved(self) -> None:
         """Update transient scene items after a controller drag step."""
         self.composer.on_drag_moved()
@@ -477,7 +471,6 @@ class BoardView(QGraphicsView):
         self.mark_board_layer_dirty()
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
-        session.drag_moved.connect(self._on_drag_moved)
         session.selection_requested.connect(self._selection_requested_slot)
         self.refresh()
 

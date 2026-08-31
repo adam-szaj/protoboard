@@ -98,7 +98,6 @@ class EditorSession(HeadlessSession, QObject):
     """
 
     layout_changed = Signal()
-    drag_moved = Signal()  # emitted on every drag step; does NOT trigger panels/DRC
     drc_changed = Signal(list)  # list[DRCIssue]
     dirty_changed = Signal(bool)
     # Carries (frozenset[UUID] comp_ids, frozenset[UUID] wire_ids, UUID|None net_id).
