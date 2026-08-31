@@ -16,6 +16,13 @@ from protoboard.controller.ports.edit_services import (
     DrcPort,
     ProjectStorePort,
 )
+from protoboard.controller.ports.routing import (
+    PathfinderPort,
+    RoutingServicePorts,
+    WireOptimizerPort,
+    WireSimplifierPort,
+    WireUnweaverPort,
+)
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.layout.wire import Wire
@@ -90,6 +97,15 @@ class _RecordingExport:
         self.kwargs = kwargs
 
 
+def _routing_ports() -> RoutingServicePorts:
+    return RoutingServicePorts(
+        pathfinder=cast(PathfinderPort, object()),
+        simplifier=cast(WireSimplifierPort, object()),
+        optimizer=cast(WireOptimizerPort, object()),
+        unweaver=cast(WireUnweaverPort, object()),
+    )
+
+
 def test_autoroute_forwards_current_project_to_injected_port(tmp_path: Path) -> None:
     from protoboard.controller.ports.edit_services import EditServicePorts
 
@@ -101,6 +117,7 @@ def test_autoroute_forwards_current_project_to_injected_port(tmp_path: Path) -> 
         drc=cast(DrcPort, object()),
         projects=cast(ProjectStorePort, object()),
         export=cast(BoardExportPort, object()),
+        routing=_routing_ports(),
     )
     controller = EditController(cast(EditingContext, session), ports)
     settings = RoutingSettings()
@@ -147,6 +164,7 @@ def test_run_drc_forwards_current_connectivity_to_injected_port() -> None:
             drc=drc,
             projects=cast(ProjectStorePort, object()),
             export=cast(BoardExportPort, object()),
+            routing=_routing_ports(),
         ),
     )
 
@@ -177,6 +195,7 @@ def test_save_forwards_current_project_to_injected_port(tmp_path: Path) -> None:
             drc=cast(DrcPort, object()),
             projects=projects,
             export=cast(BoardExportPort, object()),
+            routing=_routing_ports(),
         ),
     )
     directory = tmp_path / "project"
@@ -204,6 +223,7 @@ def test_export_forwards_current_render_state_to_injected_port(tmp_path: Path) -
             drc=cast(DrcPort, object()),
             projects=cast(ProjectStorePort, object()),
             export=exporter,
+            routing=_routing_ports(),
         ),
     )
     path = tmp_path / "board.svg"

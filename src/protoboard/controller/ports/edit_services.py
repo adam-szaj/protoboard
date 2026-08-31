@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from protoboard.controller.ports.drc import DRCIssue
+    from protoboard.controller.ports.routing import RoutingServicePorts
     from protoboard.domain.axis_labels_settings import AxisLabelSettings
     from protoboard.domain.board.board import Board
     from protoboard.domain.board.pad_state import PadIndex
@@ -93,3 +94,4 @@ class EditServicePorts:
     drc: DrcPort
     projects: ProjectStorePort
     export: BoardExportPort
+    routing: RoutingServicePorts

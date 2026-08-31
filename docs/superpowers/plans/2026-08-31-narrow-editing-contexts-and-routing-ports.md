@@ -355,13 +355,13 @@ git commit -m "refactor(controller): narrow editing helper contexts"
 - `RoutingServicePorts`: frozen bundle of the four ports.
 - `EditServicePorts.routing`: mandatory; no controller-side default.
 
-- [ ] **Step 1: Add recording-fake contract tests**
+- [x] **Step 1: Add recording-fake contract tests**
 
 Construct `RoutingServicePorts` from four recording fakes and add it to every
 `EditServicePorts` test fixture. Assert the request/result DTOs contain only
 domain/controller types and preserve wire/path order.
 
-- [ ] **Step 2: Run the port tests and verify the missing API failure**
+- [x] **Step 2: Run the port tests and verify the missing API failure**
 
 Run:
 
@@ -372,12 +372,12 @@ Run:
 Expected: FAIL because the routing port module and required bundle member do
 not exist.
 
-- [ ] **Step 3: Implement port declarations**
+- [x] **Step 3: Implement port declarations**
 
 Use `Protocol`, frozen dataclasses, `Sequence`, and `Mapping`. Do not import
 `services.routing` in this module, including under `TYPE_CHECKING`.
 
-- [ ] **Step 4: Implement concrete adapters**
+- [x] **Step 4: Implement concrete adapters**
 
 Adapters delegate exactly as follows:
 
@@ -393,7 +393,7 @@ The optimizer adapter converts service objects to `Sequence[Wire]`; the
 unweaver computes and returns both crossing counts. Preserve plugin exceptions
 for the controller caller to format as the existing status message.
 
-- [ ] **Step 5: Wire default composition and run adapter tests**
+- [x] **Step 5: Wire default composition and run adapter tests**
 
 Update `default_edit_service_ports()` and all fakes. Run:
 
@@ -405,7 +405,7 @@ Update `default_edit_service_ports()` and all fakes. Run:
 
 Expected: PASS; controller port modules contain no service import.
 
-- [ ] **Step 6: Commit routing port composition**
+- [x] **Step 6: Commit routing port composition**
 
 ```bash
 git add src/protoboard/controller/ports src/protoboard/services/editing tests/unit/test_edit_service_ports.py tests/unit/test_routing_service_ports.py

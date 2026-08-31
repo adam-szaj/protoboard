@@ -155,9 +155,14 @@ class BoardExportAdapter:
 
 
 def default_edit_service_ports() -> EditServicePorts:
+    from protoboard.services.editing.routing_adapters import (
+        default_routing_service_ports,
+    )
+
     return EditServicePorts(
         autoroute=DefaultAutorouteAdapter(),
         drc=DefaultDrcAdapter(),
         projects=YamlProjectStore(),
         export=BoardExportAdapter(),
+        routing=default_routing_service_ports(),
     )
