@@ -348,6 +348,14 @@ contains 321 source modules and 97,086 physical lines; focused view, routing,
 camera, and selection suites pass, with Ruff, Black, mypy, and diff checks
 clean. Manual real-display GUI smoke remains the only outstanding verification.
 
+The current branch was then rechecked end-to-end: 2,870 unit tests passed
+(68 skipped), 1,496 offscreen GUI tests passed (1 expected xfail and 1 known
+PySide disconnect warning), Ruff, Black, strict mypy, and Pyright are clean,
+and an offscreen application startup reached the Qt event loop without a
+traceback before the controlled timeout. No production GUI consumer accesses
+`BoardView`'s private tool or layer state, and the only remaining verification
+item is manual smoke testing with a real display server.
+
 The selection-port migration was followed by another complete unit/GUI and
 static-analysis gate with the same passing totals. The final source tree now
 contains 321 modules and 97,058 physical lines, and no production module reads
