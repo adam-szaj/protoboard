@@ -53,6 +53,20 @@ def test_set_wires_insulated() -> None:
     assert session.layout.wires.get_or_raise(wid).insulated is False
 
 
+def test_multi_wire_batch_is_one_undoable_command() -> None:
+    session = _session()
+    first = _add_mixed_wire(session)
+    second = _add_mixed_wire(session)
+
+    session.edit_controller.set_wires_insulated([first, second], insulated=False)
+    assert session.layout.wires.get_or_raise(first).insulated is False
+    assert session.layout.wires.get_or_raise(second).insulated is False
+
+    assert session.edit_controller.undo() is True
+    assert session.layout.wires.get_or_raise(first).insulated is True
+    assert session.layout.wires.get_or_raise(second).insulated is True
+
+
 def test_set_locked_locks_component() -> None:
     session = _session()
     cid = _place(session, 2.0, 2.0, "R1")

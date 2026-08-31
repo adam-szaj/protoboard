@@ -787,29 +787,20 @@ class EditController:
         The single unified builder for the "Wire: Set Insulated / Bare" op —
         both the menu-bar slot and the context-menu handler call this.
         """
-        from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import SetWireInsulatedCommand
 
         ids = list(wire_ids)
-        if not ids:
-            return
-        cmds: list[Command[ComponentState]] = [
-            cast(
-                "Command[ComponentState]",
-                SetWireInsulatedCommand(wire_id=w, insulated=insulated),
-            )
-            for w in ids
-        ]
         verb = "insulated" if insulated else "bare"
-        cmd = (
-            cmds[0]
-            if len(cmds) == 1
-            else MacroCommand(
-                cmds,
-                description=f"Set {len(cmds)} wires {verb}",
-            )
+        self._execute_batch(
+            (
+                cast(
+                    "Command[ComponentState]",
+                    SetWireInsulatedCommand(wire_id=w, insulated=insulated),
+                )
+                for w in ids
+            ),
+            description=lambda n: f"Set {n} wires {verb}",
         )
-        self._execute(cmd)
 
     def set_wires_side(self, wire_ids: Iterable[uuid.UUID], *, side: Side) -> None:
         """Flatten every wire in *wire_ids* onto *side* (explicit "Move to").
@@ -817,25 +808,19 @@ class EditController:
         The single unified builder for "Wire: Move to Top/Bottom Layer".
         Distinct verb from :meth:`flip_wires` (toggle).
         """
-        from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import SetWireSideCommand
 
         ids = list(wire_ids)
-        if not ids:
-            return
-        cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]", SetWireSideCommand(wire_id=w, side=side))
-            for w in ids
-        ]
-        cmd = (
-            cmds[0]
-            if len(cmds) == 1
-            else MacroCommand(
-                cmds,
-                description=f"Move {len(cmds)} wires to {side}",
-            )
+        self._execute_batch(
+            (
+                cast(
+                    "Command[ComponentState]",
+                    SetWireSideCommand(wire_id=w, side=side),
+                )
+                for w in ids
+            ),
+            description=lambda n: f"Move {n} wires to {side}",
         )
-        self._execute(cmd)
 
     def flip_wires(self, wire_ids: Iterable[uuid.UUID]) -> None:
         """Flip every wire in *wire_ids* by toggling each fragment's side.
@@ -844,24 +829,16 @@ class EditController:
         mixed wire is never flattened (the old ``side=None`` bug). The single
         unified builder for the "Wire: Flip to Opposite Layer" op.
         """
-        from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import FlipWireSideCommand
 
         ids = list(wire_ids)
-        if not ids:
-            return
-        cmds: list[Command[ComponentState]] = [
-            cast("Command[ComponentState]", FlipWireSideCommand(wire_id=w)) for w in ids
-        ]
-        cmd = (
-            cmds[0]
-            if len(cmds) == 1
-            else MacroCommand(
-                cmds,
-                description=f"Flip {len(cmds)} wires",
-            )
+        self._execute_batch(
+            (
+                cast("Command[ComponentState]", FlipWireSideCommand(wire_id=w))
+                for w in ids
+            ),
+            description=lambda n: f"Flip {n} wires",
         )
-        self._execute(cmd)
 
     def set_locked(self, component_ids: Iterable[uuid.UUID], *, locked: bool) -> None:
         """Set the lock flag on every component in *component_ids* as one macro.
@@ -870,30 +847,21 @@ class EditController:
         (all-locked -> unlock) stays with the caller, which passes an explicit
         *locked*.
         """
-        from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import LockComponentCommand
 
         placements = self._state.layout.placements
-        cmds: list[Command[ComponentState]] = [
-            cast(
-                "Command[ComponentState]",
-                LockComponentCommand(component_id=c, locked=locked),
-            )
-            for c in component_ids
-            if c in placements and placements[c].locked != locked
-        ]
-        if not cmds:
-            return
         verb = "Lock" if locked else "Unlock"
-        cmd = (
-            cmds[0]
-            if len(cmds) == 1
-            else MacroCommand(
-                cmds,
-                description=f"{verb} {len(cmds)} component(s)",
-            )
+        self._execute_batch(
+            (
+                cast(
+                    "Command[ComponentState]",
+                    LockComponentCommand(component_id=c, locked=locked),
+                )
+                for c in component_ids
+                if c in placements and placements[c].locked != locked
+            ),
+            description=lambda n: f"{verb} {n} component(s)",
         )
-        self._execute(cmd)
 
     def resolve_placement(
         self,
@@ -1697,6 +1665,24 @@ class EditController:
         except CommandRejectedError:
             return False
         return True
+
+    def _execute_batch(
+        self,
+        commands: Iterable[Command[ComponentState]],
+        *,
+        description: str | Callable[[int], str],
+    ) -> bool:
+        """Execute zero or more commands as one undoable operation."""
+        from protoboard.domain.commands.base import MacroCommand
+
+        items = list(commands)
+        if not items:
+            return False
+        label = description(len(items)) if callable(description) else description
+        command: Command[ComponentState] = (
+            items[0] if len(items) == 1 else MacroCommand(items, description=label)
+        )
+        return self._execute(command)
 
     def can_undo(self) -> bool:
         """Whether the command stack has an operation available to undo."""
