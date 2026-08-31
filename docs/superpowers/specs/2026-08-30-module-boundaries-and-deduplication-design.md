@@ -476,6 +476,12 @@ group validation and lookup. Rename and exported-pin updates retain their
 distinct command rules while no longer duplicating the guard pipeline; the
 focused group/action gate passes 179 tests and static checks remain clean.
 
+The resulting GUI composition was started with
+`QT_QPA_PLATFORM=offscreen uv run protoboard`; it reached the Qt event loop
+without a traceback and stopped only at the controlled timeout. The existing
+unknown-component-class plugin warnings and Qt size-hint warning remain
+non-fatal and unchanged.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
