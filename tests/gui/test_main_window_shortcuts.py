@@ -159,6 +159,7 @@ class TestActionMetadata:
         assert main_window._actions[KB.ACTION_MIRROR_H].isCheckable()
         assert main_window._actions[KB.ACTION_MIRROR_V].isCheckable()
 
+
 class TestLayerActions:
     def test_layer_actions_view_built(self, main_window: MainWindow) -> None:
         # All layer field names map into _layer_actions.
