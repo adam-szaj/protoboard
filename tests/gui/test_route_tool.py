@@ -18,19 +18,19 @@ from tests.gui.input_helpers import key_inp, pointer
 
 def _press(board_view: BoardView, x: float, y: float) -> None:
     """Simulate a left-button press at scene coordinates (x, y)."""
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert tool is not None
     tool.on_press(pointer(x, y))
 
 
 def _enter(board_view: BoardView) -> None:
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert tool is not None
     tool.on_key(_key_event(Qt.Key.Key_Return))
 
 
 def _escape(board_view: BoardView) -> None:
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert tool is not None
     tool.on_key(_key_event(Qt.Key.Key_Escape))
 
@@ -110,7 +110,7 @@ class TestRouteToolCommit:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(RouteTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, RouteTool)
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
@@ -122,7 +122,7 @@ class TestRouteToolCommit:
     ) -> None:
         """BUG 1 regression: no stale preview items after commit."""
         board_view.set_tool(RouteTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, RouteTool)
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
@@ -191,7 +191,7 @@ class TestRouteToolCancel:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(RouteTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, RouteTool)
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
@@ -204,7 +204,7 @@ class TestRouteToolCancel:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(RouteTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, RouteTool)
         _press(board_view, 0.5, 0.5)
         _escape(board_view)

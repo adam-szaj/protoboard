@@ -33,7 +33,7 @@ def _place(
     board_view: BoardView, session: EditorSession, x: float, y: float
 ) -> ComponentInstance:
     board_view.set_tool(PlaceTool("R"))
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, PlaceTool)
     tool.on_press(pointer(x, y))
     while tool._phase == "drag_pin":
@@ -43,13 +43,13 @@ def _place(
 
 def _select(board_view: BoardView) -> SelectTool:
     board_view.set_tool(SelectTool())
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, SelectTool)
     return tool
 
 
 def _armed_tool(board_view: BoardView) -> ArmedTransformTool:
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, ArmedTransformTool)
     return tool
 
@@ -141,7 +141,7 @@ def test_construct_and_activate_arms_via_controller(
     )
     board_view.set_tool(tool)
     assert session.edit_controller.armed_transform is not None
-    assert board_view._active_tool is tool
+    assert board_view.active_tool is tool
     assert tool.state == "move.float.rotate"
 
 
@@ -233,7 +233,7 @@ class TestArmedRotate:
         assert _pose(session, inst.id).rotation == (base + 180) % 360
         _key(armed, Qt.Key.Key_Escape)  # cancel — reverts, re-arms
         assert session.edit_controller.armed_transform is not None
-        assert board_view._active_tool is armed
+        assert board_view.active_tool is armed
         # Live layout never mutated: cancel leaves the original pose intact.
         assert session.layout.placements[inst.id].rotation == base
 
@@ -245,7 +245,7 @@ class TestArmedRotate:
         _key(armed, Qt.Key.Key_R)  # +90
         _key(armed, Qt.Key.Key_Return)  # accept
         assert session.edit_controller.armed_transform is not None
-        assert board_view._active_tool is armed
+        assert board_view.active_tool is armed
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
     def test_live_layout_pristine_until_accept(self, board_view, session) -> None:
@@ -314,7 +314,7 @@ class TestArmedRotate:
         assert transform.can_commit() is False
         _key(armed, Qt.Key.Key_Return)  # accept → must stay armed
         assert session.edit_controller.armed_transform is transform  # parked
-        assert board_view._active_tool is armed
+        assert board_view.active_tool is armed
         assert transform.finished is False
 
 
@@ -416,7 +416,7 @@ class TestArmedAtomic:
 
         assert ok is True
         assert session.edit_controller.armed_transform is None  # disarmed
-        assert isinstance(board_view._active_tool, SelectTool)
+        assert isinstance(board_view.active_tool, SelectTool)
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
         assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
 
@@ -449,7 +449,7 @@ class TestArmedAtomic:
         assert ok is False
         transform = session.edit_controller.armed_transform
         assert transform is not None  # parked, waiting for the user
-        assert board_view._active_tool is not select  # ArmedTransformTool active
+        assert board_view.active_tool is not select  # ArmedTransformTool active
         assert transform.finished is False
 
 

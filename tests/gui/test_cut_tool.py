@@ -54,7 +54,7 @@ def _session(rows: int = 3, cols: int = 5) -> EditorSession:
 
 
 def _click(view: BoardView, x: float, y: float) -> None:
-    tool = view._active_tool
+    tool = view.active_tool
     assert tool is not None
     tool.on_press(pointer(x, y))
 

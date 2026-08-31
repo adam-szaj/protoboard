@@ -475,11 +475,6 @@ class BoardView(QGraphicsView):
         self.tools.set_tool(tool)
 
     @property
-    def _active_tool(self) -> _Tool | None:
-        """Alias for ``tools.active_tool`` (read-only; legacy internal name)."""
-        return self.tools.active_tool
-
-    @property
     @traced()
     def keymap(self) -> KeyMap:
         """The namespaced keybindings the active tool consults for the veto."""

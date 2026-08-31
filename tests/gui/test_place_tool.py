@@ -37,7 +37,7 @@ class TestPlaceToolPlacement:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         assert len(session.layout.placements) == 1
@@ -46,7 +46,7 @@ class TestPlaceToolPlacement:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         assert len(session.instances) == 1
@@ -55,7 +55,7 @@ class TestPlaceToolPlacement:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.4, 0.4)
         placement = list(session.layout.placements.values())[0]
@@ -67,7 +67,7 @@ class TestPlaceToolPlacement:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         placement = list(session.layout.placements.values())[0]
@@ -149,7 +149,7 @@ class TestPlaceToolSmdMount:
         # The chosen SMD body → pin 2 gets a free neighbour ring (the eight pads
         # around pin 1), so the tool enters the two-phase drag.
         view.set_tool(PlaceTool("R", package_variant="chip-smd/imperial/0805"))
-        tool = view._active_tool
+        tool = view.active_tool
         assert isinstance(tool, PlaceTool)
         specs = tool._bend_specs(view._session.components["R"])
         assert list(specs.keys()) == [2]
@@ -162,7 +162,7 @@ class TestPlaceToolSmdMount:
         # bendable lead — the SMD fix must not turn axial parts rigid.
         view = self._builtin_view(session)
         view.set_tool(PlaceTool("R", package_variant="r-tht/DIN/0207"))
-        tool = view._active_tool
+        tool = view.active_tool
         assert isinstance(tool, PlaceTool)
         specs = tool._bend_specs(view._session.components["R"])
         assert any(s.is_free() for s in specs.values())
@@ -174,7 +174,7 @@ class TestPlaceToolSmdMount:
         # default candy disc. The two variants must give different ghost bodies.
         view = self._builtin_view(session)
         view.set_tool(PlaceTool("R", package_variant="chip-smd/imperial/0805"))
-        smd_tool = view._active_tool
+        smd_tool = view.active_tool
         assert isinstance(smd_tool, PlaceTool)
         smd_tool._rebuild_ghost()
         smd_preview = smd_tool.preview
@@ -183,7 +183,7 @@ class TestPlaceToolSmdMount:
         smd_rect = smd_preview.ghost_item.boundingRect()
 
         view.set_tool(PlaceTool("R", package_variant="r-tht/DIN/0207"))
-        axial_tool = view._active_tool
+        axial_tool = view.active_tool
         assert isinstance(axial_tool, PlaceTool)
         axial_tool._rebuild_ghost()
         axial_preview = axial_tool.preview
@@ -206,13 +206,13 @@ class TestPlaceToolSmdMount:
 
         view = self._builtin_view(session)
         view.set_tool(PlaceTool("R", package_variant="chip-smd/imperial/0805"))
-        smd = view._active_tool
+        smd = view.active_tool
         assert isinstance(smd, PlaceTool)
         smd._anchor_pos = Point(5.0, 5.0)
         smd_base = smd._pin_baseline_world(2)
 
         view.set_tool(PlaceTool("R", package_variant="r-tht/DIN/0207"))
-        axial = view._active_tool
+        axial = view.active_tool
         assert isinstance(axial, PlaceTool)
         axial._anchor_pos = Point(5.0, 5.0)
         axial_base = axial._pin_baseline_world(2)
@@ -227,7 +227,7 @@ class TestPlaceToolSmdMount:
         # The SMD second terminal is movable → placing it is a two-phase drag.
         name = self._add_smd_def(session)
         board_view.set_tool(PlaceTool(name))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         tool.on_press(pointer(1, 1))
         assert tool._phase == "drag_pin"
@@ -241,7 +241,7 @@ class TestPlaceToolSmdMount:
 
         name = self._add_smd_def(session)
         board_view.set_tool(PlaceTool(name))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
 
         def press(x: float, y: float) -> None:
@@ -281,7 +281,7 @@ class TestPlaceToolSmdMount:
         # the ring).
         view = self._builtin_view(session)
         view.set_tool(PlaceTool("R"))  # default axial footprint
-        tool = view._active_tool
+        tool = view.active_tool
         assert isinstance(tool, PlaceTool)
         # Sanity: both axial leads are free → bendable {1, 2}.
         defn = view._session.components["R"]
@@ -306,7 +306,7 @@ class TestPlaceToolUndo:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         assert len(session.layout.placements) == 1
@@ -318,7 +318,7 @@ class TestPlaceToolUndo:
     ) -> None:
         """BUG 6 regression: undo must also remove instance from session.instances."""
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         assert len(session.instances) == 1
@@ -329,7 +329,7 @@ class TestPlaceToolUndo:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         session.stack.undo(cast(ComponentState, session))
@@ -342,7 +342,7 @@ class TestPlaceToolRotation:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _key_r(tool)
         assert tool._rotation == 90
@@ -351,7 +351,7 @@ class TestPlaceToolRotation:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         for _ in range(4):
             _key_r(tool)
@@ -361,7 +361,7 @@ class TestPlaceToolRotation:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _key_r(tool)
         _left_click(tool, 0.5, 0.5)
@@ -381,7 +381,7 @@ class TestPlaceToolKeymap:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         assert tool.wants_key(_key_event(Qt.Key.Key_R)) is True  # rotate CW
         assert (
@@ -397,7 +397,7 @@ class TestPlaceToolKeymap:
         # Rebind the global rotate from "R" to "K"; PlaceTool inherits it.
         board_view.keymap.set_override("global.action.rotate_cw", "K")
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         assert tool.wants_key(_key_event(Qt.Key.Key_R)) is False
         assert tool.wants_key(_key_event(Qt.Key.Key_K)) is True
@@ -411,7 +411,7 @@ class TestPlaceToolRefdes:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         inst = list(session.instances.values())[0]
@@ -421,7 +421,7 @@ class TestPlaceToolRefdes:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         _left_click(tool, 2.5, 0.5)
@@ -441,7 +441,7 @@ class TestPlaceToolInitialValue:
         # The default fixture's R has no default_value field → falls
         # back to defn.name="R".
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         inst = list(session.instances.values())[0]
@@ -459,7 +459,7 @@ class TestPlaceToolInitialValue:
         defn = session.components["R"]
         session.components["R"] = _dc.replace(defn, default_value="?")
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         inst = list(session.instances.values())[0]
@@ -477,7 +477,7 @@ class TestPlacementPromptSeam:
         prompts: PlacementPrompts | None = None,
     ) -> None:
         board_view.set_tool(PlaceTool("R", prompts=prompts))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, x, y)
 

@@ -97,7 +97,7 @@ class TestToolManagement:
     ) -> None:
         tool = SelectTool()
         board_view.set_tool(tool)
-        assert board_view._active_tool is tool
+        assert board_view.active_tool is tool
 
     def test_set_tool_deactivates_previous(
         self, board_view: BoardView, session: EditorSession
@@ -115,7 +115,7 @@ class TestToolManagement:
     def test_set_tool_none_clears_active(self, board_view: BoardView) -> None:
         board_view.set_tool(SelectTool())
         board_view.set_tool(None)
-        assert board_view._active_tool is None
+        assert board_view.active_tool is None
 
     def test_layout_changed_triggers_refresh(
         self, board_view: BoardView, session: EditorSession, qtbot: QtBot
@@ -315,7 +315,7 @@ class TestShortcutsHelp:
         from protoboard.gui.tools.gui_tools import PlaceTool
 
         board_view.set_tool(PlaceTool("R"))
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, PlaceTool)
         before = tool._rotation
         # Dispatching the rotate action by id, through the Controller facade

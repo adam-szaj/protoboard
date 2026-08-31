@@ -33,7 +33,7 @@ def _press(
     shift: bool = False,
     button: Qt.MouseButton = Qt.MouseButton.LeftButton,
 ) -> None:
-    tool = view._active_tool
+    tool = view.active_tool
     assert tool is not None
     mods = (
         Qt.KeyboardModifier.ShiftModifier if shift else Qt.KeyboardModifier.NoModifier
@@ -42,7 +42,7 @@ def _press(
 
 
 def _key(view: BoardView, key: Qt.Key) -> None:
-    tool = view._active_tool
+    tool = view.active_tool
     assert tool is not None
     tool.on_key(key_inp(key))
 
@@ -75,7 +75,7 @@ class TestSimplifyToolDraft:
     ) -> None:
         wid = _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         assert tool._draft_wire_id == wid
@@ -96,7 +96,7 @@ class TestSimplifyToolDraft:
         # Plain LPM (no Shift) → SelectTool behaviour (select), no draft.
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5)
         assert tool._draft_path is None
@@ -109,7 +109,7 @@ class TestSimplifyToolDraft:
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         assert tool._draft_path is not None
@@ -124,7 +124,7 @@ class TestSimplifyToolDraft:
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         assert tool._draft_path is not None
@@ -139,7 +139,7 @@ class TestSimplifyToolDraft:
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         assert _draft_items(tool)
@@ -178,7 +178,7 @@ class TestSimplifyToolApply:
     ) -> None:
         _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         _press(board_view, 2.5, 0.5, shift=True)
@@ -220,7 +220,7 @@ class TestSimplifyToolApply:
         session.layout_changed.emit()
 
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)  # draft for wid_a
         assert tool._draft_wire_id == wid_a
@@ -255,7 +255,7 @@ class TestSimplifyToolNoopWire:
         session.invalidate_graph()
         session.layout_changed.emit()
         board_view.set_tool(SimplifyTool())
-        tool = board_view._active_tool
+        tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 1.5, 1.5, shift=True)
         assert tool._draft_path is None

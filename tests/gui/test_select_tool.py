@@ -38,7 +38,7 @@ def _place(
     board_view: BoardView, session: EditorSession, x: float, y: float
 ) -> ComponentInstance:
     board_view.set_tool(PlaceTool("R"))
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, PlaceTool)
     tool.on_press(pointer(x, y))
     while tool._phase == "drag_pin":
@@ -85,7 +85,7 @@ def _key(
 
 def _v2(board_view: BoardView) -> SelectTool:
     board_view.set_tool(SelectTool())
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, SelectTool)
     return tool
 
@@ -95,7 +95,7 @@ def _wire_edit_after_handoff(board_view: BoardView) -> WireEditTool:
     (Task-8 swap: the fragment edit moved out of SelectTool)."""
     from protoboard.gui.tools.gui_tools import WireEditTool
 
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, WireEditTool)
     return tool
 
@@ -428,7 +428,7 @@ class TestRotate:
         _key(tool, Qt.Key.Key_R)  # arm → active tool is now ArmedTransformTool
         assert session.edit_controller.armed_transform is not None
         assert session.layout.placements[inst.id].rotation == before  # not yet
-        _key(board_view._active_tool, Qt.Key.Key_R)  # step +90
+        _key(board_view.active_tool, Qt.Key.Key_R)  # step +90
         # Float pose is in the preview; the live layout stays pristine mid-gesture.
         assert _pose(session, inst.id).rotation == (before + 90) % 360
         assert session.layout.placements[inst.id].rotation == before
@@ -447,7 +447,7 @@ class TestRotate:
         _press(tool, 3.0, 3.0)  # capture pivot away from the part
         assert tool._rotate_pivot is not None
         _key(tool, Qt.Key.Key_R)  # arm (seeds pivot from the captured point)
-        armed = board_view._active_tool
+        armed = board_view.active_tool
         _key(armed, Qt.Key.Key_R)  # step
         after = _pose(session, inst.id).position
         assert (after.x, after.y) != (before.x, before.y)
@@ -1233,7 +1233,7 @@ class TestWireEdit:
         assert cmd.target_side == "top"
         # Task-8 swap: flip STAYS armed (re-armed on the mutated wire's span).
         assert we._wire_edit is not None
-        assert view._active_tool is we
+        assert view.active_tool is we
         # The conductor stays one wire, now multi-fragment (a via boundary).
         flipped = next(iter(session.layout.wires))
         assert flipped.id == wire.id
@@ -1264,7 +1264,7 @@ class TestWireEdit:
         assert isinstance(cmd, ReplaceWireFragmentsCommand)
         # Task-8 swap: reroute STAYS armed (re-armed on the mutated wire).
         assert we._wire_edit is not None
-        assert view._active_tool is we
+        assert view.active_tool is we
 
     def test_w_reroute_undo_restores(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -1303,7 +1303,7 @@ class TestWireEdit:
             session.stack._undo[-1], RemoveWireCommand  # type: ignore[attr-defined]
         )
         # Delete is the one op that EXITS: control returns to the SelectTool.
-        assert isinstance(view._active_tool, SelectTool)
+        assert isinstance(view.active_tool, SelectTool)
 
     def test_del_partial_cuts_into_halves(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -1337,7 +1337,7 @@ class TestWireEdit:
         _click(tool, 2.5, 1.5)  # same vertex again -> degenerate pick
 
         # No handoff: still the SelectTool.
-        assert isinstance(view._active_tool, SelectTool)
+        assert isinstance(view.active_tool, SelectTool)
         assert msgs[-1] == "Wire edit: pick two different vertices on one wire."
 
     def test_esc_on_clean_fragment_exits_no_command(self, qtbot) -> None:
@@ -1358,7 +1358,7 @@ class TestWireEdit:
         assert we.can_exit() is True  # clean fragment -> host Esc exits
         we._exit()  # the host's escape_to_select path
 
-        assert isinstance(view._active_tool, SelectTool)
+        assert isinstance(view.active_tool, SelectTool)
         assert _depth(session) == depth
 
     def test_esc_during_reroute_returns_to_fragment(self, qtbot) -> None:
@@ -2447,7 +2447,7 @@ class TestNetRelation:
         _key(we, Qt.Key.Key_A)
         assert we._wire_edit is not None
         assert we._selection.active_pick is None
-        assert view._active_tool is we
+        assert view.active_tool is we
 
 
 class TestSelectionBroadcastOnClick:

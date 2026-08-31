@@ -63,7 +63,7 @@ def _place(
     board_view: BoardView, session: EditorSession, x: float, y: float
 ) -> ComponentInstance:
     board_view.set_tool(PlaceTool("R"))
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, PlaceTool)
     tool.on_press(pointer(x, y))
     while tool._phase == "drag_pin":
@@ -82,7 +82,7 @@ def _press(
 
 def _v2(board_view: BoardView) -> SelectTool:
     board_view.set_tool(SelectTool())
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, SelectTool)
     return tool
 

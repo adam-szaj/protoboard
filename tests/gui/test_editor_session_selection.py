@@ -26,7 +26,7 @@ from protoboard.gui.tools.gui_tools import SelectTool
 def _activate_select(board_view: BoardView) -> SelectTool:
     """Activate a SelectTool so the session's SelectionService is parked."""
     board_view.set_tool(SelectTool())
-    tool = board_view._active_tool
+    tool = board_view.active_tool
     assert isinstance(tool, SelectTool)
     return tool
 

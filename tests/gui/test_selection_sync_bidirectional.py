@@ -137,7 +137,7 @@ def _add_net_with_pin(
 
 def _select_tool(mw: MainWindow) -> SelectTool:
     mw._tool_select()
-    tool = mw._board_view._active_tool
+    tool = mw._board_view.active_tool
     assert isinstance(tool, SelectTool)
     return tool
 

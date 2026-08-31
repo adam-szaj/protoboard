@@ -427,6 +427,11 @@ passed, 1 expected xfail) remain green; Ruff, Black, strict mypy, Pyright, and
 `git diff --check` are clean. The only outstanding verification is the manual
 GUI smoke test on a real display.
 
+The same cleanup removed the obsolete `BoardView._active_tool` alias and
+migrated its GUI tests to the existing `active_tool` port. The targeted GUI
+regression set (267 tests) and all static checks remain green; no production or
+test caller now depends on that legacy surface.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
