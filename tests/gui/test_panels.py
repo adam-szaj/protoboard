@@ -382,7 +382,6 @@ class TestLibraryPanelBodyPicker:
 
         assert isinstance(tmp_path, Path)
         assert isinstance(monkeypatch, _pytest.MonkeyPatch)
-        monkeypatch.setattr(recent_footprints, "_CONFIG_DIR", tmp_path)
         monkeypatch.setattr(
             recent_footprints,
             "_RECENT_FILE",

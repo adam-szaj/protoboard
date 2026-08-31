@@ -13,7 +13,6 @@ from protoboard.gui import recent_footprints
 @pytest.fixture(autouse=True)
 def _isolate_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Redirect the persisted file into a tmp dir so tests don't touch ~/.config.
-    monkeypatch.setattr(recent_footprints, "_CONFIG_DIR", tmp_path)
     monkeypatch.setattr(
         recent_footprints, "_RECENT_FILE", tmp_path / "recent_footprints.json"
     )

@@ -21,8 +21,8 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from protoboard.paths import CONFIG_DIR as _CONFIG_DIR
 from protoboard.paths import RECENT_KIND_VARIANTS_FILE as _RECENT_FILE
+from protoboard.services.persistence.recent_store import RecentStore
 
 _MAX = 10
 
@@ -44,28 +44,36 @@ def _canonical(values: Mapping[str, object]) -> str | None:
         return None
 
 
+def _decode(raw: object) -> RecentKindVariant | None:
+    if (
+        isinstance(raw, dict)
+        and isinstance(raw.get("kind"), str)
+        and isinstance(raw.get("values"), dict)
+        and isinstance(raw.get("label"), str)
+    ):
+        return RecentKindVariant(
+            kind=raw["kind"], values=dict(raw["values"]), label=raw["label"]
+        )
+    return None
+
+
+def _store() -> RecentStore[RecentKindVariant]:
+    return RecentStore(
+        path=_RECENT_FILE,
+        max_entries=_MAX,
+        decode=_decode,
+        encode=lambda entry: {
+            "kind": entry.kind,
+            "values": entry.values,
+            "label": entry.label,
+        },
+        key=lambda entry: (entry.kind, _canonical(entry.values)),
+    )
+
+
 def load() -> list[RecentKindVariant]:
     """Return the recently-built kind variants, most recent first."""
-    try:
-        data = json.loads(_RECENT_FILE.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return []
-    out: list[RecentKindVariant] = []
-    for item in data if isinstance(data, list) else []:
-        if (
-            isinstance(item, dict)
-            and isinstance(item.get("kind"), str)
-            and isinstance(item.get("values"), dict)
-            and isinstance(item.get("label"), str)
-        ):
-            out.append(
-                RecentKindVariant(
-                    kind=item["kind"],
-                    values=dict(item["values"]),
-                    label=item["label"],
-                )
-            )
-    return out
+    return _store().load()
 
 
 def add(kind: str, values: Mapping[str, object], label: str) -> None:
@@ -78,20 +86,4 @@ def add(kind: str, values: Mapping[str, object], label: str) -> None:
     key = _canonical(values)
     if key is None:
         return
-    existing = [e for e in load() if (e.kind, _canonical(e.values)) != (kind, key)]
-    entry = RecentKindVariant(kind=kind, values=dict(values), label=label)
-    updated = ([entry] + existing)[:_MAX]
-    try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _RECENT_FILE.write_text(
-            json.dumps(
-                [
-                    {"kind": e.kind, "values": e.values, "label": e.label}
-                    for e in updated
-                ],
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    _store().add(RecentKindVariant(kind=kind, values=dict(values), label=label))

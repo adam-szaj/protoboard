@@ -9,11 +9,10 @@ first. GUI/services only — the domain never sees this.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
-from protoboard.paths import CONFIG_DIR as _CONFIG_DIR
 from protoboard.paths import RECENT_FOOTPRINTS_FILE as _RECENT_FILE
+from protoboard.services.persistence.recent_store import RecentStore
 
 _MAX = 20
 
@@ -27,28 +26,38 @@ class RecentFootprint:
     label: str
 
 
+def _decode(raw: object) -> RecentFootprint | None:
+    if (
+        isinstance(raw, dict)
+        and isinstance(raw.get("definition_ref"), str)
+        and isinstance(raw.get("address"), str)
+        and isinstance(raw.get("label"), str)
+    ):
+        return RecentFootprint(
+            definition_ref=raw["definition_ref"],
+            address=raw["address"],
+            label=raw["label"],
+        )
+    return None
+
+
+def _store() -> RecentStore[RecentFootprint]:
+    return RecentStore(
+        path=_RECENT_FILE,
+        max_entries=_MAX,
+        decode=_decode,
+        encode=lambda entry: {
+            "definition_ref": entry.definition_ref,
+            "address": entry.address,
+            "label": entry.label,
+        },
+        key=lambda entry: (entry.definition_ref, entry.address),
+    )
+
+
 def load() -> list[RecentFootprint]:
     """Return the recently-used footprints, most recent first."""
-    try:
-        data = json.loads(_RECENT_FILE.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return []
-    out: list[RecentFootprint] = []
-    for item in data if isinstance(data, list) else []:
-        if (
-            isinstance(item, dict)
-            and isinstance(item.get("definition_ref"), str)
-            and isinstance(item.get("address"), str)
-            and isinstance(item.get("label"), str)
-        ):
-            out.append(
-                RecentFootprint(
-                    definition_ref=item["definition_ref"],
-                    address=item["address"],
-                    label=item["label"],
-                )
-            )
-    return out
+    return _store().load()
 
 
 def add(definition_ref: str, address: str, label: str) -> None:
@@ -57,26 +66,4 @@ def add(definition_ref: str, address: str, label: str) -> None:
     Deduped by ``(definition_ref, address)`` and truncated to the most recent
     :data:`_MAX` entries. Silent on I/O failure (a missing list is not fatal).
     """
-    entry = RecentFootprint(definition_ref, address, label)
-    existing = [
-        e for e in load() if (e.definition_ref, e.address) != (definition_ref, address)
-    ]
-    updated = ([entry] + existing)[:_MAX]
-    try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _RECENT_FILE.write_text(
-            json.dumps(
-                [
-                    {
-                        "definition_ref": e.definition_ref,
-                        "address": e.address,
-                        "label": e.label,
-                    }
-                    for e in updated
-                ],
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    _store().add(RecentFootprint(definition_ref, address, label))

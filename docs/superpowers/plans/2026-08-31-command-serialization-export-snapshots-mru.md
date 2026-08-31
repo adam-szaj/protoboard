@@ -130,11 +130,11 @@ git commit -m "refactor(export): centralize snapshot construction"
 - Writes use a same-directory temporary file followed by `os.replace`; all read/write failures return an empty history or leave the previous file intact.
 - Existing module-level `load`/`add` functions and dataclasses remain available to GUI callers.
 
-- [ ] **Step 1: Add failing store tests**
+- [x] **Step 1: Add failing store tests**
 
 Cover malformed root JSON, invalid entries, stable most-recent-first ordering, key-based deduplication, max-entry truncation, non-serializable values, and preserving the old file when an atomic write fails.
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
 Run:
 ```bash
@@ -142,11 +142,11 @@ Run:
 ```
 Expected: FAIL because `RecentStore` does not exist.
 
-- [ ] **Step 3: Implement and migrate adapters**
+- [x] **Step 3: Implement and migrate adapters**
 
 Implement `RecentStore` without GUI imports. Adapt footprint, kind-variant, and project modules through typed encode/decode/key functions created from their existing dataclasses and path rules. Keep module constants dynamic so existing tests that monkeypatch configuration paths remain valid; retain project-path existence filtering after generic loading.
 
-- [ ] **Step 4: Verify MRU behaviour and static checks**
+- [x] **Step 4: Verify MRU behaviour and static checks**
 
 Run:
 ```bash
@@ -156,7 +156,7 @@ Run:
 ```
 Expected: all old and new MRU tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/protoboard/services/persistence/recent_store.py src/protoboard/gui/recent_footprints.py src/protoboard/gui/recent_kind_variants.py src/protoboard/gui/recent_projects.py tests/unit/test_recent_store.py tests/unit/test_recent_footprints.py tests/gui/test_footprint_picker_dialog.py

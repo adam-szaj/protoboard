@@ -3,17 +3,22 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from protoboard.paths import (
-    CONFIG_DIR as _CONFIG_DIR,
-)
-from protoboard.paths import (
-    RECENT_PROJECTS_FILE as _RECENT_FILE,
-)
+from protoboard.paths import RECENT_PROJECTS_FILE as _RECENT_FILE
+from protoboard.services.persistence.recent_store import RecentStore
 
 _MAX = 10
+
+
+def _store() -> RecentStore[Path]:
+    return RecentStore(
+        path=_RECENT_FILE,
+        max_entries=_MAX,
+        decode=lambda raw: Path(raw) if isinstance(raw, str) else None,
+        encode=str,
+        key=lambda path: path,
+    )
 
 
 def load() -> list[Path]:
@@ -21,25 +26,9 @@ def load() -> list[Path]:
 
     Entries that no longer exist on disk are silently dropped.
     """
-    try:
-        data = json.loads(_RECENT_FILE.read_text(encoding="utf-8"))
-        paths = [Path(p) for p in data if isinstance(p, str)]
-    except Exception:  # noqa: BLE001
-        paths = []
-    return [p for p in paths if p.exists()]
+    return [path for path in _store().load() if path.exists()]
 
 
 def add(path: Path) -> None:
     """Prepend *path* to the recent list and persist it."""
-    existing = load()
-    # Remove duplicates, prepend new entry, truncate.
-    updated = [path] + [p for p in existing if p != path]
-    updated = updated[:_MAX]
-    try:
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _RECENT_FILE.write_text(
-            json.dumps([str(p) for p in updated], indent=2),
-            encoding="utf-8",
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    _store().add(path)
