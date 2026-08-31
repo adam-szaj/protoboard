@@ -12,10 +12,9 @@ from pathlib import Path
 # Allowed values for drag soft-conflict resolution preferences.  Any
 # value outside this set in the YAML falls back to the dataclass
 # default — protects against typos cementing into a broken state.
-# Single source of truth lives in protoboard.controller.editing.drag_preferences;
-# this re-export keeps the legacy private name working.
+# Single source of truth lives in protoboard.controller.editing.drag_preferences.
 from protoboard.controller.editing.drag_preferences import (  # noqa: E402
-    DRAG_CONFLICT_VALUES as _DRAG_CONFLICT_VALUES,
+    DRAG_CONFLICT_VALUES,
 )
 from protoboard.paths import APP_SETTINGS_FILE as _CONFIG_PATH
 
@@ -153,7 +152,7 @@ def load_app_settings() -> AppSettings:
                 ("cross_group_disconnect", "drag_cross_group_disconnect"),
             ):
                 v = drag.get(yaml_key)
-                if isinstance(v, str) and v in _DRAG_CONFLICT_VALUES:
+                if isinstance(v, str) and v in DRAG_CONFLICT_VALUES:
                     setattr(s, attr_name, v)
             lock = drag.get("default_lock_internal_wires")
             if isinstance(lock, bool):
