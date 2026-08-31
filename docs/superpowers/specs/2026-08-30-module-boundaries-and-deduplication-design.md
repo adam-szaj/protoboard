@@ -261,6 +261,12 @@ adapter. The tree now contains 320 source modules and 97,145 physical lines;
 the layer-boundary gate and 49 focused rendering tests pass. No compatibility
 alias for the removed GUI module remains.
 
+The following checkpoint moved the shared Qt-geometry and net-colour adapters
+to `services.rendering`. The tree contains 321 source modules and 97,165
+physical lines; 48 focused export/colour tests pass, and the remaining four
+`services.export.paint` imports are the renderer-kernel work still scheduled
+for this workstream.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
