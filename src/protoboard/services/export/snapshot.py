@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import LayerOverrides
@@ -34,11 +34,29 @@ if TYPE_CHECKING:
     from protoboard.domain.components.package import PackageFamily
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.gui.session import EditorSession
 
 
 CameraSide = Literal["top", "bottom"]
 ViewTransform = Literal["normal", "mirror_h", "mirror_v", "mirror_hv"]
+
+
+class SnapshotSession(Protocol):
+    """Minimal live-session surface required to capture an export snapshot."""
+
+    board: Board
+    components: dict[str, ComponentDefinition]
+    instances: dict[uuid.UUID, ComponentInstance]
+    schematic: Schematic
+    package_families: dict[str, PackageFamily]
+    layer_overrides: LayerOverrides
+
+    @property
+    def layout(self) -> Layout: ...
+
+    @property
+    def routing_net_id(self) -> uuid.UUID | None: ...
+
+    def pad_index(self) -> PadIndex: ...
 
 
 @dataclass(frozen=True)
@@ -71,7 +89,7 @@ class BoardSnapshot:
     @classmethod
     def from_session(
         cls,
-        session: EditorSession,
+        session: SnapshotSession,
         *,
         canonical: bool = True,
         theme: Theme | None = None,

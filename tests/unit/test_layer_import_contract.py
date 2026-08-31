@@ -96,6 +96,12 @@ def test_services_do_not_import_gui_layer_state() -> None:
     assert not offenders, f"services import GUI-owned LayerState: {offenders}"
 
 
+def test_export_snapshot_uses_a_structural_session_contract() -> None:
+    path = SRC / "services/export/snapshot.py"
+    modules = [module for _lineno, module in _imported_modules(path)]
+    assert "protoboard.gui.session" not in modules
+
+
 def test_group_queries_use_group_tree_without_legacy_shims() -> None:
     group_path = SRC / "domain/layout/group.py"
     group_tree = ast.parse(
