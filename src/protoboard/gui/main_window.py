@@ -2021,13 +2021,11 @@ class MainWindow(QMainWindow):
         session = self._session
         tool._selected_ids = set(session.layout.placements.keys())
         tool._selected_wire_ids = {w.id for w in session.layout.wires}
-        tool._redraw_multi_highlights()
-        tool._redraw_multi_wire_highlights()
+        tool._refresh_highlight()
         _log.info(
             "select_all.applied",
             n_components=len(tool._selected_ids),
             n_wires=len(tool._selected_wire_ids),
-            n_multi_highlight_items=len(tool._multi_highlights),
         )
 
     def _deselect_all(self) -> None:
@@ -2045,7 +2043,7 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         tool._selected_ids = set(self._session.layout.placements.keys())
-        tool._redraw_multi_highlights()
+        tool._refresh_highlight()
 
     def _deselect_all_components(self) -> None:
         """Deselect all components, keep wire selection unchanged."""
@@ -2061,7 +2059,7 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         tool._selected_wire_ids = {w.id for w in self._session.layout.wires}
-        tool._redraw_multi_wire_highlights()
+        tool._refresh_highlight()
 
     def _deselect_all_wires(self) -> None:
         """Deselect all wires, keep component selection unchanged."""

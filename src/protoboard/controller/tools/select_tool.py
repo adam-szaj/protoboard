@@ -747,22 +747,6 @@ class SelectTool(ControllerTool):
         self._refresh_highlight()
         self._notify_selection()
 
-    def _redraw_multi_highlights(self) -> None:
-        self._refresh_highlight()
-
-    def _redraw_multi_wire_highlights(self) -> None:
-        self._refresh_highlight()
-
-    @property
-    def _multi_highlights(self) -> list[object]:
-        """Legacy: selection-highlight overlay items.
-
-        v2 renders the highlight through the ``HighlightStack`` (BoardView
-        owns the items), not as tool-local overlay items.  Returned empty so
-        the one legacy reader (a debug-log count) stays valid.
-        """
-        return []
-
     def _notify_selection(self) -> None:
         """Broadcast the current selection to all panels via the session signal."""
         if self._session is None:
