@@ -391,6 +391,11 @@ The selection-presentation pass then exposed `SelectTool.select_primary()` and
 focused selection/synchronisation gate passes 134 tests; the source tree is at
 96,968 physical lines.
 
+The full selection-port migration was revalidated end-to-end: 2,870 unit tests
+passed (68 skipped), 1,495 offscreen GUI tests passed (1 expected xfail and 1
+known PySide disconnect warning), and Ruff, Black, strict mypy, Pyright, and
+`git diff --check` are clean. The branch remains at 96,968 source lines.
+
 The latest idiom pass also centralised effective wire-selection assembly for
 properties, simplify, unweave, and merge actions. The current source tree has
 96,963 physical lines; the focused wire-flow gate passes 111 tests. The full
