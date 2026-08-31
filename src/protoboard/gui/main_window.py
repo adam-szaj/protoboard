@@ -1095,7 +1095,7 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        tool._flip_selected_wires()
+        tool.flip_selected_wires()
 
     def _wire_edit_action(self) -> None:
         """Menu entry for wire-edit — delegates to the active SelectTool.
@@ -1929,7 +1929,7 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        tool._move_selected_wires_to_side(side)
+        tool.move_selected_wires_to_side(side)
 
     def _disconnect_pin(self) -> None:
         """Disconnect pin — shows submenu if SelectTool has a component selected."""
@@ -3265,7 +3265,7 @@ class MainWindow(QMainWindow):
         if not wire_ids:
             self._status.showMessage("Simplify: select a wire first.", 3000)
             return
-        tool._simplify_wires(wire_ids)
+        tool.simplify_wires(wire_ids)
 
     def _unweave_selected_wires(self) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
@@ -3274,7 +3274,7 @@ class MainWindow(QMainWindow):
         if len(wire_ids) < 2:
             self._status.showMessage("Unweave: select at least 2 wires.", 3000)
             return
-        tool._unweave_wires(wire_ids)
+        tool.unweave_wires(wire_ids)
 
     def _merge_wires_action(self) -> None:
         """User-triggered merge: fuse touching wires + collapse same-side fragments.
@@ -3293,4 +3293,4 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool() or self._select_tool
         wire_ids = self._get_selected_wire_ids(tool)
         scope = frozenset(wire_ids) if wire_ids else None
-        tool._merge_wires_and_fragments(scope)
+        tool.merge_wires_and_fragments(scope)

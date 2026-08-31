@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Input preparation for the user-triggered wire operations (simplify).
 
-The legacy ``SelectTool._simplify_wires`` hand-built four lookup structures
+The former ``SelectTool.simplify_wires`` hand-built four lookup structures
 inline before launching the simplify worker: every pin position, a pad → net
 map, the union of board pads, and a wire → net map.  Several of those predate
 the session-level caches (``cached_wire_net_map``, :class:`PadIndex`) and

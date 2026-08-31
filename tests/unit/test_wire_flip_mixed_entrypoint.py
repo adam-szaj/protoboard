@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
 """Whole-wire flip of a mixed wire toggles per fragment (regression for cd01742 sibling bug).
 
-Before this fix, ``select_tool._move_selected_wires_to_side(None)`` read a
+Before this fix, ``select_tool.move_selected_wires_to_side(None)`` read a
 stale ``wire.side`` snapshot to decide the flip target, then built a
 flatten ``SetWireSideCommand`` — collapsing a mixed ``[top,bottom,top]`` wire
 to all-bottom instead of toggling each fragment. The fix splits the method
-into a move-only ``_move_selected_wires_to_side(side: str)`` and a new
-``_flip_selected_wires()`` that delegates to ``EditController.flip_wires``
+into a move-only ``move_selected_wires_to_side(side: str)`` and a new
+``flip_selected_wires()`` that delegates to ``EditController.flip_wires``
 (fragment-wise toggle, never flattens).
 """  # noqa: E501
 
@@ -89,7 +89,7 @@ def test_whole_wire_flip_mixed_stays_mixed(
     before = [f.side for f in session.layout.wires.get_or_raise(wid).fragments]
     assert before == ["top", "bottom", "top"]  # precondition
 
-    tool._flip_selected_wires()  # new whole-wire flip entry
+    tool.flip_selected_wires()  # new whole-wire flip entry
 
     after = [f.side for f in session.layout.wires.get_or_raise(wid).fragments]
     assert after == ["bottom", "top", "bottom"]  # toggled, NOT flattened
@@ -100,7 +100,7 @@ def test_move_to_side_still_flattens(
 ) -> None:
     session, tool, wid = session_with_mixed_wire
 
-    tool._move_selected_wires_to_side("bottom")
+    tool.move_selected_wires_to_side("bottom")
 
     sides = {f.side for f in session.layout.wires.get_or_raise(wid).fragments}
     assert sides == {"bottom"}

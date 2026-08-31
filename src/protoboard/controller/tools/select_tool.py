@@ -3222,7 +3222,7 @@ class SelectTool(ControllerTool):
         elif action == "component_side":
             self._menu_flip_component_side(cast("uuid.UUID", data["component_id"]))
         elif action == "simplify_wire":
-            self._simplify_wires(
+            self.simplify_wires(
                 set(cast("frozenset[uuid.UUID]", data["wire_ids"])),
                 mode_override=cast("str | None", data["mode"]),
             )
@@ -3232,9 +3232,9 @@ class SelectTool(ControllerTool):
                 cast(str, data["optimizer"]),
             )
         elif action == "unweave_wires":
-            self._unweave_wires(set(cast("frozenset[uuid.UUID]", data["wire_ids"])))
+            self.unweave_wires(set(cast("frozenset[uuid.UUID]", data["wire_ids"])))
         elif action == "merge_wire_fragments":
-            self._merge_wires_and_fragments(
+            self.merge_wires_and_fragments(
                 frozenset(cast("frozenset[uuid.UUID]", data["wire_ids"]))
             )
         elif action == "endpoint_to_wire_pin":
@@ -3527,11 +3527,11 @@ class SelectTool(ControllerTool):
                 return True
         return False
 
-    def _move_selected_wires_to_side(self, target_side: str) -> None:
+    def move_selected_wires_to_side(self, target_side: str) -> None:
         """Flatten all selected whole wires onto *target_side* (explicit Move).
 
         "Wire: Move to Top/Bottom Layer". The per-fragment toggle flip is
-        :meth:`_flip_selected_wires`; the per-fragment [F] op is WireEditTool's.
+        :meth:`flip_selected_wires`; the per-fragment [F] op is WireEditTool's.
         """
         from typing import cast
 
@@ -3545,7 +3545,7 @@ class SelectTool(ControllerTool):
         )
         self._status(f"Moved {len(wire_ids)} wire(s) to {target_side} layer.")
 
-    def _flip_selected_wires(self) -> None:
+    def flip_selected_wires(self) -> None:
         """Flip all selected whole wires by toggling each fragment's side.
 
         Mixed wires stay mixed (inverted) — no flatten, no "different layers"
@@ -3634,7 +3634,7 @@ class SelectTool(ControllerTool):
     # :func:`build_simplify_inputs` (it used to be inline bloat predating the
     # session caches); unweave/merge read session state directly.
 
-    def _simplify_wires(
+    def simplify_wires(
         self,
         wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
         *,
@@ -3710,7 +3710,7 @@ class SelectTool(ControllerTool):
             return
         self._commit_wire_macro(cmds, f"Simplify {len(cmds)} wire(s)")
 
-    def _unweave_wires(self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]) -> None:
+    def unweave_wires(self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
         from typing import cast
 
@@ -3813,7 +3813,7 @@ class SelectTool(ControllerTool):
             )
         return frag_cmds, n_fragment_wires, n_fragments_removed
 
-    def _merge_wires_and_fragments(self, wire_ids: frozenset[uuid.UUID] | None) -> None:
+    def merge_wires_and_fragments(self, wire_ids: frozenset[uuid.UUID] | None) -> None:
         """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
         from typing import cast
 

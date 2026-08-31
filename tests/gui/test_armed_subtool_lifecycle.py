@@ -110,7 +110,7 @@ class TestWholeWireVsFragmentSimplifyParity:
     whole-wire full-span builder's command, not merely a re-run of the builder.
 
     Scope note: the select-mode context-menu "Simplify wire" entry
-    (``SelectTool._simplify_wires``) is a SEPARATE, worker-backed path that
+    (``SelectTool.simplify_wires``) is a SEPARATE, worker-backed path that
     uses ``generic_simplify_wire`` + ``replace_wire_path_cmd`` — a different
     builder (cross-wire aware, multi-wire) that does NOT emit a
     ``ReplaceWireFragmentsCommand``.  A byte-identical comparison against it is
