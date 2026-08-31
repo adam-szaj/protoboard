@@ -670,17 +670,71 @@ class SelectTool(ControllerTool):
     @property
     def _selected_id(self) -> uuid.UUID | None:
         """The primary component id (first selected component), or None."""
+        return self.primary_component_id
+
+    def _primary_id(self, kind: str) -> uuid.UUID | None:
+        """Return the first selected id with the requested hit kind."""
         if self._selection is None:
             return None
         for sel in self._selection.selected():
             hit = sel.to_hit()
-            if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+            if hit.kind == kind and isinstance(hit.id, uuid.UUID):
                 return hit.id
         return None
 
     @property
-    def _selected_ids(self) -> set[uuid.UUID]:
+    def selected_component_ids(self) -> set[uuid.UUID]:
+        """Selected component ids exposed to GUI composition code."""
         return self._selected_by_kind("component")
+
+    @selected_component_ids.setter
+    def selected_component_ids(self, value: set[uuid.UUID]) -> None:
+        self._set_selection_from_ids(
+            set(value), self._selected_by_kind("wire"), self._selected_group_ids
+        )
+
+    @property
+    def selected_wire_ids(self) -> set[uuid.UUID]:
+        """Selected wire ids exposed to GUI composition code."""
+        return self._selected_by_kind("wire")
+
+    @selected_wire_ids.setter
+    def selected_wire_ids(self, value: set[uuid.UUID]) -> None:
+        self._set_selection_from_ids(
+            self._selected_by_kind("component"), set(value), self._selected_group_ids
+        )
+
+    @property
+    def selected_group_ids(self) -> set[uuid.UUID]:
+        """Selected group ids exposed to GUI composition code."""
+        return self._selected_by_kind("group")
+
+    @property
+    def primary_component_id(self) -> uuid.UUID | None:
+        """Primary selected component id, if any."""
+        return self._primary_id("component")
+
+    @property
+    def primary_wire_id(self) -> uuid.UUID | None:
+        """Primary selected wire id, if any."""
+        return self._primary_id("wire")
+
+    @property
+    def selected_group_id(self) -> uuid.UUID | None:
+        """Primary selected group id, if any."""
+        return self._primary_id("group")
+
+    @selected_group_id.setter
+    def selected_group_id(self, value: uuid.UUID | None) -> None:
+        self._set_selection_from_ids(
+            self._selected_by_kind("component"),
+            self._selected_by_kind("wire"),
+            {value} if value is not None else set(),
+        )
+
+    @property
+    def _selected_ids(self) -> set[uuid.UUID]:
+        return self.selected_component_ids
 
     @_selected_ids.setter
     def _selected_ids(self, value: set[uuid.UUID]) -> None:
@@ -690,7 +744,7 @@ class SelectTool(ControllerTool):
 
     @property
     def _selected_wire_ids(self) -> set[uuid.UUID]:
-        return self._selected_by_kind("wire")
+        return self.selected_wire_ids
 
     @_selected_wire_ids.setter
     def _selected_wire_ids(self, value: set[uuid.UUID]) -> None:
@@ -700,19 +754,15 @@ class SelectTool(ControllerTool):
 
     @property
     def _selected_group_ids(self) -> set[uuid.UUID]:
-        return self._selected_by_kind("group")
+        return self.selected_group_ids
 
     @property
     def _selected_group_id(self) -> uuid.UUID | None:
-        return next(iter(self._selected_group_ids), None)
+        return self.selected_group_id
 
     @_selected_group_id.setter
     def _selected_group_id(self, value: uuid.UUID | None) -> None:
-        self._set_selection_from_ids(
-            self._selected_by_kind("component"),
-            self._selected_by_kind("wire"),
-            {value} if value is not None else set(),
-        )
+        self.selected_group_id = value
 
     def _select_primary(self, comp_id: uuid.UUID) -> None:
         """Set *comp_id* as the sole (primary) selection and broadcast it.
@@ -2114,11 +2164,7 @@ class SelectTool(ControllerTool):
 
     @property
     def _selected_wire_id(self) -> uuid.UUID | None:
-        for sel in self._selection.selected():
-            hit = sel.to_hit()
-            if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
-                return hit.id
-        return None
+        return self.primary_wire_id
 
     def _range_progress(self, picked: list[Selectable]) -> None:
         """Repaint the overlay as the two range vertices come in."""

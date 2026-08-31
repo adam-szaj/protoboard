@@ -1018,9 +1018,9 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         selected: set[uuid.UUID] = set()
         if tool is not None:
-            selected.update(tool._selected_ids)
-            if tool._selected_id is not None:
-                selected.add(tool._selected_id)
+            selected.update(tool.selected_component_ids)
+            if tool.primary_component_id is not None:
+                selected.add(tool.primary_component_id)
 
         if selected:
             comp_ids = [
@@ -1857,10 +1857,10 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         targets: set[uuid.UUID] = set()
-        if tool._selected_ids:
-            targets.update(tool._selected_ids)
-        if tool._selected_id is not None:
-            targets.add(tool._selected_id)
+        if tool.selected_component_ids:
+            targets.update(tool.selected_component_ids)
+        if tool.primary_component_id is not None:
+            targets.add(tool.primary_component_id)
         if not targets:
             self._status.showMessage("Nothing selected to lock.", 3000)
             return
@@ -1881,18 +1881,18 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        if tool._selected_ids:
+        if tool.selected_component_ids:
             tool._rotate_multi(delta=90)
-        elif tool._selected_id is not None:
+        elif tool.primary_component_id is not None:
             tool._rotate_selected(delta=90)
 
     def _rotate_ccw(self) -> None:
         tool = self._get_select_tool()
         if tool is None:
             return
-        if tool._selected_ids:
+        if tool.selected_component_ids:
             tool._rotate_multi(delta=-90)
-        elif tool._selected_id is not None:
+        elif tool.primary_component_id is not None:
             tool._rotate_selected(delta=-90)
 
     def _rotate_around_point(self) -> None:
@@ -1905,9 +1905,9 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        if tool._selected_ids:
+        if tool.selected_component_ids:
             tool._flip_multi()
-        elif tool._selected_id is not None:
+        elif tool.primary_component_id is not None:
             tool._flip_selected()
 
     def _move_component_to_side(self) -> None:
@@ -1915,9 +1915,9 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        targets = set(tool._selected_ids)
-        if tool._selected_id is not None:
-            targets.add(tool._selected_id)
+        targets = set(tool.selected_component_ids)
+        if tool.primary_component_id is not None:
+            targets.add(tool.primary_component_id)
         for cid in targets:
             tool._menu_flip_component_side(cid)
 
@@ -1934,18 +1934,18 @@ class MainWindow(QMainWindow):
 
     def _redrag_pins(self) -> None:
         tool = self._get_select_tool()
-        if tool is None or tool._selected_id is None:
+        if tool is None or tool.primary_component_id is None:
             return
-        tool._start_redrag(tool._selected_id)
+        tool._start_redrag(tool.primary_component_id)
 
     def _get_selected_wire_ids(self) -> set[uuid.UUID]:
         """Collect effective wire selection (multi + primary single)."""
         tool = self._get_select_tool()
         if tool is None:
             return set()
-        ids: set[uuid.UUID] = set(tool._selected_wire_ids)
-        if tool._selected_wire_id is not None:
-            ids.add(tool._selected_wire_id)
+        ids: set[uuid.UUID] = set(tool.selected_wire_ids)
+        if tool.primary_wire_id is not None:
+            ids.add(tool.primary_wire_id)
         return ids
 
     def _set_selected_wire_insulated(self, insulated: bool) -> None:
@@ -1970,7 +1970,7 @@ class MainWindow(QMainWindow):
     def _disconnect_pin(self) -> None:
         """Disconnect pin — shows submenu if SelectTool has a component selected."""
         tool = self._get_select_tool()
-        comp_id = tool._selected_id if tool is not None else None
+        comp_id = tool.primary_component_id if tool is not None else None
         if comp_id is None:
             self._status.showMessage("Select a component first", 2000)
             return
@@ -2019,13 +2019,13 @@ class MainWindow(QMainWindow):
             _log.info("select_all.no_tool")
             return
         session = self._session
-        tool._selected_ids = set(session.layout.placements.keys())
-        tool._selected_wire_ids = {w.id for w in session.layout.wires}
+        tool.selected_component_ids = set(session.layout.placements.keys())
+        tool.selected_wire_ids = {w.id for w in session.layout.wires}
         tool._refresh_highlight()
         _log.info(
             "select_all.applied",
-            n_components=len(tool._selected_ids),
-            n_wires=len(tool._selected_wire_ids),
+            n_components=len(tool.selected_component_ids),
+            n_wires=len(tool.selected_wire_ids),
         )
 
     def _deselect_all(self) -> None:
@@ -2042,7 +2042,7 @@ class MainWindow(QMainWindow):
         tool = self._ensure_select_tool()
         if tool is None:
             return
-        tool._selected_ids = set(self._session.layout.placements.keys())
+        tool.selected_component_ids = set(self._session.layout.placements.keys())
         tool._refresh_highlight()
 
     def _deselect_all_components(self) -> None:
@@ -2058,7 +2058,7 @@ class MainWindow(QMainWindow):
         tool = self._ensure_select_tool()
         if tool is None:
             return
-        tool._selected_wire_ids = {w.id for w in self._session.layout.wires}
+        tool.selected_wire_ids = {w.id for w in self._session.layout.wires}
         tool._refresh_highlight()
 
     def _deselect_all_wires(self) -> None:
@@ -2074,7 +2074,9 @@ class MainWindow(QMainWindow):
         if not isinstance(tool, SelectTool):
             return
         # Require at least one component selected (single or multi).
-        has_selection = bool(tool._selected_ids) or tool._selected_id is not None
+        has_selection = (
+            bool(tool.selected_component_ids) or tool.primary_component_id is not None
+        )
         if not has_selection:
             self._status.showMessage("Select at least one component to group", 2000)
             return
@@ -2091,17 +2093,17 @@ class MainWindow(QMainWindow):
 
         group_id: uuid.UUID | None = None
         if (
-            tool._selected_group_id is not None
-            and tool._selected_group_id in self._session.layout.groups
+            tool.selected_group_id is not None
+            and tool.selected_group_id in self._session.layout.groups
         ):
             # User clicked a group outline — disband that group.
-            group_id = tool._selected_group_id
+            group_id = tool.selected_group_id
         elif len(tool._group_stack) > 1:
             # User double-clicked into a subgroup — disband the active subgroup.
             group_id = tool._current_group_id
         else:
             # Fall back: find a group that wholly contains the selected components.
-            selected = tool._selected_ids
+            selected = tool.selected_component_ids
             for gid, grp in self._session.layout.groups.items():
                 if gid == ROOT_GROUP_ID:
                     continue
@@ -2116,8 +2118,8 @@ class MainWindow(QMainWindow):
         if len(tool._group_stack) > 1 and tool._group_stack[-1] == group_id:
             tool._group_stack.pop()
         # Clear selected_group_id if it pointed at the disbanded group.
-        if tool._selected_group_id == group_id:
-            tool._selected_group_id = None
+        if tool.selected_group_id == group_id:
+            tool.selected_group_id = None
         self._session.mark_dirty()
         self._board_view.refresh()
         self._update_undo_redo()
@@ -2143,8 +2145,8 @@ class MainWindow(QMainWindow):
         tool = self._board_view._active_tool
         board_selected_ids: set[uuid.UUID] = set()
         if isinstance(tool, SelectTool):
-            board_selected_ids = tool._selected_ids or (
-                {tool._selected_id} if tool._selected_id else set()
+            board_selected_ids = tool.selected_component_ids or (
+                {tool.primary_component_id} if tool.primary_component_id else set()
             )
         if board_selected_ids:
             # Collect nets for all pins of selected components.
@@ -3295,9 +3297,9 @@ class MainWindow(QMainWindow):
         # subclasses with their own selection state, and the user's wire
         # picks live there, not in the permanent _select_tool fallback.
         tool = self._get_select_tool() or self._select_tool
-        wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
-        if tool._selected_wire_id is not None:
-            wire_ids.add(tool._selected_wire_id)
+        wire_ids: set[uuid.UUID] = set(tool.selected_wire_ids)
+        if tool.primary_wire_id is not None:
+            wire_ids.add(tool.primary_wire_id)
         if not wire_ids:
             self._status.showMessage("Simplify: select a wire first.", 3000)
             return
@@ -3306,9 +3308,9 @@ class MainWindow(QMainWindow):
     def _unweave_selected_wires(self) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
         tool = self._get_select_tool() or self._select_tool
-        wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
-        if tool._selected_wire_id is not None:
-            wire_ids.add(tool._selected_wire_id)
+        wire_ids: set[uuid.UUID] = set(tool.selected_wire_ids)
+        if tool.primary_wire_id is not None:
+            wire_ids.add(tool.primary_wire_id)
         if len(wire_ids) < 2:
             self._status.showMessage("Unweave: select at least 2 wires.", 3000)
             return
@@ -3329,8 +3331,8 @@ class MainWindow(QMainWindow):
         merged result.
         """
         tool = self._get_select_tool() or self._select_tool
-        wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
-        if tool._selected_wire_id is not None:
-            wire_ids.add(tool._selected_wire_id)
+        wire_ids: set[uuid.UUID] = set(tool.selected_wire_ids)
+        if tool.primary_wire_id is not None:
+            wire_ids.add(tool.primary_wire_id)
         scope = frozenset(wire_ids) if wire_ids else None
         tool._merge_wires_and_fragments(scope)
