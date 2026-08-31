@@ -106,6 +106,12 @@ def test_export_paint_uses_service_rendering_helpers() -> None:
     path = SRC / "services/export/paint.py"
     modules = [module for _lineno, module in _imported_modules(path)]
     assert "protoboard.gui.renderers.net_color" not in modules
+    forbidden = {
+        "protoboard.gui.renderers.board_renderer",
+        "protoboard.gui.renderers.pin_pad_renderer",
+        "protoboard.gui.renderers.wire_renderer",
+    }
+    assert not forbidden.intersection(modules)
 
 
 def test_group_queries_use_group_tree_without_legacy_shims() -> None:

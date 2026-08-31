@@ -35,7 +35,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.renderers.wire_renderer import (
+from protoboard.services.rendering.wire_renderer import (
     _lines_between_islands,
     _lines_within_island,
     render_ratsnest,

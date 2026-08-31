@@ -27,7 +27,10 @@ from protoboard.controller.view_options.layer_state import (
 )
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.geometry import Point
-from protoboard.gui.renderers.wire_renderer import WireSceneGroup, update_wire_groups_v2
+from protoboard.services.rendering.wire_renderer import (
+    WireSceneGroup,
+    update_wire_groups_v2,
+)
 
 
 @pytest.fixture

@@ -28,9 +28,9 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.gui.panels.properties_panel import _package_pin_detail_label
-from protoboard.gui.renderers.board_renderer import build_pad_net_map
 from protoboard.gui.renderers.component_renderer import _compact_package_pin_label
-from protoboard.gui.renderers.wire_renderer import _placed_pin_positions
+from protoboard.services.rendering.board_renderer import build_pad_net_map
+from protoboard.services.rendering.wire_renderer import _placed_pin_positions
 from protoboard.services.routing.autorouter import _build_pin_positions
 
 

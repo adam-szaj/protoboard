@@ -77,7 +77,7 @@ class TestRefresh:
         # display list has the expected primitives after a refresh.
         board_view.refresh()
         board_view.paint._ensure_bg_cache()
-        from protoboard.gui.renderers.board_renderer import BoardDisplayList
+        from protoboard.services.rendering.board_renderer import BoardDisplayList
 
         assert isinstance(board_view.paint._bg_display_list, BoardDisplayList)
         # 5×5 = 25 pads expected for the test fixture board.

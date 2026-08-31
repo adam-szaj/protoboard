@@ -26,26 +26,26 @@ from protoboard.domain.layout.pin_pad_classification import (
     classify_pin_pads,
 )
 from protoboard.geometry import Insets
-from protoboard.gui.renderers.board_renderer import (
-    build_pad_net_map,
-    render_board,
-)
 from protoboard.gui.renderers.component_renderer import (
     render_components,
     render_groups,
 )
-from protoboard.gui.renderers.pin_pad_renderer import (
+from protoboard.services.export.snapshot import BoardSnapshot
+from protoboard.services.rendering.board_renderer import (
+    build_pad_net_map,
+    render_board,
+)
+from protoboard.services.rendering.net_color import build_net_color_map
+from protoboard.services.rendering.pin_pad_renderer import (
     render_pin_modifiers,
     render_pin_pads,
 )
-from protoboard.gui.renderers.wire_renderer import (
+from protoboard.services.rendering.qt_geometry import to_qrectf
+from protoboard.services.rendering.wire_renderer import (
     render_ratsnest,
     render_wire_pins,
     render_wires_with_nets,
 )
-from protoboard.services.export.snapshot import BoardSnapshot
-from protoboard.services.rendering.net_color import build_net_color_map
-from protoboard.services.rendering.qt_geometry import to_qrectf
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:

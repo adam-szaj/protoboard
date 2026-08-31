@@ -25,13 +25,13 @@ from protoboard.gui.renderers.component_renderer import (
     render_groups,
     update_component_groups,
 )
-from protoboard.gui.renderers.wire_renderer import (
-    render_ratsnest,
-    update_wire_groups_v2,
-)
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.qt_geometry import to_qrectf
+from protoboard.services.rendering.wire_renderer import (
+    render_ratsnest,
+    update_wire_groups_v2,
+)
 from protoboard.services.routing.net_status import routed_net_ids
 
 if TYPE_CHECKING:
@@ -352,7 +352,7 @@ class SceneComposer:
     ) -> None:
         """Wire-pin glyphs — rebuilt from scratch each refresh (tiny set)."""
         from protoboard.domain.layout.knot import WirePinKnot
-        from protoboard.gui.renderers.wire_renderer import render_wire_pins
+        from protoboard.services.rendering.wire_renderer import render_wire_pins
 
         wire_pins: list[tuple[Point, uuid.UUID | None]] = [
             (k.position, k.net_id)
@@ -442,7 +442,7 @@ class SceneComposer:
             from protoboard.domain.layout.pin_pad_classification import (
                 classify_pin_pads,
             )
-            from protoboard.gui.renderers.pin_pad_renderer import (
+            from protoboard.services.rendering.pin_pad_renderer import (
                 render_pin_pads,
             )
 
@@ -570,7 +570,7 @@ class SceneComposer:
             self._pin_modifier_items = []
             return
         try:
-            from protoboard.gui.renderers.pin_pad_renderer import (
+            from protoboard.services.rendering.pin_pad_renderer import (
                 render_pin_modifiers,
             )
 

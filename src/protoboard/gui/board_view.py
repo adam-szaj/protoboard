@@ -56,13 +56,13 @@ from protoboard.gui.paint_pipeline import PaintPipeline  # noqa: E402
 from protoboard.gui.qt_executor import QtExecutor  # noqa: E402
 from protoboard.gui.qt_help_overlay import QtHelpOverlay  # noqa: E402
 from protoboard.gui.qt_viewport import QtViewport  # noqa: E402
-from protoboard.gui.renderers.board_renderer import BOARD_BG  # noqa: E402
 from protoboard.gui.scene_composer import SceneComposer  # noqa: E402
 from protoboard.gui.session import EditorSession  # noqa: E402
 from protoboard.gui.tool_host import ToolHost  # noqa: E402
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX  # noqa: E402
 from protoboard.gui.view_camera import ViewCamera  # noqa: E402
 from protoboard.instrumentation.debug_trace import traced  # noqa: E402
+from protoboard.services.rendering.board_renderer import BOARD_BG  # noqa: E402
 
 
 class BoardView(QGraphicsView):

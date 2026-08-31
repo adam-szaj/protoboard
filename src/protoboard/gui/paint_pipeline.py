@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view import BoardView
-    from protoboard.gui.renderers.board_renderer import BoardDisplayList
+    from protoboard.services.rendering.board_renderer import BoardDisplayList
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -417,7 +417,7 @@ class PaintPipeline:
         if self._bg_display_list is None:
             from dataclasses import replace as _dc_replace
 
-            from protoboard.gui.renderers.board_renderer import (
+            from protoboard.services.rendering.board_renderer import (
                 build_board_display_list,
                 build_pad_net_map,
             )
@@ -453,7 +453,7 @@ class PaintPipeline:
             )
 
         # Allocate a fresh pixmap matching the viewport device size.
-        from protoboard.gui.renderers.board_renderer import paint_board
+        from protoboard.services.rendering.board_renderer import paint_board
 
         pix = QPixmap(vp_size)
         pix.fill(Qt.GlobalColor.transparent)
