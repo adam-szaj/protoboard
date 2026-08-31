@@ -610,9 +610,8 @@ class SelectTool(ControllerTool):
 
     def _clear_free_pad_ring(self) -> None:
         """Tell BoardView to drop the clicked-free-pad ring (no-op headless)."""
-        setter = getattr(self._view, "set_clicked_free_pad", None)
-        if setter is not None:
-            setter(None)
+        if self._view is not None:
+            self._view.set_clicked_free_pad(None)
 
     def _primary_selectable(self) -> Selectable | None:
         if self._selection is None:
@@ -1340,10 +1339,9 @@ class SelectTool(ControllerTool):
     def _update_wire_ghosting(self, decision: DragAnalysis | None) -> None:
         """Dim wires the current drop would remove ("drop") or tear apart
         ("disconnect"); reset any previously-ghosted wire that no longer
-        qualifies.  No-op when BoardView lacks the setter (headless test)."""
+        qualifies."""
         view = self._view
-        setter = getattr(view, "set_wire_drag_state", None)
-        if setter is None:
+        if view is None:
             return
         states: dict[uuid.UUID, str] = {}
         if decision is not None:
@@ -1359,7 +1357,7 @@ class SelectTool(ControllerTool):
         for wid in self._ghosted_wire_ids - set(states):
             states[wid] = "normal"
         if states:
-            setter(states)
+            view.set_wire_drag_state(states)
         self._ghosted_wire_ids = {wid for wid, st in states.items() if st != "normal"}
 
     def _show_conflict_corner(self, decision: DragAnalysis | None) -> None:
@@ -1384,10 +1382,10 @@ class SelectTool(ControllerTool):
             self._overlays.clear()
         # Restore any ghost-dimmed wires to full opacity (the CLEAR-decision tick
         # and every drag-end path route through here).
-        if self._ghosted_wire_ids:
-            setter = getattr(self._view, "set_wire_drag_state", None)
-            if setter is not None:
-                setter({wid: "normal" for wid in self._ghosted_wire_ids})
+        if self._ghosted_wire_ids and self._view is not None:
+            self._view.set_wire_drag_state(
+                {wid: "normal" for wid in self._ghosted_wire_ids}
+            )
             self._ghosted_wire_ids = set()
 
     def _build_drag_set(self, sel: Selectable) -> DragSet:
@@ -2799,9 +2797,8 @@ class SelectTool(ControllerTool):
                     4000,
                 )
         # Drive the ring: position when a free pad was clicked, else clear it.
-        setter = getattr(self._view, "set_clicked_free_pad", None)
-        if setter is not None:
-            setter(free_pos)
+        if self._view is not None:
+            self._view.set_clicked_free_pad(free_pos)
 
     def _menu_clicked_pin(self, scene_pt: Point, comp_id: uuid.UUID) -> int | None:
         """Pin number of *comp_id* nearest the click (within a pad pitch), else
