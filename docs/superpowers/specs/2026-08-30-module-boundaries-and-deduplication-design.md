@@ -302,6 +302,14 @@ wrapper from selection and simplify tools. The focused base/tool regression
 suite passes 121 tests; the complete gates above remain applicable to this
 behaviour-preserving change.
 
+The next boundary checkpoint removed controller-tool access to
+`_ViewProto.window()`. `SelectTool` and `RouteTool` now receive explicit GUI
+callbacks for parameterized menu actions and route-option persistence; only the
+GUI composition layer binds those callbacks to window services. The tree has
+321 source modules and 97,103 physical lines, and the focused callback/tool
+suite passes 166 tests. The controller view protocol no longer exposes the
+top-level window.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.

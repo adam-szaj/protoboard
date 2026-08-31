@@ -244,31 +244,16 @@ presets, and simplify mode live under `domain/routing/`. Cross-layer tracing
 and call counting live under the dependency-neutral `instrumentation/`
 package. Plugin discovery and metadata merging remain application services.
 
-## Known layer violations (as of 2026-08)
+## Remaining cross-layer edges
 
-These are real edges in the runtime import graph that invert the declared
-"services below GUI" direction. Flagged for visibility, not necessarily bugs —
-several move Qt-free DTOs, following an established precedent.
+The AST import contract now reports no `services → gui` imports and no service
+imports of controller implementations (`editing`, `selection`, or `tools`).
+Services do import the explicitly allowlisted `controller.ports` and
+`controller.view_options` DTOs; these are stable contracts, not use-case
+implementations. Controller tools do not expose or inspect a top-level GUI
+window; GUI composition binds window callbacks to their explicit ports.
 
-1. **services → gui (upward), runtime imports**
-   - `services/persistence/project_yaml.py` → `gui.layer_state`
-     (`LayerOverrides`, `LayerVisibility`)
-   - `services/export/{snapshot,paint,png,pdf,svg}.py` → `gui.{layer_state,
-     renderers}` (export drives the GUI renderers to rasterise). `Theme` is no
-     longer part of this violation — `gui/theme.py` moved to
-     `controller/theme.py`, so export now imports `controller.theme` directly.
-
-2. **services → controller (upward, concrete dependencies)**
-   - `services/drag_detector.py` → `controller.tools.drag_commit_decision`
-     (`DragCommitDecision`, a Qt-free DTO).
-   - `services/export/*` → `controller.theme`.
-   These remain candidates for explicit ports or neutral value modules in a
-   later workstream.
-
-3. **gui → services (downward, legitimate)**
+The following GUI → services edges are downward and legitimate:
    - `gui/scene_composer.py` → `services.routing.net_status.routed_net_ids`.
      This is the declared direction (GUI consuming a service), listed only for
      completeness.
-
-> These reflect what was true at the time of writing. Before acting on any of
-> them, re-check the file still imports what's claimed.
