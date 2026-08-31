@@ -330,6 +330,8 @@ and 1 known PySide disconnect warning), and Ruff, Black, strict mypy, and
 Pyright report no issues. An offscreen application startup reached the Qt event
 loop without a traceback and ended only at the controlled timeout. A real
 display-backed GUI smoke test is still the sole unexecuted verification item.
+The property gate was also rerun and passed all 3 selected tests (4,448
+deselected).
 
 Within those workstreams, the order is:
 
