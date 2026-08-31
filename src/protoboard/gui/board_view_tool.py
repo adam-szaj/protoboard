@@ -189,6 +189,10 @@ class AbstractBoardView(Protocol):
         """All pad centres of the current board (cached)."""
         ...
 
+    def notify_drag_moved(self) -> None:
+        """Update transient scene items after a controller drag step."""
+        ...
+
     # -- scene / camera -------------------------------------------------------
 
     def refresh(self) -> None:

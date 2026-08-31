@@ -1326,18 +1326,15 @@ class SelectTool(ControllerTool):
         the live conflict decision (``None`` when the drag is cancelled).  We do
         two things, both keyed *only* on the current decision so nothing lingers:
 
-        * emit ``session.drag_moved`` so :meth:`BoardView._on_drag_moved`
-          translates the dragged scene items to follow the cursor without a full
-          rebuild — the visual feedback that was missing;
+        * notify the view so it translates the dragged scene items to follow the
+          cursor without a full rebuild — the visual feedback that was missing;
         * show a corner label while the drop is conflicting (SOFT amber / HARD
           red) and **hide it the instant the drop is CLEAR again**, so the frame
           can't stick after the cursor leaves the conflict zone.
         """
         # 1) Glide the dragged items to their current (already-mutated) layout
         #    positions.  _on_drag_moved reads layout.placements / wires directly.
-        # GUI-only Qt signal (see the highlight_mode_changed note above) —
-        # absent from the Qt-free EditingContext protocol; deferred (docs/todo.md).
-        self._session.drag_moved.emit()  # type: ignore[attr-defined]  # pyright: ignore[reportAttributeAccessIssue]
+        self._view.notify_drag_moved()
 
         # 2) Conflict label + outline colour — cleared whenever the drop is clear.
         self._show_conflict_corner(decision)

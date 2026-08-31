@@ -380,6 +380,11 @@ class BoardView(QGraphicsView):
     @traced()
     def _on_drag_moved(self) -> None:
         """Live drag (delegates to the composer; parked Qt slot)."""
+        self.notify_drag_moved()
+
+    @traced()
+    def notify_drag_moved(self) -> None:
+        """Update transient scene items after a controller drag step."""
         self.composer.on_drag_moved()
 
     @traced()

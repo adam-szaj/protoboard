@@ -328,6 +328,9 @@ class HeadlessBoardView:
     def set_clicked_free_pad(self, pos: Point | None) -> None:
         self.clicked_free_pads.append(pos)
 
+    def notify_drag_moved(self) -> None:
+        pass
+
     def set_wire_drag_state(self, states: dict[uuid.UUID, str]) -> None:
         self.wire_drag_states.append(states)
 
