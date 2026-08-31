@@ -179,7 +179,7 @@ class SceneComposer:
             raster_pitch_mm=session.board.raster_pitch_mm,
             package_families=session.package_families,
         )
-        from protoboard.gui.renderers.net_color import build_net_color_map
+        from protoboard.services.rendering.net_color import build_net_color_map
 
         # Resolved per-net colour: manual ``net.color`` wins, then static
         # palette, then golden-ratio hue spin once palette is exhausted.

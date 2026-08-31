@@ -521,7 +521,7 @@ def build_pad_net_map(
 
     The colour honours manual ``net.color`` overrides via
     *net_color_map* (typically computed by
-    :func:`protoboard.gui.renderers.net_color.build_net_color_map`).
+    :func:`protoboard.services.rendering.net_color.build_net_color_map`).
     If *net_color_map* is omitted, a fresh one is built from *schematic*
     using *theme* as the palette source.
 
@@ -540,7 +540,7 @@ def build_pad_net_map(
     )
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
-    from protoboard.gui.renderers.net_color import build_net_color_map
+    from protoboard.services.rendering.net_color import build_net_color_map
 
     pin_to_net: dict[PinRef, uuid.UUID] = {}
     nets = getattr(schematic, "nets", None)

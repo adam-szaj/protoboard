@@ -275,7 +275,7 @@ class NetsEditorPanel(QWidget):
         # or golden-ratio extension) so the panel shows exactly what the
         # board renderer paints — not just the manual override.
         from protoboard.controller.view_options.theme import DEFAULT_THEME
-        from protoboard.gui.renderers.net_color import build_net_color_map
+        from protoboard.services.rendering.net_color import build_net_color_map
 
         theme = getattr(self._session, "theme", DEFAULT_THEME) or DEFAULT_THEME
         effective = build_net_color_map(self._session.schematic.nets, theme=theme)

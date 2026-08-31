@@ -34,7 +34,6 @@ from protoboard.gui.renderers.component_renderer import (
     render_components,
     render_groups,
 )
-from protoboard.gui.renderers.net_color import build_net_color_map
 from protoboard.gui.renderers.pin_pad_renderer import (
     render_pin_modifiers,
     render_pin_pads,
@@ -45,6 +44,7 @@ from protoboard.gui.renderers.wire_renderer import (
     render_wires_with_nets,
 )
 from protoboard.services.export.snapshot import BoardSnapshot
+from protoboard.services.rendering.net_color import build_net_color_map
 from protoboard.services.rendering.qt_geometry import to_qrectf
 from protoboard.services.routing.net_status import routed_net_ids
 

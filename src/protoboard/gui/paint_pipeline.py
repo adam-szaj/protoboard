@@ -431,7 +431,7 @@ class PaintPipeline:
             )
             # Reuse the same resolved colour map the wire renderer uses,
             # so a wire and the pad it lands on share an identical colour.
-            from protoboard.gui.renderers.net_color import build_net_color_map
+            from protoboard.services.rendering.net_color import build_net_color_map
 
             pad_color_map = build_net_color_map(
                 session.schematic.nets,
