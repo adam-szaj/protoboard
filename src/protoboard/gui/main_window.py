@@ -1866,7 +1866,7 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        tool._begin_rotate_around_point()
+        tool.begin_rotate_around_point()
 
     def _flip_selection(self) -> None:
         tool = self._get_select_tool()
@@ -1903,7 +1903,7 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None or tool.primary_component_id is None:
             return
-        tool._start_redrag(tool.primary_component_id)
+        tool.begin_redrag(tool.primary_component_id)
 
     def _get_selected_wire_ids(self) -> set[uuid.UUID]:
         """Collect effective wire selection (multi + primary single)."""

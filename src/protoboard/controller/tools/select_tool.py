@@ -2572,13 +2572,7 @@ class SelectTool(ControllerTool):
         self._execute(cmd)
         self._notify_selection()  # refresh Properties panel after flip
 
-    # -- legacy multi rotate / flip / redrag entry points -------------------
-    #
-    # ``main_window`` branches on the selection shape: a multi/loose set goes
-    # through ``_rotate_multi`` / ``_flip_multi`` (group-aware + group-locked
-    # filter + crossing-wire cleanup, all done by ``EditController``);
-    # ``_begin_rotate_around_point`` and ``_start_redrag`` are the
-    # underscore-named aliases the menu/PPM call.
+    # -- multi rotate / flip entry points ------------------------------------
 
     def _rotate_multi(self, delta: int = 90) -> None:
         """Rotate the multi/loose selection (or selected group) via the controller.
@@ -2619,14 +2613,6 @@ class SelectTool(ControllerTool):
                 self._status(f"Removed {removed} colliding wire(s) after move.")
             self._refresh_highlight()
             self._notify_selection()
-
-    def _begin_rotate_around_point(self) -> None:
-        """Underscore-named alias for :meth:`begin_rotate_around_point` (menu/PPM)."""
-        self.begin_rotate_around_point()
-
-    def _start_redrag(self, comp_id: uuid.UUID | None = None) -> None:
-        """Underscore-named alias for :meth:`begin_redrag` (menu/PPM)."""
-        self.begin_redrag(comp_id)
 
     # -- wire-side ops / wire-pin eligibility / wire hit-test ---------------
 
