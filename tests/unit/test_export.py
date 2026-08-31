@@ -13,6 +13,9 @@ import io
 import uuid
 from pathlib import Path
 
+from protoboard.domain.board.board import Board
+from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import (
     ComponentDefinition,
     MetaPin,
@@ -22,8 +25,45 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import WireCollection
+from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.export.bom import export_bom_csv
+from protoboard.services.export.snapshot import build_snapshot
+
+
+def test_build_snapshot_captures_canonical_export_inputs() -> None:
+    board = Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(),
+            ),
+            rows=2,
+            cols=2,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
+    layout = Layout(placements=PlacementCollection({}), wires=WireCollection())
+    schematic = Schematic(nets={})
+
+    snapshot = build_snapshot(
+        board,
+        layout,
+        components={},
+        instances={},
+        schematic=schematic,
+    )
+
+    assert snapshot.board is board
+    assert snapshot.layout is layout
+    assert snapshot.schematic is schematic
+    assert snapshot.package_families == {}
+    assert snapshot.camera_side == "top"
+    assert snapshot.view_transform == "normal"
 
 
 def _r_defn() -> ComponentDefinition:

@@ -80,11 +80,11 @@ git commit -m "refactor(recording): use typed command codecs"
 - Public `export_svg`, `export_pdf`, and `export_png` signatures remain unchanged and delegate snapshot assembly to the builder.
 - `*_from_snapshot` functions remain the only snapshot-consuming rendering entry points.
 
-- [ ] **Step 1: Add a failing builder-parity test**
+- [x] **Step 1: Add a failing builder-parity test**
 
 Build a minimal board and assert `build_snapshot` supplies the same schematic fallback, `PadIndex`, package-family map, theme, and canonical view fields currently assembled independently by each exporter.
 
-- [ ] **Step 2: Verify the test fails**
+- [x] **Step 2: Verify the test fails**
 
 Run:
 ```bash
@@ -92,11 +92,11 @@ Run:
 ```
 Expected: FAIL because the shared builder does not exist.
 
-- [ ] **Step 3: Implement and migrate the builder**
+- [x] **Step 3: Implement and migrate the builder**
 
 Move the repeated `Schematic`/`PadIndex`/package-family/snapshot assembly into `build_snapshot`. Replace the three wrapper copies with calls to it; preserve scale and raster-pitch handling in their respective adapters.
 
-- [ ] **Step 4: Verify export parity and static checks**
+- [x] **Step 4: Verify export parity and static checks**
 
 Run:
 ```bash
@@ -106,7 +106,7 @@ Run:
 ```
 Expected: existing SVG/PDF/PNG outputs and the builder test pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/protoboard/services/export/snapshot.py src/protoboard/services/export/svg.py src/protoboard/services/export/pdf.py src/protoboard/services/export/png.py tests/unit/test_export.py tests/gui/test_export_paint_smoke.py

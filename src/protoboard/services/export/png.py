@@ -11,10 +11,8 @@ from PySide6.QtCore import QRectF, QSize
 from PySide6.QtGui import QImage, QPainter
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
-from protoboard.domain.board.pad_state import PadIndex
-from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.export.paint import paint_snapshot
-from protoboard.services.export.snapshot import BoardSnapshot
+from protoboard.services.export.snapshot import BoardSnapshot, build_snapshot
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -22,6 +20,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.schematic.schematic import Schematic
 
 # Default rasterisation: 40 px per raster unit ≈ 100 dpi at 2.54 mm pitch.
 _DEFAULT_PIXELS_PER_RASTER = 40
@@ -47,28 +46,14 @@ def export_png(
     existing callers see no behaviour change in the output size.
     """
     pixels_per_raster = max(1, int(round(svg_scale * pixel_scale)))
-    sch = schematic if schematic is not None else Schematic(nets={})
-    pad_index = PadIndex(
-        board=board,
-        layout=layout,
-        schematic=sch,
-        components=components,
-        instances=instances,
-    )
-    families = (
-        package_families
-        if package_families is not None
-        else getattr(theme, "package_families", None)
-    ) or {}
-    snapshot = BoardSnapshot(
-        board=board,
-        layout=layout,
-        components=components,
-        instances=instances,
-        schematic=sch,
-        pad_index=pad_index,
-        package_families=families,
-        theme=theme,
+    snapshot = build_snapshot(
+        board,
+        layout,
+        components,
+        instances,
+        schematic,
+        theme,
+        package_families,
     )
     export_png_from_snapshot(
         path,

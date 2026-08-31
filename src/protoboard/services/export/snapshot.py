@@ -162,4 +162,42 @@ class BoardSnapshot:
         )
 
 
-__all__ = ["BoardSnapshot", "CameraSide", "ViewTransform"]
+def build_snapshot(
+    board: Board,
+    layout: Layout,
+    components: dict[str, ComponentDefinition],
+    instances: dict[uuid.UUID, ComponentInstance],
+    schematic: Schematic | None = None,
+    theme: Theme = DEFAULT_THEME,
+    package_families: dict[str, PackageFamily] | None = None,
+) -> BoardSnapshot:
+    """Build the canonical snapshot shared by file exporters."""
+    from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.schematic.schematic import Schematic as SchematicModel
+
+    sch = schematic if schematic is not None else SchematicModel(nets={})
+    pad_index = PadIndex(
+        board=board,
+        layout=layout,
+        schematic=sch,
+        components=components,
+        instances=instances,
+    )
+    families = (
+        package_families
+        if package_families is not None
+        else getattr(theme, "package_families", None)
+    ) or {}
+    return BoardSnapshot(
+        board=board,
+        layout=layout,
+        components=components,
+        instances=instances,
+        schematic=sch,
+        pad_index=pad_index,
+        package_families=families,
+        theme=theme,
+    )
+
+
+__all__ = ["BoardSnapshot", "CameraSide", "ViewTransform", "build_snapshot"]
