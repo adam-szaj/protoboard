@@ -726,7 +726,8 @@ class WireEditTool(ControllerTool):
             from protoboard.controller.selection.hit_test import HitTester
             from protoboard.types import Side
 
-            camera_side = getattr(self._view, "camera_side", "top")
+            view = self._view
+            camera_side = view.camera_side if view is not None else "top"
             hitter = HitTester(self._session, camera_side=cast("Side", camera_side))
             sel, cycle = hitter.hit_wire_vertex(
                 scene_pt.x,

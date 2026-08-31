@@ -1051,9 +1051,7 @@ class SelectTool(ControllerTool):
         as a *click* (``was_click``) that caught nothing, so it never ran the
         band's select.  That click is the deselect gesture — clear here.
         """
-        if isinstance(mouse, RubberBandController) and getattr(
-            mouse, "was_click", False
-        ):
+        if isinstance(mouse, RubberBandController) and mouse.was_click:
             self._clear_selection_to_empty()
             self._refresh_highlight()
             self._notify_selection()
