@@ -969,8 +969,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self._session.stack.execute(macro, cast(ComponentState, self._session))
-        self._session.layout_changed.emit()
+        self._session.edit_controller.execute_command(macro)
         self._board_view.refresh()
         self._update_stats()
         self._update_undo_redo()
@@ -1088,8 +1087,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self._session.stack.execute(macro, cast(ComponentState, self._session))
-        self._session.layout_changed.emit()
+        self._session.edit_controller.execute_command(macro)
         self._board_view.refresh()
         self._update_stats()
         self._update_undo_redo()
@@ -1321,9 +1319,6 @@ class MainWindow(QMainWindow):
         self._view_label.setText(f"{camera}  Mirror:{mirror_tag}   ")
 
     def _resize_board(self) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.board_cmds import ResizeBoardCommand
         from protoboard.gui.dialogs.resize_board_dialog import ResizeBoardDialog
 
@@ -1339,14 +1334,12 @@ class MainWindow(QMainWindow):
 
         new_board = dlg.new_board()
         cmd = ResizeBoardCommand(new_board=new_board)
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
-        self._session.invalidate_graph()
+        self._session.edit_controller.execute_command(cmd)
         # The board geometry itself changed — force the pads/strips layer to
         # be rebuilt; ``layout_changed`` alone only re-renders
         # components/wires, since the board layer is cached on a separate
         # ``_board_layer_dirty`` flag for performance.
         self._board_view.mark_board_layer_dirty()
-        self._session.layout_changed.emit()
         self._board_view.fit_board()
         self._update_undo_redo()
 
@@ -1765,9 +1758,6 @@ class MainWindow(QMainWindow):
         return gid
 
     def _group_rename(self) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.group_cmds import RenameGroupCommand
 
         gid = self._active_group_or_warn()
@@ -1784,18 +1774,13 @@ class MainWindow(QMainWindow):
         name = name.strip()
         if not name or name == group.name:
             return
-        self._session.stack.execute(
-            RenameGroupCommand(group_id=gid, new_name=name),
-            cast(ComponentState, self._session),
+        self._session.edit_controller.execute_command(
+            RenameGroupCommand(group_id=gid, new_name=name)
         )
-        self._session.layout_changed.emit()
         self._update_undo_redo()
 
     def _group_set_exported(self, new_exported: frozenset) -> None:  # type: ignore[type-arg]
         """Common back-end for the three Export menu entries."""
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
 
         gid = self._active_group_or_warn()
@@ -1807,11 +1792,9 @@ class MainWindow(QMainWindow):
         if new_exported == group.exported_pins:
             self._status.showMessage("No change to exported pins.", 2000)
             return
-        self._session.stack.execute(
-            SetExportedPinsCommand(group_id=gid, new_exported=new_exported),
-            cast(ComponentState, self._session),
+        self._session.edit_controller.execute_command(
+            SetExportedPinsCommand(group_id=gid, new_exported=new_exported)
         )
-        self._session.layout_changed.emit()
         self._update_undo_redo()
 
     def _group_export_auto(self) -> None:
@@ -2010,9 +1993,6 @@ class MainWindow(QMainWindow):
         if inst is None or defn is None:
             return
 
-        from typing import cast
-
-        from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import (
             DisconnectPinCommand,
         )
@@ -2042,12 +2022,8 @@ class MainWindow(QMainWindow):
             idx = items.index(item)
             pin_num, net_name = netted[idx]
 
-        cmd = cast(
-            Command[ComponentState],
-            DisconnectPinCommand(component_id=comp_id, pin_number=pin_num),
-        )
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
-        self._session.layout_changed.emit()
+        cmd = DisconnectPinCommand(component_id=comp_id, pin_number=pin_num)
+        self._session.edit_controller.execute_command(cmd)
         self._update_undo_redo()
 
     def _select_all(self) -> None:
@@ -2612,9 +2588,6 @@ class MainWindow(QMainWindow):
         comp_id: uuid.UUID,
         package_variant: object,
     ) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.component_cmds import (
             SetComponentPackageVariantCommand,
         )
@@ -2624,8 +2597,7 @@ class MainWindow(QMainWindow):
             component_id=comp_id,
             new_variant=variant_str,
         )
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
-        self._session.mark_dirty()
+        self._session.edit_controller.execute_command(cmd)
         self._board_view.refresh()
 
     def _on_appearance_changed(
@@ -2633,9 +2605,6 @@ class MainWindow(QMainWindow):
         comp_id: uuid.UUID,
         appearance: object,
     ) -> None:
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.component_cmds import (
             SetComponentAppearanceCommand,
         )
@@ -2646,8 +2615,7 @@ class MainWindow(QMainWindow):
             component_id=comp_id,
             new_appearance=new_appearance,
         )
-        self._session.stack.execute(cmd, cast(ComponentState, self._session))
-        self._session.mark_dirty()
+        self._session.edit_controller.execute_command(cmd)
         self._board_view.refresh()
 
     def _export_svg(self) -> None:
