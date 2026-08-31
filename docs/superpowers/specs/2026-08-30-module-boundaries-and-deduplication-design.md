@@ -460,6 +460,12 @@ while session assignment and panel synchronisation stay local to the paths
 that require them. The focused layer/shortcut suite (48 tests) and all static
 checks pass.
 
+The post-refactor import audit is also clean: no controller-to-service,
+service-to-controller-implementation, or service-to-GUI imports remain, and
+the enumerated legacy paths (`controller.theme`, `services.drag_detector`, and
+the old editing composition modules) are absent. The import-contract suite
+passes all 8 tests.
+
 Within those workstreams, the order is:
 
 1. Record reproducible LOC and import baselines; add the import-contract test.
