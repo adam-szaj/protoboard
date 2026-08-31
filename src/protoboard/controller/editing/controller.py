@@ -332,8 +332,6 @@ class EditController:
         fold into one atomic macro (order wire → component → group preserved for
         undo). Returns True iff a command ran.
         """
-        from protoboard.domain.commands.base import MacroCommand
-
         state = self._state
         policies = _delete_policies()
         cmds: list[Command[ComponentState]] = []
@@ -351,18 +349,7 @@ class EditController:
                     state, item_id, active_group_id=active_group_id, force=force
                 )
             ]
-        if not cmds:
-            return False
-
-        cmd: Command[ComponentState] = (
-            cmds[0]
-            if len(cmds) == 1
-            else cast(
-                "Command[ComponentState]",
-                MacroCommand(cmds, description="Delete selection"),
-            )
-        )
-        return self._execute(cmd)
+        return self._execute_batch(cmds, description="Delete selection")
 
     def get_item(
         self,
