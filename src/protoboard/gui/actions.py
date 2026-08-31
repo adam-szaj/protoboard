@@ -33,7 +33,7 @@ is a pure UX concern owned by the user.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from protoboard.gui import keybindings as KB
@@ -98,6 +98,9 @@ class ActionSpec:
             ``functools.partial`` when binding the slot.  Replaces the
             ``lambda: self._foo("top")`` closures that haunted the old
             registry and made late-binding bugs trivial to hit.
+        default_shortcut: Shipped keyboard shortcut; user overrides are
+            managed separately by ``KeyBindings``.
+        category: Stable top-level category used by shortcut preferences.
     """
 
     id: str
@@ -111,6 +114,8 @@ class ActionSpec:
     action_group: str | None = None
     separator_before: bool = False
     shortcut_args: tuple[str | int | bool, ...] = ()
+    default_shortcut: str = ""
+    category: str = "Other"
 
 
 # ---------------------------------------------------------------------------
@@ -159,12 +164,121 @@ _VIEW_LAYERS = ("View", "Layers")
 _ANALYSIS = ("Analysis",)
 
 
+# Default shortcuts belong to the action registry.  ``KeyBindings`` exposes
+# this data for persistence, but does not maintain a second shortcut table.
+_DEFAULT_SHORTCUTS: dict[str, str] = {
+    KB.ACTION_SAVE: "Ctrl+S",
+    KB.ACTION_SAVE_AS: "Ctrl+Shift+S",
+    KB.ACTION_UNDO: "Ctrl+Z",
+    KB.ACTION_REDO: "Ctrl+Y",
+    KB.ACTION_QUIT: "Ctrl+Q",
+    KB.ACTION_SELECT_ALL: "Ctrl+A",
+    KB.ACTION_DESELECT_ALL: "Ctrl+Shift+A",
+    KB.ACTION_SELECT_ALL_COMPONENTS: "",
+    KB.ACTION_DESELECT_ALL_COMPONENTS: "",
+    KB.ACTION_SELECT_ALL_WIRES: "",
+    KB.ACTION_DESELECT_ALL_WIRES: "",
+    KB.ACTION_DELETE: "Del",
+    KB.ACTION_ROTATE_CW: "R",
+    KB.ACTION_ROTATE_CCW: "Shift+R",
+    KB.ACTION_ROTATE_AROUND_POINT: "",
+    KB.ACTION_FLIP: "Alt+R",
+    KB.ACTION_GROUP: "Ctrl+G",
+    KB.ACTION_UNGROUP: "Ctrl+Shift+G",
+    KB.ACTION_EXIT_GROUP: "",
+    KB.ACTION_REDRAG_PINS: "Ctrl+R",
+    KB.ACTION_COMPONENT_MOVE_TO_SIDE: "Alt+B",
+    KB.ACTION_WIRE_SET_INSULATED: "Ctrl+Shift+I",
+    KB.ACTION_WIRE_SET_BARE: "Ctrl+Shift+B",
+    KB.ACTION_WIRE_MOVE_TO_TOP: "Ctrl+T",
+    KB.ACTION_WIRE_MOVE_TO_BOTTOM: "Ctrl+B",
+    KB.ACTION_WIRE_FLIP: "Ctrl+F",
+    KB.ACTION_WIRE_CONVERT_TO_WIRE_PIN: "",
+    KB.ACTION_WIRE_CONVERT_FROM_WIRE_PIN: "",
+    KB.ACTION_WIRE_EDIT: "",
+    KB.ACTION_DISCONNECT_PIN: "",
+    KB.ACTION_TOOL_SELECT: "S",
+    KB.ACTION_TOOL_ROUTE: "W",
+    KB.ACTION_TOOL_CUT: "C",
+    KB.ACTION_TOOL_SIMPLIFY: "Shift+S",
+    KB.ACTION_MIRROR_H: "H",
+    KB.ACTION_MIRROR_V: "V",
+    KB.ACTION_CAMERA_TOGGLE: "X",
+    KB.ACTION_FULLSCREEN: "F11",
+    KB.ACTION_ZOOM_IN: "Ctrl++",
+    KB.ACTION_ZOOM_OUT: "Ctrl+-",
+    KB.ACTION_FIT_BOARD: "Ctrl+0",
+    KB.ACTION_FIT_AREA: "Ctrl+Shift+0",
+    KB.ACTION_FIT_SELECTION: "Ctrl+Shift+F",
+    KB.ACTION_PREFERENCES: "Ctrl+,",
+    KB.ACTION_WIRE_TOGGLE_INSULATED: "I",
+    KB.ACTION_WIRE_SIDE_TOP: "T",
+    KB.ACTION_WIRE_SIDE_BOTTOM: "B",
+    KB.ACTION_RUN_DRC: "F5",
+    KB.ACTION_AUTOROUTE: "F6",
+    KB.ACTION_AUTOROUTE_DIALOG: "Alt+F6",
+    KB.ACTION_AUTOROUTE_NO_DIALOG: "Shift+F6",
+    KB.ACTION_SIMPLIFY_WIRE: "",
+    KB.ACTION_UNWEAVE_WIRES: "",
+    KB.ACTION_MERGE_WIRES: "",
+    KB.ACTION_HIGHLIGHT_TOGGLE: "",
+    KB.ACTION_HIGHLIGHT_CYCLE: "`",
+    KB.ACTION_CLEAR_HIGHLIGHT: "Ctrl+Shift+H",
+    KB.ACTION_FILTER_TOGGLE_COMPONENTS: "Alt+1",
+    KB.ACTION_FILTER_TOGGLE_WIRES: "Alt+2",
+    KB.ACTION_FILTER_TOGGLE_GROUPS: "Alt+3",
+    KB.ACTION_RELATION_NONE: "",
+    KB.ACTION_RELATION_LOGICAL_NET: "",
+    KB.ACTION_RELATION_PHYSICAL_NET: "",
+    KB.ACTION_RELATION_UNCONNECTED: "",
+    KB.ACTION_RELATION_NEIGHBORS: "",
+    KB.ACTION_RELATION_CYCLE_BACK: "Shift+`",
+    KB.ACTION_LAYER_1: "1",
+    KB.ACTION_LAYER_2: "2",
+    KB.ACTION_LAYER_3: "3",
+    KB.ACTION_LAYER_4: "4",
+    KB.ACTION_LAYER_5: "5",
+    KB.ACTION_LAYER_6: "6",
+    KB.ACTION_LAYER_7: "7",
+    KB.ACTION_LAYER_8: "8",
+    KB.ACTION_LAYER_9: "9",
+    KB.ACTION_LAYER_10: "0",
+    KB.ACTION_LAYERS_RESET: "",
+    KB.ACTION_IMPORT_KICAD_NET: "",
+    KB.ACTION_EXPORT_KICAD_NET: "",
+    KB.ACTION_EXPORT_SVG: "",
+    KB.ACTION_EXPORT_PDF: "",
+    KB.ACTION_EXPORT_PDF_TEMPLATE: "",
+    KB.ACTION_EXPORT_PNG: "",
+    KB.ACTION_EXPORT_BOM: "",
+    KB.ACTION_CLOSE_PROJECT: "",
+    KB.ACTION_BOARD_RESIZE: "",
+    KB.ACTION_BOARD_SPREAD: "",
+    KB.ACTION_GEN_SHORTCUT_CONFIG: "",
+    KB.ACTION_FOCUS_LIBRARY: "A",
+    KB.ACTION_LOCK_TOGGLE: "",
+    KB.ACTION_NET_NEW: "",
+    KB.ACTION_NET_RENAME: "",
+    KB.ACTION_NET_SET_COLOR: "",
+    KB.ACTION_NET_CLEAR_COLOR: "",
+    KB.ACTION_NET_TOGGLE_GLOBAL: "",
+    KB.ACTION_NET_DELETE: "",
+    KB.ACTION_PIN_ASSIGN_NET: "",
+    KB.ACTION_GROUP_RENAME: "",
+    KB.ACTION_GROUP_EXPORT_AUTO: "",
+    KB.ACTION_GROUP_EXPORT_ALL: "",
+    KB.ACTION_GROUP_EXPORT_CLEAR: "",
+    KB.ACTION_GROUP_AUTOROUTE: "",
+    KB.ACTION_CUSTOMIZE_TOOLBARS: "",
+}
+
+
 # ---------------------------------------------------------------------------
-# Specs — authoritative list (matches KB.DEFAULTS keys minus wire-pin
-# convert actions which Phase 2 will add).
+# Specs — authoritative list. The final ``ALL_ACTIONS`` tuple below enriches
+# these UI declarations with shortcut and category metadata.
 # ---------------------------------------------------------------------------
 
-ALL_ACTIONS: tuple[ActionSpec, ...] = (
+_ACTION_SPECS: tuple[ActionSpec, ...] = (
     # ------------------------------------------------------------------
     # File menu
     # ------------------------------------------------------------------
@@ -895,6 +1009,21 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
         slot_name="_convert_wire_pin_to_endpoint_action",
         menu_path=_EDIT_DESIGN_WIRE,
     ),
+)
+
+
+def _category(spec: ActionSpec) -> str:
+    """Group actions by their top-level menu, with a stable orphan bucket."""
+    return spec.menu_path[0] if spec.menu_path else "Other"
+
+
+ALL_ACTIONS: tuple[ActionSpec, ...] = tuple(
+    replace(
+        spec,
+        default_shortcut=_DEFAULT_SHORTCUTS[spec.id],
+        category=_category(spec),
+    )
+    for spec in _ACTION_SPECS
 )
 
 

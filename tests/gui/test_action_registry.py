@@ -100,6 +100,16 @@ class TestDefaultsAndSpecsAlignment:
         dups = sorted(k for k, v in counts.items() if v > 1)
         assert dups == [], f"Duplicate ActionSpec ids: {dups}"
 
+    def test_specs_are_authoritative_for_shortcuts_and_categories(self) -> None:
+        by_id = {spec.id: spec for spec in ALL_ACTIONS}
+        assert {
+            action_id: spec.default_shortcut for action_id, spec in by_id.items()
+        } == dict(KB.DEFAULTS)
+        assert all(spec.category for spec in ALL_ACTIONS)
+
+    def test_keybinding_display_names_are_derived_from_specs(self) -> None:
+        assert dict(KB.DISPLAY_NAMES) == DISPLAY_NAMES_FROM_SPECS
+
 
 # ---------------------------------------------------------------------------
 # Shortcut hygiene

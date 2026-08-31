@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Configurable keyboard shortcuts registry.
 
-Defaults are defined here. User overrides are persisted in
+Defaults are defined by the declarative action registry. User overrides are persisted in
 ~/.config/protoboard-designer/keybindings.yaml (only non-default entries).
 
 Usage::
@@ -16,8 +16,10 @@ GUI integration (future Preferences dialog) only needs to call
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 # ---------------------------------------------------------------------------
 # Action IDs
@@ -182,222 +184,43 @@ ACTION_GROUP_AUTOROUTE = "group_autoroute"
 # View ► Customize Toolbars — opens a dialog that edits toolbars.yaml.
 ACTION_CUSTOMIZE_TOOLBARS = "customize_toolbars"
 
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
 
-DEFAULTS: dict[str, str] = {
-    ACTION_SAVE: "Ctrl+S",
-    ACTION_SAVE_AS: "Ctrl+Shift+S",
-    ACTION_UNDO: "Ctrl+Z",
-    ACTION_REDO: "Ctrl+Y",
-    ACTION_QUIT: "Ctrl+Q",
-    ACTION_SELECT_ALL: "Ctrl+A",
-    ACTION_DESELECT_ALL: "Ctrl+Shift+A",
-    ACTION_SELECT_ALL_COMPONENTS: "",
-    ACTION_DESELECT_ALL_COMPONENTS: "",
-    ACTION_SELECT_ALL_WIRES: "",
-    ACTION_DESELECT_ALL_WIRES: "",
-    ACTION_DELETE: "Del",
-    ACTION_ROTATE_CW: "R",
-    ACTION_ROTATE_CCW: "Shift+R",
-    ACTION_ROTATE_AROUND_POINT: "",
-    ACTION_FLIP: "Alt+R",
-    ACTION_GROUP: "Ctrl+G",
-    ACTION_UNGROUP: "Ctrl+Shift+G",
-    ACTION_EXIT_GROUP: "",
-    ACTION_REDRAG_PINS: "Ctrl+R",
-    ACTION_COMPONENT_MOVE_TO_SIDE: "Alt+B",
-    ACTION_WIRE_SET_INSULATED: "Ctrl+Shift+I",
-    ACTION_WIRE_SET_BARE: "Ctrl+Shift+B",
-    ACTION_WIRE_MOVE_TO_TOP: "Ctrl+T",
-    ACTION_WIRE_MOVE_TO_BOTTOM: "Ctrl+B",
-    ACTION_WIRE_FLIP: "Ctrl+F",
-    ACTION_WIRE_CONVERT_TO_WIRE_PIN: "",
-    ACTION_WIRE_CONVERT_FROM_WIRE_PIN: "",
-    ACTION_WIRE_EDIT: "",  # menu-only; live key is select-tool.action.edit ([E])
-    ACTION_DISCONNECT_PIN: "",
-    ACTION_TOOL_SELECT: "S",
-    ACTION_TOOL_ROUTE: "W",
-    ACTION_TOOL_CUT: "C",
-    ACTION_TOOL_SIMPLIFY: "Shift+S",
-    ACTION_MIRROR_H: "H",
-    ACTION_MIRROR_V: "V",
-    ACTION_CAMERA_TOGGLE: "X",
-    ACTION_FULLSCREEN: "F11",
-    ACTION_ZOOM_IN: "Ctrl++",
-    ACTION_ZOOM_OUT: "Ctrl+-",
-    ACTION_FIT_BOARD: "Ctrl+0",
-    ACTION_FIT_AREA: "Ctrl+Shift+0",
-    ACTION_FIT_SELECTION: "Ctrl+Shift+F",
-    ACTION_PREFERENCES: "Ctrl+,",
-    ACTION_WIRE_TOGGLE_INSULATED: "I",
-    ACTION_WIRE_SIDE_TOP: "T",
-    ACTION_WIRE_SIDE_BOTTOM: "B",
-    ACTION_RUN_DRC: "F5",
-    ACTION_AUTOROUTE: "F6",
-    ACTION_AUTOROUTE_DIALOG: "Alt+F6",
-    ACTION_AUTOROUTE_NO_DIALOG: "Shift+F6",
-    ACTION_SIMPLIFY_WIRE: "",
-    ACTION_UNWEAVE_WIRES: "",
-    ACTION_MERGE_WIRES: "",
-    ACTION_HIGHLIGHT_TOGGLE: "",
-    ACTION_HIGHLIGHT_CYCLE: "`",
-    ACTION_CLEAR_HIGHLIGHT: "Ctrl+Shift+H",
-    ACTION_FILTER_TOGGLE_COMPONENTS: "Alt+1",
-    ACTION_FILTER_TOGGLE_WIRES: "Alt+2",
-    ACTION_FILTER_TOGGLE_GROUPS: "Alt+3",
-    ACTION_RELATION_NONE: "",
-    ACTION_RELATION_LOGICAL_NET: "",
-    ACTION_RELATION_PHYSICAL_NET: "",
-    ACTION_RELATION_UNCONNECTED: "",
-    ACTION_RELATION_NEIGHBORS: "",
-    ACTION_RELATION_CYCLE_BACK: "Shift+`",
-    ACTION_LAYER_1: "1",
-    ACTION_LAYER_2: "2",
-    ACTION_LAYER_3: "3",
-    ACTION_LAYER_4: "4",
-    ACTION_LAYER_5: "5",
-    ACTION_LAYER_6: "6",
-    ACTION_LAYER_7: "7",
-    ACTION_LAYER_8: "8",
-    ACTION_LAYER_9: "9",
-    ACTION_LAYER_10: "0",
-    ACTION_LAYERS_RESET: "",
-    ACTION_IMPORT_KICAD_NET: "",
-    ACTION_EXPORT_KICAD_NET: "",
-    ACTION_EXPORT_SVG: "",
-    ACTION_EXPORT_PDF: "",
-    ACTION_EXPORT_PDF_TEMPLATE: "",
-    ACTION_EXPORT_PNG: "",
-    ACTION_EXPORT_BOM: "",
-    ACTION_CLOSE_PROJECT: "",
-    ACTION_BOARD_RESIZE: "",
-    ACTION_BOARD_SPREAD: "",
-    ACTION_GEN_SHORTCUT_CONFIG: "",
-    ACTION_FOCUS_LIBRARY: "A",
-    ACTION_LOCK_TOGGLE: "",
-    ACTION_NET_NEW: "",
-    ACTION_NET_RENAME: "",
-    ACTION_NET_SET_COLOR: "",
-    ACTION_NET_CLEAR_COLOR: "",
-    ACTION_NET_TOGGLE_GLOBAL: "",
-    ACTION_NET_DELETE: "",
-    ACTION_PIN_ASSIGN_NET: "",
-    ACTION_GROUP_RENAME: "",
-    ACTION_GROUP_EXPORT_AUTO: "",
-    ACTION_GROUP_EXPORT_ALL: "",
-    ACTION_GROUP_EXPORT_CLEAR: "",
-    ACTION_GROUP_AUTOROUTE: "",
-    ACTION_CUSTOMIZE_TOOLBARS: "",
-}
+class _ActionMetadata(Mapping[str, str]):
+    """Read-only metadata view backed by the declarative action registry."""
 
-# Human-readable names (for future Preferences dialog).
-DISPLAY_NAMES: dict[str, str] = {
-    ACTION_SAVE: "Save",
-    ACTION_SAVE_AS: "Save As",
-    ACTION_UNDO: "Undo",
-    ACTION_REDO: "Redo",
-    ACTION_QUIT: "Quit",
-    ACTION_SELECT_ALL: "Select All",
-    ACTION_DESELECT_ALL: "Deselect All",
-    ACTION_SELECT_ALL_COMPONENTS: "Select All Components",
-    ACTION_DESELECT_ALL_COMPONENTS: "Deselect All Components",
-    ACTION_SELECT_ALL_WIRES: "Select All Wires",
-    ACTION_DESELECT_ALL_WIRES: "Deselect All Wires",
-    ACTION_DELETE: "Delete",
-    ACTION_ROTATE_CW: "Rotate CW 90°",
-    ACTION_ROTATE_CCW: "Rotate CCW 90°",
-    ACTION_ROTATE_AROUND_POINT: "Rotate selection around a clicked pivot",
-    ACTION_FLIP: "Flip (2-pin)",
-    ACTION_GROUP: "Group Selection",
-    ACTION_UNGROUP: "Ungroup",
-    ACTION_EXIT_GROUP: "Exit Group",
-    ACTION_REDRAG_PINS: "Re-drag Pins",
-    ACTION_COMPONENT_MOVE_TO_SIDE: "Move to Other Side",
-    ACTION_WIRE_SET_INSULATED: "Wire: Set Insulated",
-    ACTION_WIRE_SET_BARE: "Wire: Set Bare",
-    ACTION_WIRE_MOVE_TO_TOP: "Wire: Move to Top Layer",
-    ACTION_WIRE_MOVE_TO_BOTTOM: "Wire: Move to Bottom Layer",
-    ACTION_WIRE_FLIP: "Wire: Flip to Opposite Layer",
-    ACTION_WIRE_CONVERT_TO_WIRE_PIN: "Wire: Convert Endpoint to Wire-pin",
-    ACTION_WIRE_CONVERT_FROM_WIRE_PIN: "Wire: Convert Wire-pin Back to Endpoint",
-    ACTION_WIRE_EDIT: "Wire: Edit Path",
-    ACTION_DISCONNECT_PIN: "Disconnect Pin from Net",
-    ACTION_TOOL_SELECT: "Select Tool",
-    ACTION_TOOL_ROUTE: "Route Wire Tool",
-    ACTION_TOOL_CUT: "Cut Strip Tool",
-    ACTION_TOOL_SIMPLIFY: "Simplify Wire Tool",
-    ACTION_MIRROR_H: "Mirror Horizontal",
-    ACTION_MIRROR_V: "Mirror Vertical",
-    ACTION_CAMERA_TOGGLE: "Toggle Camera Side",
-    ACTION_FULLSCREEN: "Toggle Fullscreen",
-    ACTION_ZOOM_IN: "Zoom In",
-    ACTION_ZOOM_OUT: "Zoom Out",
-    ACTION_FIT_BOARD: "Fit Board",
-    ACTION_FIT_AREA: "Fit Area",
-    ACTION_FIT_SELECTION: "Fit Selection",
-    ACTION_PREFERENCES: "Preferences",
-    ACTION_WIRE_TOGGLE_INSULATED: "Toggle Wire Insulation",
-    ACTION_WIRE_SIDE_TOP: "Wire Side: Top",
-    ACTION_WIRE_SIDE_BOTTOM: "Wire Side: Bottom",
-    ACTION_RUN_DRC: "Run DRC",
-    ACTION_AUTOROUTE: "Autoroute All Nets",
-    ACTION_AUTOROUTE_DIALOG: "Autoroute (force dialog)",
-    ACTION_AUTOROUTE_NO_DIALOG: "Autoroute (skip dialog)",
-    ACTION_SIMPLIFY_WIRE: "Simplify Selected Wires",
-    ACTION_UNWEAVE_WIRES: "Unweave Selected Wires",
-    ACTION_MERGE_WIRES: "Merge Wires",
-    ACTION_HIGHLIGHT_TOGGLE: "Highlight Toggle",
-    ACTION_HIGHLIGHT_CYCLE: "Cycle Relation Class",
-    ACTION_CLEAR_HIGHLIGHT: "Clear Persistent Highlight",
-    ACTION_FILTER_TOGGLE_COMPONENTS: "Filter: Toggle Components",
-    ACTION_FILTER_TOGGLE_WIRES: "Filter: Toggle Wires",
-    ACTION_FILTER_TOGGLE_GROUPS: "Filter: Toggle Groups",
-    ACTION_RELATION_NONE: "Relation: None",
-    ACTION_RELATION_LOGICAL_NET: "Relation: Same Logical Net",
-    ACTION_RELATION_PHYSICAL_NET: "Relation: Same Physical Net",
-    ACTION_RELATION_UNCONNECTED: "Relation: Unconnected Pins",
-    ACTION_RELATION_NEIGHBORS: "Relation: Neighbors",
-    ACTION_RELATION_CYCLE_BACK: "Cycle Relation Class (Back)",
-    ACTION_LAYER_1: "Layer 1 (Board)",
-    ACTION_LAYER_2: "Layer 2 (Components Top)",
-    ACTION_LAYER_3: "Layer 3 (Components Bottom)",
-    ACTION_LAYER_4: "Layer 4 (Wires Top)",
-    ACTION_LAYER_5: "Layer 5 (Wires Bottom)",
-    ACTION_LAYERS_RESET: "Reset All Layers",
-    ACTION_IMPORT_KICAD_NET: "Import KiCAD .net…",
-    ACTION_EXPORT_KICAD_NET: "Export KiCAD .net…",
-    ACTION_EXPORT_SVG: "Export SVG…",
-    ACTION_EXPORT_PDF: "Export PDF…",
-    ACTION_EXPORT_PDF_TEMPLATE: "Export Template PDF (A4, 4 panels)…",
-    ACTION_EXPORT_PNG: "Export PNG…",
-    ACTION_EXPORT_BOM: "Export BOM CSV…",
-    ACTION_CLOSE_PROJECT: "Close Project",
-    ACTION_BOARD_RESIZE: "Resize Board…",
-    ACTION_BOARD_SPREAD: "Spread Components",
-    ACTION_GEN_SHORTCUT_CONFIG: "Generate Shortcut Config File",
-    ACTION_FOCUS_LIBRARY: "Add Component (focus Library)",
-    ACTION_LOCK_TOGGLE: "Lock / Unlock Selected",
-    ACTION_NET_NEW: "Net: New…",
-    ACTION_NET_RENAME: "Net: Rename…",
-    ACTION_NET_SET_COLOR: "Net: Set Color…",
-    ACTION_NET_CLEAR_COLOR: "Net: Clear Color",
-    ACTION_NET_TOGGLE_GLOBAL: "Net: Toggle Global",
-    ACTION_NET_DELETE: "Net: Delete",
-    ACTION_PIN_ASSIGN_NET: "Pin: Assign to Net…",
-    ACTION_GROUP_RENAME: "Group: Rename Active…",
-    ACTION_GROUP_EXPORT_AUTO: "Group: Export Auto (external nets)",
-    ACTION_GROUP_EXPORT_ALL: "Group: Export All Pins",
-    ACTION_GROUP_EXPORT_CLEAR: "Group: Clear Exported Pins",
-    ACTION_GROUP_AUTOROUTE: "Group: Autoroute Internal Connections",
-    ACTION_LAYER_6: "Layer 6 (Labels)",
-    ACTION_LAYER_7: "Layer 7 (Pin Names)",
-    ACTION_LAYER_8: "Layer 8 (Connections)",
-    ACTION_LAYER_9: "Layer 9 (Pin Pads)",
-    ACTION_LAYER_10: "Layer 10 (Pin Modifiers)",
-    ACTION_CUSTOMIZE_TOOLBARS: "Customize Toolbars…",
-}
+    def _values(self) -> dict[str, str]:
+        from protoboard.gui.actions import ALL_ACTIONS, strip_mnemonic
+
+        return {
+            spec.id: self._value(spec, strip_mnemonic(spec.label))
+            for spec in ALL_ACTIONS
+        }
+
+    def _value(self, spec: object, display: str) -> str:
+        raise NotImplementedError
+
+    def __getitem__(self, key: str) -> str:
+        return self._values()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values())
+
+    def __len__(self) -> int:
+        return len(self._values())
+
+
+class _DefaultShortcuts(_ActionMetadata):
+    def _value(self, spec: object, display: str) -> str:
+        return cast(str, getattr(spec, "default_shortcut"))
+
+
+class _DisplayNames(_ActionMetadata):
+    def _value(self, spec: object, display: str) -> str:
+        return display
+
+
+DEFAULTS: Mapping[str, str] = _DefaultShortcuts()
+DISPLAY_NAMES: Mapping[str, str] = _DisplayNames()
 
 # ---------------------------------------------------------------------------
 # Config path
@@ -467,7 +290,7 @@ class KeyBindings:
         with _KEYBINDINGS_PATH.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — keyboard shortcut overrides\n")
             fh.write('# Format: action_id: "Shortcut"  (empty string = no shortcut)\n')
-            fh.write("# Available action IDs and defaults: see keybindings.py\n")
+            fh.write("# Available action IDs and defaults: see actions.py\n")
             if overrides:
                 yaml.dump(overrides, fh)
 

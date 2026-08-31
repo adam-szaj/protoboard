@@ -112,9 +112,7 @@ git commit -m "refactor(controller): centralize tool command execution"
 **Files:**
 - Modify: `src/protoboard/gui/actions.py`
 - Modify: `src/protoboard/gui/keybindings.py`
-- Modify: `src/protoboard/gui/action_builder.py`
 - Test: `tests/gui/test_action_registry.py`
-- Test: `tests/gui/test_keymap.py`
 
 **Interfaces:**
 - `ActionSpec` gains `default_shortcut`, `category`, and existing `enabled` remains authoritative; labels continue to derive display names.
@@ -122,11 +120,11 @@ git commit -m "refactor(controller): centralize tool command execution"
 - `KeyBindings` derives defaults/display names from `ALL_ACTIONS`; persistence still writes only non-default overrides and reads the same YAML keys.
 - Duplicate `DISPLAY_NAMES` and shortcut-default tables are removed after parity tests pass.
 
-- [ ] **Step 1: Add failing metadata-parity tests**
+- [x] **Step 1: Add failing metadata-parity tests**
 
 Assert every `ALL_ACTIONS` id has one spec, a default shortcut matching the current binding, and a category/display label; assert keybinding defaults and display labels are derived from the spec registry.
 
-- [ ] **Step 2: Verify tests fail**
+- [x] **Step 2: Verify tests fail**
 
 Run:
 ```bash
@@ -134,15 +132,15 @@ Run:
 ```
 Expected: FAIL because `ActionSpec` does not yet carry the metadata and keybindings still own parallel tables.
 
-- [ ] **Step 3: Migrate metadata without changing identifiers**
+- [x] **Step 3: Migrate metadata without changing identifiers**
 
 Add the fields to the specs, transfer all existing values mechanically, derive keybinding lookup/display data, and delete only the superseded tables and compatibility-only tests.
 
-- [ ] **Step 4: Verify registry/YAML parity and static checks**
+- [x] **Step 4: Verify registry/YAML parity and static checks**
 
 Run the focused GUI tests, full action/keymap tests, Ruff, Black, strict mypy, and Pyright.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/protoboard/gui/actions.py src/protoboard/gui/keybindings.py src/protoboard/gui/action_builder.py tests/gui/test_action_registry.py tests/gui/test_keymap.py
