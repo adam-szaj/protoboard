@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
 
         # Per-layer manual visibility overrides — restored from session if available.
         self._layer_overrides = session.layer_overrides
-        self._board_view._layer_overrides = self._layer_overrides
+        self._board_view.layer_overrides = self._layer_overrides
 
         # Layers dock (right, tabified with Properties).
         self._layers_panel = LayersPanel(self._layer_overrides, self)
@@ -625,7 +625,7 @@ class MainWindow(QMainWindow):
         )
         session.layer_overrides = layer_overrides
         self._layer_overrides = layer_overrides
-        self._board_view._layer_overrides = layer_overrides
+        self._board_view.layer_overrides = layer_overrides
         self._refresh_layer_menu()
         self._layers_panel.sync()
         self._board_view.set_session(session)
@@ -676,7 +676,7 @@ class MainWindow(QMainWindow):
         current = getattr(self._layer_overrides, field_name)
         setattr(self._layer_overrides, field_name, current.cycle())
         self._session.layer_overrides = self._layer_overrides
-        self._board_view._layer_overrides = self._layer_overrides
+        self._board_view.layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._layers_panel.sync()
         self._board_view.refresh()
@@ -684,14 +684,14 @@ class MainWindow(QMainWindow):
     def _reset_layers(self) -> None:
         self._layer_overrides.reset()
         self._session.layer_overrides = self._layer_overrides
-        self._board_view._layer_overrides = self._layer_overrides
+        self._board_view.layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._layers_panel.sync()
         self._board_view.refresh()
 
     def _on_layer_panel_changed(self) -> None:
         """Called when user clicks a button in the Layers panel."""
-        self._board_view._layer_overrides = self._layer_overrides
+        self._board_view.layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._board_view.refresh()
 

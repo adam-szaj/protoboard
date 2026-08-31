@@ -557,6 +557,10 @@ class BoardView(QGraphicsView):
         """User per-layer visibility overrides (Layers panel state)."""
         return self._layer_overrides
 
+    @layer_overrides.setter
+    def layer_overrides(self, overrides: LayerOverrides) -> None:
+        self._layer_overrides = overrides
+
     def apply_label_visibility(self, *, deferred: bool = False) -> None:
         """Re-evaluate label visibility now, or debounced after a zoom."""
         if deferred:
