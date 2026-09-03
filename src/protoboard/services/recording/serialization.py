@@ -298,6 +298,26 @@ def _register(
     _CODEC_BY_NAME[name] = codec
 
 
+def _register_uuid_command(command_type: type, name: str, field: str) -> None:
+    """Register a command whose payload is one UUID-valued field.
+
+    Several commands differ only in the identity they carry (component, wire,
+    net, or group).  Keeping this codec shape in one place makes the recording
+    format explicit while avoiding six copies of the same conversion glue.
+    """
+
+    def encode(command: Any) -> dict[str, Any]:
+        return {field: _uuid_to(cast(uuid.UUID, getattr(command, field)))}
+
+    def decode(data: dict[str, Any]) -> Command[Any]:
+        return cast(
+            Command[Any],
+            command_type(**{field: _uuid_from(str(data[field]))}),
+        )
+
+    _register(command_type, name, encode, decode)
+
+
 def codec_for_command_type(command_type: type[Command[Any]]) -> Codec[Any] | None:
     """Return the registered codec for ``command_type``, if any."""
     return _CODEC_BY_TYPE.get(command_type)
@@ -373,20 +393,7 @@ def _move_from(d: dict[str, Any]) -> MoveComponentCommand:
 _register(MoveComponentCommand, "move_component", _move_to, _move_from)
 
 
-def _remove_component_to(cmd: RemoveComponentCommand) -> dict[str, Any]:
-    return {"component_id": _uuid_to(cmd.component_id)}
-
-
-def _remove_component_from(d: dict[str, Any]) -> RemoveComponentCommand:
-    return RemoveComponentCommand(component_id=_uuid_from(d["component_id"]))
-
-
-_register(
-    RemoveComponentCommand,
-    "remove_component",
-    _remove_component_to,
-    _remove_component_from,
-)
+_register_uuid_command(RemoveComponentCommand, "remove_component", "component_id")
 
 
 def _add_wire_to(cmd: AddWireCommand) -> dict[str, Any]:
@@ -422,15 +429,7 @@ _register(
 )
 
 
-def _remove_wire_to(cmd: RemoveWireCommand) -> dict[str, Any]:
-    return {"wire_id": _uuid_to(cmd.wire_id)}
-
-
-def _remove_wire_from(d: dict[str, Any]) -> RemoveWireCommand:
-    return RemoveWireCommand(wire_id=_uuid_from(d["wire_id"]))
-
-
-_register(RemoveWireCommand, "remove_wire", _remove_wire_to, _remove_wire_from)
+_register_uuid_command(RemoveWireCommand, "remove_wire", "wire_id")
 
 
 def _fragment_to(frag: object) -> dict[str, Any]:
@@ -509,20 +508,7 @@ _register(
 )
 
 
-def _flip_wire_side_to(cmd: FlipWireSideCommand) -> dict[str, Any]:
-    return {"wire_id": _uuid_to(cmd.wire_id)}
-
-
-def _flip_wire_side_from(d: dict[str, Any]) -> FlipWireSideCommand:
-    return FlipWireSideCommand(wire_id=_uuid_from(d["wire_id"]))
-
-
-_register(
-    FlipWireSideCommand,
-    "flip_wire_side",
-    _flip_wire_side_to,
-    _flip_wire_side_from,
-)
+_register_uuid_command(FlipWireSideCommand, "flip_wire_side", "wire_id")
 
 
 def _set_package_variant_to(
@@ -628,19 +614,10 @@ _register(
 )
 
 
-def _convert_from_wire_pin_to(cmd: ConvertWirePinToEndpointCommand) -> dict[str, Any]:
-    return {"wire_pin_id": _uuid_to(cmd.wire_pin_id)}
-
-
-def _convert_from_wire_pin_from(d: dict[str, Any]) -> ConvertWirePinToEndpointCommand:
-    return ConvertWirePinToEndpointCommand(wire_pin_id=_uuid_from(d["wire_pin_id"]))
-
-
-_register(
+_register_uuid_command(
     ConvertWirePinToEndpointCommand,
     "convert_wire_pin_to_endpoint",
-    _convert_from_wire_pin_to,
-    _convert_from_wire_pin_from,
+    "wire_pin_id",
 )
 
 
@@ -904,15 +881,7 @@ def _create_net_from(d: dict[str, Any]) -> CreateNetCommand:
 _register(CreateNetCommand, "create_net", _create_net_to, _create_net_from)
 
 
-def _delete_net_to(cmd: DeleteNetCommand) -> dict[str, Any]:
-    return {"net_id": _uuid_to(cmd.net_id)}
-
-
-def _delete_net_from(d: dict[str, Any]) -> DeleteNetCommand:
-    return DeleteNetCommand(net_id=_uuid_from(d["net_id"]))
-
-
-_register(DeleteNetCommand, "delete_net", _delete_net_to, _delete_net_from)
+_register_uuid_command(DeleteNetCommand, "delete_net", "net_id")
 
 
 def _assign_pin_to(cmd: AssignPinToNetCommand) -> dict[str, Any]:
@@ -982,20 +951,7 @@ _register(
 )
 
 
-def _disband_group_to(cmd: DisbandGroupCommand) -> dict[str, Any]:
-    return {"group_id": _uuid_to(cmd.group_id)}
-
-
-def _disband_group_from(d: dict[str, Any]) -> DisbandGroupCommand:
-    return DisbandGroupCommand(group_id=_uuid_from(d["group_id"]))
-
-
-_register(
-    DisbandGroupCommand,
-    "disband_group",
-    _disband_group_to,
-    _disband_group_from,
-)
+_register_uuid_command(DisbandGroupCommand, "disband_group", "group_id")
 
 
 def _add_to_group_to(cmd: AddToGroupCommand) -> dict[str, Any]:
