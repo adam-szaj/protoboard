@@ -16,12 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.board.boxes import BoardGrid, VBox
+from protoboard.domain.board.boxes import BoardGrid, GapAtom, HBox, StripAtom, VBox
 from protoboard.domain.board.templates import (
     make_breadboard,
     make_perfboard,
     make_stripboard,
 )
+from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
@@ -40,8 +41,6 @@ def _detect_board_type(board: Board) -> str:
         return "Perfboard"
     if isinstance(root, VBox):
         # Stripboard children are HBox rows; Breadboard has GapAtoms too.
-        from protoboard.domain.board.boxes import GapAtom
-
         if any(isinstance(c, GapAtom) for c in root.children):
             return "Breadboard"
         return "Stripboard"
@@ -54,8 +53,6 @@ def _detect_dimensions(board: Board) -> tuple[int, int]:
     if isinstance(root, BoardGrid):
         return root.rows, root.cols
     if isinstance(root, VBox):
-        from protoboard.domain.board.boxes import HBox, StripAtom
-
         # Stripboard: count VBox children that are HBox strips.
         strip_rows = sum(1 for c in root.children if isinstance(c, HBox))
         # Find first StripAtom to get length.
@@ -84,8 +81,6 @@ def components_outside_bounds(
     """Return list of (refdes, x, y) for components outside new board bounds."""
     bounds = new_board.bounds
     outside = []
-    from protoboard.domain.components.package import resolved_footprint
-
     for component in iter_placed_components(
         layout.placements,
         instances,
