@@ -425,6 +425,34 @@ class _BaseStrategy:
         """Use the route-through decision as the crossing cost."""
         return self.can_route_through(pad, layer, our_net, wire_type)
 
+    def _drc(self) -> DRCEnforcingStrategy:
+        return DRCEnforcingStrategy(self.config)
+
+    def can_form_t_junction(
+        self,
+        pad: Pad,
+        layer: LayerId,
+        through_wire_net: NetId | None,
+        incoming_wire_net: NetId | None,
+        cross_layer: bool,
+    ) -> Decision:
+        """Use DRC's hard T-junction rules for non-DRC strategies."""
+        return self._drc().can_form_t_junction(
+            pad,
+            layer,
+            through_wire_net,
+            incoming_wire_net,
+            cross_layer,
+        )
+
+    def can_place_pin(
+        self,
+        pad: Pad,
+        our_net: NetId | None,
+    ) -> Decision:
+        """Use DRC's hard pin-placement rules for non-DRC strategies."""
+        return self._drc().can_place_pin(pad, our_net)
+
     def is_half_orphan_destination(
         self,
         pad: Pad,
@@ -614,30 +642,6 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
             return Decision.reject("insulated tangle with another insulated wire")
         return Decision.allow(cost=self.config.crossing_cost)
 
-    def can_form_t_junction(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        through_wire_net: NetId | None,
-        incoming_wire_net: NetId | None,
-        cross_layer: bool,
-    ) -> Decision:
-        # Same hard rules as DRC — net conflicts are never legal.
-        return DRCEnforcingStrategy(self.config).can_form_t_junction(
-            pad,
-            layer,
-            through_wire_net,
-            incoming_wire_net,
-            cross_layer,
-        )
-
-    def can_place_pin(
-        self,
-        pad: Pad,
-        our_net: NetId | None,
-    ) -> Decision:
-        return DRCEnforcingStrategy(self.config).can_place_pin(pad, our_net)
-
     def via_cost(
         self,
         pad: Pad,
@@ -658,9 +662,6 @@ class SimplifyStrictStrategy(_BaseStrategy):
     on pads that DRC tolerates as "preferable to avoid" are rejected
     so Simplify won't suggest moves that re-introduce them.
     """
-
-    def _drc(self) -> DRCEnforcingStrategy:
-        return DRCEnforcingStrategy(self.config)
 
     def can_solder_wire_to_pad(
         self,
@@ -698,29 +699,6 @@ class SimplifyStrictStrategy(_BaseStrategy):
                         "simplify rejects insulated-on-insulated " "crossing at pad"
                     )
         return base
-
-    def can_form_t_junction(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        through_wire_net: NetId | None,
-        incoming_wire_net: NetId | None,
-        cross_layer: bool,
-    ) -> Decision:
-        return self._drc().can_form_t_junction(
-            pad,
-            layer,
-            through_wire_net,
-            incoming_wire_net,
-            cross_layer,
-        )
-
-    def can_place_pin(
-        self,
-        pad: Pad,
-        our_net: NetId | None,
-    ) -> Decision:
-        return self._drc().can_place_pin(pad, our_net)
 
     def via_cost(
         self,
