@@ -2091,8 +2091,6 @@ class MainWindow(QMainWindow):
             return
 
         # Collect nets to route: board selection → net inspector → all.
-        from protoboard.domain.schematic.net import PinRef
-
         net_ids: set[uuid.UUID] | None = None
         tool = self._get_select_tool()
         board_selected_ids: set[uuid.UUID] = set()
@@ -2107,9 +2105,7 @@ class MainWindow(QMainWindow):
                 component = self._session.placed_component(comp_id)
                 if component is None:
                     continue
-                defn = component.definition
-                for pin_num in range(1, len(defn.meta_pins) + 1):
-                    ref = PinRef(component_id=comp_id, pin_number=pin_num)
+                for ref in self._session.schematic.pins_for_component(comp_id):
                     net = self._session.schematic.net_for_pin(ref)
                     if net is not None:
                         net_ids.add(net.id)
