@@ -2314,6 +2314,26 @@ def _make_short_checker(
     )  # (set_key, frozenset(net_ids))
     baseline_same_side_shorts = 0
 
+    def _net_pin_states(
+        candidate_graph: ConnectivityGraph,
+    ) -> tuple[
+        dict[uuid.UUID, int],
+        dict[uuid.UUID, set[tuple[uuid.UUID, int]]],
+    ]:
+        fragmentation: dict[uuid.UUID, int] = {}
+        connected_pins: dict[uuid.UUID, set[tuple[uuid.UUID, int]]] = {}
+        for net in schematic.nets.values():
+            keys: set[NodeKey] = set()
+            connected: set[tuple[uuid.UUID, int]] = set()
+            for ref in net.pins:
+                key = candidate_graph.node_for_pin(ref)
+                if key is not None:
+                    keys.add(key)
+                    connected.add((ref.component_id, ref.pin_number))
+            fragmentation[net.id] = len(keys)
+            connected_pins[net.id] = connected
+        return fragmentation, connected_pins
+
     try:
         _baseline_graph = ConnectivityGraph(
             board=base_board,
@@ -2327,16 +2347,10 @@ def _make_short_checker(
         _baseline_graph = None
 
     if _baseline_graph is not None:
-        for net in schematic.nets.values():
-            keys: set[NodeKey] = set()
-            connected: set[tuple[uuid.UUID, int]] = set()
-            for ref in net.pins:
-                k = _baseline_graph.node_for_pin(ref)
-                if k is not None:
-                    keys.add(k)
-                    connected.add((ref.component_id, ref.pin_number))
-            baseline_frag[net.id] = len(keys)
-            baseline_connected_pins[net.id] = connected
+        (
+            baseline_frag,
+            baseline_connected_pins,
+        ) = _net_pin_states(_baseline_graph)
 
         key_to_nets_base: dict[NodeKey, set[uuid.UUID]] = defaultdict(set)
         for (cid, pn), nid in pin_to_net.items():
@@ -2380,22 +2394,17 @@ def _make_short_checker(
 
         # Invariant (a): per-net fragmentation count must not grow, and
         # no previously-connected pin may become disconnected.
+        new_frag, new_connected_pins = _net_pin_states(new_graph)
         for net in schematic.nets.values():
-            keys: set[NodeKey] = set()
-            connected: set[tuple[uuid.UUID, int]] = set()
-            for ref in net.pins:
-                k = new_graph.node_for_pin(ref)
-                if k is not None:
-                    keys.add(k)
-                    connected.add((ref.component_id, ref.pin_number))
+            keys_count = new_frag[net.id]
             base_n = baseline_frag.get(net.id, 0)
-            if len(keys) > max(base_n, 1):
+            if keys_count > max(base_n, 1):
                 # Worse than baseline.  Note: ``max(base_n, 1)`` — a net
                 # that was fully connected (1 key) stays at 1; a net that
                 # was 2-way fragmented may stay 2-way but not grow to 3.
                 return False
             base_connected = baseline_connected_pins.get(net.id, set())
-            if not base_connected.issubset(connected):
+            if not base_connected.issubset(new_connected_pins[net.id]):
                 # Lost a pin that previously had connectivity.
                 return False
 
