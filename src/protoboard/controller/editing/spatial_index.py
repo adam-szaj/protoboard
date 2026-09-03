@@ -7,6 +7,7 @@ import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
@@ -24,8 +25,6 @@ def build_component_spatial_index(
     families: dict[str, PackageFamily] | None = None,
 ) -> dict[tuple[int, int], list[uuid.UUID]]:
     """Build a grid-cell to component-id index from current placements."""
-    from protoboard.domain.components.package import resolved_footprint
-
     index: dict[tuple[int, int], list[uuid.UUID]] = defaultdict(list)
     for component in iter_placed_components(
         layout.placements,
