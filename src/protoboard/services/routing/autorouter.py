@@ -26,6 +26,7 @@ import datetime
 import io
 import threading
 import uuid
+from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import (
     Future,
@@ -33,37 +34,41 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
 )
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, ParamSpec, TypeVar, cast
 
 import structlog
 
+from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.pin_mapping import package_pins_for_meta_pin
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.layout.wire_utils import (
     plated_through_pads as board_plated_through_pads,
 )
 from protoboard.domain.routing.cost_model import RoutingCostModel
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Vector, round_coord
+from protoboard.services.drc.engine import DRCEngine
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.results import AutorouteResult, NetStats, PassStats
 from protoboard.types import NodeKey, Side
 
 if TYPE_CHECKING:
-    from protoboard.controller.ports.drc import DRCIssue
     from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.domain.routing.simplify_mode import SimplifyMode
 
 # Higher direction_change discourages long detours and keeps wires closer
 # to straight-line paths, leaving more corridors free for other nets.
@@ -327,10 +332,8 @@ def _drop_orphan_wires(
     if not layout.wires:
         return 0
 
-    from protoboard.geometry import round_coord as _round_coord
-
     def _round(p: Point) -> tuple[float, float]:
-        return (_round_coord(p.x), _round_coord(p.y))
+        return (round_coord(p.x), round_coord(p.y))
 
     anchored: set[tuple[float, float]] = set()
     for _atom, pos in board.atoms():
@@ -454,8 +457,6 @@ def autoroute(
     # junk autoroute output — better to fail fast with a clear error
     # than to flood the log with shorts and emit broken wires.
     # ------------------------------------------------------------------
-    from protoboard.services.drc.engine import DRCEngine
-
     _drc_issues = DRCEngine().check(
         board=board,
         schematic=schematic,
@@ -485,16 +486,12 @@ def autoroute(
     # explore the entire grid trying to reach an unreachable target —
     # with ``max_detour_factor=0.0`` (no budget cap) this exhausts memory
     # on dense boards.  Bail out before A* sees anything.
-    from protoboard.controller.ports.drc import DRCIssue as _DRCIssue
-
     # When a pad_index is supplied, derive the board pad set from it in
     # a single dict-keys() pass — otherwise fall back to the historical
     # board.atoms() walk.
     if pad_index is not None:
         _board_pad_set = {pad.position for pad in pad_index.iter_pads()}
     else:
-        from protoboard.domain.layout.wire_utils import board_pads_for_side
-
         _board_pad_set = board_pads_for_side(board, "top") | board_pads_for_side(
             board, "bottom"
         )
@@ -502,7 +499,7 @@ def autoroute(
         _nets_to_check = [n for n in schematic.nets.values() if n.id in net_ids]
     else:
         _nets_to_check = list(schematic.nets.values())
-    _off_board_issues: list[_DRCIssue] = []
+    _off_board_issues: list[DRCIssue] = []
     for _net in _nets_to_check:
         for _ref in _net.pins:
             _ps = pin_positions.get(_ref)
@@ -511,7 +508,7 @@ def autoroute(
             _pt, _side = _ps
             if _pt not in _board_pad_set:
                 _off_board_issues.append(
-                    _DRCIssue(
+                    DRCIssue(
                         severity="error",
                         code="OFF_BOARD_PIN",
                         message=(
@@ -736,8 +733,6 @@ def autoroute(
             passes=max_optimize_iterations,
             workers=n_parallel,
         )
-
-        from concurrent.futures import ProcessPoolExecutor
 
         best_wires = current_wires
         best_unrouted_count = len(unrouted_names)
@@ -1332,7 +1327,6 @@ def _run_one_pass(
             # on dense boards where a stray L-shape would otherwise
             # block a parallel neighbour's diagonal shortcut.
             if simplify_after_each_wire and routed_wires:
-                from protoboard.domain.routing.simplify_mode import SimplifyMode
                 from protoboard.services.routing.postprocess import (
                     simplify_wires_generic,
                 )
@@ -1380,10 +1374,6 @@ def _build_pin_positions(
     instances: dict[uuid.UUID, ComponentInstance],
 ) -> dict[PinRef, tuple[Point, str]]:
     """Return each placed MetaPin's canonical physical position."""
-    from protoboard.domain.components.package.pin_mapping import (
-        package_pins_for_meta_pin,
-    )
-
     pos: dict[PinRef, tuple[Point, str]] = {}
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
@@ -1959,8 +1949,6 @@ def _route_segment_with_ripup(
             # ending on both top AND bottom — i.e. a plated-through via on
             # that pad belongs to the other net.  Detected by gathering
             # endpoints per (Point) per side and intersecting.
-            from collections import defaultdict
-
             _foreign_endpoint_sides: dict[Point, set[str]] = defaultdict(set)
             for _w in working_wires:
                 if wire_to_net_id.get(_w.id) == active_net_id:
@@ -2482,8 +2470,6 @@ def _collect_wire_points(
 
 def _layout_with_wires(layout: Layout, wires: list[Wire]) -> Layout:
     """Return a Layout view that uses *wires* instead of layout.wires."""
-    from dataclasses import replace
-
     return replace(layout, wires=WireCollection(wires))
 
 
