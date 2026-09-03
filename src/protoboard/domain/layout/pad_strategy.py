@@ -388,6 +388,43 @@ class _BaseStrategy:
                     return True
         return False
 
+    def can_solder_wire_to_pad(
+        self,
+        pad: Pad,
+        layer: LayerId,
+        our_net: NetId | None,
+        wire_type: WireType,
+        is_endpoint: bool,
+    ) -> Decision:
+        """Strategy-specific hook used by the shared crossing operations."""
+        raise NotImplementedError
+
+    def can_route_through(
+        self,
+        pad: Pad,
+        layer: LayerId,
+        our_net: NetId | None,
+        wire_type: WireType,
+    ) -> Decision:
+        """Apply the strategy's soldering rules to an interior crossing."""
+        return self.can_solder_wire_to_pad(
+            pad,
+            layer,
+            our_net,
+            wire_type,
+            is_endpoint=False,
+        )
+
+    def crossing_cost(
+        self,
+        pad: Pad,
+        layer: LayerId,
+        our_net: NetId | None,
+        wire_type: WireType,
+    ) -> Decision:
+        """Use the route-through decision as the crossing cost."""
+        return self.can_route_through(pad, layer, our_net, wire_type)
+
     def is_half_orphan_destination(
         self,
         pad: Pad,
@@ -448,23 +485,6 @@ class DRCEnforcingStrategy(_BaseStrategy):
                     f"({layer})"
                 )
         return Decision.allow()
-
-    def can_route_through(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-        wire_type: WireType,
-    ) -> Decision:
-        # "Route through" = interior segment crossing. Endpoint
-        # semantics flow through can_solder_wire_to_pad instead.
-        return self.can_solder_wire_to_pad(
-            pad,
-            layer,
-            our_net,
-            wire_type,
-            is_endpoint=False,
-        )
 
     def can_form_t_junction(
         self,
@@ -541,18 +561,6 @@ class DRCEnforcingStrategy(_BaseStrategy):
                 )
         return Decision.allow()
 
-    def crossing_cost(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-        wire_type: WireType,
-    ) -> Decision:
-        # DRC doesn't summarise costs; reuse the route-through verdict
-        # so a caller iterating crossings still gets a coherent result.
-        d = self.can_route_through(pad, layer, our_net, wire_type)
-        return d
-
     def via_cost(
         self,
         pad: Pad,
@@ -606,21 +614,6 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
             return Decision.reject("insulated tangle with another insulated wire")
         return Decision.allow(cost=self.config.crossing_cost)
 
-    def can_route_through(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-        wire_type: WireType,
-    ) -> Decision:
-        return self.can_solder_wire_to_pad(
-            pad,
-            layer,
-            our_net,
-            wire_type,
-            is_endpoint=False,
-        )
-
     def can_form_t_junction(
         self,
         pad: Pad,
@@ -644,15 +637,6 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
         our_net: NetId | None,
     ) -> Decision:
         return DRCEnforcingStrategy(self.config).can_place_pin(pad, our_net)
-
-    def crossing_cost(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-        wire_type: WireType,
-    ) -> Decision:
-        return self.can_route_through(pad, layer, our_net, wire_type)
 
     def via_cost(
         self,
@@ -715,21 +699,6 @@ class SimplifyStrictStrategy(_BaseStrategy):
                     )
         return base
 
-    def can_route_through(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-        wire_type: WireType,
-    ) -> Decision:
-        return self.can_solder_wire_to_pad(
-            pad,
-            layer,
-            our_net,
-            wire_type,
-            is_endpoint=False,
-        )
-
     def can_form_t_junction(
         self,
         pad: Pad,
@@ -752,15 +721,6 @@ class SimplifyStrictStrategy(_BaseStrategy):
         our_net: NetId | None,
     ) -> Decision:
         return self._drc().can_place_pin(pad, our_net)
-
-    def crossing_cost(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-        wire_type: WireType,
-    ) -> Decision:
-        return self.can_route_through(pad, layer, our_net, wire_type)
 
     def via_cost(
         self,
