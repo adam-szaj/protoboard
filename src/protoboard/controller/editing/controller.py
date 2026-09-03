@@ -28,12 +28,57 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
 from protoboard.controller.editing.contexts import EditingContext, PreviewProjectContext
+from protoboard.controller.editing.group_lock import (
+    component_locked_in_group,
+    wire_locked_in_group,
+)
 from protoboard.controller.editing.item_handle import ItemTag
+from protoboard.controller.editing.placement_conflict import check_and_resolve
+from protoboard.controller.editing.wire_nets import resolve_wire_nets
 from protoboard.domain.commands.base import (
     Command,
     CommandRejectedError,
     ComponentState,
+    MacroCommand,
+    compose_command,
 )
+from protoboard.domain.commands.component_cmds import (
+    AddWireCommand,
+    AddWireWithNetsCommand,
+    FlipWireSideCommand,
+    LockComponentCommand,
+    MoveComponentCommand,
+    PlaceComponentCommand,
+    RemoveComponentCommand,
+    RemoveWireCommand,
+    SetWireInsulatedCommand,
+    SetWireSideCommand,
+)
+from protoboard.domain.commands.group_cmds import (
+    AddToGroupCommand,
+    CreateGroupCommand,
+    DisbandGroupCommand,
+    FlipGroupCommand,
+    RemoveFromGroupCommand,
+    RotateAroundPointCommand,
+    RotateComponentsCommand,
+    RotateGroupCommand,
+    SetExportedPinsCommand,
+)
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.components.resolution import resolve_placed_component
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.group_tree import GroupTree
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
+from protoboard.domain.layout.placement import ComponentPlacement, flip_component
+from protoboard.domain.layout.snapping import SnapRequest, snap_point
+from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire_utils import (
+    board_pads_for_side,
+    insert_pad_nodes,
+)
+from protoboard.domain.schematic.net import PinRef
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -63,11 +108,7 @@ if TYPE_CHECKING:
     )
     from protoboard.controller.selection.drop_resolution import ResolveFn
     from protoboard.controller.tools.base import ControllerTool
-    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
-    from protoboard.domain.layout.group import ComponentGroup
-    from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing.cost_model import RoutingCostModel
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.geometry import Point, Vector
@@ -137,15 +178,6 @@ def _delete_policies() -> dict[ItemTag, _DeletePolicy]:
     *force*, only wire / component read the lock — a group is always kept if it
     exists.
     """
-    from protoboard.controller.editing.group_lock import (
-        component_locked_in_group,
-        wire_locked_in_group,
-    )
-    from protoboard.domain.commands.component_cmds import (
-        RemoveComponentCommand,
-        RemoveWireCommand,
-    )
-    from protoboard.domain.commands.group_cmds import DisbandGroupCommand
 
     def keep_wire(
         state: EditingContext,
@@ -367,14 +399,12 @@ class EditController:
         mutating op at all. *active_group_id* is that edit context (defaults to
         ROOT).
         """
-        from protoboard.controller.editing.group_lock import component_locked_in_group
         from protoboard.controller.editing.item_handle import (
             ComponentHandle,
             GroupHandle,
             ReadOnlyComponentHandle,
             WireHandle,
         )
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         if item_id.tag is ItemTag.group:
@@ -418,12 +448,10 @@ class EditController:
         outside *active_group_id* (defaults to ROOT), editable otherwise. Raises
         ``KeyError`` if *comp_id* has no placement.
         """
-        from protoboard.controller.editing.group_lock import component_locked_in_group
         from protoboard.controller.editing.item_handle import (
             ComponentHandle,
             ReadOnlyComponentHandle,
         )
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         if comp_id not in self._state.layout.placements:
             raise KeyError(f"no component with id {comp_id}")
@@ -552,14 +580,6 @@ class EditController:
         is a single undoable step — the fix for the legacy single-``group_id``
         limitation. Returns the count of wires dropped for crossing an alien pad.
         """
-        from protoboard.domain.commands.base import compose_command
-        from protoboard.domain.commands.group_cmds import (
-            RotateAroundPointCommand,
-            RotateComponentsCommand,
-            RotateGroupCommand,
-        )
-        from protoboard.domain.layout.group_tree import GroupTree
-
         delta = delta_deg % 360
         loose = self._loose_unlocked(comp_ids, active_group_id=active_group_id)
         groups = self._state.layout.groups
@@ -652,14 +672,6 @@ class EditController:
         the count of wires dropped for crossing an alien pad; the loose-only
         path drops none (matching the legacy per-component flip).
         """
-        from protoboard.domain.commands.base import compose_command
-        from protoboard.domain.commands.component_cmds import MoveComponentCommand
-        from protoboard.domain.commands.group_cmds import FlipGroupCommand
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.components.resolution import resolve_placed_component
-        from protoboard.domain.layout.group_tree import GroupTree
-        from protoboard.domain.layout.placement import flip_component
-
         state = self._state
         families = state.package_families
 
@@ -732,14 +744,6 @@ class EditController:
         (< 2 points) or the merge was cancelled. Interaction state (routing-net
         highlight, preview overlays) stays with the caller.
         """
-        from protoboard.controller.editing.wire_nets import resolve_wire_nets
-        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
-        from protoboard.domain.layout.wire import Wire
-        from protoboard.domain.layout.wire_utils import (
-            board_pads_for_side,
-            insert_pad_nodes,
-        )
-
         if len(path) < 2:
             return None
 
@@ -771,8 +775,6 @@ class EditController:
         The single unified builder for the "Wire: Set Insulated / Bare" op —
         both the menu-bar slot and the context-menu handler call this.
         """
-        from protoboard.domain.commands.component_cmds import SetWireInsulatedCommand
-
         ids = list(wire_ids)
         verb = "insulated" if insulated else "bare"
         self._execute_batch(
@@ -792,8 +794,6 @@ class EditController:
         The single unified builder for "Wire: Move to Top/Bottom Layer".
         Distinct verb from :meth:`flip_wires` (toggle).
         """
-        from protoboard.domain.commands.component_cmds import SetWireSideCommand
-
         ids = list(wire_ids)
         self._execute_batch(
             (
@@ -813,8 +813,6 @@ class EditController:
         mixed wire is never flattened (the old ``side=None`` bug). The single
         unified builder for the "Wire: Flip to Opposite Layer" op.
         """
-        from protoboard.domain.commands.component_cmds import FlipWireSideCommand
-
         ids = list(wire_ids)
         self._execute_batch(
             (
@@ -831,8 +829,6 @@ class EditController:
         (all-locked -> unlock) stays with the caller, which passes an explicit
         *locked*.
         """
-        from protoboard.domain.commands.component_cmds import LockComponentCommand
-
         placements = self._state.layout.placements
         verb = "Lock" if locked else "Unlock"
         self._execute_batch(
@@ -874,10 +870,6 @@ class EditController:
         when to commit. When *existing_instance* is given (a netlist-imported
         part) its identity is reused; otherwise a fresh refdes/value is minted.
         """
-        from protoboard.controller.editing.placement_conflict import check_and_resolve
-        from protoboard.domain.components.instance import ComponentInstance
-        from protoboard.domain.layout.placement import ComponentPlacement
-
         state = self._state
         defn = state.components.get(ref)
 
@@ -937,9 +929,6 @@ class EditController:
         follow-up wire commands the conflict resolution produced) and returns the
         placed component's id. Floating / auto-accept UX stays with the caller.
         """
-        from protoboard.domain.commands.base import MacroCommand
-        from protoboard.domain.commands.component_cmds import PlaceComponentCommand
-
         inst = resolved.instance
         place_cmd = PlaceComponentCommand(
             component_id=inst.id,
@@ -989,9 +978,6 @@ class EditController:
         dialog, dirty/undo/refresh) stays with the caller, which inspects both
         this count and ``result`` to pick its message.
         """
-        from protoboard.domain.commands.base import MacroCommand
-        from protoboard.domain.commands.component_cmds import AddWireCommand
-
         if not result.wires:
             return 0
 
@@ -1134,12 +1120,6 @@ class EditController:
         pins. One batch, one change hook at the end. Only ``component`` tags are
         used. Selecting the target stays with the caller.
         """
-        from protoboard.domain.commands.group_cmds import (
-            AddToGroupCommand,
-            RemoveFromGroupCommand,
-            SetExportedPinsCommand,
-        )
-
         ids = frozenset(i.uuid for i in item_ids if i.tag is ItemTag.component)
         if not ids:
             return
@@ -1178,10 +1158,6 @@ class EditController:
         transient tree that already contains the prospective group (when
         *auto_export*). Returns ``(new_group, promoted_free, promoted_groups)``.
         """
-        from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.layout.group_tree import GroupTree
-        from protoboard.domain.schematic.net import PinRef
-
         state = self._state
         default_name = f"Group{len(state.layout.groups) + 1}"
         promoted_free, promoted_groups = (
@@ -1223,12 +1199,6 @@ class EditController:
         from its old parent, attach the new group under *active_gid*, then detach
         the promoted free components from *active_gid*. Notifies once at the end.
         """
-        from protoboard.domain.commands.group_cmds import (
-            AddToGroupCommand,
-            CreateGroupCommand,
-            RemoveFromGroupCommand,
-        )
-
         state = self._state
         self._execute_silent(CreateGroupCommand(group=new_group))
         for promoted_gid in promoted_groups:
@@ -1268,8 +1238,6 @@ class EditController:
         selection is filtered by :meth:`_loose_unlocked`.
         """
         if group_id is not None:
-            from protoboard.domain.layout.group_tree import GroupTree
-
             return GroupTree(self._state.layout.groups).all_component_ids(group_id)
         return self._loose_unlocked(comp_ids, active_group_id=active_group_id)
 
@@ -1280,11 +1248,6 @@ class EditController:
         active_group_id: uuid.UUID | None,
     ) -> frozenset[uuid.UUID]:
         """Loose components that are placed and not sealed inside another group."""
-        from protoboard.controller.editing.group_lock import (
-            component_locked_in_group,
-        )
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         state = self._state
         return frozenset(
@@ -1303,8 +1266,6 @@ class EditController:
     ) -> int:
         """Execute a rotate/flip, then optionally drop wires it pushed across
         alien pads (as a separate undo step). Returns the #wires dropped."""
-        from protoboard.domain.commands.base import MacroCommand
-
         self._execute(transform_cmd)
         if not remove_crossing_wires:
             return 0
@@ -1323,8 +1284,6 @@ class EditController:
         A pure query — does not execute; the caller folds the result into a
         macro. Returns an empty list when nothing crosses.
         """
-        from protoboard.domain.commands.component_cmds import RemoveWireCommand
-
         state = self._state
         bad_ids = state.conflict_scanner().find_wires_crossing_pads(
             wires=list(state.layout.wires),
@@ -1456,8 +1415,6 @@ class EditController:
         dragged). Off-board — nothing within the window — falls back to the
         nearest half-integer pad-grid centre.
         """
-        from protoboard.domain.layout.snapping import SnapRequest, snap_point
-
         # While a transform is armed, snap against its PREVIEW pose (the live
         # layout stays pristine) so a pivot-click lands on the moved pins.
         state: PreviewProjectContext = self._state
@@ -1655,8 +1612,6 @@ class EditController:
         description: str | Callable[[int], str],
     ) -> bool:
         """Execute zero or more commands as one undoable operation."""
-        from protoboard.domain.commands.base import compose_command
-
         items = list(commands)
         label = description(len(items)) if callable(description) else description
         command = compose_command(items, description=label)
