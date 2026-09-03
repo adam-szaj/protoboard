@@ -13,6 +13,7 @@ from protoboard.domain.layout.wire_utils import (
     find_skewed_wires,
     insert_pad_nodes,
     plated_through_pads,
+    point_on_pads,
     wire_has_skewed_segment,
 )
 from protoboard.geometry import Point
@@ -33,6 +34,13 @@ def _perfboard(rows: int, cols: int) -> Board:
         col_gap=0.0,
     )
     return Board(root=grid)
+
+
+def test_point_on_pads_matches_exact_and_tolerant_coordinates() -> None:
+    pads = {Point(1.5, 2.5)}
+    assert point_on_pads(Point(1.5, 2.5), pads)
+    assert point_on_pads(Point(1.5 + 5e-7, 2.5 - 5e-7), pads)
+    assert not point_on_pads(Point(1.5 + 2e-6, 2.5), pads)
 
 
 class TestInsertPadNodes:

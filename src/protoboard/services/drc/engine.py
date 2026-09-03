@@ -43,7 +43,11 @@ from protoboard.domain.layout.placement import (
     placement_transform,
     resolve_pin_world_position,
 )
-from protoboard.domain.layout.wire_utils import board_pads_for_side, plated_through_pads
+from protoboard.domain.layout.wire_utils import (
+    board_pads_for_side,
+    plated_through_pads,
+    point_on_pads,
+)
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, segments_cross_strict
@@ -877,7 +881,7 @@ def _check_off_pad_joint(
         if pad_index is not None:
             if pad_index.pad_at(pos) is not None:
                 continue
-        elif _point_on_pads(pos, all_pads or set()):
+        elif point_on_pads(pos, all_pads or set()):
             continue
         affected_wires = [wid for wid in knot.wire_ids]
         loc_label = _format_location(pos, axis_labels)
@@ -950,7 +954,7 @@ def _check_off_board_pins(
                     on_pad = True
             else:
                 assert pads_by_side is not None
-                if _point_on_pads(wp, pads_by_side[side]):
+                if point_on_pads(wp, pads_by_side[side]):
                     on_pad = True
             if on_pad:
                 continue
@@ -1159,7 +1163,7 @@ def _check_wire_pin_on_plated_through(
             pad = pad_index.pad_at(pos)
             plated = pad is not None and pad.layers.plated_through
         else:
-            plated = _point_on_pads(pos, set(plated_through_pads(board)))
+            plated = point_on_pads(pos, set(plated_through_pads(board)))
         if plated:
             continue
         affected_wires = list(knot.wire_ids)
@@ -1226,12 +1230,3 @@ def _check_half_orphan_wires(
             )
     _ = WirePinKnot  # mark used — type narrows JointKnot guard above
     return issues
-
-
-def _point_on_pads(point: Point, pads: set[Point], tol: float = 1e-6) -> bool:
-    if point in pads:
-        return True
-    for p in pads:
-        if abs(p.x - point.x) < tol and abs(p.y - point.y) < tol:
-            return True
-    return False

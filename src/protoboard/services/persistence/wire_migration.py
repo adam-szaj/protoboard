@@ -42,7 +42,11 @@ import structlog
 from protoboard.domain.layout.knot import JointKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
-from protoboard.domain.layout.wire_utils import board_pads_for_side, plated_through_pads
+from protoboard.domain.layout.wire_utils import (
+    board_pads_for_side,
+    plated_through_pads,
+    point_on_pads,
+)
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -150,7 +154,7 @@ def migrate_layout_to_v2(
         # Off-pad joints are illegal — surface a diagnostic, but go ahead
         # so the migration does not abort mid-project.  DRC will flag
         # this after the run.
-        if not _point_on_pads(point, all_pads):
+        if not point_on_pads(point, all_pads):
             off_pad.append(point)
         jk = layout.create_joint_knot(point)
         joint_at[point] = jk.id
@@ -250,12 +254,3 @@ def _make_pin_resolver(
         return pos
 
     return resolve
-
-
-def _point_on_pads(point: Point, pads: set[Point]) -> bool:
-    if point in pads:
-        return True
-    for p in pads:
-        if abs(p.x - point.x) < 1e-6 and abs(p.y - point.y) < 1e-6:
-            return True
-    return False

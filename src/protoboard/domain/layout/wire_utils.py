@@ -129,6 +129,17 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
     return pts
 
 
+def point_on_pads(
+    point: Point,
+    pads: set[Point],
+    tol: float = 1e-6,
+) -> bool:
+    """Return whether *point* matches a pad exactly or within *tol*."""
+    if point in pads:
+        return True
+    return any(abs(p.x - point.x) < tol and abs(p.y - point.y) < tol for p in pads)
+
+
 def board_pads_union(board: Board) -> set[Point]:
     """Return the union of all pad positions across both sides.
 
