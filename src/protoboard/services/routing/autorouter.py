@@ -266,6 +266,11 @@ else:
     )
 
 
+def shutdown_astar_pool() -> None:
+    """Stop the module-level A* executor during application shutdown."""
+    _ASTAR_POOL.shutdown(wait=False, cancel_futures=True)
+
+
 class AutorouteCancelled(Exception):
     """Raised when the cancel_flag is set during routing."""
 

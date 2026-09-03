@@ -228,9 +228,9 @@ def main() -> None:
             app.quit()
 
     def _shutdown_pools() -> None:
-        from protoboard.services.routing.autorouter import _ASTAR_POOL
+        from protoboard.services.routing.autorouter import shutdown_astar_pool
 
-        _ASTAR_POOL.shutdown(wait=False, cancel_futures=True)
+        shutdown_astar_pool()
 
     app.aboutToQuit.connect(_shutdown_pools)
 
