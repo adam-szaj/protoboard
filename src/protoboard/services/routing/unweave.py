@@ -537,8 +537,6 @@ def unweave_wires(
     short_check: Callable[[list[list[Wire]]], bool] | None = None
     if schematic is not None and graph is not None:
         pad_safe = _make_pad_safety(
-            wires,
-            schematic,
             graph,
             allow_layer_change=allow_layer_change,
         )
@@ -2173,8 +2171,6 @@ def _remerge(segments: list[Wire]) -> list[Wire]:
 
 
 def _make_pad_safety(
-    all_wires: list[Wire],
-    schematic: Schematic,
     graph: ConnectivityGraph,
     *,
     allow_layer_change: bool = True,
@@ -2193,14 +2189,6 @@ def _make_pad_safety(
     multi-side wires.  Same-side queries are still answered truthfully so
     insulated/bare changes inside one layer remain available.
     """
-    # Collect pad positions that belong to any net (via pins).
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            # We cannot resolve pin positions here without instances —
-            # the caller already encoded that via the graph.  Fall back to
-            # the graph for membership testing.
-            _ = ref
-            _ = net
 
     # The graph encodes pad-to-electric-set membership directly.  We use it
     # to compare the canonical keys on both sides of the candidate pad.
