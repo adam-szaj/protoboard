@@ -80,10 +80,6 @@ def body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
     return QPen(c, width)
 
 
-# Compatibility alias for renderer plugins using the old private helper.
-_body_pen = body_pen
-
-
 def _as_qcolor(value: QColor | str) -> QColor:
     return QColor(value) if isinstance(value, QColor) else qcolor_from_css(value)
 

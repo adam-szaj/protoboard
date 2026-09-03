@@ -258,10 +258,6 @@ def ensure_toolbar(
     return toolbar
 
 
-# Compatibility alias for callers that used the old private helper.
-_ensure_toolbar = ensure_toolbar
-
-
 def _apply_toolbar_layout(
     main_window: QMainWindow,
     layout: Mapping[ToolbarGroup, Sequence[str]],
