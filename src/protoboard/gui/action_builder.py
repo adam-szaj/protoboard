@@ -237,7 +237,7 @@ def _ensure_menu(
     return parent_menu
 
 
-def _ensure_toolbar(
+def ensure_toolbar(
     main_window: QMainWindow,
     group: ToolbarGroup,
     registry: ActionRegistry,
@@ -258,6 +258,10 @@ def _ensure_toolbar(
     return toolbar
 
 
+# Compatibility alias for callers that used the old private helper.
+_ensure_toolbar = ensure_toolbar
+
+
 def _apply_toolbar_layout(
     main_window: QMainWindow,
     layout: Mapping[ToolbarGroup, Sequence[str]],
@@ -270,7 +274,7 @@ def _apply_toolbar_layout(
     for group, action_ids in layout.items():
         if not action_ids:
             continue
-        toolbar = _ensure_toolbar(main_window, group, registry)
+        toolbar = ensure_toolbar(main_window, group, registry)
         for aid in action_ids:
             action = registry.actions.get(aid)
             if action is None:
@@ -281,5 +285,6 @@ def _apply_toolbar_layout(
 __all__ = [
     "ActionRegistry",
     "build_actions",
+    "ensure_toolbar",
     "resolve_slot",
 ]

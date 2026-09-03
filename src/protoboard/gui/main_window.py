@@ -1162,14 +1162,14 @@ class MainWindow(QMainWindow):
                     toolbar.addAction(act)
         # If the YAML mentions a group whose toolbar didn't exist yet
         # (first time the user populates an empty group), create it.
-        from protoboard.gui.action_builder import _ensure_toolbar
+        from protoboard.gui.action_builder import ensure_toolbar
 
         for group, action_ids in layout.items():
             if group in self._registry.toolbars:
                 continue
             if not action_ids:
                 continue
-            toolbar = _ensure_toolbar(self, group, self._registry)
+            toolbar = ensure_toolbar(self, group, self._registry)
             for aid in action_ids:
                 act = self._actions.get(aid)
                 if act is not None:
