@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace as _dc_replace
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
 
+from protoboard.controller.view_options.layers import LayerVisibility
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.connectivity.wire_net_map import project_wire_net_map
 from protoboard.domain.layout.knot import WirePinKnot
 from protoboard.domain.layout.pin_pad_classification import (
@@ -48,9 +50,6 @@ from protoboard.services.rendering.wire_renderer import (
     render_wires_with_nets,
 )
 from protoboard.services.routing.net_status import routed_net_ids
-
-if TYPE_CHECKING:
-    from protoboard.domain.connectivity.incremental import ConnectivityGraph
 
 
 def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]:
@@ -180,8 +179,6 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     )
 
     # ── Ratsnest + groups + axis labels (overlays) ──────────────────────────
-    from protoboard.controller.view_options.layers import LayerVisibility
-
     if (
         snapshot.schematic.nets
         and snapshot.layer_overrides.ratsnest != LayerVisibility.HIDDEN
@@ -250,8 +247,6 @@ def _build_graph_and_wire_net_map(
     """
     if not snapshot.schematic.nets or not snapshot.layout.wires:
         return None, {}
-    from protoboard.domain.connectivity.incremental import ConnectivityGraph
-
     graph = ConnectivityGraph(
         snapshot.board,
         snapshot.layout,
