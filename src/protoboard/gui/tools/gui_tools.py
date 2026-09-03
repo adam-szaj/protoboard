@@ -24,13 +24,13 @@ from protoboard.controller.tools.cut_tool import CutTool as _CutTool
 from protoboard.controller.tools.place_tool import PlaceTool as _PlaceTool
 from protoboard.controller.tools.route_tool import RouteTool as _RouteTool
 from protoboard.controller.tools.select_tool import (
-    _ACT_DELETE,
-    _ACT_EDIT,
-    _ACT_FLIP,
-    _ACT_MOVE,
-    _ACT_RELATION_CYCLE,
-    _ACT_RELATION_CYCLE_BACK,
-    _ACT_ROTATE,
+    SELECT_ACTION_DELETE,
+    SELECT_ACTION_EDIT,
+    SELECT_ACTION_FLIP,
+    SELECT_ACTION_MOVE,
+    SELECT_ACTION_RELATION_CYCLE,
+    SELECT_ACTION_RELATION_CYCLE_BACK,
+    SELECT_ACTION_ROTATE,
 )
 from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
 from protoboard.controller.tools.simplify_tool import SimplifyTool as _SimplifyTool
@@ -375,23 +375,23 @@ class SelectTool(
         # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
         # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it
         # works headless where the KeyMap may be absent.
-        if self.matches_key(inp, _ACT_RELATION_CYCLE_BACK) or (
+        if self.matches_key(inp, SELECT_ACTION_RELATION_CYCLE_BACK) or (
             key == Qt.Key.Key_QuoteLeft and shift
         ):
             self._cycle_relation(forward=False)
             return True
-        if self.matches_key(inp, _ACT_RELATION_CYCLE) or (
+        if self.matches_key(inp, SELECT_ACTION_RELATION_CYCLE) or (
             key == Qt.Key.Key_QuoteLeft and not shift
         ):
             self._cycle_relation(forward=True)
             return True
 
-        if self.matches_key(inp, _ACT_DELETE) or (
+        if self.matches_key(inp, SELECT_ACTION_DELETE) or (
             key == Qt.Key.Key_Backspace and not ctrl
         ):
             return self._delete_selection(force=shift)
 
-        if self.matches_key(inp, _ACT_EDIT):
+        if self.matches_key(inp, SELECT_ACTION_EDIT):
             self._begin_edit_selected()  # edit the selected object
             return True
 
@@ -399,17 +399,17 @@ class SelectTool(
             self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
             return True
 
-        if self.matches_key(inp, _ACT_MOVE) and not self._selection.is_empty():
+        if self.matches_key(inp, SELECT_ACTION_MOVE) and not self._selection.is_empty():
             self.arm_move()  # [G] — keyboard float-move (arrows / WSAD)
             return True
 
         # Alt+R flips (immediate 2-pin flip, kept as a one-shot until flip joins
         # the armed transform mode); the bare rotate action arms float-rotate.
-        if self.matches_key(inp, _ACT_FLIP) or (key == Qt.Key.Key_R and alt):
+        if self.matches_key(inp, SELECT_ACTION_FLIP) or (key == Qt.Key.Key_R and alt):
             self.flip_selected()
             return True
 
-        if self.matches_key(inp, _ACT_ROTATE) and not ctrl:
+        if self.matches_key(inp, SELECT_ACTION_ROTATE) and not ctrl:
             self.arm_rotate()
             return True
 

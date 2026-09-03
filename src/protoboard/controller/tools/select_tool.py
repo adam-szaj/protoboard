@@ -159,22 +159,22 @@ _CLICK_THRESHOLD = 0.3
 # user bound globally); a literal overrides for this tool.  The shortcut veto
 # and key dispatch resolve keys against these *by id*, never by hard-coded raw
 # key literals — so a user rebinding any of them is honoured automatically.
-_ACT_EDIT = "select-tool.action.edit"
-_ACT_DELETE = "select-tool.action.delete"
-_ACT_CANCEL = "select-tool.action.cancel"
+SELECT_ACTION_EDIT = "select-tool.action.edit"
+SELECT_ACTION_DELETE = "select-tool.action.delete"
+SELECT_ACTION_CANCEL = "select-tool.action.cancel"
 # Transform entry keys: [R] arms float-rotate, [G] arms keyboard float-move
 # (both hand off to the ArmedTransformTool, which owns the step/wheel keys on
 # its own layer); [Alt+R] is an immediate flip. Dispatched by id, never raw key.
-_ACT_ROTATE = "select-tool.action.rotate"
-_ACT_MOVE = "select-tool.action.move"
-_ACT_FLIP = "select-tool.action.flip"
+SELECT_ACTION_ROTATE = "select-tool.action.rotate"
+SELECT_ACTION_MOVE = "select-tool.action.move"
+SELECT_ACTION_FLIP = "select-tool.action.flip"
 
 # Mouse-chord action: the unified RMB context menu, layered over the canvas menu.
-_ACT_CONTEXT_MENU = "select-tool.action.context_menu"
+SELECT_ACTION_CONTEXT_MENU = "select-tool.action.context_menu"
 # Global relation-cycle actions (backtick / Shift+backtick) — the ids live in
 # keybindings.py with their own defaults; the tool dispatches them in on_key.
-_ACT_RELATION_CYCLE = "highlight_cycle"
-_ACT_RELATION_CYCLE_BACK = "relation_cycle_back"
+SELECT_ACTION_RELATION_CYCLE = "highlight_cycle"
+SELECT_ACTION_RELATION_CYCLE_BACK = "relation_cycle_back"
 
 
 class SelectToolView(_ViewProto, Protocol):
@@ -2266,12 +2266,14 @@ class SelectTool(ControllerTool):
         layer now, not here — SelectTool only owns the ``[E]`` entry.
         """
         return {
-            _ACT_EDIT: None,  # global.action.edit  (default "E")
-            _ACT_DELETE: None,  # global.action.delete (default "Del")
-            _ACT_CANCEL: None,  # global.action.cancel (default "Esc")
-            _ACT_ROTATE: "R",  # arm float-rotate (hands off to ArmedTransformTool)
-            _ACT_MOVE: "G",  # arm keyboard float-move ("grab")
-            _ACT_FLIP: None,  # global.action.flip (default "Alt+R") — immediate flip
+            SELECT_ACTION_EDIT: None,  # global.action.edit  (default "E")
+            SELECT_ACTION_DELETE: None,  # global.action.delete (default "Del")
+            SELECT_ACTION_CANCEL: None,  # global.action.cancel (default "Esc")
+            # arm float-rotate (hands off to ArmedTransformTool)
+            SELECT_ACTION_ROTATE: "R",
+            SELECT_ACTION_MOVE: "G",  # arm keyboard float-move ("grab")
+            # global.action.flip (default "Alt+R") — immediate flip
+            SELECT_ACTION_FLIP: None,
         }
 
     def command_table(self) -> dict[str, Callable[[], object]]:
@@ -2279,14 +2281,14 @@ class SelectTool(ControllerTool):
         command`` runs (the View resolves a key to one of these ids via the
         KeyMap; a headless driver calls the id directly)."""
         return {
-            _ACT_EDIT: self._begin_edit_selected,
-            _ACT_DELETE: self._delete_selection,
-            _ACT_CANCEL: self._wire_edit_clear,
-            _ACT_ROTATE: self.arm_rotate,
-            _ACT_MOVE: self.arm_move,
-            _ACT_FLIP: self.flip_selected,
-            _ACT_RELATION_CYCLE: self._cycle_relation,
-            _ACT_RELATION_CYCLE_BACK: self._cycle_relation_back,
+            SELECT_ACTION_EDIT: self._begin_edit_selected,
+            SELECT_ACTION_DELETE: self._delete_selection,
+            SELECT_ACTION_CANCEL: self._wire_edit_clear,
+            SELECT_ACTION_ROTATE: self.arm_rotate,
+            SELECT_ACTION_MOVE: self.arm_move,
+            SELECT_ACTION_FLIP: self.flip_selected,
+            SELECT_ACTION_RELATION_CYCLE: self._cycle_relation,
+            SELECT_ACTION_RELATION_CYCLE_BACK: self._cycle_relation_back,
         }
 
     def _cycle_relation_back(self) -> None:
@@ -2301,7 +2303,7 @@ class SelectTool(ControllerTool):
         shortcuts, so they reach the tool anyway and need no claim here.  The
         wire-edit op-key claims live on the WireEditTool's own layer.
         """
-        return ((_ACT_DELETE, self._has_selection),)
+        return ((SELECT_ACTION_DELETE, self._has_selection),)
 
     def _has_selection(self) -> bool:
         return not self._selection.is_empty()
@@ -2314,14 +2316,14 @@ class SelectTool(ControllerTool):
         lives on the ArmedTransformTool's own layer.)
         """
         return {
-            _ACT_CONTEXT_MENU: "RMB",
+            SELECT_ACTION_CONTEXT_MENU: "RMB",
         }
 
     def mouse_dispatch(self) -> tuple[
         tuple[str, Callable[[PointerInput | WheelInput], bool]],
         ...,
     ]:
-        return ((_ACT_CONTEXT_MENU, self._mouse_context_menu),)
+        return ((SELECT_ACTION_CONTEXT_MENU, self._mouse_context_menu),)
 
     def _mouse_context_menu(self, inp: PointerInput | WheelInput) -> bool:
         if not isinstance(inp, PointerInput):
