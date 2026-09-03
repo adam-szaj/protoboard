@@ -38,24 +38,37 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.normalize import (
     NormalizeReport,
     normalize_layout_positions,
 )
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    compose_placement,
+    pin_world_position,
+)
 from protoboard.domain.layout.wire import (
     Fragment,
     KnotRef,
     Wire,
     transform_wire_geometry,
 )
+from protoboard.domain.layout.wire_utils import (
+    board_pads_for_side,
+    insert_pad_nodes,
+    merge_endpoint_wires,
+    split_wires_at_endpoint_collisions,
+)
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point, Transform2D, Vector, rotation_about
+from protoboard.services.persistence.wire_migration import migrate_layout_to_v2
 
 # Identity transform sentinel — a group with this transform is a no-op in the
 # scene-graph model, so it is not written to disk (keeps files clean).
@@ -132,11 +145,6 @@ def save_project(
     # with a third wire's endpoint), so alternate split / merge until
     # both report no progress.  Idempotent for projects already saved
     # in canonical form.
-    from protoboard.domain.layout.wire_utils import (
-        merge_endpoint_wires,
-        split_wires_at_endpoint_collisions,
-    )
-
     _splits_on_save = 0
     _fused_on_save = 0
     # Components dict from the migration-registered library — needed so
@@ -521,9 +529,6 @@ def _migrate_groups_v2_to_v3(
     unchanged.  Ordered BEFORE the wire-migration/normalize passes because those
     resolve pin world positions and must see the composed (world) placements.
     """
-    from protoboard.domain.layout.group_tree import GroupTree
-    from protoboard.domain.layout.placement import compose_placement
-
     to_migrate = {
         gid: pair
         for gid, pair in legacy_baked.items()
@@ -643,19 +648,13 @@ def load_project(
     # those crossings — simplify / unweave / edit tools had nothing to grab
     # there.  ``insert_pad_nodes`` is idempotent so already-enriched wires
     # are returned unchanged.
-    from protoboard.domain.layout.wire import Wire as _Wire
-    from protoboard.domain.layout.wire_utils import (
-        board_pads_for_side,
-        insert_pad_nodes,
-    )
-
     _all_pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
     for _idx, _w in enumerate(layout.wires):
         if not _w.insulated:
             continue
         _new_path = insert_pad_nodes(list(_w.path), _all_pads)
         if len(_new_path) != len(_w.path):
-            layout.wires[_idx] = _Wire(
+            layout.wires[_idx] = Wire(
                 id=_w.id,
                 path=_new_path,
                 insulated=_w.insulated,
@@ -693,9 +692,6 @@ def load_project(
                     pin_index[pos] = PinRef(component_id=comp_id, pin_number=pin_num)
         # Use migrate_layout_to_v2 if we have any pin resolution path.
         if pin_index:
-            from protoboard.services.persistence.wire_migration import (
-                migrate_layout_to_v2,
-            )
 
             def _resolve(comp_id: uuid.UUID, pin_num: int) -> Point | None:
                 pl = layout.placements.get(comp_id)
@@ -761,11 +757,6 @@ def load_project(
     # Merging can produce new interior-vertex collisions (the merged
     # wire's interior may now coincide with a third wire's endpoint), so
     # alternate split / merge until both passes report no progress.
-    from protoboard.domain.layout.wire_utils import (
-        merge_endpoint_wires,
-        split_wires_at_endpoint_collisions,
-    )
-
     _total_splits = 0
     _total_fused = 0
     # Same net-conflict gate as save_project (see note there).  Build the
@@ -1221,8 +1212,6 @@ def _migrate_encapsulated_exports(
     *already-migrated* exported sets when computing legality.  Mutates
     *groups* in place (frozen dataclass replacement).
     """
-    from protoboard.domain.layout.group_tree import GroupTree
-
     if not groups:
         return
     tree = GroupTree(groups)
@@ -1413,8 +1402,6 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
     wire_mode = data.get("wire_mode", "auto")
     if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
         wire_mode = "auto"
-    from protoboard.domain.routing.simplify_mode import SimplifyMode
-
     simplify_mode_raw = data.get("simplify_mode", SimplifyMode.BARE_PARITY.value)
     try:
         simplify_mode = SimplifyMode(simplify_mode_raw)
