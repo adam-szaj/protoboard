@@ -27,10 +27,7 @@ Tiers
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from protoboard.controller.highlight_entry import HighlightEntry
+from protoboard.controller.highlight_entry import HighlightEntry
 
 
 class HighlightStackBase:
@@ -73,8 +70,6 @@ class HighlightStackBase:
 
     def push(self, entry: HighlightEntry) -> None:
         """Push a persistent entry (user action / explicit highlight)."""
-        from protoboard.controller.highlight_entry import HighlightEntry
-
         new = HighlightEntry(
             comp_ids=entry.comp_ids,
             wire_ids=entry.wire_ids,
@@ -94,8 +89,6 @@ class HighlightStackBase:
         deactivates.  They take precedence over auto entries but lose to
         persistent ones.
         """
-        from protoboard.controller.highlight_entry import HighlightEntry
-
         new = HighlightEntry(
             comp_ids=entry.comp_ids,
             wire_ids=entry.wire_ids,
@@ -115,8 +108,6 @@ class HighlightStackBase:
         persistent or transient entry exists.  At most one auto entry per
         source_id; pushing again from the same source replaces the previous.
         """
-        from protoboard.controller.highlight_entry import HighlightEntry
-
         # Drop existing auto entry from this source.
         self._stack = [
             e for e in self._stack if not (e.auto and e.source_id == source_id)
