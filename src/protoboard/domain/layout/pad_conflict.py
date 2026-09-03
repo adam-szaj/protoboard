@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol
@@ -24,6 +25,13 @@ def _dbg_enabled() -> bool:
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
+from protoboard.domain.board.pad_state import (  # noqa: E402
+    BareWireCrossing,
+    BareWireItem,
+    InsulatedWireCrossing,
+    InsulatedWireItem,
+    PinItem,
+)
 from protoboard.domain.components.package.pin_mapping import (  # noqa: E402
     meta_pin_for_package_pin,
 )
@@ -32,6 +40,7 @@ from protoboard.domain.components.resolution import (  # noqa: E402
     resolve_instance_definition,
     resolve_placed_component,
 )
+from protoboard.domain.layout.group_tree import GroupTree  # noqa: E402
 from protoboard.domain.layout.placement import (  # noqa: E402
     ComponentPlacement,
     PlacementMap,
@@ -39,6 +48,8 @@ from protoboard.domain.layout.placement import (  # noqa: E402
     iter_footprint_pin_positions,
     pin_world_position,
 )
+from protoboard.domain.layout.wire_utils import find_skewed_wires  # noqa: E402
+from protoboard.errors import UnboundInstanceError  # noqa: E402
 from protoboard.geometry import Point, round_coord  # noqa: E402
 
 if TYPE_CHECKING:
@@ -75,8 +86,6 @@ def footprint_of(
     signature only for the error message and source-compatibility.
     """
     if inst is None:
-        from protoboard.errors import UnboundInstanceError
-
         raise UnboundInstanceError(
             f"footprint_of called for {defn.name!r} with no instance; a placed "
             "component's geometry must come from its bound instance"
@@ -98,8 +107,6 @@ def package_of(
     bound instance means the part genuinely declares no package.
     """
     if inst is None:
-        from protoboard.errors import UnboundInstanceError
-
         raise UnboundInstanceError(
             f"package_of called for {defn.name!r} with no instance; a placed "
             "component's body must come from its bound instance"
@@ -118,8 +125,6 @@ def resolved_footprint_or_default(
     not packages.
     """
     if inst is None or inst.definition is None:
-        from protoboard.errors import UnboundInstanceError
-
         raise UnboundInstanceError(
             f"component {defn.name!r} is not bound to package families"
         )
@@ -432,13 +437,6 @@ def _wire_hit_via_pad_index(
     of a foreign net would short it.  The pre-2026-05-31 implementation
     matched only vertex items and silently missed every such case.
     """
-    from protoboard.domain.board.pad_state import (
-        BareWireCrossing,
-        BareWireItem,
-        InsulatedWireCrossing,
-        InsulatedWireItem,
-    )
-
     pad = pad_index.pad_at(position)
     if pad is None:
         _log.debug(
@@ -518,8 +516,6 @@ def _pin_hit_via_pad_index(
     arbitrary one wins — matches legacy `existing[key] = ...` dict
     semantics where the last-written iteration order decided.
     """
-    from protoboard.domain.board.pad_state import PinItem
-
     pad = pad_index.pad_at(position)
     if pad is None:
         return None
@@ -610,8 +606,6 @@ def find_wires_crossing_pads(
                 )
                 pad_net[(round_coord(p.x), round_coord(p.y))] = net_id
     else:
-        from protoboard.domain.board.pad_state import PinItem
-
         for pad in pad_index.iter_pads():
             pin_item: PinItem | None = None
             for it in pad.iter_items():
@@ -632,8 +626,6 @@ def find_wires_crossing_pads(
     # segment's bounding box expanded by _CROSS_EPS (= 0.5 raster).  This
     # reduces the inner loop from O(all_pads) to O(pads_near_segment) — typically
     # 0–4 pads per cell × a handful of cells vs. ~1100 pads for every segment.
-    from collections import defaultdict
-
     pad_grid: dict[tuple[int, int], list[tuple[float, float, uuid.UUID | None]]] = (
         defaultdict(list)
     )
@@ -764,8 +756,6 @@ def check_group_move_conflicts(
     wire crossing still hard-blocks when it cuts through a moving
     subgroup's interior.  ``None`` preserves single-group semantics.
     """  # noqa: E501
-    from protoboard.domain.layout.group_tree import GroupTree
-
     blocking_pads: list[Point] = []
     removable_ids: list[uuid.UUID] = []
     group_tree = GroupTree(layout_groups)
@@ -902,8 +892,6 @@ def check_group_move_conflicts(
     # --- 2b. Skewed wires (dragged-along wires that ended up neither ortho
     # nor diagonal after the component move).  Treated identically to crossing
     # wires for severity purposes: they are REMOVABLE (auto-deleted).
-    from protoboard.domain.layout.wire_utils import find_skewed_wires
-
     skewed_ids = find_skewed_wires(
         layout_wires, moved_wire_ids=set(moved_wire_ids or set())
     )
