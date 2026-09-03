@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, cast
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
+from protoboard.controller.ports import ActionOption, InteractionContext
 from protoboard.controller.ports.viewport import CursorKind
 from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view_tool import _Tool
@@ -32,6 +33,12 @@ from protoboard.gui.keymap import (
     wheel_chord,
 )
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
+from protoboard.gui.shortcuts_help import (
+    ShortcutRow,
+    app_shortcut_sections,
+    category_label,
+    tool_shortcut_rows,
+)
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.qt_geometry import from_qpointf, to_qpointf
 
@@ -39,8 +46,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.ports import (
-        ActionOption,
-        InteractionContext,
         Mods,
         PointerInput,
         WheelInput,
@@ -108,8 +113,6 @@ class ToolHost:
         (input dispatch, scene-cleared fan-out, …) reads the same source of
         truth a headless driver would.
         """
-        from typing import cast
-
         return cast("_Tool | None", self._view.session.edit_controller.active_tool)
 
     @property
@@ -223,12 +226,6 @@ class ToolHost:
         tool's own actions with their live shortcuts; the consumer adds its
         view chrome (center-here / cancel) itself.
         """
-        from protoboard.controller.ports import ActionOption, InteractionContext
-        from protoboard.gui.shortcuts_help import (
-            category_label,
-            tool_shortcut_rows,
-        )
-
         options: list[ActionOption] = []
         tool = self._active_tool
         if tool is not None:
@@ -288,12 +285,6 @@ class ToolHost:
         Reads the live :class:`KeyMap`, so the panel always reflects the user's
         current bindings.  Global rows first, then the active tool's actions.
         """
-        from protoboard.gui.shortcuts_help import (
-            app_shortcut_sections,
-            category_label,
-            tool_shortcut_rows,
-        )
-
         # Application shortcuts straight from the authoritative registry +
         # the live KeyBindings (user overrides included), grouped by menu —
         # replaces the old hand-maintained "Stage 1" id list.
@@ -317,8 +308,6 @@ class ToolHost:
 
     @staticmethod
     def _render_shortcuts_html(sections: list[tuple[str, list[object]]]) -> str:
-        from protoboard.gui.shortcuts_help import ShortcutRow
-
         parts = [
             "<div style='font-size:11pt'><b>Keyboard shortcuts</b> "
             "<span style='color:#9098A8'>(? to close)</span></div>"
