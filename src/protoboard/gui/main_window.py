@@ -112,6 +112,7 @@ from protoboard.services.persistence.project_yaml import (
     load_project,
     pop_last_normalize_report,
     save_project,
+    set_migration_library,
 )
 from protoboard.services.placement.auto_placer import AutoPlaceResult, auto_place
 from protoboard.services.placement.spreader import spread_components
@@ -542,10 +543,6 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes("opening another project"):
             return
         try:
-            from protoboard.services.persistence.project_yaml import (
-                set_migration_library,
-            )
-
             set_migration_library(self._session.library)
             (
                 board,
