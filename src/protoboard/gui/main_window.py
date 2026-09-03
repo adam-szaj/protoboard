@@ -82,6 +82,10 @@ from protoboard.gui.panels.performance_panel import PerformancePanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
 from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
+from protoboard.gui.toolbar_config import (
+    ensure_user_toolbars_file_exists,
+    load_toolbar_config,
+)
 from protoboard.gui.tools.gui_tools import (
     CutTool,
     PlaceTool,
@@ -426,11 +430,6 @@ class MainWindow(QMainWindow):
         # builder, which realises each group's QToolBar in declaration
         # order.  ``ensure_user_toolbars_file_exists`` copies the
         # shipped default file into the user's config dir on first run.
-        from protoboard.gui.toolbar_config import (
-            ensure_user_toolbars_file_exists,
-            load_toolbar_config,
-        )
-
         ensure_user_toolbars_file_exists()
         toolbar_layout = load_toolbar_config()
 
@@ -1152,8 +1151,6 @@ class MainWindow(QMainWindow):
         """Re-read ``toolbars.yaml`` and rebuild every spec-driven toolbar
         in place.  Widget-shaped toolbars (Selection) are left alone —
         they are installed by ``_install_widget_toolbars``."""
-        from protoboard.gui.toolbar_config import load_toolbar_config
-
         layout = load_toolbar_config()
         for group, toolbar in list(self._registry.toolbars.items()):
             toolbar.clear()
