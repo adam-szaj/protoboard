@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 from protoboard.gui.session import EditorSession, PerfMetrics  # noqa: E402
+from protoboard.gui.throttle import TimerWrap  # noqa: E402
 from protoboard.services.routing.cost_analyzer import (  # noqa: E402
     CostBreakdown,
     analyze_wires,
@@ -99,8 +100,6 @@ class PerformancePanel(QWidget):
         # paint that the user is waiting to see.  Settle discipline: each
         # schedule restarts the timer, so a burst fires once, 500 ms after
         # the last event.
-        from protoboard.gui.throttle import TimerWrap
-
         self._cost_refresh_timer = TimerWrap(
             500,
             self._refresh_cost,
