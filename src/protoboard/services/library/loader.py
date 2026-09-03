@@ -44,6 +44,10 @@ from protoboard.domain.components.package.generators import ResidualKind
 from protoboard.errors import SerializationError
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.library.builtin_package_defs import load_builtin_package_defs
+from protoboard.services.library.package_family_loader import (
+    load_full_package_catalogue,
+    parse_family,
+)
 
 _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
@@ -505,10 +509,6 @@ def load_library(
     libraries that resolve no references.
     """
     if package_families is None:
-        from protoboard.services.library.package_family_loader import (
-            load_full_package_catalogue,
-        )
-
         families = load_full_package_catalogue()
     else:
         families = package_families
@@ -576,10 +576,6 @@ def load_library(
     # its picker catalogue.
     lib_families: dict[str, PackageFamily] = {}
     if lib_family_entries:
-        from protoboard.services.library.package_family_loader import (
-            parse_family,
-        )
-
         for entry, yaml_path in lib_family_entries:
             try:
                 fam = parse_family(entry, yaml_path, generics)
