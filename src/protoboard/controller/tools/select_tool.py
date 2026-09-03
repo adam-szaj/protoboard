@@ -1664,8 +1664,6 @@ class SelectTool(ControllerTool):
         is a pin of *comp_id* (rigid or bendable — a rigid grab translates the
         body), then arm the pad pick for that pin.
         """
-        from protoboard.controller.selection import Stop
-
         self._redrag_comp_id = comp_id
         self._status("Click a pin to re-drag  ·  [Esc] Cancel", 0)
 
@@ -1691,8 +1689,6 @@ class SelectTool(ControllerTool):
         switches the grab (redrawing the overlay) instead of treating the click
         as a pad target; any other click resolves as a pad.
         """
-        from protoboard.controller.selection import Stop
-
         self._redrag_comp_id = comp_id
         self._redrag_pin = pin
         self._draw_redrag_overlay(comp_id)
