@@ -36,6 +36,7 @@ _SIMPLIFY_TRACE = os.environ.get("SIMPLIFY_TRACE", "").lower() in ("1", "true", 
 from typing import TYPE_CHECKING  # noqa: E402
 
 from protoboard.domain.layout.wire import Wire  # noqa: E402
+from protoboard.domain.layout.wire_utils import insert_pad_nodes  # noqa: E402
 from protoboard.domain.routing.simplify_mode import SimplifyMode  # noqa: E402
 from protoboard.geometry import (  # noqa: E402
     Point,
@@ -102,9 +103,7 @@ def straighten_wire(wire: Wire, board_pads: set[Point] | None = None) -> Wire:
 
 
 def _parity_of(p: Point) -> int:
-    import math as _math
-
-    return (int(_math.floor(p.x)) + int(_math.floor(p.y))) % 2
+    return (int(math.floor(p.x)) + int(math.floor(p.y))) % 2
 
 
 def _is_ortho(a: Point, b: Point) -> bool:
@@ -368,8 +367,6 @@ def _fast_pads_on_segment(
                 out.append(p)
         return out
     # Skewed — should not happen for canonical output.  Slow generic path.
-    from protoboard.domain.layout.wire_utils import insert_pad_nodes
-
     enriched = insert_pad_nodes([a, b], board_pads)
     return enriched[1:-1]
 
