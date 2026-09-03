@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -19,6 +20,7 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.wire import (
     Fragment,
+    KnotRef,
     Wire,
     WireCollection,
 )
@@ -114,8 +116,6 @@ class Layout:
         world transform is identity and the stored placement is returned
         unchanged (zero cost).  A group FLIP (``det<0``) needs the member's
         footprint (flip axis); it is resolved lazily only on that branch."""
-        from protoboard.domain.layout.group_tree import GroupTree
-
         world = GroupTree(self.groups).world_transform(cid)
         footprint = (
             self._footprint_resolver(cid)
@@ -397,9 +397,7 @@ class Layout:
             if matched_id is None:
                 jk = self.create_joint_knot(pos)
                 matched_id = jk.id
-            from protoboard.domain.layout.wire import KnotRef as _KnotRef
-
-            setattr(wire, attr, _KnotRef(id=matched_id))
+            setattr(wire, attr, KnotRef(id=matched_id))
         for ref in (wire.a, wire.b):
             if ref is None:
                 continue
