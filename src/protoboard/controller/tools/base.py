@@ -6,6 +6,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Protocol
 
+from protoboard.controller.ports import LEFT_BUTTON, HoverEvent, PointerInput
+from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
@@ -14,11 +16,9 @@ if TYPE_CHECKING:
     from protoboard.controller.editing import EditingContext
     from protoboard.controller.ports import (
         ExecutorPort,
-        HoverEvent,
         InteractionContext,
         KeyInput,
         Mods,
-        PointerInput,
         StatusEvent,
         WheelInput,
     )
@@ -128,8 +128,6 @@ class ControllerTool:
 
     def _theme(self) -> Theme:
         """Return the Qt-free default theme for headless tool execution."""
-        from protoboard.controller.view_options.theme import DEFAULT_THEME
-
         return DEFAULT_THEME
 
     def _execute_command(self, cmd: object) -> bool:
@@ -179,8 +177,6 @@ class ControllerTool:
     @traced()
     def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
         """Hover/move — delegates to :meth:`on_move`, reports nothing hit."""
-        from protoboard.controller.ports import HoverEvent
-
         self.on_move(self._synth_pointer(point, mods, primary=False))
         return HoverEvent(point=point)
 
@@ -203,8 +199,6 @@ class ControllerTool:
         legacy ``on_*`` hooks still want a DTO, so we synthesise one whose
         ``button`` is the primary button for a click and ``0`` for a move.
         """
-        from protoboard.controller.ports import LEFT_BUTTON, PointerInput
-
         return PointerInput(
             view_pos=point,
             scene_pos=point,
