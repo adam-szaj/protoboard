@@ -24,16 +24,16 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import LayerOverrides
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
+from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
+from protoboard.domain.schematic.schematic import Schematic
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
-    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import PackageFamily
     from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.schematic.schematic import Schematic
 
 
 CameraSide = Literal["top", "bottom"]
@@ -186,10 +186,7 @@ def build_snapshot(
     package_families: dict[str, PackageFamily] | None = None,
 ) -> BoardSnapshot:
     """Build the canonical snapshot shared by file exporters."""
-    from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.domain.schematic.schematic import Schematic as SchematicModel
-
-    sch = schematic if schematic is not None else SchematicModel(nets={})
+    sch = schematic if schematic is not None else Schematic(nets={})
     pad_index = PadIndex(
         board=board,
         layout=layout,
