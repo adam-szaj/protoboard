@@ -394,6 +394,22 @@ class Transform2D:
         return (self.a, self.b, self.c, self.d, self.tx, self.ty)
 
 
+def rotation_about(origin: Point, delta: int) -> Transform2D:
+    """Return a clockwise quarter-turn transform about *origin*.
+
+    ``delta`` is expressed in degrees and is quantised in the same way as
+    :meth:`Transform2D.rotation`. Keeping the pivot composition here makes
+    arbitrary-point rotation a geometry primitive rather than a command
+    implementation detail.
+    """
+    pivot = Vector(origin.x, origin.y)
+    return (
+        Transform2D.translation(pivot)
+        .compose(Transform2D.rotation(delta // 90))
+        .compose(Transform2D.translation(-pivot))
+    )
+
+
 def flip_reflection_from_pins(positions: list[Point]) -> Transform2D:
     """The board-side-flip reflection derived from a pin cloud (local frame).
 

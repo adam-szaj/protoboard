@@ -60,7 +60,6 @@ from protoboard.domain.commands.group_cmds import (
     RotateComponentsCommand,
     RotateGroupCommand,
     SetExportedPinsCommand,
-    _rotation_about,
 )
 from protoboard.domain.commands.net_cmds import (
     AssignPinToNetCommand,
@@ -78,7 +77,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.errors import SerializationError
-from protoboard.geometry import Point, Transform2D, Vector
+from protoboard.geometry import Point, Transform2D, Vector, rotation_about
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
 
 
@@ -259,7 +258,7 @@ def _group_from(d: dict[str, Any]) -> ComponentGroup:
         raw_origin = d.get("origin")
         rotation = int(d.get("rotation", 0))
         if rotation != 0 and raw_origin:
-            transform = _rotation_about(_pt_from(raw_origin), rotation)
+            transform = rotation_about(_pt_from(raw_origin), rotation)
         else:
             transform = Transform2D.identity()
     return ComponentGroup(

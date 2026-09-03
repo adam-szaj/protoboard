@@ -49,7 +49,7 @@ from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
-from protoboard.geometry import Point, Transform2D, Vector
+from protoboard.geometry import Point, Transform2D, Vector, rotation_about
 
 # Identity transform sentinel — a group with this transform is a no-op in the
 # scene-graph model, so it is not written to disk (keeps files clean).
@@ -521,7 +521,6 @@ def _migrate_groups_v2_to_v3(
     unchanged.  Ordered BEFORE the wire-migration/normalize passes because those
     resolve pin world positions and must see the composed (world) placements.
     """
-    from protoboard.domain.commands.group_cmds import _rotation_about
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.placement import compose_placement
 
@@ -539,7 +538,7 @@ def _migrate_groups_v2_to_v3(
     # origin and a non-zero rotation.)
     for gid, (origin, rotation) in to_migrate.items():
         layout.groups[gid] = layout.groups[gid].replace(
-            transform=_rotation_about(origin, rotation)
+            transform=rotation_about(origin, rotation)
         )
 
     tree = GroupTree(layout.groups)

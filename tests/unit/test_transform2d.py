@@ -21,6 +21,7 @@ from protoboard.geometry import (
     Transform2D,
     Vector,
     flip_reflection_from_pins,
+    rotation_about,
 )
 
 
@@ -42,6 +43,15 @@ class TestConstructors:
         r = Transform2D.rotation(1)
         assert r.apply(Point(1.0, 0.0)) == Point(0.0, -1.0)
         assert r.apply(Point(0.0, 1.0)) == Point(1.0, 0.0)
+
+    def test_rotation_about_pivot_composes_translation_and_rotation(self) -> None:
+        pivot = Point(4.0, 3.0)
+        expected = (
+            Transform2D.translation(Vector(pivot.x, pivot.y))
+            .compose(Transform2D.rotation(1))
+            .compose(Transform2D.translation(Vector(-pivot.x, -pivot.y)))
+        )
+        assert rotation_about(pivot, 90) == expected
 
     def test_rotation_steps_wrap_mod_4(self) -> None:
         assert Transform2D.rotation(4).apply(Point(3.0, 5.0)) == Point(3.0, 5.0)

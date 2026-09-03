@@ -19,21 +19,11 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire import flip_wire_geometry, transform_wire_geometry
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point, Transform2D, Vector
+from protoboard.geometry import Point, Transform2D, Vector, rotation_about
 
-
-def _rotation_about(origin: Point, delta: int) -> Transform2D:
-    """Clockwise rotation by *delta* degrees about *origin* as one matrix.
-
-    ``translate(origin) ∘ R(delta) ∘ translate(-origin)`` — a point rotates
-    about an arbitrary pivot, wires and knots rotate through the same transform.
-    """
-    o = Vector(origin.x, origin.y)
-    return (
-        Transform2D.translation(o)
-        .compose(Transform2D.rotation(delta // 90))
-        .compose(Transform2D.translation(-o))
-    )
+# Kept as a compatibility alias for existing command/test callers. New
+# consumers should import the geometry primitive directly.
+_rotation_about = rotation_about
 
 
 # Board-flip axis for a group: 'v' reflects across a VERTICAL line (mirrors
@@ -103,7 +93,7 @@ def rotate_components_around(
     only bumps ``rotation``; a group passes its group origin. The returned
     :class:`RotateSnapshot` is consumed by :func:`restore_rotation` on undo.
     """
-    rotate = _rotation_about(origin, delta)
+    rotate = rotation_about(origin, delta)
     old_placements: dict[uuid.UUID, ComponentPlacement] = {}
     for cid in comp_ids:
         pl = state.layout.placements.get(cid)
@@ -145,7 +135,7 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
     """
     restore_placements(state.layout.placements, snap.old_placements)
 
-    unrotate = _rotation_about(snap.origin, snap.delta).inverse()
+    unrotate = rotation_about(snap.origin, snap.delta).inverse()
     for wire in state.layout.wires:
         if wire.id not in snap.old_wire_paths:
             continue
@@ -495,7 +485,7 @@ class RotateGroupCommand(Command[ComponentState]):
         # ``_group_rotate_pivot`` (a transform fixed point, so consecutive
         # rotations keep orbiting the same pad — the old sticky-origin
         # behaviour).
-        new_transform = _rotation_about(origin, self.delta).compose(group.transform)
+        new_transform = rotation_about(origin, self.delta).compose(group.transform)
         state.layout.groups[self.group_id] = group.replace(transform=new_transform)
 
     def revert(self, state: ComponentState) -> None:

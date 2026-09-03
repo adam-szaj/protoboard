@@ -14,7 +14,7 @@ The unified float-transform mode (merges the old ``ArmedRotate`` /
   touched mid-gesture (E5) — the preview carries the transformed pose, and the
   renderer draws *it* instead of the live one.
 
-Operations apply directly to the preview (rotate via ``_rotation_about``, move
+Operations apply directly to the preview (rotate via ``rotation_about``, move
 by translating placements + owned wires).  Because every op writes the same
 preview layout, the user can freely *mix* rotate and move — and a conflict
 raised by one can be cleared by the other, which is the whole point.  Snap and
@@ -52,7 +52,7 @@ from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
 )
-from protoboard.geometry import Point, Transform2D, Vector
+from protoboard.geometry import Point, Transform2D, Vector, rotation_about
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.contexts import PreviewProjectContext
@@ -378,10 +378,8 @@ class ArmedTransform:
                     layout.knots[ref.id] = knot.moved_to(op.apply(pos))
 
     def _rotate(self, delta: int) -> None:
-        from protoboard.domain.commands.group_cmds import _rotation_about
-
         if self._pivot is not None:
-            op = _rotation_about(self._pivot, delta)
+            op = rotation_about(self._pivot, delta)
             for cid in self._comp_ids:
                 self._write_world_op(cid, op)
             self._transform_wires(op)
@@ -397,7 +395,7 @@ class ArmedTransform:
                 if stepped is not None:
                     self._layout.placements[cid] = stepped
                     continue
-                op = _rotation_about(pl.position, delta)
+                op = rotation_about(pl.position, delta)
                 self._write_world_op(cid, op)
                 self._transform_wires(op)
         self._layout.invalidate_interior_vertex_index()
