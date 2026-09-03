@@ -501,13 +501,12 @@ def _check_short(
     # Gather physical node → set of logical net IDs and which pins land there.
     node_nets: dict[tuple[float, float, str], set[uuid.UUID]] = {}
     node_pins: dict[tuple[float, float, str], list[PinRef]] = {}
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            node = graph.node_for_pin(ref)
-            if node is None:
-                continue
-            node_nets.setdefault(node, set()).add(net.id)
-            node_pins.setdefault(node, []).append(ref)
+    for ref, net in schematic.pin_net_map().items():
+        node = graph.node_for_pin(ref)
+        if node is None:
+            continue
+        node_nets.setdefault(node, set()).add(net.id)
+        node_pins.setdefault(node, []).append(ref)
 
     # Wires whose endpoints land on the shorted node are likely the
     # physical bridge — surface them so the GUI can highlight them on click.
@@ -636,14 +635,13 @@ def _check_bare_wire_cross(
     # Build pad → net mapping from placed component pins.
     # Register both sides for each pad so that plated-through pads (where top
     # and bottom are one electrical node) are found regardless of wire side.
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            n = graph.node_for_pin(ref)
-            if n is None:
-                continue
-            nx, ny, _ = n
-            for s in ("top", "bottom"):
-                pad_net_ids.setdefault((nx, ny, s), set()).add(net.id)
+    for ref, net in schematic.pin_net_map().items():
+        n = graph.node_for_pin(ref)
+        if n is None:
+            continue
+        nx, ny, _ = n
+        for s in ("top", "bottom"):
+            pad_net_ids.setdefault((nx, ny, s), set()).add(net.id)
 
     # For each bare wire path point, collect which nets are declared at that pad.
     wire_pad_nets: dict[uuid.UUID, set[uuid.UUID]] = {}
