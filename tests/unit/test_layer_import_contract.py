@@ -265,3 +265,43 @@ def test_group_ownership_declares_required_domain_dependencies_at_module_scope()
     assert not deferred, "Group ownership defers required imports:\n" + "\n".join(
         deferred
     )
+
+
+def test_wire_utils_declares_required_wire_dependencies_at_module_scope() -> None:
+    """Wire utilities must expose their runtime wire/knot collaborators."""
+    path = SRC / "domain/layout/wire_utils.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    required = {
+        "protoboard.domain.layout.knot",
+        "protoboard.domain.layout.pad_strategy",
+        "protoboard.domain.layout.placement",
+        "protoboard.domain.layout.wire",
+    }
+    deferred: list[str] = []
+
+    class _Visitor(ast.NodeVisitor):
+        function_depth = 0
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self.function_depth += 1
+            self.generic_visit(node)
+            self.function_depth -= 1
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            if self.function_depth and node.module in required:
+                deferred.append(f"{node.lineno}: {node.module}")
+            self.generic_visit(node)
+
+        def visit_Import(self, node: ast.Import) -> None:
+            if self.function_depth:
+                for alias in node.names:
+                    if alias.name in required:
+                        deferred.append(f"{node.lineno}: {alias.name}")
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    assert not deferred, "Wire utilities defer required imports:\n" + "\n".join(
+        deferred
+    )
