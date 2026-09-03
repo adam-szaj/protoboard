@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import uuid
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -131,7 +131,7 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
 
 def point_on_pads(
     point: Point,
-    pads: set[Point],
+    pads: Collection[Point],
     tol: float = 1e-6,
 ) -> bool:
     """Return whether *point* matches a pad exactly or within *tol*."""

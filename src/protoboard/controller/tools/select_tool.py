@@ -119,6 +119,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire_utils import (
     board_pads_for_side,
     insert_pad_nodes,
+    point_on_pads,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, Rect, round_coord
@@ -3309,10 +3310,7 @@ class SelectTool(ControllerTool):
 
     def _endpoint_eligible_for_wire_pin(self, position: Point) -> bool:
         """True iff *position* sits on a plated-through pad (wire-pin invariant)."""
-        for p in self._session.cached_plated_through_pads():
-            if abs(p.x - position.x) < 1e-6 and abs(p.y - position.y) < 1e-6:
-                return True
-        return False
+        return point_on_pads(position, self._session.cached_plated_through_pads())
 
     def convert_endpoint_to_wire_pin(self) -> None:
         """Promote the half-orphan endpoint of the singly-selected wire to a wire-pin.
