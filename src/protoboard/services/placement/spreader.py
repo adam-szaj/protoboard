@@ -13,7 +13,8 @@ Two-phase algorithm:
 
   Phase 2 — Greedy snap to discrete pad grid.  Each component's ideal float
              position is mapped to the nearest valid board pad with no body
-             collisions, reusing _find_free_slot from auto_placer.
+             collisions, reusing :func:`find_free_slot` from the shared slot
+             search module.
 
 Why grid-cell assignment beats force-directed for uniform distribution:
   Force-directed has a well-known clustering problem — repulsion decays as
@@ -48,7 +49,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
-from protoboard.services.placement.auto_placer import _find_free_slot
+from protoboard.services.placement.slot_search import find_free_slot
 
 _log = structlog.get_logger(__name__)
 
@@ -313,7 +314,7 @@ def _snap_to_grid(
         board_pads = pads_top if orig_pl.side == "top" else pads_bottom
         sorted_pads = sorted(board_pads, key=lambda p: (p - target).norm())
 
-        pl = _find_free_slot(
+        pl = find_free_slot(
             cid,
             defn,
             inst,

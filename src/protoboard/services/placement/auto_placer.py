@@ -44,12 +44,15 @@ from protoboard.domain.layout.pad_conflict import (
 )
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-    component_bbox,
     pin_world_position,
 )
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
+from protoboard.services.placement.slot_search import (
+    find_free_slot,
+    has_collision,
+)
 
 _log = structlog.get_logger(__name__)
 
@@ -151,16 +154,14 @@ def auto_place(
         sorted_pads = _sort_candidates(all_pads, center)
 
         rotations = _preferred_rotations(defn, inst, board_bounds)
-        pl = _find_free_slot(
-            inst.id, defn, inst, sorted_pads, rotations, side, existing
-        )
+        pl = find_free_slot(inst.id, defn, inst, sorted_pads, rotations, side, existing)
         on_board = True
 
         if pl is None:
             # Try extended virtual grid outside board bounds.
             extra = _extended_candidates(board_pads, board_bounds)
             extra_sorted = _sort_candidates(extra, center)
-            pl = _find_free_slot(
+            pl = find_free_slot(
                 inst.id, defn, inst, extra_sorted, rotations, side, existing
             )
             on_board = False
@@ -317,80 +318,6 @@ def _extended_candidates(board_pads: set[Point], board_bounds: Rect) -> list[Poi
     return extra
 
 
-# ---------------------------------------------------------------------------
-# Collision detection
-# ---------------------------------------------------------------------------
-
-
-def _has_collision(
-    new_pl: ComponentPlacement,
-    new_defn: ComponentDefinition,
-    new_inst: ComponentInstance,
-    existing: dict[
-        uuid.UUID,
-        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
-    ],
-    extra_gap: float = 0.0,
-) -> bool:
-    """True when *new_pl* body-overlaps any existing placement.
-
-    *extra_gap* enforces a minimum clearance between component bounding boxes:
-    the new component's bbox is inflated by *extra_gap* on all sides before the
-    intersection test.  This makes the gap between any two bbox edges at least
-    *extra_gap* raster units, regardless of each component's individual body
-    margin (rigid vs. flexible leads).
-    """
-    raw_new = component_bbox(
-        footprint_of(new_defn, new_inst), new_pl, new_defn.component_class
-    )
-    new_bbox = Rect.of(
-        x=raw_new.x - extra_gap,
-        y=raw_new.y - extra_gap,
-        lx=raw_new.lx + 2 * extra_gap,
-        ly=raw_new.ly + 2 * extra_gap,
-    )
-    for other_pl, other_defn, other_inst in existing.values():
-        other_bbox = component_bbox(
-            footprint_of(other_defn, other_inst),
-            other_pl,
-            other_defn.component_class,
-        )
-        if new_bbox.intersects(other_bbox):
-            return True
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Slot search
-# ---------------------------------------------------------------------------
-
-
-def _find_free_slot(
-    comp_id: uuid.UUID,
-    defn: ComponentDefinition,
-    inst: ComponentInstance,
-    candidates: list[Point],
-    rotations: list[int],
-    side: str,
-    existing: dict[
-        uuid.UUID,
-        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
-    ],
-    extra_gap: float = 0.0,
-) -> ComponentPlacement | None:
-    """Try each candidate position with each rotation; return first free slot.
-
-    *extra_gap* is forwarded to :func:`_has_collision` to enforce a minimum
-    clearance beyond the component body margins.
-    """
-    for pt in candidates:
-        for rot in rotations:
-            pl = ComponentPlacement(
-                component_id=comp_id,
-                position=pt,
-                rotation=rot,
-                side=side,  # type: ignore[arg-type]
-            )
-            if not _has_collision(pl, defn, inst, existing, extra_gap=extra_gap):
-                return pl
-    return None
+# Compatibility aliases for callers that used the old private helpers.
+_find_free_slot = find_free_slot
+_has_collision = has_collision
