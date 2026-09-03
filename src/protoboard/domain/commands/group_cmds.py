@@ -5,18 +5,21 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from protoboard.domain.commands.base import Command, ComponentState
 from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.group_ownership import find_owned_wires
 from protoboard.domain.layout.group_tree import GroupTree
-from protoboard.domain.layout.wire import transform_wire_geometry
+from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    restore_placements,
+)
+from protoboard.domain.layout.wire import flip_wire_geometry, transform_wire_geometry
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Transform2D, Vector
-
-if TYPE_CHECKING:
-    from protoboard.domain.layout.placement import ComponentPlacement
 
 
 def _rotation_about(origin: Point, delta: int) -> Transform2D:
@@ -100,9 +103,6 @@ def rotate_components_around(
     only bumps ``rotation``; a group passes its group origin. The returned
     :class:`RotateSnapshot` is consumed by :func:`restore_rotation` on undo.
     """
-    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-    from protoboard.domain.layout.placement import ComponentPlacement
-
     rotate = _rotation_about(origin, delta)
     old_placements: dict[uuid.UUID, ComponentPlacement] = {}
     for cid in comp_ids:
@@ -143,9 +143,6 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
     wires' fragments and free-knot endpoints by ``-delta`` around the same
     pivot (paths are restored verbatim from the snapshot).
     """
-    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-    from protoboard.domain.layout.placement import restore_placements
-
     restore_placements(state.layout.placements, snap.old_placements)
 
     unrotate = _rotation_about(snap.origin, snap.delta).inverse()
@@ -180,8 +177,6 @@ def _group_rotate_pivot(
     drag the pivot translates with the group, matching the old
     recompute-on-drag behaviour.
     """
-    from protoboard.geometry import Point as _Point
-
     group = state.layout.groups.get(group_id)
     if group is None:
         return None
@@ -210,7 +205,7 @@ def _group_rotate_pivot(
     best: Point | None = None
     best_key = float("inf")
     for x, y in pins:
-        local = inv.apply(_Point(x, y))
+        local = inv.apply(Point(x, y))
         key = local.x + local.y
         if key < best_key:
             best_key = key
@@ -450,8 +445,6 @@ class RotateGroupCommand(Command[ComponentState]):
         # wire_net_map); both-PinKnots-in-group covers the practical cases,
         # and the geometric sanity check (placements/instances/definitions)
         # filters stale paths.
-        from protoboard.domain.layout.group_ownership import find_owned_wires
-
         schematic_obj = getattr(state, "schematic", None)
         sch: Schematic | None = (
             schematic_obj if isinstance(schematic_obj, Schematic) else None
@@ -551,9 +544,6 @@ def _flip_group_wires(
     the reflection and the double side-swap both self-cancel — so undo re-applies
     the same call.
     """
-    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-    from protoboard.domain.layout.wire import flip_wire_geometry
-
     for wire in state.layout.wires:
         if wire.id not in wire_ids:
             continue
@@ -611,8 +601,6 @@ class FlipGroupCommand(Command[ComponentState]):
         # Identify internal wires the same way rotate does — BEFORE the transform
         # changes, so the seam still reports the pre-flip world positions that
         # match the pre-flip wire paths.
-        from protoboard.domain.layout.group_ownership import find_owned_wires
-
         schematic_obj = getattr(state, "schematic", None)
         sch: Schematic | None = (
             schematic_obj if isinstance(schematic_obj, Schematic) else None
@@ -725,8 +713,6 @@ class RotateAroundPointCommand(Command[ComponentState]):
         # ComponentGroup whose member set IS the selection — ownership is
         # decided purely by ``group_comp_ids`` (the ``group`` argument is
         # only carried for diagnostics by find_owned_wires).
-        from protoboard.domain.layout.group_ownership import find_owned_wires
-
         schematic_obj = getattr(state, "schematic", None)
         sch: Schematic | None = (
             schematic_obj if isinstance(schematic_obj, Schematic) else None
