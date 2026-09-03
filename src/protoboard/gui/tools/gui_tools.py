@@ -433,9 +433,7 @@ class SimplifyTool(
         if not self._draft_preview_injected:
             from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
 
-            self._draft_preview = QtSimplifyPreview(
-                self._view.scene, self._theme  # type: ignore[attr-defined]
-            )
+            self._draft_preview = QtSimplifyPreview(gui_view.scene, _theme_fn(self))
 
     def on_key(self, inp: KeyInput) -> bool:
         if inp.key == Qt.Key.Key_Escape:
