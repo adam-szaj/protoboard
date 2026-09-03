@@ -374,6 +374,34 @@ def _register_uuid_text_command(
     _register(command_type, name, encode, decode)
 
 
+def _register_uuid_int_command(
+    command_type: type,
+    name: str,
+    uuid_field: str,
+    int_field: str,
+) -> None:
+    """Register a command carrying one UUID and one integer value."""
+
+    def encode(command: Any) -> dict[str, Any]:
+        return {
+            uuid_field: _uuid_to(cast(uuid.UUID, getattr(command, uuid_field))),
+            int_field: int(getattr(command, int_field)),
+        }
+
+    def decode(data: dict[str, Any]) -> Command[Any]:
+        return cast(
+            Command[Any],
+            command_type(
+                **{
+                    uuid_field: _uuid_from(str(data[uuid_field])),
+                    int_field: int(data[int_field]),
+                }
+            ),
+        )
+
+    _register(command_type, name, encode, decode)
+
+
 def codec_for_command_type(command_type: type[Command[Any]]) -> Codec[Any] | None:
     """Return the registered codec for ``command_type``, if any."""
     return _CODEC_BY_TYPE.get(command_type)
@@ -703,25 +731,11 @@ _register(
 )
 
 
-def _disconnect_pin_to(cmd: DisconnectPinCommand) -> dict[str, Any]:
-    return {
-        "component_id": _uuid_to(cmd.component_id),
-        "pin_number": int(cmd.pin_number),
-    }
-
-
-def _disconnect_pin_from(d: dict[str, Any]) -> DisconnectPinCommand:
-    return DisconnectPinCommand(
-        component_id=_uuid_from(d["component_id"]),
-        pin_number=int(d["pin_number"]),
-    )
-
-
-_register(
+_register_uuid_int_command(
     DisconnectPinCommand,
     "disconnect_pin",
-    _disconnect_pin_to,
-    _disconnect_pin_from,
+    "component_id",
+    "pin_number",
 )
 
 
@@ -906,25 +920,11 @@ _register(
 )
 
 
-def _unassign_pin_to(cmd: UnassignPinCommand) -> dict[str, Any]:
-    return {
-        "component_id": _uuid_to(cmd.component_id),
-        "pin_number": int(cmd.pin_number),
-    }
-
-
-def _unassign_pin_from(d: dict[str, Any]) -> UnassignPinCommand:
-    return UnassignPinCommand(
-        component_id=_uuid_from(d["component_id"]),
-        pin_number=int(d["pin_number"]),
-    )
-
-
-_register(
+_register_uuid_int_command(
     UnassignPinCommand,
     "unassign_pin",
-    _unassign_pin_to,
-    _unassign_pin_from,
+    "component_id",
+    "pin_number",
 )
 
 
