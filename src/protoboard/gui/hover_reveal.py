@@ -5,9 +5,8 @@ Subscribes to the board view's hover stream.  When the ``labels`` layer is
 hidden, a ~1 s dwell over a component shows its ``refdes value`` in a tooltip
 at the cursor.  When the ``meta_pin_labels`` layer is hidden and Alt is held, the
 dwell instead switches that one component's pin names on via
-``BoardView._meta_pin_labels_reveal_cid`` — the same render path the layer uses,
-for one component only.  Any move / leave / cid-change / Alt-release clears
-both.
+the same render path the layer uses, for one component only.  Any move / leave /
+cid-change / Alt-release clears both.
 """
 
 from __future__ import annotations
@@ -62,15 +61,12 @@ class HoverReveal:
                 self._tooltip.show_at(text, self._pending_view_pos)
             return
         if overrides.meta_pin_labels == LayerVisibility.HIDDEN and self._pending_alt:
-            self._view._meta_pin_labels_reveal_cid = cid
-            self._view.refresh()
+            self._view.set_meta_pin_labels_reveal(cid)
 
     def clear(self) -> None:
         """Hide the tooltip and drop any active pin-name reveal."""
         self._tooltip.hide()
-        if self._view._meta_pin_labels_reveal_cid is not None:
-            self._view._meta_pin_labels_reveal_cid = None
-            self._view.refresh()
+        self._view.set_meta_pin_labels_reveal(None)
 
     def _label_for(self, cid: uuid.UUID) -> str | None:
         inst = self._view.session.instances.get(cid)

@@ -187,6 +187,7 @@ class HeadlessBoardView:
 
         self._active_group_id = ROOT_GROUP_ID
         self._layer_overrides = LayerOverrides()
+        self._meta_pin_labels_reveal_cid: uuid.UUID | None = None
         self._pad_positions: list[Point] = []
         self.notifications = NotificationLog()
         self.refresh_count = 0
@@ -236,6 +237,11 @@ class HeadlessBoardView:
 
     def layer_state(self) -> LayerState:
         return LayerState()
+
+    def set_meta_pin_labels_reveal(self, component_id: uuid.UUID | None) -> None:
+        if component_id != self._meta_pin_labels_reveal_cid:
+            self._meta_pin_labels_reveal_cid = component_id
+            self.refresh()
 
     def mirror_flags(self) -> tuple[bool, bool]:
         return self.camera.mirror_flags()

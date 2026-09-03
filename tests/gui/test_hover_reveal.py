@@ -55,7 +55,7 @@ class _FakeView:
     def __init__(self, qtbot, parent) -> None:
         self._viewport = parent
         self.layer_overrides = LayerOverrides()
-        self._meta_pin_labels_reveal_cid: uuid.UUID | None = None
+        self.reveal_cid: uuid.UUID | None = None
         self.session = _FakeSession()
         self.refresh_calls = 0
 
@@ -64,6 +64,11 @@ class _FakeView:
 
     def refresh(self) -> None:
         self.refresh_calls += 1
+
+    def set_meta_pin_labels_reveal(self, component_id: uuid.UUID | None) -> None:
+        if component_id != self.reveal_cid:
+            self.reveal_cid = component_id
+            self.refresh()
 
 
 def _make_view(qtbot):
@@ -104,7 +109,7 @@ def test_dwell_meta_pin_labels_hidden_alt_sets_reveal(qtbot) -> None:
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
 
-    assert view._meta_pin_labels_reveal_cid == cid
+    assert view.reveal_cid == cid
     assert view.refresh_calls >= 1
 
 
@@ -117,12 +122,12 @@ def test_clear_hides_and_resets(qtbot) -> None:
     reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
-    assert view._meta_pin_labels_reveal_cid == cid
+    assert view.reveal_cid == cid
 
     reveal.clear()
 
     assert not reveal._tooltip.isVisible()
-    assert view._meta_pin_labels_reveal_cid is None
+    assert view.reveal_cid is None
 
 
 def test_alt_release_clears_active_reveal(qtbot) -> None:
@@ -134,12 +139,12 @@ def test_alt_release_clears_active_reveal(qtbot) -> None:
     reveal = HoverReveal(cast(BoardView, view))  # _FakeView: minimal test double
     reveal.on_hover(_hover_event(cid, alt=True), (30, 40))
     reveal._on_dwell()
-    assert view._meta_pin_labels_reveal_cid == cid
+    assert view.reveal_cid == cid
 
     # Same component, Alt released: the reveal must clear immediately.
     reveal.on_hover(_hover_event(cid, alt=False), (30, 40))
 
-    assert view._meta_pin_labels_reveal_cid is None
+    assert view.reveal_cid is None
 
 
 def _perfboard() -> Board:
@@ -164,7 +169,7 @@ def test_layer_state_threads_meta_pin_labels_reveal_cid(qtbot) -> None:
 
     LayerState is rebuilt fresh on every refresh() via layer_state_for_tool()
     (which knows nothing about hover-reveal).  Without BoardView.layer_state()
-    copying ``_meta_pin_labels_reveal_cid`` onto the freshly-built state, Task 8's
+    copying the persistent reveal id onto the freshly-built state, Task 8's
     per-component reveal is silently a no-op in production.
     """
     library = load_library([_LIBRARY_DIR])
@@ -174,7 +179,7 @@ def test_layer_state_threads_meta_pin_labels_reveal_cid(qtbot) -> None:
 
     bv.layer_overrides.meta_pin_labels = LayerVisibility.HIDDEN
     cid = uuid.uuid4()
-    bv._meta_pin_labels_reveal_cid = cid
+    bv.set_meta_pin_labels_reveal(cid)
 
     state = bv.layer_state()
 

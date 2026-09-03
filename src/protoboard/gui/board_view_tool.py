@@ -121,6 +121,10 @@ class AbstractBoardView(Protocol):
         """The resolved per-layer visibility/alpha state for this paint."""
         ...
 
+    def set_meta_pin_labels_reveal(self, component_id: uuid.UUID | None) -> None:
+        """Reveal pin labels for one component, or clear the reveal."""
+        ...
+
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
         ...
