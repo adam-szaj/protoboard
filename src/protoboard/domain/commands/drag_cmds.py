@@ -34,12 +34,21 @@ import structlog
 
 from protoboard.domain.commands.base import ConditionalCommand
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    restore_placements,
+)
+from protoboard.domain.layout.wire import Fragment, Wire, transform_wire_geometry
+from protoboard.domain.layout.wire_utils import (
+    remove_wire_capturing_orphans,
+    restore_wire_geometry,
+    restore_wire_with_orphans,
+    snapshot_wire_geometry,
+)
 from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
-    from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import Fragment, Wire
 
 
 __all__ = ["MoveDragSetCommand", "TransformDragSetCommand"]
@@ -128,8 +137,6 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         self._saved_placements = saved_pl
 
         # 2. Snapshot internal wire paths + fragments.
-        from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
-
         self._saved_geometry = snapshot_wire_geometry(
             state.layout,
             self.internal_wire_ids,
@@ -142,8 +149,6 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         # 4. Translate internal wires by delta.  Fragment paths get the
         #    same translation; PinKnot refs are untouched (they resolve
         #    by component_id+pin_number against the new placement).
-        from protoboard.domain.layout.wire import transform_wire_geometry
-
         dx, dy = self.delta.dx, self.delta.dy
         for wid in self.internal_wire_ids:
             wire = state.layout.wires.get(wid)
@@ -154,10 +159,6 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         # 5. Remove dropped wires (and capture orphan joints for revert).
         #    Shared helper with RemoveWireCommand / DropWiresCommand —
         #    keep them in sync via wire_utils, not via copy-paste.
-        from protoboard.domain.layout.wire_utils import (
-            remove_wire_capturing_orphans,
-        )
-
         saved_dropped: list[Wire] = []
         saved_orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.dropped_wire_ids:
@@ -188,10 +189,6 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
     def _do_revert(self, state: ComponentState) -> None:
         # 1. Restore dropped wires (+ orphan joints) first, so the
         #    sibling re-translation below sees the full wire set.
-        from protoboard.domain.layout.wire_utils import (
-            restore_wire_with_orphans,
-        )
-
         for wire in self._saved_dropped_wires:
             restore_wire_with_orphans(
                 state.layout,
@@ -200,13 +197,9 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
             )
 
         # 2. Untranslate internal wires.
-        from protoboard.domain.layout.wire_utils import restore_wire_geometry
-
         restore_wire_geometry(state.layout, self._saved_geometry)
 
         # 3. Restore old placements.
-        from protoboard.domain.layout.placement import restore_placements
-
         restore_placements(state.layout.placements, self._saved_placements)
 
         # 4. Invalidate caches again so next paint sees the rewound state.
