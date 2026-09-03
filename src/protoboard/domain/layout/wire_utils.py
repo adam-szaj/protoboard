@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -738,7 +739,6 @@ def merge_colocated_joints(
     dropped.  Behaves like the pre-fix code when ``schematic`` is not
     supplied (legacy tests).
     """
-    from collections import defaultdict
 
     # Classify each joint by the (side, net) of its incident wires.
     # When a joint's wires don't agree on side or net, the joint is
@@ -2238,8 +2238,6 @@ def update_wires_for_move(
     avoid double-translation when old_pin_pos of this component coincides with
     the (already-shifted) position of another component's pin.
     """
-    from protoboard.domain.components.package import resolved_footprint
-
     resolved = resolve_instance_definition(comp_id, instances, components)
     if resolved is None:
         return
@@ -2296,10 +2294,6 @@ def update_wires_for_move(
         to the moved component (user-observed bug 2026-05-31).
         """
         # Strong: explicit PinKnot ref.
-        from protoboard.domain.components.package.pin_mapping import (
-            meta_pin_for_package_pin,
-        )
-
         meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
         has_any_knot_ref = False
         for ref in (w.a, w.b):
@@ -2463,8 +2457,6 @@ def merge_colocated_joints_capturing(
     are merged. Pairs that disagree on ``side`` or ``insulated`` are physically
     distinct conductors and stay separate.
     """
-    from collections import defaultdict
-
     records: list[ColocatedFuseRecord] = []
     # Bucket degree-1 JointKnots by snap position.
     by_pos: dict[tuple[float, float], list[uuid.UUID]] = defaultdict(list)
