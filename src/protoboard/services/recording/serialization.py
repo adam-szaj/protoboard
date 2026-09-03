@@ -346,6 +346,34 @@ def _register_uuid_bool_command(
     _register(command_type, name, encode, decode)
 
 
+def _register_uuid_text_command(
+    command_type: type,
+    name: str,
+    uuid_field: str,
+    text_field: str,
+) -> None:
+    """Register a command carrying one UUID and one required text value."""
+
+    def encode(command: Any) -> dict[str, Any]:
+        return {
+            uuid_field: _uuid_to(cast(uuid.UUID, getattr(command, uuid_field))),
+            text_field: str(getattr(command, text_field)),
+        }
+
+    def decode(data: dict[str, Any]) -> Command[Any]:
+        return cast(
+            Command[Any],
+            command_type(
+                **{
+                    uuid_field: _uuid_from(str(data[uuid_field])),
+                    text_field: str(data[text_field]),
+                }
+            ),
+        )
+
+    _register(command_type, name, encode, decode)
+
+
 def codec_for_command_type(command_type: type[Command[Any]]) -> Codec[Any] | None:
     """Return the registered codec for ``command_type``, if any."""
     return _CODEC_BY_TYPE.get(command_type)
@@ -818,18 +846,7 @@ _register(
 # ---------------------------------------------------------------------------
 
 
-def _rename_net_to(cmd: RenameNetCommand) -> dict[str, Any]:
-    return {"net_id": _uuid_to(cmd.net_id), "new_name": cmd.new_name}
-
-
-def _rename_net_from(d: dict[str, Any]) -> RenameNetCommand:
-    return RenameNetCommand(
-        net_id=_uuid_from(d["net_id"]),
-        new_name=str(d["new_name"]),
-    )
-
-
-_register(RenameNetCommand, "rename_net", _rename_net_to, _rename_net_from)
+_register_uuid_text_command(RenameNetCommand, "rename_net", "net_id", "new_name")
 
 
 _register_uuid_bool_command(
@@ -859,18 +876,7 @@ _register(
 )
 
 
-def _create_net_to(cmd: CreateNetCommand) -> dict[str, Any]:
-    return {"name": cmd.name, "net_id": _uuid_to(cmd.net_id)}
-
-
-def _create_net_from(d: dict[str, Any]) -> CreateNetCommand:
-    return CreateNetCommand(
-        name=str(d["name"]),
-        net_id=_uuid_from(d["net_id"]),
-    )
-
-
-_register(CreateNetCommand, "create_net", _create_net_to, _create_net_from)
+_register_uuid_text_command(CreateNetCommand, "create_net", "net_id", "name")
 
 
 _register_uuid_command(DeleteNetCommand, "delete_net", "net_id")
@@ -998,22 +1004,11 @@ _register(
 )
 
 
-def _rename_group_to(cmd: RenameGroupCommand) -> dict[str, Any]:
-    return {"group_id": _uuid_to(cmd.group_id), "new_name": cmd.new_name}
-
-
-def _rename_group_from(d: dict[str, Any]) -> RenameGroupCommand:
-    return RenameGroupCommand(
-        group_id=_uuid_from(d["group_id"]),
-        new_name=str(d["new_name"]),
-    )
-
-
-_register(
+_register_uuid_text_command(
     RenameGroupCommand,
     "rename_group",
-    _rename_group_to,
-    _rename_group_from,
+    "group_id",
+    "new_name",
 )
 
 
