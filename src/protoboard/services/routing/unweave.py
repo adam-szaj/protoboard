@@ -47,8 +47,11 @@ from typing import TYPE_CHECKING, Literal, cast
 import structlog
 
 from protoboard.domain.components.resolution import iter_placed_components
+from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, Vector, segments_cross_strict
 from protoboard.services.routing.postprocess import _canonical_subpath
 from protoboard.types import NodeKey, Side
@@ -59,8 +62,6 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.connectivity.graph import ConnectivityGraph
-    from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.schematic import Schematic
 
 _EPS = 1e-7
@@ -2290,10 +2291,6 @@ def _make_short_checker(
     replaced by *proposed*.  All other baseline wires are kept untouched so
     nets they participate in stay connected.
     """
-    from protoboard.domain.connectivity.graph import ConnectivityGraph
-    from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.schematic.net import PinRef
-
     # Pin → net mapping snapshot — source of truth for invariants.
     pin_to_net: dict[tuple[uuid.UUID, int], uuid.UUID] = {}
     for net in schematic.nets.values():
