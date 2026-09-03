@@ -44,6 +44,7 @@ from protoboard.controller.highlight_controller import HighlightController
 from protoboard.controller.ports import (
     LEFT_BUTTON,
     ActionOption,
+    BlockingJob,
     HoverEvent,
     InteractionContext,
     PointerInput,
@@ -1525,7 +1526,6 @@ class SelectTool(ControllerTool):
         ``add`` only extends within the same relation, but a band is an explicit
         "these exact items" set that must union/subtract regardless of net.
         """
-        from protoboard.controller.selection.mouse_input import Mods
         from protoboard.controller.selection.rubber_band_controller import BandHit
 
         if not isinstance(hit, BandHit):
@@ -3539,7 +3539,6 @@ class SelectTool(ControllerTool):
         mode_override: str | None = None,
     ) -> None:
         """Run generic_simplify_wire on each wire id (in a worker), apply changes."""
-        from protoboard.controller.ports import BlockingJob
         from protoboard.controller.selection.wire_ops import build_simplify_inputs
         from protoboard.domain.routing.simplify_mode import SimplifyMode
 
@@ -3606,8 +3605,6 @@ class SelectTool(ControllerTool):
 
     def unweave_wires(self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
-        from protoboard.controller.ports import BlockingJob
-
         session = self._session
         targets = [w for w in session.layout.wires if w.id in wire_ids]
         if len(targets) < 2:
