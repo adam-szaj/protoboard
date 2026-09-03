@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 from PySide6.QtGui import QKeySequence
 
+from protoboard.gui import keybindings as KB
+from protoboard.gui.actions import ALL_ACTIONS, strip_mnemonic
 from protoboard.gui.keymap import KeyMap, category_of
 
 __all__ = [
@@ -73,9 +75,6 @@ def app_shortcut_sections(
     *keybindings* is duck-typed: anything with ``get(action_id) -> str`` works
     (the real ``KeyBindings`` or a test stub).
     """
-    from protoboard.gui import keybindings as KB
-    from protoboard.gui.actions import ALL_ACTIONS, strip_mnemonic
-
     get = getattr(keybindings, "get", None)
 
     def shortcut_of(action_id: str) -> str:
