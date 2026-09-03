@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
-from protoboard.controller.ports import KeyInput, Mods
+from protoboard.controller.ports import ActionOption, KeyInput, Mods
 from protoboard.controller.ports.drc import DRCIssue
 from protoboard.controller.selection_axes import (
     RelationClass,
@@ -70,7 +70,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Vector
 from protoboard.gui import keybindings as KB
 from protoboard.gui import recent_projects
-from protoboard.gui.action_builder import build_actions
+from protoboard.gui.action_builder import build_actions, ensure_toolbar
 from protoboard.gui.actions import ALL_ACTIONS
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.highlight_state import HighlightEntry
@@ -1161,8 +1161,6 @@ class MainWindow(QMainWindow):
                     toolbar.addAction(act)
         # If the YAML mentions a group whose toolbar didn't exist yet
         # (first time the user populates an empty group), create it.
-        from protoboard.gui.action_builder import ensure_toolbar
-
         for group, action_ids in layout.items():
             if group in self._registry.toolbars:
                 continue
@@ -2894,8 +2892,6 @@ class MainWindow(QMainWindow):
         this window adds itself (parity with the old ToolHost canvas menu).
         """
         from PySide6.QtWidgets import QMenu
-
-        from protoboard.controller.ports import ActionOption
 
         view = self._board_view
         menu = QMenu(view)

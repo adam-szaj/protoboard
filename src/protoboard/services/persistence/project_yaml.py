@@ -38,6 +38,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.layout import Layout
@@ -1132,8 +1133,6 @@ def _layout_from_yaml(
                     color=raw.get("color"),
                 )
             )
-    from protoboard.domain.layout.group import ComponentGroup
-
     groups: dict[uuid.UUID, ComponentGroup] = {}
     legacy_baked: dict[uuid.UUID, tuple[Point, int]] = {}
     for raw in data.get("groups") or []:
