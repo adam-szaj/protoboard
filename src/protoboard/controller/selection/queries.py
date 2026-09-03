@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from protoboard.controller.selection_axes import RelationClass
+from protoboard.domain.schematic.net import PinRef
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -173,8 +174,6 @@ class SessionConnQuery:
         )
 
     def nets_for_pin(self, component_id: object, pin_number: int) -> frozenset[NetId]:
-        from protoboard.domain.schematic.net import PinRef
-
         if not isinstance(component_id, uuid.UUID):
             return frozenset()
         net = self.session.schematic.net_for_pin(
