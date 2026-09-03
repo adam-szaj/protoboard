@@ -34,6 +34,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from protoboard.domain.layout.group_tree import GroupTree
+
 if TYPE_CHECKING:
     from protoboard.domain.layout.group import ComponentGroup
 
@@ -79,8 +81,6 @@ class DragSet:
         ``DragSet`` so the structure stays pure-data and the resolution
         always reflects the latest group hierarchy.
         """
-        from protoboard.domain.layout.group_tree import GroupTree
-
         result: set[uuid.UUID] = set(self.free_components)
         tree = GroupTree(groups_map)
         for gid in self.groups:
@@ -152,8 +152,6 @@ class DragSet:
             top-level IDs, ``groups`` mirroring ``selected_group_ids``,
             and ``wires`` mirroring ``selected_wire_ids``.
         """
-        from protoboard.domain.layout.group_tree import GroupTree
-
         groups = frozenset(selected_group_ids)
 
         # Components covered by selected groups — these don't enter
