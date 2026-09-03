@@ -324,7 +324,7 @@ def _fast_pads_on_segment(
     """Return pads from *board_pads* strictly interior to segment a→b.
 
     Fast path: the segment is assumed to be pure ortho (one of dx/dy is 0)
-    or pure diag (|dx| == |dy|), as produced by ``_canonical_subpath``.
+    or pure diag (|dx| == |dy|), as produced by ``canonical_subpath``.
     Under that assumption we can ENUMERATE candidate pad positions in
     O(seg_length) rather than scanning every pad in the set.
 
@@ -371,7 +371,7 @@ def _fast_pads_on_segment(
     return enriched[1:-1]
 
 
-def _canonical_subpath(
+def canonical_subpath(
     a: Point,
     b: Point,
     *,
@@ -419,6 +419,10 @@ def _canonical_subpath(
             enriched.append(base[k + 1])
         return enriched
     return base
+
+
+# Compatibility alias for older internal integrations.
+_canonical_subpath = canonical_subpath
 
 
 def _wire_to_segs(wire: Wire) -> list[tuple[Point, Point]]:
@@ -1555,9 +1559,7 @@ def generic_simplify_wire(
         for span in range(n - 1, 1, -1):
             for i in range(0, n - span):
                 j = i + span
-                canon = _canonical_subpath(
-                    path[i], path[j], allow_l_shape=allow_l_shape
-                )
+                canon = canonical_subpath(path[i], path[j], allow_l_shape=allow_l_shape)
                 if canon is None or len(canon) < 2:
                     _trace_reject("canonical_subpath_none", i, j)
                     continue

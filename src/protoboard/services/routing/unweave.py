@@ -55,7 +55,7 @@ from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, Vector, segments_cross_strict
-from protoboard.services.routing.postprocess import _canonical_subpath
+from protoboard.services.routing.postprocess import canonical_subpath
 from protoboard.types import NodeKey, Side
 
 _log = structlog.get_logger(__name__)
@@ -448,7 +448,7 @@ def _link(
     if _pt_equal(a, b):
         return []
     pads_arg = board_pads if (board_pads and not insulated) else None
-    canon = _canonical_subpath(a, b, allow_l_shape=True, board_pads=pads_arg)
+    canon = canonical_subpath(a, b, allow_l_shape=True, board_pads=pads_arg)
     if canon is None or len(canon) <= 2:
         return []
     # canon is [a, ..., b]; drop the endpoints.
