@@ -114,8 +114,12 @@ from protoboard.services.persistence.project_yaml import (
     save_project,
     set_migration_library,
 )
-from protoboard.services.placement.auto_placer import AutoPlaceResult, auto_place
-from protoboard.services.placement.spreader import spread_components
+from protoboard.services.placement.auto_placer import (
+    AutoPlaceResult,
+    AutoPlaceState,
+    auto_place,
+)
+from protoboard.services.placement.spreader import SpreadState, spread_components
 from protoboard.services.preferences.theme_yaml import load_theme
 from protoboard.services.rendering.qt_geometry import to_qpointf
 
@@ -882,8 +886,6 @@ class MainWindow(QMainWindow):
 
     def _auto_place_instances(self, instance_ids: list[uuid.UUID]) -> None:
         """Auto-place a list of component instances using net-gravity heuristic."""
-        from protoboard.services.placement.auto_placer import AutoPlaceState
-
         to_place = [
             inst
             for iid in instance_ids
@@ -973,8 +975,6 @@ class MainWindow(QMainWindow):
 
     def _spread_components(self) -> None:
         """Spread placed components more evenly using force-directed relaxation."""
-        from protoboard.services.placement.spreader import SpreadState
-
         selected = self._selected_component_ids()
 
         if selected:
