@@ -13,7 +13,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from protoboard.domain.components.appearance import Appearance
+from protoboard.domain.components.package.component_package import (
+    package_to_footprint,
+    resolve_component_package,
+)
 from protoboard.domain.schematic.net import PinIdentity, PinRef
+from protoboard.errors import UnboundInstanceError
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -112,17 +117,11 @@ class ComponentInstance:
         genuinely declares no package.
         """
         if self.definition is None:
-            from protoboard.errors import UnboundInstanceError
-
             raise UnboundInstanceError(
                 f"ComponentInstance {self.refdes!r} (def "
                 f"{self.definition_ref!r}) is not bound to a definition; call "
                 "bind() before resolving its geometry"
             )
-        from protoboard.domain.components.package.component_package import (
-            resolve_component_package,
-        )
-
         return resolve_component_package(self.definition, self, self.families or {})
 
     def resolved_footprint(self) -> Footprint:
@@ -141,10 +140,6 @@ class ComponentInstance:
         — not a fallback. The distinction is deliberate: unbound = programming
         error (raise); no variant = correct default.
         """
-        from protoboard.domain.components.package.component_package import (
-            package_to_footprint,
-        )
-
         return package_to_footprint(self.resolved_package())
 
     @staticmethod
