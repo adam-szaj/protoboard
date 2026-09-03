@@ -52,6 +52,19 @@ from protoboard.controller.selection_axes import (
     relation_from_str,
 )
 from protoboard.controller.view_options.theme import Theme
+from protoboard.domain.commands.base import Command, ComponentState, compose_command
+from protoboard.domain.commands.board_cmds import ResizeBoardCommand
+from protoboard.domain.commands.component_cmds import (
+    DisconnectPinCommand,
+    MoveComponentCommand,
+    PlaceComponentCommand,
+    SetComponentAppearanceCommand,
+    SetComponentPackageVariantCommand,
+)
+from protoboard.domain.commands.group_cmds import (
+    RenameGroupCommand,
+    SetExportedPinsCommand,
+)
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Vector
 from protoboard.gui import keybindings as KB
@@ -871,14 +884,6 @@ class MainWindow(QMainWindow):
 
     def _auto_place_instances(self, instance_ids: list[uuid.UUID]) -> None:
         """Auto-place a list of component instances using net-gravity heuristic."""
-        from protoboard.domain.commands.base import (
-            Command,
-            ComponentState,
-            compose_command,
-        )
-        from protoboard.domain.commands.component_cmds import (
-            PlaceComponentCommand,
-        )
         from protoboard.services.placement.auto_placer import AutoPlaceState
 
         to_place = [
@@ -970,14 +975,6 @@ class MainWindow(QMainWindow):
 
     def _spread_components(self) -> None:
         """Spread placed components more evenly using force-directed relaxation."""
-        from protoboard.domain.commands.base import (
-            Command,
-            ComponentState,
-            compose_command,
-        )
-        from protoboard.domain.commands.component_cmds import (
-            MoveComponentCommand,
-        )
         from protoboard.services.placement.spreader import SpreadState
 
         selected = self._selected_component_ids()
@@ -1262,7 +1259,6 @@ class MainWindow(QMainWindow):
         self._view_label.setText(f"{camera}  Mirror:{mirror_tag}   ")
 
     def _resize_board(self) -> None:
-        from protoboard.domain.commands.board_cmds import ResizeBoardCommand
         from protoboard.gui.dialogs.resize_board_dialog import ResizeBoardDialog
 
         dlg = ResizeBoardDialog(
@@ -1709,8 +1705,6 @@ class MainWindow(QMainWindow):
         return gid
 
     def _group_rename(self) -> None:
-        from protoboard.domain.commands.group_cmds import RenameGroupCommand
-
         active = self._active_group_with_data()
         if active is None:
             return
@@ -1730,8 +1724,6 @@ class MainWindow(QMainWindow):
 
     def _group_set_exported(self, new_exported: frozenset) -> None:  # type: ignore[type-arg]
         """Common back-end for the three Export menu entries."""
-        from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-
         active = self._active_group_with_data()
         if active is None:
             return
@@ -1935,10 +1927,6 @@ class MainWindow(QMainWindow):
         placed = self._session.placed_component(comp_id)
         if placed is None:
             return
-
-        from protoboard.domain.commands.component_cmds import (
-            DisconnectPinCommand,
-        )
 
         # Build list of netted pins for this component.
         netted: list[tuple[int, str]] = []
@@ -2519,10 +2507,6 @@ class MainWindow(QMainWindow):
         comp_id: uuid.UUID,
         package_variant: object,
     ) -> None:
-        from protoboard.domain.commands.component_cmds import (
-            SetComponentPackageVariantCommand,
-        )
-
         variant_str = str(package_variant) if package_variant is not None else None
         cmd = SetComponentPackageVariantCommand(
             component_id=comp_id,
@@ -2536,9 +2520,6 @@ class MainWindow(QMainWindow):
         comp_id: uuid.UUID,
         appearance: object,
     ) -> None:
-        from protoboard.domain.commands.component_cmds import (
-            SetComponentAppearanceCommand,
-        )
         from protoboard.domain.components.appearance import Appearance
 
         new_appearance = appearance if isinstance(appearance, Appearance) else None
