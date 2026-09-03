@@ -72,12 +72,20 @@ _REDRAG_GREEN = QColor(0, 200, 80, 120)
 # -- one small class per overlay concept ---------------------------------------
 
 
-class _PivotMarkers:
-    """Armed-rotate ⊕ markers (one per object, or one on the shared pad)."""
+class _SceneItemOverlay:
+    """Own a collection of scene items and remove it as one unit."""
 
     def __init__(self, scene: Callable[[], QGraphicsScene]) -> None:
         self._scene = scene
         self.items: list[QGraphicsItem] = []
+
+    def clear(self) -> None:
+        remove_scene_items(self._scene(), self.items)
+        self.items = []
+
+
+class _PivotMarkers(_SceneItemOverlay):
+    """Armed-rotate ⊕ markers (one per object, or one on the shared pad)."""
 
     def show(self, pos: Point, *, shared: bool) -> None:
         # Shared pivot is bigger + brighter (it governs the whole selection);
@@ -97,10 +105,6 @@ class _PivotMarkers:
             cross.setZValue(21.0)
             self._scene().addItem(cross)
             self.items.append(cross)
-
-    def clear(self) -> None:
-        remove_scene_items(self._scene(), self.items)
-        self.items = []
 
 
 class _RubberBandRect:
@@ -130,12 +134,11 @@ class _RubberBandRect:
         self.item = None
 
 
-class _RedragOverlay:
+class _RedragOverlay(_SceneItemOverlay):
     """Legal landing pads + reach disc + the live validity marker."""
 
     def __init__(self, scene: Callable[[], QGraphicsScene]) -> None:
-        self._scene = scene
-        self.items: list[QGraphicsItem] = []
+        super().__init__(scene)
         self.live: QGraphicsItem | None = None
 
     def show_pad(self, pt: Point) -> None:
@@ -186,16 +189,11 @@ class _RedragOverlay:
 
     def clear(self) -> None:
         self.clear_live()
-        remove_scene_items(self._scene(), self.items)
-        self.items = []
+        super().clear()
 
 
-class _WireEditOverlay:
+class _WireEditOverlay(_SceneItemOverlay):
     """Cyan wire segments + vertex dots (marked range endpoints red)."""
-
-    def __init__(self, scene: Callable[[], QGraphicsScene]) -> None:
-        self._scene = scene
-        self.items: list[QGraphicsItem] = []
 
     def show_wire(
         self,
@@ -236,17 +234,12 @@ class _WireEditOverlay:
             self._scene().addItem(dot)
             self.items.append(dot)
 
-    def clear(self) -> None:
-        remove_scene_items(self._scene(), self.items)
-        self.items = []
 
-
-class _RerouteOverlay:
+class _RerouteOverlay(_SceneItemOverlay):
     """Dashed orange waypoint polyline + the live cursor segment."""
 
     def __init__(self, scene: Callable[[], QGraphicsScene]) -> None:
-        self._scene = scene
-        self.items: list[QGraphicsItem] = []
+        super().__init__(scene)
         self.live: QGraphicsItem | None = None
 
     def show_path(self, points: list[Point]) -> None:
@@ -272,8 +265,7 @@ class _RerouteOverlay:
 
     def clear(self) -> None:
         self.clear_live()
-        remove_scene_items(self._scene(), self.items)
-        self.items = []
+        super().clear()
 
 
 class QtSelectPreview:
