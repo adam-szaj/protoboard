@@ -29,14 +29,13 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import (
-    Future,
     ProcessPoolExecutor,
     ThreadPoolExecutor,
     as_completed,
 )
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, ParamSpec, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 
@@ -64,6 +63,7 @@ from protoboard.geometry import Point, Vector, round_coord
 from protoboard.services.drc.engine import DRCEngine
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
+from protoboard.services.routing.inline_executor import InlineExecutor
 from protoboard.services.routing.results import AutorouteResult, NetStats, PassStats
 from protoboard.types import NodeKey, Side
 
@@ -74,8 +74,6 @@ if TYPE_CHECKING:
 # to straight-line paths, leaving more corridors free for other nets.
 _DEFAULT_COST = RoutingCostModel(direction_change=1.0)
 
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
 _WirePathFingerprint = tuple[
     uuid.UUID,
     str,
@@ -212,30 +210,8 @@ def _log_preexisting_fusions(
     return seen
 
 
-class _SequentialExecutor:
-    """Drop-in replacement for ThreadPoolExecutor that runs work inline.
-
-    Use case 1 — tests: hypothesis fuzz needs deterministic A* output for
-    shrinking; tied-cost universes finish in non-deterministic order under
-    a real thread pool.
-    Use case 2 — diagnostics: set PROTOBOARD_ASTAR_SEQUENTIAL=1 to bypass
-    the thread pool entirely, useful when a worker thread crashes in
-    third-party native code (Qt+FreeType, CPython GC) and we need to
-    rule out concurrency as the cause.
-    """
-
-    def submit(
-        self, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
-    ) -> Future[_T]:
-        fut: Future[_T] = Future()
-        try:
-            fut.set_result(fn(*args, **kwargs))
-        except BaseException as e:  # noqa: BLE001
-            fut.set_exception(e)
-        return fut
-
-    def shutdown(self, *args: object, **kwargs: object) -> None:
-        pass
+class _SequentialExecutor(InlineExecutor):
+    """Named compatibility adapter for autorouter's sequential mode."""
 
 
 # Module-level executor for per-side A* evaluation.  Default is SEQUENTIAL
