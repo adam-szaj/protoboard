@@ -36,31 +36,35 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
+from protoboard.controller.editing.wire_edit_arm import WireEditArm
+from protoboard.controller.editing.wire_nets import resolve_wire_nets
+from protoboard.controller.highlight_entry import PROFILE_DIMMED_2, HighlightEntry
+from protoboard.controller.ports import LEFT_BUTTON, HoverEvent, StatusEvent
 from protoboard.controller.selection.adapters import (
     PointSelectable,
     WireVertexSelectable,
 )
 from protoboard.controller.selection.hit_test import HitTester, WireEditCycle
+from protoboard.controller.selection.mouse_input import Intent
+from protoboard.controller.selection.point_pick_controller import PointPickController
 from protoboard.controller.selection.selectable import PickKind, Stop
+from protoboard.controller.selection.service import SelectionService
 from protoboard.controller.selection.wire_edit import WireRange, WireRangeEdit
+from protoboard.controller.selection.wire_ops import build_simplify_inputs
 from protoboard.controller.tools.base import ControllerTool
+from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
+from protoboard.domain.layout.wire import Wire
 from protoboard.instrumentation.debug_trace import traced
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.controller.editing import EditingContext
-    from protoboard.controller.editing.wire_edit_arm import WireEditArm
-    from protoboard.controller.ports import HoverEvent, PointerInput
-    from protoboard.controller.selection.mouse_input import (
-        Intent,
-        Mods,
-        MouseInputController,
-    )
+    from protoboard.controller.ports import PointerInput
+    from protoboard.controller.selection.mouse_input import Mods, MouseInputController
     from protoboard.controller.selection.selectable import Selectable
-    from protoboard.controller.selection.service import SelectionService
     from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.domain.commands.base import Command, ComponentState
-    from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
 
 
@@ -111,9 +115,6 @@ class WireEditTool(ControllerTool):
 
     @traced()
     def activate(self, session: EditingContext, view: object) -> None:
-        from protoboard.controller.editing.wire_edit_arm import WireEditArm
-        from protoboard.controller.selection.service import SelectionService
-
         self._session = session
         # Narrow the object-typed seam param to the controller view surface.
         view = cast("_ViewProto", view)
@@ -158,11 +159,6 @@ class WireEditTool(ControllerTool):
         wid = self._wire_edit_wire_id
         if wid is None or self._session is None:
             return
-        from protoboard.controller.highlight_entry import (
-            PROFILE_DIMMED_2,
-            HighlightEntry,
-        )
-
         self._session.highlight_stack.push_transient(
             HighlightEntry(
                 wire_ids=frozenset({wid}),
@@ -391,8 +387,6 @@ class WireEditTool(ControllerTool):
 
     def _simplify_wire_fragment(self) -> None:
         """Simplify the selected fragment — ``[S]`` (a range op; stays armed)."""
-        from protoboard.controller.selection.wire_ops import build_simplify_inputs
-
         state = self._wire_edit
         arm = self._arm
         if state is None or arm is None or state.is_cross:
@@ -615,8 +609,6 @@ class WireEditTool(ControllerTool):
     # -- pick machinery (replicated from SelectTool — reroute needs it) -----
 
     def on_press(self, inp: PointerInput) -> bool:
-        from protoboard.controller.ports import LEFT_BUTTON
-
         if inp.button != LEFT_BUTTON:
             return False
         mouse = self._mouse
@@ -630,8 +622,6 @@ class WireEditTool(ControllerTool):
             self._mouse.on_move(inp.scene_pos, inp.mods)
 
     def empty_action(self, point: Point, mods: Mods) -> HoverEvent:
-        from protoboard.controller.ports import HoverEvent
-
         if self._mouse is not None:
             self._mouse.on_move(point, mods)
         return HoverEvent(point=point)
@@ -665,21 +655,15 @@ class WireEditTool(ControllerTool):
         :meth:`_pick_at`.  Mirrors ``SelectTool._arm_pick`` (only the surface
         wire-edit needs — no custom ``resolve``).
         """
-        from collections.abc import Callable as _Callable
-
-        from protoboard.controller.selection.point_pick_controller import (
-            PointPickController,
-        )
-
         if self._mouse is not None and not self._mouse.finished:
             self._dispatch_intent_cancel()
         kind = cast("PickKind", what)
         session = self._selection.request_pick(
             kind,
             cast("Stop", stop),
-            on_done=cast("_Callable[[list[Selectable]], None]", on_done),
-            on_cancel=cast("_Callable[[], None] | None", on_cancel),
-            on_progress=cast("_Callable[[list[Selectable]], None] | None", on_progress),
+            on_done=cast("Callable[[list[Selectable]], None]", on_done),
+            on_cancel=cast("Callable[[], None] | None", on_cancel),
+            on_progress=cast("Callable[[list[Selectable]], None] | None", on_progress),
         )
 
         def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
@@ -688,7 +672,7 @@ class WireEditTool(ControllerTool):
         self._mouse = PointPickController(
             session,
             _resolve,
-            on_preview=cast("_Callable[[Point, Mods], None] | None", on_preview),
+            on_preview=cast("Callable[[Point, Mods], None] | None", on_preview),
         )
 
     def _pick_at(self, what: object, scene_pt: Point) -> Selectable | None:
@@ -703,8 +687,6 @@ class WireEditTool(ControllerTool):
         if what in ("pad", "point"):
             return PointSelectable(point=self._snap(scene_pt))
         if what == "wire-vertex":
-            from protoboard.types import Side
-
             view = self._view
             camera_side = view.camera_side if view is not None else "top"
             hitter = HitTester(self._session, camera_side=cast("Side", camera_side))
@@ -727,13 +709,9 @@ class WireEditTool(ControllerTool):
         return self._wire_edit_wire_id
 
     def _dispatch_intent_confirm(self) -> bool:
-        from protoboard.controller.selection.mouse_input import Intent
-
         return self._dispatch_intent(Intent.CONFIRM)
 
     def _dispatch_intent_cancel(self) -> bool:
-        from protoboard.controller.selection.mouse_input import Intent
-
         return self._dispatch_intent(Intent.CANCEL)
 
     def _dispatch_intent(self, intent: Intent) -> bool:
@@ -759,11 +737,8 @@ class WireEditTool(ControllerTool):
         re-merges the schematic instead of keeping the stale net.  (Copied from
         ``SelectTool._net_aware_add_factory``.)
         """
-        from protoboard.controller.editing.wire_nets import resolve_wire_nets
-        from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
-        from protoboard.domain.layout.wire import Wire as _Wire
 
-        def _factory(wire: _Wire) -> Command[ComponentState]:
+        def _factory(wire: Wire) -> Command[ComponentState]:
             cmd = AddWireWithNetsCommand(wire=wire)
             resolve_wire_nets(
                 self._session,
@@ -803,8 +778,6 @@ class WireEditTool(ControllerTool):
         return self._view.snap(raw, exclude_ids=frozenset())
 
     def _status(self, msg: str, timeout_ms: int = 3000) -> None:
-        from protoboard.controller.ports import StatusEvent
-
         if self._view is None:
             return
         self._view.notify_status(
