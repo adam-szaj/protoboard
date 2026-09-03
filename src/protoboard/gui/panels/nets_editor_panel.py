@@ -27,6 +27,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.controller.view_options.theme import DEFAULT_THEME
+from protoboard.domain.commands.net_cmds import (
+    AssignPinToNetCommand,
+    CreateNetCommand,
+    DeleteNetCommand,
+    RenameNetCommand,
+    SetNetColorCommand,
+    SetNetGlobalCommand,
+    UnassignPinCommand,
+)
+from protoboard.domain.schematic.net import PinRef
+from protoboard.services.rendering.net_color import build_net_color_map
+
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import Command
     from protoboard.domain.commands.net_cmds import NetState
@@ -274,9 +287,6 @@ class NetsEditorPanel(QWidget):
         # Resolve every net to its effective colour (manual override, palette,
         # or golden-ratio extension) so the panel shows exactly what the
         # board renderer paints — not just the manual override.
-        from protoboard.controller.view_options.theme import DEFAULT_THEME
-        from protoboard.services.rendering.net_color import build_net_color_map
-
         theme = getattr(self._session, "theme", DEFAULT_THEME) or DEFAULT_THEME
         effective = build_net_color_map(self._session.schematic.nets, theme=theme)
         for net in sorted(self._session.schematic.nets.values(), key=lambda n: n.name):
@@ -410,8 +420,6 @@ class NetsEditorPanel(QWidget):
                 f"A net named '{name}' already exists.",
             )
             return
-        from protoboard.domain.commands.net_cmds import CreateNetCommand
-
         cmd = CreateNetCommand(name=name)
         self._execute_net_command(cmd)
         self._rebuild()
@@ -442,8 +450,6 @@ class NetsEditorPanel(QWidget):
                 f"A net named '{name}' already exists.",
             )
             return
-        from protoboard.domain.commands.net_cmds import RenameNetCommand
-
         cmd = RenameNetCommand(net_id=net_id, new_name=name)
         self._execute_net_command(cmd)
         self._rebuild()
@@ -466,8 +472,6 @@ class NetsEditorPanel(QWidget):
             )
             if ans != QMessageBox.StandardButton.Yes:
                 return
-        from protoboard.domain.commands.net_cmds import DeleteNetCommand
-
         cmd = DeleteNetCommand(net_id=net_id)
         self._execute_net_command(cmd)
         self._rebuild()
@@ -498,8 +502,6 @@ class NetsEditorPanel(QWidget):
         self._apply_color(net_id, None)
 
     def _apply_color(self, net_id: uuid.UUID, color: str | None) -> None:
-        from protoboard.domain.commands.net_cmds import SetNetColorCommand
-
         cmd = SetNetColorCommand(net_id=net_id, new_color=color)
         self._execute_net_command(cmd)
         self._rebuild()
@@ -512,8 +514,6 @@ class NetsEditorPanel(QWidget):
         net = self._session.schematic.nets.get(net_id)
         if net is None:
             return
-        from protoboard.domain.commands.net_cmds import SetNetGlobalCommand
-
         cmd = SetNetGlobalCommand(net_id=net_id, global_net=not net.global_net)
         self._execute_net_command(cmd)
         self._rebuild()
@@ -570,9 +570,6 @@ class NetsEditorPanel(QWidget):
         if pin_ref is None or self._session is None:
             return
         comp_id, pin_num = pin_ref
-        from protoboard.domain.commands.net_cmds import UnassignPinCommand
-        from protoboard.domain.schematic.net import PinRef
-
         ref = PinRef(component_id=comp_id, pin_number=pin_num)
         net = self._session.schematic.net_for_pin(ref)
         if net is None:
@@ -601,8 +598,6 @@ class NetsEditorPanel(QWidget):
     def _show_assign_dialog(self, comp_id: uuid.UUID, pin_num: int) -> None:
         if self._session is None:
             return
-        from protoboard.domain.schematic.net import PinRef
-
         current_net = self._session.schematic.net_for_pin(
             PinRef(component_id=comp_id, pin_number=pin_num)
         )
@@ -628,8 +623,6 @@ class NetsEditorPanel(QWidget):
         target_net_id = dlg.chosen_net_id
         if target_net_id is None:
             return
-        from protoboard.domain.commands.net_cmds import AssignPinToNetCommand
-
         cmd = AssignPinToNetCommand(
             component_id=comp_id,
             pin_number=pin_num,
@@ -670,11 +663,6 @@ class NetsEditorPanel(QWidget):
                 f"A net named '{name}' already exists.",
             )
             return
-        from protoboard.domain.commands.net_cmds import (
-            AssignPinToNetCommand,
-            CreateNetCommand,
-        )
-
         create = CreateNetCommand(name=name)
         self._execute_net_command(create)
         assign = AssignPinToNetCommand(
