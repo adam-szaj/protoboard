@@ -2269,6 +2269,11 @@ def is_perpendicular_diagonal_crossing(
     return ix == round(ix) and iy == round(iy)
 
 
+# Compatibility aliases for callers that used the former private predicates.
+_is_at_pad = is_at_pad
+_is_perpendicular_diagonal_crossing = is_perpendicular_diagonal_crossing
+
+
 def split_path_by_side(path: list[PathStep]) -> list[tuple[list[Point], str]]:
     """Split a multi-layer path into contiguous same-side segments.
 
