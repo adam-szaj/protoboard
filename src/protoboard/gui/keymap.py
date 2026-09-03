@@ -43,6 +43,11 @@ from typing_extensions import override
 
 from protoboard.errors import ProtoboardError
 from protoboard.instrumentation.debug_trace import traced
+from protoboard.paths import (
+    BUILTIN_DEFAULT_KEYBINDINGS_FILE,
+    CONFIG_DIR,
+    KEYBINDINGS_V2_FILE,
+)
 
 __all__ = [
     "KeyAction",
@@ -670,11 +675,6 @@ class KeyMap(AbstractKeyMap):
         (:meth:`load_overrides`, loaded after this) still wins either way.
         Missing file / missing section / corrupt file are no-ops.
         """
-        from protoboard.paths import (
-            BUILTIN_DEFAULT_KEYBINDINGS_FILE,
-            KEYBINDINGS_V2_FILE,
-        )
-
         self._load_defaults_tree(BUILTIN_DEFAULT_KEYBINDINGS_FILE)
         self._load_defaults_tree(KEYBINDINGS_V2_FILE)
 
@@ -723,8 +723,6 @@ class KeyMap(AbstractKeyMap):
         no-entry default anyway, so we skip it.  Corrupt files fall back to
         defaults silently.
         """
-        from protoboard.paths import KEYBINDINGS_V2_FILE
-
         if not KEYBINDINGS_V2_FILE.exists():
             return
         try:
@@ -757,8 +755,6 @@ class KeyMap(AbstractKeyMap):
         existing ``defaults:`` section is read back and re-emitted unchanged.
         """
         from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
-
-        from protoboard.paths import CONFIG_DIR, KEYBINDINGS_V2_FILE
 
         tree: dict[str, dict[str, str]] = {}
         for action_id, shortcut in self._overrides.items():
