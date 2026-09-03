@@ -327,6 +327,17 @@ def _body_centre_holes(pins: list[Point], eccentricity_mm: Vector) -> Point:
     )
 
 
+def _body_frame_from_pins(
+    pins: list[Point], eccentricity_mm: Vector, axis: Vector | None
+) -> Transform2D:
+    """Build a body frame from its pin-cloud centre and lead axis."""
+    centre = _body_centre_holes(pins, eccentricity_mm)
+    frame = Transform2D.translation(Vector(centre.x, centre.y))
+    if axis is None:
+        return frame
+    return frame.compose(Transform2D.rotation_to(axis))
+
+
 def _lead_diameter_mm(leads: Leads) -> float:
     """Lead wire diameter (mm). ``2·lead_r``; falls back to a 0.5 mm default
     (the legacy ``TwoPinBodySpec`` default) when the radius is unspecified."""
@@ -475,13 +486,11 @@ class Cylinder(Package):
         the renderer puts the body — NOT anchored at pin 1 (the old
         pin-1-anchored square claimed a phantom row of holes in the collision
         mask, flagging adjacent radial parts as BODY_OVERLAP)."""
-        pins = self.pin_positions()
-        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
-        t = Transform2D.translation(Vector(centre.x, centre.y))
-        axis = self._lead_axis()
-        if axis is None:
-            return t
-        return t.compose(Transform2D.rotation_to(axis))
+        return _body_frame_from_pins(
+            self.pin_positions(),
+            self.leads.body_eccentricity_mm,
+            self._lead_axis(),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -695,13 +704,11 @@ class Disc(Package):
     def body_frame(self) -> Transform2D:
         """Centred on the pin centroid + lead eccentricity (mirrors the
         renderer's ``_radial_disc_side``)."""
-        pins = self.pin_positions()
-        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
-        t = Transform2D.translation(Vector(centre.x, centre.y))
-        axis = self._lead_axis()
-        if axis is None:
-            return t
-        return t.compose(Transform2D.rotation_to(axis))
+        return _body_frame_from_pins(
+            self.pin_positions(),
+            self.leads.body_eccentricity_mm,
+            self._lead_axis(),
+        )
 
     def min_radial_pitch_mm(self) -> float:
         return (self.diameter_mm + _lead_diameter_mm(self.leads)) / 2.0
