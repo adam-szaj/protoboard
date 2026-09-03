@@ -20,7 +20,7 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel

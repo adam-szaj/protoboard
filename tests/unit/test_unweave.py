@@ -16,7 +16,7 @@ from protoboard.services.routing.unweave import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.domain.connectivity.graph import ConnectivityGraph
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.schematic.schematic import Schematic
 
 
@@ -457,7 +457,7 @@ class TestUnweaveConnectivityPreserved:
     ) -> tuple[bool, str]:
         from collections import defaultdict
 
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
         from protoboard.domain.schematic.net import PinRef
 
         g = ConnectivityGraph(
@@ -493,7 +493,7 @@ class TestUnweaveConnectivityPreserved:
         """
         from pathlib import Path
 
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
         from protoboard.domain.layout.layout import Layout
         from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.services.library.loader import load_library
@@ -538,7 +538,7 @@ class TestUnweaveConnectivityPreserved:
         from collections import defaultdict
         from pathlib import Path
 
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.schematic.net import PinRef
         from protoboard.paths import BUILTIN_LIBRARY_DIR
@@ -624,7 +624,7 @@ class TestUnweaveSideRebalance:
     def test_tangled_04_rebalance_reduces_multi_side(self) -> None:
         from pathlib import Path
 
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
         from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.services.library.loader import load_library
         from protoboard.services.routing.unweave import _group_by_endpoints
@@ -670,7 +670,7 @@ class TestUnweaveSubsetSelection:
     def test_two_wires_with_two_crossings_unweave_to_zero(self) -> None:
         from pathlib import Path
 
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
         from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.services.library.loader import load_library
 
@@ -973,7 +973,7 @@ class TestUnweaveTangled03Fixture:
         """
         from pathlib import Path
 
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
 
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
         # Pull component definitions from session loader if available;

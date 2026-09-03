@@ -20,7 +20,7 @@ from protoboard.domain.components.definition import (
     PackageOption,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,

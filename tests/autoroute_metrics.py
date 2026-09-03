@@ -17,7 +17,7 @@ from typing import Any
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire

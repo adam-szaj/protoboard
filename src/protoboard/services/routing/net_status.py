@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import Schematic
 

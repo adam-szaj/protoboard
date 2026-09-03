@@ -149,7 +149,7 @@ def test_bench_connectivity_graph_build(benchmark, synthetic_medium_project):
     board, layout, _schematic, instances, _routing, _lib, components = (
         synthetic_medium_project
     )
-    from protoboard.domain.connectivity.graph import ConnectivityGraph
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
 
     def build():
         ConnectivityGraph(

@@ -24,7 +24,7 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.package.family import PackageFamily, PackageVariant
 from protoboard.domain.components.package.generated_families import sil_family
 from protoboard.domain.components.package.loader import build_package
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import Schematic

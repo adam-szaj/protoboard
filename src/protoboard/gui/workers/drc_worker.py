@@ -97,7 +97,7 @@ class DRCWorker(QThread):
 
     def run(self) -> None:
         try:
-            from protoboard.domain.connectivity.graph import ConnectivityGraph
+            from protoboard.domain.connectivity.incremental import ConnectivityGraph
             from protoboard.services.drc.engine import DRCEngine
 
             layout = self._layout_snap.to_layout()

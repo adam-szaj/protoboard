@@ -56,7 +56,7 @@ from typing import IO, cast
 
 import structlog
 
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import (
     Point,

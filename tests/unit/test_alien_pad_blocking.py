@@ -193,7 +193,7 @@ class TestAlienPadBlocking:
         from dataclasses import replace
 
         final_layout = replace(layout, wires=list(layout.wires) + list(result.wires))
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.domain.connectivity.incremental import ConnectivityGraph
 
         graph = ConnectivityGraph(
             board=board,

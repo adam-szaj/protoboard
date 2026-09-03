@@ -33,7 +33,7 @@ from protoboard.domain.components.resolution import (
     iter_placed_components,
     resolve_placed_component,
 )
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout

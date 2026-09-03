@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import structlog
 
 from protoboard.domain.components.resolution import iter_placed_components
-from protoboard.domain.connectivity.graph import ConnectivityGraph
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
