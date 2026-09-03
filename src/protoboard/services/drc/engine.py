@@ -34,9 +34,16 @@ from protoboard.domain.components.resolution import (
     resolve_placed_component,
 )
 from protoboard.domain.connectivity.graph import ConnectivityGraph
-from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.group_tree import GroupTree
+from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.pad_conflict import footprint_of, package_of
-from protoboard.domain.layout.placement import iter_footprint_pin_positions
+from protoboard.domain.layout.placement import (
+    iter_footprint_pin_positions,
+    placement_transform,
+    resolve_pin_world_position,
+)
+from protoboard.domain.layout.wire_utils import board_pads_for_side, plated_through_pads
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, segments_cross_strict
@@ -367,8 +374,6 @@ def _placed_pad_mask(
         mount_side=side,
         body_blocks=getattr(defn, "body_blocks_routing", False),
     )
-    from protoboard.domain.layout.placement import placement_transform
-
     to_world = placement_transform(package, placement)
     out: dict[Point, PadCell] = {}
     for hole, bits in local.items():
@@ -528,10 +533,6 @@ def _check_short(
     def _pin_pos(ref: PinRef) -> Point | None:
         if components is None:
             return None
-        from protoboard.domain.layout.placement import (
-            resolve_pin_world_position,
-        )
-
         return resolve_pin_world_position(
             ref.component_id,
             ref.pin_number,
@@ -861,14 +862,10 @@ def _check_off_pad_joint(
     rebuild fires only when the engine is called without a pad_index
     (DRC-from-disk smoke tests, scripts).
     """
-    from protoboard.domain.layout.knot import JointKnot
-
     if not layout.knots:
         return []
     all_pads: set[Point] | None = None
     if pad_index is None:
-        from protoboard.domain.layout.wire_utils import board_pads_for_side
-
         all_pads = board_pads_for_side(board, "top") | board_pads_for_side(
             board, "bottom"
         )
@@ -929,8 +926,6 @@ def _check_off_board_pins(
     """
     pads_by_side: dict[str, set[Point]] | None = None
     if pad_index is None:
-        from protoboard.domain.layout.wire_utils import board_pads_for_side
-
         pads_by_side = {
             "top": board_pads_for_side(board, "top"),
             "bottom": board_pads_for_side(board, "bottom"),
@@ -1019,9 +1014,6 @@ def _check_group_exports(
     silently ignored — they're either orphan exports or unplaced pins, and
     the user explicitly chose to suppress that case.
     """
-    from protoboard.domain.layout.group_tree import GroupTree
-    from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
     issues: list[DRCIssue] = []
     tree = GroupTree(layout.groups)
     for gid, group in layout.groups.items():
@@ -1154,8 +1146,6 @@ def _check_wire_pin_on_plated_through(
     * board geometry was later edited (a pad was downgraded to
       single-sided) without removing the wire-pin first.
     """
-    from protoboard.domain.layout.knot import WirePinKnot
-
     if not layout.knots:
         return []
     issues: list[DRCIssue] = []
@@ -1169,8 +1159,6 @@ def _check_wire_pin_on_plated_through(
             pad = pad_index.pad_at(pos)
             plated = pad is not None and pad.layers.plated_through
         else:
-            from protoboard.domain.layout.wire_utils import plated_through_pads
-
             plated = _point_on_pads(pos, set(plated_through_pads(board)))
         if plated:
             continue
@@ -1208,8 +1196,6 @@ def _check_half_orphan_wires(
     PinKnot endpoints are by definition anchored to a real component
     pin — never half-orphan even if no other wire shares the pin.
     """
-    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-
     issues: list[DRCIssue] = []
     for wire in layout.wires:
         if wire.a is None or wire.b is None:
