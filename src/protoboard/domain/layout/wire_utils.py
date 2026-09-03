@@ -13,8 +13,17 @@ from typing import TYPE_CHECKING
 import structlog
 
 from protoboard.domain.board.boxes import PadAtom, StripAtom
-from protoboard.domain.components.resolution import resolve_instance_definition
+from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.components.package.pin_mapping import (
+    meta_pin_for_package_pin,
+)
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+    resolve_instance_definition,
+)
+from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragments
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 from protoboard.instrumentation.call_counters import counted
 
@@ -962,17 +971,9 @@ def _pin_at(
     that terminate at a top-side component pin (the autoroute common
     case for through-hole parts) resolve to the right schematic net.
     """
-    from protoboard.domain.layout.placement import iter_footprint_pin_positions
-    from protoboard.domain.schematic.net import PinRef
-
     cross_side_ok = plated_pads is not None and any(
         abs(p.x - position.x) < tol and abs(p.y - position.y) < tol for p in plated_pads
     )
-    from protoboard.domain.components.package import resolved_footprint
-    from protoboard.domain.components.package.pin_mapping import (
-        meta_pin_for_package_pin,
-    )
-    from protoboard.domain.components.resolution import iter_placed_components
 
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
@@ -1970,11 +1971,12 @@ def find_pin_at(
     our_net: uuid.UUID | None = None,
     strategy: PadStrategy | None = None,
     pad_index: PadIndex | None = None,
+    tol: float = _EPS_KNOT,
 ) -> PinRef | None:
     """Return the PinRef of the pin sitting at ``point``, or None.
 
     Scans current placements.  Exact match first, then a tolerant
-    fallback (``1e-6``) to absorb the rounding present in legacy paths.
+    fallback (``tol``) to absorb the rounding present in legacy paths.
 
     When ``strategy`` and ``pad_index`` are both supplied, the returned
     pin is gated by :meth:`PadStrategy.can_place_pin` (rule 8 — a pin
@@ -1984,14 +1986,6 @@ def find_pin_at(
     tests that drive commands without a full session.  The command-layer
     caller resolves ``strategy`` / ``pad_index`` off the host session.
     """
-    from protoboard.domain.components.package import resolved_footprint
-    from protoboard.domain.components.package.pin_mapping import (
-        meta_pin_for_package_pin,
-    )
-    from protoboard.domain.components.resolution import iter_placed_components
-    from protoboard.domain.layout.placement import iter_footprint_pin_positions
-    from protoboard.domain.schematic.net import PinRef
-
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
         fp = resolved_footprint(
@@ -2000,9 +1994,7 @@ def find_pin_at(
             component.instance.families,
         )
         for pin_num, pos in iter_footprint_pin_positions(fp, component.placement):
-            if not (
-                abs(pos.x - point.x) < _EPS_KNOT and abs(pos.y - point.y) < _EPS_KNOT
-            ):
+            if not (abs(pos.x - point.x) < tol and abs(pos.y - point.y) < tol):
                 continue
             meta_pin_index = meta_pin_for_package_pin(
                 component.definition,

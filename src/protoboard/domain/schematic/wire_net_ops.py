@@ -11,8 +11,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
-from protoboard.domain.components.resolution import iter_placed_components
-from protoboard.domain.layout.placement import iter_footprint_pin_positions
+from protoboard.domain.layout.wire_utils import find_pin_at as find_layout_pin_at
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -37,25 +36,15 @@ def find_pin_at(
     pt: Point,
     session: _SessionLike,
 ) -> tuple[uuid.UUID, int] | None:
-    """Return (component_id, pin_number) if *pt* coincides with a placed pin."""
-    for component in iter_placed_components(
-        session.layout.placements,
-        session.instances,
-        session.components,
-    ):
-        comp_id = component.placement.component_id
-        placement = component.placement
-        from protoboard.domain.components.package import resolved_footprint
-
-        fp = resolved_footprint(
-            component.definition,
-            component.instance,
-            component.instance.families,
-        )
-        for pin_num, pos in iter_footprint_pin_positions(fp, placement):
-            if abs(pos.x - pt.x) < _EPS and abs(pos.y - pt.y) < _EPS:
-                return (comp_id, pin_num)
-    return None
+    """Return ``(component_id, meta_pin)`` for a pin at ``pt``."""
+    pin = find_layout_pin_at(
+        pt,
+        layout=session.layout,
+        instances=session.instances,
+        components=session.components,
+        tol=_EPS,
+    )
+    return None if pin is None else (pin.component_id, pin.pin_number)
 
 
 def find_wire_net_at(

@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
@@ -117,6 +122,30 @@ class TestFindPinAt:
         s = _two_component_session()
         too_far = Point(_R1_PIN1.x + 0.001, _R1_PIN1.y)
         assert find_pin_at(too_far, s) is None
+
+    def test_returns_metapin_and_skips_unmapped_package_pin(self) -> None:
+        base = make_sil("M", 2)
+        definition = replace(
+            base,
+            meta_pins=(MetaPin(("SIGNAL",)), MetaPin(("UNUSED",))),
+            package_options=(
+                PackageOption(
+                    name="SIL-2",
+                    ref="sil-2/std",
+                    pin_map={1: (2,)},
+                ),
+            ),
+        )
+        instance = ComponentInstance.new("M", "M1", "").bind(
+            definition, sil_families(definition)
+        )
+        s = _FakeSession()
+        s.layout.placements[instance.id] = _placement(instance, 0.5, 0.5)
+        s.instances[instance.id] = instance
+        s.components[definition.name] = definition
+
+        assert find_pin_at(_R1_PIN2, s) == (instance.id, 1)
+        assert find_pin_at(_R1_PIN1, s) is None
 
 
 # ---------------------------------------------------------------------------
