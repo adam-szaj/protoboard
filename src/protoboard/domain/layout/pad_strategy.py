@@ -388,6 +388,15 @@ class _BaseStrategy:
                     return True
         return False
 
+    def is_half_orphan_destination(
+        self,
+        pad: Pad,
+        layer: LayerId,
+        our_net: NetId | None,
+    ) -> Decision:
+        """Treat every half-orphan pad as a viable destination for now."""
+        return Decision.allow()
+
 
 @dataclass(frozen=True, slots=True)
 class DRCEnforcingStrategy(_BaseStrategy):
@@ -557,17 +566,6 @@ class DRCEnforcingStrategy(_BaseStrategy):
             )
         return Decision.allow()
 
-    def is_half_orphan_destination(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-    ) -> Decision:
-        # MVP placeholder — rule 9 follow-up will replace this with a
-        # real check against half-orphan wire endpoints recorded on
-        # the pad.
-        return Decision.allow()
-
 
 @dataclass(frozen=True, slots=True)
 class AutorouterPermissiveStrategy(_BaseStrategy):
@@ -666,15 +664,6 @@ class AutorouterPermissiveStrategy(_BaseStrategy):
         if not pad.layers.plated_through:
             return Decision.reject("via requires plated-through pad")
         return Decision.allow(cost=self.config.via_cost)
-
-    def is_half_orphan_destination(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-    ) -> Decision:
-        # Follow-up — for now treat every half-orphan as a viable target.
-        return Decision.allow()
 
 
 @dataclass(frozen=True, slots=True)
@@ -781,14 +770,6 @@ class SimplifyStrictStrategy(_BaseStrategy):
         our_net: NetId | None,
     ) -> Decision:
         return self._drc().via_cost(pad, from_layer, to_layer, our_net)
-
-    def is_half_orphan_destination(
-        self,
-        pad: Pad,
-        layer: LayerId,
-        our_net: NetId | None,
-    ) -> Decision:
-        return Decision.allow()
 
 
 # ---------------------------------------------------------------------------
