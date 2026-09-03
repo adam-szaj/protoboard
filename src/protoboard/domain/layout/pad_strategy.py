@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 from protoboard.domain.board.layer import LayerId
 from protoboard.domain.board.pad_state import (
     SHORT_CIRCUIT,
+    BareWireCrossing,
+    BareWireItem,
     ComponentBody,
     InsulatedWireCrossing,
     InsulatedWireItem,
@@ -501,13 +503,6 @@ class DRCEnforcingStrategy(_BaseStrategy):
         # gets in the way of soldering and obstructs the conductor.
         # The electrical short check (rule 5: pin galvanises every
         # layer) is a separate sub-clause below.
-        from protoboard.domain.board.pad_state import (
-            BareWireCrossing,
-            BareWireItem,
-            InsulatedWireCrossing,
-            InsulatedWireItem,
-        )
-
         for layer in pad.layers.layer_ids():
             for it in pad.physically_blocked_on(layer):
                 if isinstance(
