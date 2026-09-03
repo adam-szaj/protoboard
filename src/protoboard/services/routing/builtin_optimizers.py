@@ -12,10 +12,18 @@ import dataclasses
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.services.routing.optimizer import (
     OptimizerCapabilities,
     WireOptimizer,
     registry,
+)
+from protoboard.services.routing.postprocess import (
+    _candidate_pins_alien,
+    _candidate_safe_against_others,
+    _candidate_safe_via_pad_index,
+    _parity_ok_for_bare,
+    simplify_wires_generic,
 )
 from protoboard.services.routing.results import AutorouteResult
 
@@ -188,9 +196,6 @@ class SimplifyOptimizer:
         result: AutorouteResult,
         sink: ProgressSink,
     ) -> AutorouteResult:
-        from protoboard.domain.routing.simplify_mode import SimplifyMode
-        from protoboard.services.routing.postprocess import simplify_wires_generic
-
         if not result.wires:
             return result
         if sink.cancelled():
@@ -265,13 +270,6 @@ class InsulatedToBareOptimizer:
         result: AutorouteResult,
         sink: ProgressSink,
     ) -> AutorouteResult:
-        from protoboard.services.routing.postprocess import (
-            _candidate_pins_alien,
-            _candidate_safe_against_others,
-            _candidate_safe_via_pad_index,
-            _parity_ok_for_bare,
-        )
-
         if not result.wires:
             return result
         if sink.cancelled():
