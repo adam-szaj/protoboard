@@ -51,6 +51,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Fragment, Wire
+from protoboard.domain.layout.wire_utils import board_pads_for_side, insert_pad_nodes
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -261,8 +262,6 @@ class ConnectivityGraph:
         cached = self._board_pads_cache.get(side)
         if cached is not None:
             return cached
-        from protoboard.domain.layout.wire_utils import board_pads_for_side
-
         pads = board_pads_for_side(self._board, side)
         self._board_pads_cache[side] = pads
         return pads
@@ -277,8 +276,6 @@ class ConnectivityGraph:
         """
         if len(path) < 2:
             return path
-        from protoboard.domain.layout.wire_utils import insert_pad_nodes
-
         return insert_pad_nodes(path, self._board_pads_for_side(side))
 
     def add_wire(self, wire: Wire) -> None:
