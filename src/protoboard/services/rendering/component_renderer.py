@@ -274,11 +274,11 @@ def update_component_groups(
     HighlightProfile (``highlight_alpha`` for highlighted comps,
     ``dim_components`` for the rest) and runs after every refresh.
     """
-    pin_net: dict[PinRef, uuid.UUID] = {}
-    if schematic is not None:
-        for net in schematic.nets.values():
-            for ref in net.pins:
-                pin_net[ref] = net.id
+    pin_net: dict[PinRef, uuid.UUID] = (
+        {ref: net.id for ref, net in schematic.pin_net_map().items()}
+        if schematic is not None
+        else {}
+    )
 
     alpha_map: dict[uuid.UUID, float] = {}
     effective_gid = active_group_id if active_group_id is not None else ROOT_GROUP_ID
@@ -447,11 +447,11 @@ def render_components(
     scene; BoardView translates both.  A component with no labels has no entry
     in *label_groups*.
     """
-    pin_net: dict[PinRef, uuid.UUID] = {}
-    if schematic is not None:
-        for net in schematic.nets.values():
-            for ref in net.pins:
-                pin_net[ref] = net.id
+    pin_net: dict[PinRef, uuid.UUID] = (
+        {ref: net.id for ref, net in schematic.pin_net_map().items()}
+        if schematic is not None
+        else {}
+    )
 
     # Build group alpha map when root-level group context is given.
     alpha_map: dict[uuid.UUID, float] = {}

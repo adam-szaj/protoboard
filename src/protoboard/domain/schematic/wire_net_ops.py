@@ -63,11 +63,11 @@ def find_wire_net_at(
     the wire being added so it doesn't self-match in same-Layout
     membership checks.
     """
-    # Build a (comp_id, pin_num) → net id map from the schematic once.
-    pin_to_net: dict[tuple[uuid.UUID, int], Net] = {}
-    for net in session.schematic.nets.values():
-        for pin_ref in net.pins:
-            pin_to_net[(pin_ref.component_id, pin_ref.pin_number)] = net
+    # Build a (comp_id, meta_pin) → net map from the schematic once.
+    pin_to_net = {
+        (pin.component_id, pin.pin_number): net
+        for pin, net in session.schematic.pin_net_map().items()
+    }
     for wire in session.layout.wires:
         if exclude_wire_id is not None and wire.id == exclude_wire_id:
             continue

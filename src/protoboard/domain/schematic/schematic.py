@@ -52,6 +52,10 @@ class Schematic:
                 return net
         return None
 
+    def pin_net_map(self) -> dict[PinRef, Net]:
+        """Return the current net for every declared pin in one pass."""
+        return {ref: net for net in self.nets.values() for ref in net.pins}
+
     # ------------------------------------------------------------------
     # Mutators — the single place that adds/removes pins from Net.pins.
     #
