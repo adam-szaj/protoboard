@@ -32,24 +32,34 @@ if TYPE_CHECKING:
     from protoboard.controller.editing.item_handle import ItemId
     from protoboard.controller.ports.edit_services import EditServicePorts
     from protoboard.controller.selection.service import SelectionService
-    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.resolution import PlacedComponent
-    from protoboard.domain.layout.group_tree import GroupTree
-    from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
 
+from protoboard.controller.editing.spatial_index import build_component_spatial_index
 from protoboard.controller.highlight_stack import HighlightStackBase
 from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.board.board import Board
+from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.commands.base import CommandStack, ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import PackageFamily
+from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.components.package.family import PackageFamily
+from protoboard.domain.components.package.pin_mapping import meta_pin_for_package_pin
 from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
+from protoboard.domain.connectivity.wire_net_map import build_wire_net_map
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import ConflictScanner
+from protoboard.domain.layout.placement import (
+    component_bbox,
+    iter_pin_world_positions,
+    resolve_pin_world_position,
+)
+from protoboard.domain.layout.wire_utils import plated_through_pads
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
@@ -270,8 +280,6 @@ class HeadlessSession:
         a composed placement through :meth:`placed_component` (that would
         re-enter this resolver).
         """
-        from protoboard.domain.components.package import resolved_footprint
-
         instance = self.instances.get(comp_id)
         if instance is None:
             return None
@@ -365,10 +373,6 @@ class HeadlessSession:
         cache = self._wire_net_map_cache
         if cache is None:
             _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
-            from protoboard.domain.connectivity.wire_net_map import (
-                build_wire_net_map,
-            )
-
             cache = build_wire_net_map(
                 self.schematic, self.layout, self.connectivity_graph()
             )
@@ -389,8 +393,6 @@ class HeadlessSession:
         """
         cache = self._plated_through_pads_cache
         if cache is None:
-            from protoboard.domain.layout.wire_utils import plated_through_pads
-
             cache = plated_through_pads(self.board)
             self._plated_through_pads_cache = cache
         return cache
@@ -430,7 +432,6 @@ class HeadlessSession:
         drag-conflict and DRC.  Lifetime parallels ``connectivity_graph()``.
         """
         if self._pad_index is None:
-            from protoboard.domain.board.pad_state import PadIndex
 
             t0 = time.monotonic()
             self._pad_index = PadIndex(
@@ -446,10 +447,6 @@ class HeadlessSession:
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
         """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""
         if self._comp_spatial_index is None:
-            from protoboard.controller.editing.spatial_index import (
-                build_component_spatial_index,
-            )
-
             self._comp_spatial_index = build_component_spatial_index(
                 self.layout,
                 self.instances,
@@ -476,8 +473,6 @@ class HeadlessSession:
         legacy free functions in ``domain/layout/group.py``. Cheap — wraps the
         live dict by reference, no caching.
         """
-        from protoboard.domain.layout.group_tree import GroupTree
-
         return GroupTree(self._layout.groups)
 
     def conflict_scanner(self, *, pad_index: PadIndex | None = None) -> ConflictScanner:
@@ -494,8 +489,6 @@ class HeadlessSession:
         omitted the legacy from-layout paths run. Cheap — wraps live dicts by
         reference, no caching.
         """
-        from protoboard.domain.layout.pad_conflict import ConflictScanner
-
         return ConflictScanner.from_session(self, pad_index=pad_index)
 
     def strategy_for(self, subsystem: str) -> object:
@@ -585,10 +578,6 @@ class HeadlessSession:
         missing intermediate (no placement / instance / definition,
         or pin number out of range).
         """
-        from protoboard.domain.layout.placement import (
-            resolve_pin_world_position,
-        )
-
         return resolve_pin_world_position(
             comp_id,
             pin_number,
@@ -606,8 +595,6 @@ class HeadlessSession:
         Returns an empty list if the component or its definition is not found.
         Every pin resolution delegates to the canonical safety chain.
         """
-        from protoboard.domain.layout.placement import iter_pin_world_positions
-
         return list(
             iter_pin_world_positions(
                 comp_id,
@@ -624,8 +611,6 @@ class HeadlessSession:
         package_pin_number: int,
     ) -> int | None:
         """Translate a physical package pin to its logical MetaPin ordinal."""
-        from protoboard.domain.components.package import meta_pin_for_package_pin
-
         component = self.placed_component(comp_id)
         if component is None:
             return None
@@ -644,9 +629,6 @@ class HeadlessSession:
         so renderers/tools never have to inline the (placement,
         instance, definition) lookup themselves.
         """
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.layout.placement import component_bbox
-
         component = self.placed_component(comp_id)
         if component is None:
             return None
