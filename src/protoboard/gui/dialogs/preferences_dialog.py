@@ -52,6 +52,7 @@ from protoboard.services.preferences.theme_yaml import save_theme
 
 if TYPE_CHECKING:
     from protoboard.domain.routing.simplify_mode import SimplifyMode
+    from protoboard.gui.session import EditorSession
 
 
 # ---------------------------------------------------------------------------
@@ -1057,8 +1058,6 @@ class _RoutingPage(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        from protoboard.gui.session import EditorSession
-
         self._session: EditorSession = session  # type: ignore[assignment]
         self._defaults = ROUTING_DEFAULTS
         # Shared AppSettings instance from the parent PreferencesDialog —
@@ -1562,8 +1561,6 @@ class _BoardPage(QWidget):
 
     def __init__(self, session: object, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        from protoboard.gui.session import EditorSession
-
         self._session: EditorSession = session  # type: ignore[assignment]
 
         vbox = QVBoxLayout(self)
