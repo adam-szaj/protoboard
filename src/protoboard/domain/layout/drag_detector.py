@@ -572,29 +572,26 @@ class DragDetector:
         The strategy gate remains the authority for whether the pad accepts a
         pin; presentation text is derived later from the structured conflict.
         """
+        pin_net_map = snapshot.schematic.pin_net_map()
+
         # Pin → net for this component, passed to the placement strategy.
         pin_net: dict[int, tuple[uuid.UUID, str]] = {}
-        for net in snapshot.schematic.nets.values():
-            for ref in net.pins:
-                if ref.component_id == cid:
-                    pin_net[ref.pin_number] = (net.id, net.name)
+        for ref, net in pin_net_map.items():
+            if ref.component_id == cid:
+                pin_net[ref.pin_number] = (net.id, net.name)
 
         # Supply endpoint net identities when the pad index does not carry
         # them; find_wire_conflicts uses this to classify the conflict kind.
         point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
-        for net in snapshot.schematic.nets.values():
-            for ref in net.pins:
-                pos = _get_pin_position(
-                    snapshot,
-                    ref.component_id,
-                    ref.pin_number,
-                )
-                if pos is None:
-                    continue
-                point_to_net[(_round(pos.x), _round(pos.y))] = (
-                    net.id,
-                    net.name,
-                )
+        for ref, net in pin_net_map.items():
+            pos = _get_pin_position(
+                snapshot,
+                ref.component_id,
+                ref.pin_number,
+            )
+            if pos is None:
+                continue
+            point_to_net[(_round(pos.x), _round(pos.y))] = (net.id, net.name)
 
         # Every returned conflict is a pin landing on a wire. Under rule 6,
         # the strategy rejects that pad; the conflict kind carries the fact
