@@ -64,8 +64,8 @@ class TestSubTabs:
     def test_production_tool_builds_its_tab(self, qtbot) -> None:
         # Regression: MainWindow passes a real, composed production tool
         # (SelectTool = (_SelectTool, ViewToolMixin)) as keymap_tools — it is
-        # NOT a nominal _Tool subclass, so the old `assert isinstance(tool,
-        # _Tool)` crashed here (AssertionError) when opening Preferences.
+        # NOT a nominal ToolSurface subclass, so the old `assert isinstance(tool,
+        # ToolSurface)` crashed here (AssertionError) when opening Preferences.
         from protoboard.gui.tools.gui_tools import SelectTool
 
         page = _ShortcutsPage(
@@ -82,7 +82,7 @@ class TestSubTabs:
 
 class TestKeyMapTabEditing:
     def _tool_tab(self, base: KeyMap) -> _KeyMapTab:
-        # make_key_map is typed loosely (-> object) on the _Tool surface; the
+        # make_key_map is typed loosely (-> object) on the ToolSurface surface; the
         # real ViewToolMixin impl returns a KeyMap.
         layer = cast(KeyMap, _FakeTool().make_key_map(base))
         return _KeyMapTab(layer, [a.id for a in layer.known_actions()])

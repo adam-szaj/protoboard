@@ -20,7 +20,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 from protoboard.controller.ports import ActionOption, InteractionContext
 from protoboard.controller.ports.viewport import CursorKind
 from protoboard.geometry import Point, Vector
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.board_view_tool import ToolSurface
 from protoboard.gui.keymap import (
     VIEW_ACTIONS,
     VIEW_CANVAS_MENU,
@@ -62,7 +62,7 @@ class ToolHost:
         self._view = view
         # Tools always notified on scene_cleared, active or not (MainWindow
         # parks the long-lived SelectTool here).
-        self.permanent_tools: list[_Tool] = []
+        self.permanent_tools: list[ToolSurface] = []
         # Namespaced keybindings.  The permanent base map is owned here so a
         # tool always has a KeyMap to consult for the contextual shortcut
         # veto, even headless (BoardView without a MainWindow); MainWindow
@@ -104,7 +104,7 @@ class ToolHost:
     # -- tool lifecycle ----------------------------------------------------------
 
     @property
-    def _active_tool(self) -> _Tool | None:
+    def _active_tool(self) -> ToolSurface | None:
         """The tool the EditController currently owns (Controller facade).
 
         A read-only property backed by ``edit_controller.active_tool`` —
@@ -112,10 +112,12 @@ class ToolHost:
         (input dispatch, scene-cleared fan-out, …) reads the same source of
         truth a headless driver would.
         """
-        return cast("_Tool | None", self._view.session.edit_controller.active_tool)
+        return cast(
+            "ToolSurface | None", self._view.session.edit_controller.active_tool
+        )
 
     @property
-    def active_tool(self) -> _Tool | None:
+    def active_tool(self) -> ToolSurface | None:
         """The tool currently receiving delegated input events."""
         return self._active_tool
 
@@ -134,7 +136,7 @@ class ToolHost:
         return self._base_keymap
 
     @traced()
-    def set_tool(self, tool: _Tool | None) -> None:
+    def set_tool(self, tool: ToolSurface | None) -> None:
         """Swap the active tool (deactivate old, activate + register new).
 
         Ownership is the Controller's (:meth:`EditController.set_active_tool`);
@@ -158,9 +160,9 @@ class ToolHost:
         view.mark_board_layer_dirty()
         if tool is not None:
             tool.activate(view.session, view)
-        # Every concrete _Tool is a ControllerTool at runtime (composed as
+        # Every concrete ToolSurface is a ControllerTool at runtime (composed as
         # ``(_XTool, ViewToolMixin)``); the controller-side API types its param
-        # as ControllerTool and cannot import the gui-side _Tool protocol.
+        # as ControllerTool and cannot import the gui-side ToolSurface protocol.
         view.session.edit_controller.set_active_tool(
             cast("ControllerTool | None", tool)
         )

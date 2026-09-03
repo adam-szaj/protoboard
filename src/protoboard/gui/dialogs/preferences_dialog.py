@@ -352,8 +352,8 @@ class _ShortcutsPage(QWidget):
             self._add_km_tab(tabs, keymap, [a.id for a in VIEW_ACTIONS], "View")
             for tool in keymap_tools:
                 # A composed production tool (e.g. SelectTool = (_SelectTool,
-                # ViewToolMixin)) is NOT a nominal _Tool subclass, so a
-                # `isinstance(tool, _Tool)` assert here crashed when MainWindow
+                # ViewToolMixin)) is NOT a nominal ToolSurface subclass, so a
+                # `isinstance(tool, ToolSurface)` assert here crashed when MainWindow
                 # passed a real tool. Guard structurally on the one member we
                 # use — its key-map layer builder — instead.
                 make_key_map = getattr(tool, "make_key_map", None)

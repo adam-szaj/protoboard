@@ -115,7 +115,7 @@ class CutTool(
 
     def activate(self, session: object, view: object) -> None:
         # Same ``object``-typed signature as every sibling tool's ``activate``
-        # (PlaceTool/RouteTool/…): the View seam (``_Tool``) types activate as
+        # (PlaceTool/RouteTool/…): the View seam (``ToolSurface``) types activate as
         # ``(EditorSession, AbstractBoardView)``, which ``ControllerTool``'s
         # Qt-free ``(EditingContext, _ViewProto)`` does not match — so the concrete
         # tools re-declare it wide.  No extra activation work for CutTool.

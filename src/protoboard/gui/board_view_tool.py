@@ -102,14 +102,14 @@ class AbstractBoardView(Protocol):
         ...
 
     @property
-    def active_tool(self) -> _Tool | None:
+    def active_tool(self) -> ToolSurface | None:
         """The tool currently receiving delegated input events.
 
-        Typed as the structural :class:`_Tool` (the View's tool surface), not
+        Typed as the structural :class:`ToolSurface` (the View's tool surface), not
         the ``BoardViewTool`` ABC: concrete tools compose ``(_XTool,
-        ViewToolMixin)`` and satisfy ``_Tool`` by shape, not by descending
-        from a single base.  ``BoardView.active_tool`` returns ``_Tool | None``
-        for the same reason, so the seam types agree.
+        ViewToolMixin)`` and satisfy ``ToolSurface`` by shape, not by descending
+        from a single base.  ``BoardView.active_tool`` returns
+        ``ToolSurface | None`` for the same reason, so the seam types agree.
         """
 
     @property
@@ -391,7 +391,7 @@ class ViewToolMixin:
     """
 
     if TYPE_CHECKING:
-        # Composed onto ControllerTool in every concrete tool (_Tool); declare
+        # Composed onto ControllerTool in every concrete tool (ToolSurface); declare
         # the borrowed members here so mypy checks this mixin's own bodies
         # against the composed shape without inheriting from ControllerTool.
         def key_actions(self) -> dict[str, str | None]: ...
@@ -452,7 +452,7 @@ class ViewToolMixin:
 
 
 @runtime_checkable
-class _Tool(Protocol):
+class ToolSurface(Protocol):
     """Structural surface the View accepts as "a tool".
 
     The View (``set_tool``/``active_tool``/``permanent_tools``), ToolHost and
@@ -461,14 +461,14 @@ class _Tool(Protocol):
     compose ``(_XTool, ViewToolMixin)`` in a deliberate order that does *not*
     nominally descend from a single concrete base (see the composition-order
     note in ``gui/tools/gui_tools.py``), still satisfy it by *shape*.  A plain
-    ``class _Tool(...)`` forced nominal assignability and produced ~150 spurious
+    A nominal tool base forced assignability and produced ~150 spurious
     ``set_tool(SelectTool())`` argument-type errors.
 
     ``make_key_map`` uses the real View contract. ``ControllerTool`` deliberately
     does not declare this View-only operation; every concrete GUI tool composes
     and explicitly binds :meth:`ViewToolMixin.make_key_map`.
 
-    ``@runtime_checkable`` keeps ``isinstance(tool, _Tool)`` working (the
+    ``@runtime_checkable`` keeps ``isinstance(tool, ToolSurface)`` working (the
     Preferences dialog relies on a structural guard).  It checks method
     *presence* only, which is all the guard needs.
     """
@@ -496,7 +496,7 @@ class _Tool(Protocol):
     ) -> None: ...
 
     # Semantic verbs + Esc gate ToolHost drives on the active tool (all live
-    # on ControllerTool; declared here so the View's _Tool-typed active_tool
+    # on ControllerTool; declared here so the View's ToolSurface-typed active_tool
     # can call them).
     def default_action(self, point: Point, mods: Mods) -> bool: ...
     def empty_action(self, point: Point, mods: Mods) -> HoverEvent: ...
@@ -516,13 +516,13 @@ class _DefaultTool(
     ``(_XTool, ViewToolMixin)`` (see ``gui/tools/gui_tools.py``).  This base
     exists only so the handful of test tools that want a ready-made "does
     nothing" tool can subclass and instantiate one; production annotations use
-    the :class:`_Tool` Protocol above.
+    the :class:`ToolSurface` Protocol above.
 
     The base order mirrors the concrete tools' ``(_XTool, ViewToolMixin)`` —
     ``ControllerTool`` (the base ``_XTool``s inherit) first, ``ViewToolMixin``
     second — so this stand-in resolves the same *static* member signatures a
     real tool does (notably the loose ``make_key_map``), and therefore
-    satisfies the :class:`_Tool` Protocol the same way.  The real
+    satisfies the :class:`ToolSurface` Protocol the same way.  The real
     ``ViewToolMixin`` implementations are re-pointed below exactly as
     ``gui/tools/gui_tools.py`` does, so runtime behaviour is unchanged.
     """

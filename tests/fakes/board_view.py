@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
     from protoboard.gui.board_view_tool import (
         AbstractBoardView,
-        _Tool,
+        ToolSurface,
     )
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import KeyMap
@@ -228,7 +228,7 @@ class HeadlessBoardView:
         return self._theme
 
     @property
-    def active_tool(self) -> _Tool | None:
+    def active_tool(self) -> ToolSurface | None:
         return self.tools.active_tool
 
     @property

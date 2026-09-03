@@ -21,8 +21,8 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 
-from protoboard.gui.board_view import BoardView, _Tool
-from protoboard.gui.board_view_tool import _DefaultTool
+from protoboard.gui.board_view import BoardView
+from protoboard.gui.board_view_tool import ToolSurface, _DefaultTool
 
 
 def _key_event(
@@ -59,7 +59,7 @@ class _ClaimingTool(_DefaultTool):
         return inp.key in self._claimed
 
 
-def _install(board_view: BoardView, tool: _Tool, monkeypatch) -> _RecordingWindow:
+def _install(board_view: BoardView, tool: ToolSurface, monkeypatch) -> _RecordingWindow:
     win = _RecordingWindow()
     monkeypatch.setattr(board_view, "window", lambda: win)
     board_view.set_tool(tool)

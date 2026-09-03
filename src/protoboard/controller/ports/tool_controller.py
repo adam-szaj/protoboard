@@ -23,7 +23,7 @@ It is not merely an input-layer concern — the View happens to consume it to pi
 a ``KeyMap`` layer, but the source is the domain state of the interaction.
 
 Concrete tools implement it via the default adapters on
-:class:`~protoboard.gui.board_view_tool._Tool`, which delegate to the existing
+:class:`~protoboard.gui.board_view_tool.ToolSurface`, which delegate to the existing
 ``on_press`` / ``on_move`` / ``on_right_press`` hooks — so introducing this
 protocol changes no behaviour on its own (parity before swap, CLAUDE.md §8).
 """

@@ -53,7 +53,7 @@ from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme  # noq
 from protoboard.domain.layout.layout import ROOT_GROUP_ID  # noqa: E402
 from protoboard.domain.layout.snapping import SnapRequest, snap_point  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
-from protoboard.gui.board_view_tool import _Tool  # noqa: E402
+from protoboard.gui.board_view_tool import ToolSurface  # noqa: E402
 from protoboard.gui.highlight.renderer import HighlightRenderer  # noqa: E402
 from protoboard.gui.hover_reveal import HoverReveal  # noqa: E402
 from protoboard.gui.layer_state_adapter import layer_state_for_tool  # noqa: E402
@@ -66,8 +66,7 @@ from protoboard.gui.session import EditorSession  # noqa: E402
 from protoboard.gui.throttle import TimerWrap  # noqa: E402
 from protoboard.gui.tool_host import ToolHost  # noqa: E402
 from protoboard.gui.tools.gui_tools import SelectTool  # noqa: E402
-from protoboard.gui.view_camera import GRID_PX as _GRID_PX  # noqa: E402
-from protoboard.gui.view_camera import ViewCamera  # noqa: E402
+from protoboard.gui.view_camera import GRID_PX, ViewCamera  # noqa: E402
 from protoboard.instrumentation.debug_trace import traced  # noqa: E402
 from protoboard.services.rendering.board_renderer import BOARD_BG  # noqa: E402
 
@@ -148,7 +147,7 @@ class BoardView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self.scale(_GRID_PX, _GRID_PX)
+        self.scale(GRID_PX, GRID_PX)
         # Tool lifecycle + input dispatch + canvas menu + [?] overlay —
         # extracted service (see gui/tool_host.py).  Owns the active tool,
         # the permanent-tool list and the namespaced KeyMap.
@@ -470,7 +469,7 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     @traced()
-    def set_tool(self, tool: _Tool | None) -> None:
+    def set_tool(self, tool: ToolSurface | None) -> None:
         """Swap the active tool (delegates to the tool host)."""
         self.tools.set_tool(tool)
 
@@ -495,7 +494,7 @@ class BoardView(QGraphicsView):
         )
 
     @property
-    def active_tool(self) -> _Tool | None:
+    def active_tool(self) -> ToolSurface | None:
         """The tool currently receiving delegated input events."""
         return self.tools.active_tool
 

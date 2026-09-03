@@ -2293,7 +2293,7 @@ class SelectTool(ControllerTool):
         self._cycle_relation(forward=False)
 
     def key_claims(self) -> tuple[tuple[str, Callable[[], bool]], ...]:
-        """Contextual key claims (see :meth:`_Tool.wants_key` for the veto).
+        """Contextual key claims (see :meth:`ToolSurface.wants_key` for the veto).
 
         Delete acts on the current selection — claimed so the global delete
         action doesn't shadow the tool's handler.  Pick-confirm / cancel / undo

@@ -19,7 +19,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.board_view_tool import _Tool
+from protoboard.gui.board_view_tool import ToolSurface
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from protoboard.gui.tools.select_preview import QtSelectPreview
@@ -48,7 +48,7 @@ def _place(
 
 
 def _press(
-    tool: _Tool,
+    tool: ToolSurface,
     x: float,
     y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
@@ -60,12 +60,12 @@ def _move(tool: SelectTool, x: float, y: float) -> None:
     tool.on_move(pointer(x, y))
 
 
-def _release(tool: _Tool, x: float, y: float) -> None:
+def _release(tool: ToolSurface, x: float, y: float) -> None:
     tool.on_release(pointer(x, y))
 
 
 def _click(
-    tool: _Tool,
+    tool: ToolSurface,
     x: float,
     y: float,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
@@ -76,7 +76,7 @@ def _click(
 
 
 def _key(
-    tool: _Tool | None,
+    tool: ToolSurface | None,
     key: Qt.Key,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
 ) -> None:
