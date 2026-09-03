@@ -7,6 +7,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from protoboard.controller.selection_axes import SelectionFilter
+from protoboard.gui.tools.gui_tools import SelectTool
 from protoboard.instrumentation.debug_trace import traced
 
 
@@ -46,8 +47,6 @@ class SelectionFilterWidget(QWidget):
     def set_tool(self, tool: object) -> None:
         """Bind to a SelectTool instance and mirror its current filter state."""
         self._tool = tool
-        from protoboard.gui.tools.gui_tools import SelectTool
-
         if isinstance(tool, SelectTool):
             f = tool.filter
             self._btn_comps.setChecked(bool(f & SelectionFilter.COMPONENTS))
@@ -82,8 +81,6 @@ class SelectionFilterWidget(QWidget):
             f |= SelectionFilter.WIRES
         if self._btn_groups.isChecked():
             f |= SelectionFilter.GROUPS
-        from protoboard.gui.tools.gui_tools import SelectTool
-
         if isinstance(self._tool, SelectTool):
             self._tool.set_filter(f)
         self.filter_changed.emit(f)

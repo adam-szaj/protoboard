@@ -7,6 +7,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
 
 from protoboard.controller.selection_axes import RELATION_LABELS, RelationClass
+from protoboard.gui.tools.gui_tools import SelectTool
 
 
 class HighlightModeWidget(QWidget):
@@ -46,8 +47,6 @@ class HighlightModeWidget(QWidget):
     def set_tool(self, tool: object) -> None:
         self._tool = tool
         # Reflect the tool's current relation in the label.
-        from protoboard.gui.tools.gui_tools import SelectTool
-
         if isinstance(tool, SelectTool):
             self._btn.setText(
                 RELATION_LABELS.get(tool.relation, tool.relation.name) + " ▾"
@@ -73,8 +72,6 @@ class HighlightModeWidget(QWidget):
             self._btn.setText(RELATION_LABELS[RelationClass.SAME_LOGICAL_NET] + " ▾")
 
     def _select_relation(self, relation: RelationClass) -> None:
-        from protoboard.gui.tools.gui_tools import SelectTool
-
         if isinstance(self._tool, SelectTool):
             self._tool.set_relation(relation)
         self._btn.setText(RELATION_LABELS.get(relation, relation.name) + " ▾")
