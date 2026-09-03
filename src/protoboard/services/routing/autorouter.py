@@ -969,7 +969,7 @@ def autoroute(
         unrouted_nets=unrouted_names,
     )
     if report_path is not None:
-        _write_report(result, report_path)
+        write_report(result, report_path)
     return result
 
 
@@ -978,7 +978,7 @@ def autoroute(
 # ---------------------------------------------------------------------------
 
 
-def _write_report(result: AutorouteResult, path: Path) -> None:
+def write_report(result: AutorouteResult, path: Path) -> None:
     """Append a CSV report for this autoroute run to *path*.
 
     Format (append mode, UTF-8):
@@ -1066,6 +1066,10 @@ def _write_report(result: AutorouteResult, path: Path) -> None:
         _log.info("autoroute.report_written", path=str(path))
     except OSError as e:
         _log.warning("autoroute.report_write_failed", path=str(path), error=str(e))
+
+
+# Compatibility alias for integrations that used the old private name.
+_write_report = write_report
 
 
 # ---------------------------------------------------------------------------

@@ -43,7 +43,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.services.routing.autorouter import autoroute
+from protoboard.services.routing.autorouter import autoroute, write_report
 from protoboard.services.routing.results import AutorouteResult, PassStats
 from protoboard.types import Side
 
@@ -254,14 +254,12 @@ def hierarchical_autoroute(
 
     # Optional report on the merged result.
     if report_path is not None:
-        from protoboard.services.routing.autorouter import _write_report
-
         merged_result = AutorouteResult(
             wires=merged_wires,
             unrouted_nets=sorted(merged_unrouted),
             pass_stats=merged_stats,
         )
-        _write_report(merged_result, report_path)
+        write_report(merged_result, report_path)
         return merged_result
 
     return AutorouteResult(
