@@ -1942,10 +1942,9 @@ class MainWindow(QMainWindow):
 
         # Build list of netted pins for this component.
         netted: list[tuple[int, str]] = []
-        for net in self._session.schematic.nets.values():
-            for pr in net.pins:
-                if pr.component_id == comp_id:
-                    netted.append((pr.pin_number, net.name))
+        for pr, net in self._session.schematic.pin_net_map().items():
+            if pr.component_id == comp_id:
+                netted.append((pr.pin_number, net.name))
 
         if not netted:
             self._status.showMessage("No netted pins on selected component", 2000)
