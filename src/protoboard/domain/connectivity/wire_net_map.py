@@ -12,19 +12,16 @@ if TYPE_CHECKING:
     from protoboard.domain.schematic.schematic import Schematic
 
 
-def build_wire_net_map(
+def project_wire_net_map(
     schematic: Schematic,
     layout: Layout,
     graph: ConnectivityGraph,
 ) -> dict[uuid.UUID, uuid.UUID]:
-    """Return a mapping wire.id → net.id using *graph*.
+    """Project the connectivity graph onto the wires in *layout*.
 
     Uses the connectivity graph so strips, bare-wire chains, and
     plated-through holes are all handled correctly — not just wires whose
     endpoints happen to land directly on a component pin.
-
-    GUI callers should prefer ``EditorSession.cached_wire_net_map()``, which
-    memoises this projection per layout change.
     """
     if not schematic.nets or not layout.wires:
         return {}
@@ -53,3 +50,19 @@ def build_wire_net_map(
                     result[wire.id] = net_id
                     break
     return result
+
+
+def build_wire_net_map(
+    schematic: Schematic,
+    layout: Layout,
+    graph: ConnectivityGraph,
+) -> dict[uuid.UUID, uuid.UUID]:
+    """Build a wire-to-net projection using *graph*.
+
+    GUI callers should prefer ``EditorSession.cached_wire_net_map()``, which
+    memoises this projection per layout change.
+
+    This wrapper retains the historical public entry point; the projection
+    itself is shared with snapshot export via :func:`project_wire_net_map`.
+    """
+    return project_wire_net_map(schematic, layout, graph)

@@ -21,6 +21,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
 
+from protoboard.domain.connectivity.wire_net_map import project_wire_net_map
 from protoboard.domain.layout.knot import WirePinKnot
 from protoboard.domain.layout.pin_pad_classification import (
     classify_pin_pads,
@@ -257,30 +258,7 @@ def _build_graph_and_wire_net_map(
         snapshot.components,
         snapshot.instances,
     )
-    # canonical_key → net.id (one net per electric set with named pins).
-    canonical_to_net: dict[object, uuid.UUID] = {}
-    for net in snapshot.schematic.nets.values():
-        for ref in net.pins:
-            ck = graph.node_for_pin(ref)
-            if ck is not None:
-                canonical_to_net[ck] = net.id
-    out: dict[uuid.UUID, uuid.UUID] = {}
-    for wire in snapshot.layout.wires:
-        # Insulated wires contact only at endpoints; bare wires contact
-        # every pad they pass through.
-        contact_pts = (
-            ([wire.path[0], wire.path[-1]] if len(wire.path) >= 2 else wire.path)
-            if wire.insulated
-            else wire.path
-        )
-        for pt in contact_pts:
-            ck = graph.node_for_pad(pt, wire.side)
-            if ck is not None:
-                nid = canonical_to_net.get(ck)
-                if nid is not None:
-                    out[wire.id] = nid
-                    break
-    return graph, out
+    return graph, project_wire_net_map(snapshot.schematic, snapshot.layout, graph)
 
 
 def paint_snapshot(
