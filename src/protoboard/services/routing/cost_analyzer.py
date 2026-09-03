@@ -56,8 +56,8 @@ from protoboard.geometry import (
     segments_cross_strict,
 )
 from protoboard.services.routing.astar import (
-    _is_at_pad,
-    _is_perpendicular_diagonal_crossing,
+    is_at_pad,
+    is_perpendicular_diagonal_crossing,
 )
 
 
@@ -178,7 +178,7 @@ def _unit_direction(a: Point, b: Point) -> tuple[float, float]:
     return (round(span.dx / n), round(span.dy / n))
 
 
-def _under_component_pads(
+def compute_under_component_pads(
     board: Board,
     layout: Layout,
     components: dict[str, ComponentDefinition],
@@ -384,13 +384,13 @@ def _classify_crossing(
     if not ins_a and not ins_b:
         if not same_side:
             return None  # bare wires on opposite layers never short
-        if _is_perpendicular_diagonal_crossing(p1, p2, q1, q2):
+        if is_perpendicular_diagonal_crossing(p1, p2, q1, q2):
             return "crossing_bare_bare_diagonal"
         return "crossing_bare_bare"
 
     # At-pad vs off-pad classification needs the geometric intersection.
     ix, iy = segment_intersection_point(p1, p2, q1, q2)
-    at_pad = _is_at_pad(ix, iy)
+    at_pad = is_at_pad(ix, iy)
 
     if ins_a and ins_b:
         # Insulated × insulated.
@@ -555,9 +555,9 @@ def _count_crossings(
                     pair_seen_points.add(crossing_pt)
                     # When PadIndex handled stage 1, skip at-pad crossings
                     # in the geometric path — otherwise they'd double-count.
-                    # `_is_at_pad` reads half-integer coordinates as a pad
+                    # `is_at_pad` reads half-integer coordinates as a pad
                     # centre (col+0.5, row+0.5).
-                    if pad_index is not None and _is_at_pad(*crossing_pt):
+                    if pad_index is not None and is_at_pad(*crossing_pt):
                         continue
                     key_knob = _classify_crossing(
                         (op1, op2, oside, oins),
@@ -626,7 +626,7 @@ def analyze_wires(
                 "analyze_wires needs board+layout or a precomputed "
                 "under_component_pads set when under_component_top > 0"
             )
-        _under_set = _under_component_pads(
+        _under_set = compute_under_component_pads(
             board,
             layout,
             components or {},

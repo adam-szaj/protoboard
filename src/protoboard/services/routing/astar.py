@@ -2137,12 +2137,12 @@ def _crossing_cost(
             if insulated:
                 # ib crossing on same side — at_pad vs off_pad.
                 ix, iy = segment_intersection_point(p1, p2, bsrc, bdst)
-                at_pad = _is_at_pad(ix, iy)
+                at_pad = is_at_pad(ix, iy)
                 total += _ib_aps if at_pad else _ib_ops
             else:
                 # Bare × bare same-side.  Keep the legacy diagonal
                 # exception; otherwise inf.
-                if bare_diagonal_allowed and _is_perpendicular_diagonal_crossing(
+                if bare_diagonal_allowed and is_perpendicular_diagonal_crossing(
                     p1, p2, bsrc, bdst
                 ):
                     total += cost_model.crossing_bare_bare_diagonal
@@ -2177,7 +2177,7 @@ def _crossing_cost(
                 total += reuse_cost
                 continue
             ix, iy = segment_intersection_point(p1, p2, qa, qb)
-            at_pad = _is_at_pad(ix, iy)
+            at_pad = is_at_pad(ix, iy)
             if q_ins:
                 total += _ii_apo if at_pad else _ii_opo
             else:
@@ -2192,7 +2192,7 @@ def _crossing_cost(
     return total
 
 
-def _is_at_pad(x: float, y: float) -> bool:
+def is_at_pad(x: float, y: float) -> bool:
     """True if (x, y) lies on a pad (perfboard pads at (col+0.5, row+0.5)).
 
     A pad sits at half-integer coordinates: ``x - floor(x) == 0.5``.
@@ -2240,7 +2240,7 @@ def _iter_segs_in_bbox(
                 yield (bsrc, bdst, net_idx)
 
 
-def _is_perpendicular_diagonal_crossing(
+def is_perpendicular_diagonal_crossing(
     a1: Point, a2: Point, b1: Point, b2: Point
 ) -> bool:
     """True if a1→a2 and b1→b2 are both diagonal, perpendicular, and meet at (int, int).
@@ -2306,5 +2306,7 @@ __all__ = [
     "RoutingResult",
     "build_bare_seg_index",
     "find_paths",
+    "is_at_pad",
+    "is_perpendicular_diagonal_crossing",
     "split_path_by_side",
 ]

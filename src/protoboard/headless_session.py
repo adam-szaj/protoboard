@@ -67,6 +67,7 @@ from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
+from protoboard.services.routing.cost_analyzer import compute_under_component_pads
 
 _click_log = _structlog.get_logger("protoboard.gui.session.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -346,11 +347,7 @@ class HeadlessSession:
         """
         cache = self._under_component_pads_cache
         if cache is None:
-            from protoboard.services.routing.cost_analyzer import (
-                _under_component_pads,
-            )
-
-            cache = _under_component_pads(
+            cache = compute_under_component_pads(
                 self.board,
                 self.layout,
                 self.components,
