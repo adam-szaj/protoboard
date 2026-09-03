@@ -623,24 +623,16 @@ class ConnectivityGraph:
         for atom, pos in board.atoms():
             if isinstance(atom, PadAtom):
                 layers = atom.layers
-                if layers.plated_through:
-                    top_key: _NodeKey = _qkey(pos, "top")
-                    bot_key: _NodeKey = _qkey(pos, "bottom")
-                    top_e = self._ensure_node(top_key)
-                    bot_e = self._ensure_node(bot_key)
-                    self._board_pad_keys.add(top_key)
-                    self._board_pad_keys.add(bot_key)
-                    if top_e.electric_set is not bot_e.electric_set:
-                        self._merge(top_e.electric_set, bot_e.electric_set)
-                else:
-                    if layers.top:
-                        k: _NodeKey = _qkey(pos, "top")
-                        self._ensure_node(k)
-                        self._board_pad_keys.add(k)
-                    if layers.bottom:
-                        k2: _NodeKey = _qkey(pos, "bottom")
-                        self._ensure_node(k2)
-                        self._board_pad_keys.add(k2)
+                entries: list[NodeEntry] = []
+                for side in layers.layer_ids():
+                    key = _qkey(pos, side)
+                    entries.append(self._ensure_node(key))
+                    self._board_pad_keys.add(key)
+                if layers.plated_through and len(entries) > 1:
+                    merged = entries[0].electric_set
+                    for entry in entries[1:]:
+                        if merged is not entry.electric_set:
+                            merged, _, _ = self._merge(merged, entry.electric_set)
             elif isinstance(atom, StripAtom):
                 if atom.isolated:
                     continue
