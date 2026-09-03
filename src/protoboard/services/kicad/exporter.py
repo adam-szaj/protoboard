@@ -15,9 +15,29 @@ from pathlib import Path
 
 import structlog
 
+from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 
 _log = structlog.get_logger(__name__)
+
+
+def _component_ids(schematic: Schematic) -> set[uuid.UUID]:
+    """Return component IDs referenced by the schematic's nets."""
+    return {pin.component_id for net in schematic.nets.values() for pin in net.pins}
+
+
+def _sorted_pins(
+    pins: set[PinRef],
+    refdes: dict[uuid.UUID, str],
+) -> list[PinRef]:
+    """Sort pins in the stable order used by both KiCad encodings."""
+    return sorted(
+        pins,
+        key=lambda pin: (
+            refdes.get(pin.component_id, str(pin.component_id)),
+            pin.pin_number,
+        ),
+    )
 
 
 class KiCadNetlistExporter:
@@ -74,10 +94,7 @@ class KiCadNetlistExporter:
         ET.SubElement(design, "date").text = ""
         ET.SubElement(design, "tool").text = "protoboard-designer"
 
-        comp_ids: set[uuid.UUID] = set()
-        for net in schematic.nets.values():
-            for pin in net.pins:
-                comp_ids.add(pin.component_id)
+        comp_ids = _component_ids(schematic)
 
         components_el = ET.SubElement(root, "components")
         for cid in sorted(comp_ids, key=lambda x: refdes.get(x, str(x))):
@@ -91,13 +108,7 @@ class KiCadNetlistExporter:
             sorted(schematic.nets.items(), key=lambda kv: kv[1].name), start=1
         ):
             net_el = ET.SubElement(nets_el, "net", code=str(code), name=net.name)
-            for pin in sorted(
-                net.pins,
-                key=lambda p: (
-                    refdes.get(p.component_id, str(p.component_id)),
-                    p.pin_number,
-                ),
-            ):
+            for pin in _sorted_pins(net.pins, refdes):
                 ref = refdes.get(pin.component_id, str(pin.component_id))
                 ET.SubElement(net_el, "node", ref=ref, pin=str(pin.pin_number))
 
@@ -123,10 +134,7 @@ class KiCadNetlistExporter:
         lines.append('    (tool "protoboard-designer"))')
 
         # (components ...)
-        comp_ids: set[uuid.UUID] = set()
-        for net in schematic.nets.values():
-            for pin in net.pins:
-                comp_ids.add(pin.component_id)
+        comp_ids = _component_ids(schematic)
 
         lines.append("  (components")
         for cid in sorted(comp_ids, key=lambda x: refdes.get(x, str(x))):
@@ -141,13 +149,7 @@ class KiCadNetlistExporter:
         sorted_nets = sorted(schematic.nets.values(), key=lambda n: n.name)
         for code, net in enumerate(sorted_nets, start=1):
             lines.append(f"    (net (code {code}) (name {_sexp_str(net.name)})")
-            for pin in sorted(
-                net.pins,
-                key=lambda p: (
-                    refdes.get(p.component_id, str(p.component_id)),
-                    p.pin_number,
-                ),
-            ):
+            for pin in _sorted_pins(net.pins, refdes):
                 ref = _sexp_str(refdes.get(pin.component_id, str(pin.component_id)))
                 lines.append(f"      (node (ref {ref}) (pin {pin.pin_number}))")
             lines.append("    )")
