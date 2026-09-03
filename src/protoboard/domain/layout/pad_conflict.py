@@ -18,13 +18,6 @@ import structlog
 _log = structlog.get_logger(__name__)
 
 
-def _dbg_enabled() -> bool:
-    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
-    import logging
-
-    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
-
-
 from protoboard.domain.board.pad_state import (  # noqa: E402
     BareWireCrossing,
     BareWireItem,
@@ -51,6 +44,7 @@ from protoboard.domain.layout.placement import (  # noqa: E402
 from protoboard.domain.layout.wire_utils import find_skewed_wires  # noqa: E402
 from protoboard.errors import UnboundInstanceError  # noqa: E402
 from protoboard.geometry import Point, round_coord  # noqa: E402
+from protoboard.instrumentation.logging import is_debug_enabled  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -483,7 +477,7 @@ def _wire_hit_via_pad_index(
                 wire_item = it
                 hit_side = opposite
                 break
-    if _dbg_enabled():
+    if is_debug_enabled(__name__):
         _log.debug(
             "wire_hit.lookup",
             position=(position.x, position.y),

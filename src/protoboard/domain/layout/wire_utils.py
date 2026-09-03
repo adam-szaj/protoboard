@@ -33,6 +33,7 @@ from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragment
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 from protoboard.instrumentation.call_counters import counted
+from protoboard.instrumentation.logging import is_debug_enabled
 
 _log = structlog.get_logger(__name__)
 
@@ -2215,13 +2216,6 @@ def resolve_endpoint_knot(
     return KnotRef(id=jk.id), jk
 
 
-def _dbg_enabled() -> bool:
-    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
-    import logging
-
-    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
-
-
 def _pts_equal(a: Point, b: Point) -> bool:
     return abs(a.x - b.x) < _EPS_KNOT and abs(a.y - b.y) < _EPS_KNOT
 
@@ -2267,7 +2261,7 @@ def update_wires_for_move(
     if not pin_map:
         return
 
-    if _dbg_enabled():
+    if is_debug_enabled(__name__):
         _log.debug(
             "drag.update_wires_for_move.start",
             comp_id=str(comp_id),
@@ -2336,7 +2330,7 @@ def update_wires_for_move(
             # with a skewed segment if the component's pin offsets stretched
             # the path unevenly. Drop those.
             if wire_has_skewed_segment(wire):
-                if _dbg_enabled():
+                if is_debug_enabled(__name__):
                     _log.debug(
                         "drag.update_wires_for_move.drop_excluded_skewed",
                         wire_id=str(wire.id),
@@ -2371,7 +2365,7 @@ def update_wires_for_move(
         # Drop wire if it collapsed (all points identical or < 2 distinct).
         distinct = {(round(p.x, 6), round(p.y, 6)) for p in new_path}
         if len(distinct) < 2:
-            if _dbg_enabled():
+            if is_debug_enabled(__name__):
                 _log.debug(
                     "drag.update_wires_for_move.drop_collapsed",
                     wire_id=str(wire.id),
@@ -2380,7 +2374,7 @@ def update_wires_for_move(
                     pin_map_hits=pin_map_hits,
                 )
             continue
-        if pin_map_hits and _dbg_enabled():
+        if pin_map_hits and is_debug_enabled(__name__):
             _log.debug(
                 "drag.update_wires_for_move.translated",
                 wire_id=str(wire.id),
@@ -2412,7 +2406,7 @@ def update_wires_for_move(
         # by the routing/cost model and is almost always a visual artifact
         # of repeated drag.
         if wire_has_skewed_segment(wire):
-            if _dbg_enabled():
+            if is_debug_enabled(__name__):
                 _log.debug(
                     "drag.update_wires_for_move.drop_skewed",
                     wire_id=str(wire.id),
@@ -2421,7 +2415,7 @@ def update_wires_for_move(
             continue
         new_wires.append(wire)
 
-    if _dbg_enabled():
+    if is_debug_enabled(__name__):
         _log.debug(
             "drag.update_wires_for_move.done",
             comp_id=str(comp_id),

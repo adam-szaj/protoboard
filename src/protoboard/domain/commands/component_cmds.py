@@ -8,7 +8,6 @@ without creating a hard dependency on the GUI layer.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
@@ -106,13 +105,9 @@ from protoboard.domain.layout.wire_utils import (
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.pin_siblings import same_name_refs
 from protoboard.geometry import Point
+from protoboard.instrumentation.logging import is_debug_enabled
 
 _log = structlog.get_logger(__name__)
-
-
-def _dbg_enabled() -> bool:
-    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
-    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
 if TYPE_CHECKING:
@@ -731,7 +726,7 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
         # dropped (skewed/collapsed), or were left alone.  Group-floating
         # commit chains many of these — without per-cmd stats it's
         # impossible to tell which component's translation lost a wire.
-        if _dbg_enabled():
+        if is_debug_enabled(__name__):
             after_ids = {w.id for w in state.layout.wires}
             dropped = [str(wid) for wid in wires_before if wid not in after_ids]
             changed = []

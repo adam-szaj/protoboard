@@ -42,6 +42,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire_utils import find_skewed_wires
 from protoboard.geometry import Point
 from protoboard.geometry import round_coord as _round
+from protoboard.instrumentation.logging import is_debug_enabled
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
@@ -57,13 +58,6 @@ if TYPE_CHECKING:
     from protoboard.domain.schematic.schematic import Schematic
 
 _log = structlog.get_logger(__name__)
-
-
-def _dbg_enabled() -> bool:
-    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
-    import logging
-
-    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
 @dataclass(frozen=True)
@@ -376,7 +370,7 @@ class DragDetector:
         else:
             severity = DragSeverity.CLEAR
 
-        if _dbg_enabled():
+        if is_debug_enabled(__name__):
             _log.debug(
                 "drag_detector.classify",
                 severity=severity.value,
