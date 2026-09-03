@@ -312,6 +312,21 @@ class TestSelectionBasicsExtra:
 
 
 class TestRubberBand:
+    @pytest.mark.parametrize("camera_side", ["top", "bottom"])
+    def test_live_band_is_visible_on_both_camera_sides(
+        self, board_view: BoardView, camera_side: str
+    ) -> None:
+        """The live selection frame stays in the front scene pass."""
+        board_view.set_camera_side(camera_side)
+        tool = _v2(board_view)
+
+        _press(tool, -1.0, -1.0)
+        _move(tool, 5.0, 5.0)
+
+        preview = _qt_preview(tool)
+        assert preview.band.item is not None
+        assert preview.band.item.isVisible()
+
     def test_rubber_band_stays_in_live_overlay_layer(
         self, board_view: BoardView
     ) -> None:

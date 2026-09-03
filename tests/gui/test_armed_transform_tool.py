@@ -212,6 +212,34 @@ class TestArmedRotate:
         assert _pose(session, inst.id).rotation == (base + 90) % 360
         assert board_view.camera._wheel_throttle._parked is None
 
+    def test_back_side_preview_remains_visible_during_transform(
+        self, board_view: BoardView, session: EditorSession, qtbot
+    ) -> None:
+        """A preview refresh must not leave a cached back-side component hidden."""
+        inst = _place(board_view, session, 0.5, 0.5)
+        session.layout.placements[inst.id].side = "bottom"
+        session.invalidate_graph()
+        board_view.set_camera_side("top")
+        board_view.refresh()
+        board_view.resize(400, 300)
+        board_view.show()
+        qtbot.wait(20)
+        board_view.paint._ensure_back_cache()
+
+        select = _select(board_view)
+        select.select_primary(inst.id)
+        _key(select, Qt.Key.Key_R)
+        armed = _armed_tool(board_view)
+        board_view.paint._ensure_back_cache()
+        group = board_view.composer._comp_groups[inst.id]
+        assert not group.isVisible()
+
+        _key(armed, Qt.Key.Key_R)
+
+        group = board_view.composer._comp_groups[inst.id]
+        assert group.isVisible()
+        assert board_view.paint._back_cache_dirty
+
     def test_view_wheel_zooms_when_not_armed(self, board_view, session) -> None:
         # No armed tool → the wheel chord falls through the (SelectTool) layer
         # to the view zoom: the throttle parks the raw delta (flushed later).
