@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.controller.app_settings import load_app_settings
 from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.domain.components.definition import ComponentDefinition
@@ -647,8 +648,6 @@ class PlaceTool(ControllerTool):
             return
 
         has_wire_conflict = bool(resolved.wire_cmds)
-
-        from protoboard.controller.app_settings import load_app_settings
 
         auto_accept = load_app_settings().auto_accept_placement
 
