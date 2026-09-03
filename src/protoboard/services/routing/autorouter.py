@@ -1049,10 +1049,6 @@ def write_report(result: AutorouteResult, path: Path) -> None:
         _log.warning("autoroute.report_write_failed", path=str(path), error=str(e))
 
 
-# Compatibility alias for integrations that used the old private name.
-_write_report = write_report
-
-
 # ---------------------------------------------------------------------------
 # Process-pool helpers (module-level so pickle works)
 # ---------------------------------------------------------------------------

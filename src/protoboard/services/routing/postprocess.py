@@ -421,10 +421,6 @@ def canonical_subpath(
     return base
 
 
-# Compatibility alias for older internal integrations.
-_canonical_subpath = canonical_subpath
-
-
 def _wire_to_segs(wire: Wire) -> list[tuple[Point, Point]]:
     return list(zip(wire.path, wire.path[1:]))
 

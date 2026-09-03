@@ -21,11 +21,6 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Transform2D, Vector, rotation_about
 
-# Kept as a compatibility alias for existing command/test callers. New
-# consumers should import the geometry primitive directly.
-_rotation_about = rotation_about
-
-
 # Board-flip axis for a group: 'v' reflects across a VERTICAL line (mirrors
 # left↔right, the x coordinate); 'h' across a HORIZONTAL line (mirrors top↔
 # bottom, the y coordinate).  Matches the user's [v]/[h] FlipMode choice.

@@ -120,10 +120,10 @@ class TestCrossings:
         and verify the '/' path is found (would have been blocked in the
         regular bare mode by crossing_bare_bare = inf).
         """  # noqa: E501
-        from protoboard.services.routing.astar import _build_bare_seg_index
+        from protoboard.services.routing.astar import build_bare_seg_index
 
         # Existing bare segment: '\' from (1.5, 2.5) to (2.5, 1.5).
-        bare = _build_bare_seg_index({(Point(1.5, 2.5), Point(2.5, 1.5), "top")})
+        bare = build_bare_seg_index({(Point(1.5, 2.5), Point(2.5, 1.5), "top")})
 
         cm = RoutingCostModel(bare_diagonal_mode=True, crossing_bare_bare_diagonal=2.0)
         # Route a '/' path from (1.5, 1.5) to (2.5, 2.5) — the two diagonals

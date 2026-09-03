@@ -34,8 +34,8 @@ from protoboard.services.routing.astar import (
     _RUST_AVAILABLE,
     RoutingResult,
     _astar,
-    _build_bare_seg_index,
     _find_paths_rust,
+    build_bare_seg_index,
     find_paths,
 )
 
@@ -125,7 +125,7 @@ def _run_python(
     vias: set[Point] | None = None,
 ) -> list[RoutingResult]:
     vn = _valid_nodes(graph)
-    bare_idx = _build_bare_seg_index(bare_segs or set())
+    bare_idx = build_bare_seg_index(bare_segs or set())
     results: list[RoutingResult] = []
     forbidden: set[tuple[Point, str, Point, str]] = set()
     for _ in range(k):

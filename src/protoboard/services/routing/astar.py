@@ -218,10 +218,6 @@ def build_bare_seg_index(
     return idx
 
 
-# Compatibility alias for callers that used the old private helper.
-_build_bare_seg_index = build_bare_seg_index
-
-
 # 4 orthogonal + 4 diagonal neighbours (same layer), each with its distance
 # multiplier.  Layer changes are handled separately.
 _NEIGHBOURS: list[tuple[float, float, float]] = [
@@ -1791,7 +1787,7 @@ def find_paths(
         return []
 
     # Build spatial index for bare segments once per find_paths call.
-    bare_idx = _build_bare_seg_index(bare_segs_canon)
+    bare_idx = build_bare_seg_index(bare_segs_canon)
 
     # --- Rust extension path (true parallelism, no GIL) ---
     # The Rust kernel does NOT know about the enhanced penalties (the
@@ -2245,11 +2241,6 @@ def is_perpendicular_diagonal_crossing(
     ix = a1.x + t * adx
     iy = a1.y + t * ady
     return ix == round(ix) and iy == round(iy)
-
-
-# Compatibility aliases for callers that used the former private predicates.
-_is_at_pad = is_at_pad
-_is_perpendicular_diagonal_crossing = is_perpendicular_diagonal_crossing
 
 
 def split_path_by_side(path: list[PathStep]) -> list[tuple[list[Point], str]]:

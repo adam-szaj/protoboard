@@ -53,9 +53,6 @@ _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
 
 
-_load_builtin_package_defs = load_builtin_package_defs
-
-
 def _component_pin_count(data: dict[str, Any]) -> int | None:
     """The component's declared pin count, or ``None``.
 
@@ -408,7 +405,7 @@ def _build_component_package(
 
     # Load the builtin package defs BEFORE kind dispatch — the load binds the
     # declarative kind nodes (kinds.yaml), which the kind driver consults.
-    registry = dict(_load_builtin_package_defs() if generics is None else generics)
+    registry = dict(load_builtin_package_defs() if generics is None else generics)
 
     kind = raw.get("kind")
     # ``kind:`` may be a single name or a list — a left→right generator chain
@@ -542,7 +539,7 @@ def load_library(
     # Generics registry: builtins plus the library files' ``packages:``. A
     # builtin wins on a name clash (warn — the library entry is ignored), the
     # same first-wins rule as components (the builtin dir is scanned first).
-    generics = dict(_load_builtin_package_defs())
+    generics = dict(load_builtin_package_defs())
     for pkg_name, raw in lib_packages.items():
         if pkg_name in generics:
             _log.warning(

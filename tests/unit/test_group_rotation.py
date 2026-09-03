@@ -13,7 +13,6 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.group_cmds import (
     RotateGroupCommand,
-    _rotation_about,
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -21,7 +20,7 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import ComponentPlacement, PlacementCollection
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.geometry import Point
+from protoboard.geometry import Point, rotation_about
 
 # ---------------------------------------------------------------------------
 # Minimal fake session used by the command
@@ -71,7 +70,7 @@ def _make_placement(
 
 
 def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
-    return _rotation_about(origin, delta).apply(p)
+    return rotation_about(origin, delta).apply(p)
 
 
 def test_rotate_around_0() -> None:

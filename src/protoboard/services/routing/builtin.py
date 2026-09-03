@@ -142,11 +142,6 @@ ASTAR_COST_KEYS: frozenset[str] = frozenset(
     }
 )
 
-
-# Compatibility alias for callers that used the old private constant.
-_ASTAR_COST_KEYS = ASTAR_COST_KEYS
-
-
 # Statically assert that AStarRouter satisfies the Router protocol.
 _check: Router = AStarRouter()
 del _check

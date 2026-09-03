@@ -14,9 +14,9 @@ import math
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point, segments_cross_strict
 from protoboard.services.routing.astar import (
-    _build_bare_seg_index,
     _crossing_cost,
-    _is_perpendicular_diagonal_crossing,
+    build_bare_seg_index,
+    is_perpendicular_diagonal_crossing,
 )
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ class TestSegsCross:
 
 
 def _idx(*segs: tuple[Point, Point, str]):
-    return _build_bare_seg_index(set(segs))
+    return build_bare_seg_index(set(segs))
 
 
 class TestCrossingCost:
@@ -176,20 +176,20 @@ class TestPerpendicularDiagonalCrossing:
         # connected by a \ diagonal.  They cross at (2.0, 2.0) — int.
         a1, a2 = Point(1.5, 1.5), Point(2.5, 2.5)
         b1, b2 = Point(1.5, 2.5), Point(2.5, 1.5)
-        assert _is_perpendicular_diagonal_crossing(a1, a2, b1, b2)
+        assert is_perpendicular_diagonal_crossing(a1, a2, b1, b2)
 
     def test_orthogonal_pair_rejected(self) -> None:
-        assert not _is_perpendicular_diagonal_crossing(
+        assert not is_perpendicular_diagonal_crossing(
             Point(0, 1), Point(2, 1), Point(1, 0), Point(1, 2)
         )
 
     def test_parallel_diagonals_rejected(self) -> None:
-        assert not _is_perpendicular_diagonal_crossing(
+        assert not is_perpendicular_diagonal_crossing(
             Point(0, 0), Point(2, 2), Point(0, 1), Point(2, 3)
         )
 
     def test_diag_x_ortho_rejected(self) -> None:
-        assert not _is_perpendicular_diagonal_crossing(
+        assert not is_perpendicular_diagonal_crossing(
             Point(0, 0), Point(2, 2), Point(0, 1), Point(2, 1)
         )
 
@@ -199,4 +199,4 @@ class TestPerpendicularDiagonalCrossing:
         a1, a2 = Point(0.5, 0.5), Point(2.5, 2.5)
         b1, b2 = Point(0.5, 2.5), Point(2.5, 0.5)
         # They intersect at (1.5, 1.5) — non-integer → reject.
-        assert not _is_perpendicular_diagonal_crossing(a1, a2, b1, b2)
+        assert not is_perpendicular_diagonal_crossing(a1, a2, b1, b2)

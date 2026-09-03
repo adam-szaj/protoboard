@@ -785,11 +785,11 @@ class TestGroupV2ToV3Migration:
 
         from ruamel.yaml import YAML
 
-        from protoboard.domain.commands.group_cmds import _rotation_about
         from protoboard.domain.layout.placement import (
             compose_placement,
             pin_world_position,
         )
+        from protoboard.geometry import rotation_about
         from protoboard.services.persistence.board_yaml import board_to_yaml
         from protoboard.services.persistence.project_yaml import (
             set_migration_families,
@@ -807,7 +807,7 @@ class TestGroupV2ToV3Migration:
         origin = Point(10.0, 10.0)
 
         # v2 BAKED placements = the rotation flattened into each pose.
-        t_g = _rotation_about(origin, 90)
+        t_g = rotation_about(origin, 90)
         baked1 = compose_placement(
             t_g, ComponentPlacement(c1, Point(10.0, 10.0), 0, "top")
         )

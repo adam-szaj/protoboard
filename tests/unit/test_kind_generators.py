@@ -45,9 +45,9 @@ def builtin_kind_nodes():
     this the result would depend on test order (whether any earlier test
     loaded a library).
     """
-    from protoboard.services.library.loader import _load_builtin_package_defs
+    from protoboard.services.library.loader import load_builtin_package_defs
 
-    _load_builtin_package_defs()
+    load_builtin_package_defs()
 
 
 class TestRegistration:
