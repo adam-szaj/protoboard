@@ -26,20 +26,9 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.domain.routing.simplify_mode import SimplifyMode
     from protoboard.domain.routing_settings import RoutingSettings
 
-
-def _simplify_mode_from_combo(raw: object) -> SimplifyMode:
-    """Translate combobox data-role into SimplifyMode (defaults to BARE_PARITY)."""
-    from protoboard.domain.routing.simplify_mode import SimplifyMode
-
-    if isinstance(raw, str):
-        try:
-            return SimplifyMode(raw)
-        except ValueError:
-            return SimplifyMode.BARE_PARITY
-    return SimplifyMode.BARE_PARITY
+from protoboard.domain.routing.simplify_mode import simplify_mode_from_value
 
 
 class AutorouteDialog(QDialog):
@@ -392,7 +381,7 @@ class AutorouteDialog(QDialog):
             simplify_all_after_autoroute=self._chk_simplify_all_after.isChecked(),
             simplify_all_max_iterations=rs_in.simplify_all_max_iterations,
             hierarchical=self._chk_hierarchical.isChecked(),
-            simplify_mode=_simplify_mode_from_combo(
+            simplify_mode=simplify_mode_from_value(
                 self._combo_simplify_mode.currentData()
             ),
             max_detour_factor=self._spin_detour.value(),

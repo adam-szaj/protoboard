@@ -45,13 +45,13 @@ from PySide6.QtWidgets import (
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
 from protoboard.controller.view_options.theme import Theme
+from protoboard.domain.routing.simplify_mode import simplify_mode_from_value
 from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
 from protoboard.gui.keymap import AbstractKeyMap, FinalShortcutError, KeyMap
 from protoboard.services.preferences.theme_yaml import save_theme
 
 if TYPE_CHECKING:
-    from protoboard.domain.routing.simplify_mode import SimplifyMode
     from protoboard.gui.session import EditorSession
 
 
@@ -1492,7 +1492,7 @@ class _RoutingPage(QWidget):
             allow_jumpers=self._allow_jumpers.isChecked(),
             push_and_shove=self._push_and_shove.isChecked(),
             enable_simplify_pass=self._enable_simplify.isChecked(),
-            simplify_mode=_resolve_simplify_mode(self._simplify_mode.currentData()),
+            simplify_mode=simplify_mode_from_value(self._simplify_mode.currentData()),
             max_detour_factor=self._max_detour.value(),
             router_name=rs_old.router_name,
             skip_autoroute_dialog=self._skip_autoroute_dialog.isChecked(),
@@ -1507,18 +1507,6 @@ class _RoutingPage(QWidget):
         )
         self._session.routing_settings = new_settings
         self._session.mark_dirty()
-
-
-def _resolve_simplify_mode(raw: object) -> SimplifyMode:
-    """Translate the QComboBox data role back into a SimplifyMode enum."""
-    from protoboard.domain.routing.simplify_mode import SimplifyMode
-
-    if isinstance(raw, str):
-        try:
-            return SimplifyMode(raw)
-        except ValueError:
-            return SimplifyMode.BARE_PARITY
-    return SimplifyMode.BARE_PARITY
 
 
 def _RoutingFormLayout(parent: QWidget) -> QFormLayout:

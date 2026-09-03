@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+from protoboard.domain.routing.simplify_mode import (
+    SimplifyMode,
+    simplify_mode_from_value,
+)
 from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
 from protoboard.services.persistence.project_yaml import (
     _routing_settings_from_yaml,
@@ -17,6 +21,16 @@ def test_routing_settings_use_domain_owned_types() -> None:
     settings = RoutingSettings()
     assert isinstance(settings.cost_model(), RoutingCostModel)
     assert settings.simplify_mode is SimplifyMode.BARE_PARITY
+
+
+def test_simplify_mode_from_value_accepts_known_values() -> None:
+    assert simplify_mode_from_value("chebyshev") is SimplifyMode.CHEBYSHEV
+    assert simplify_mode_from_value("bare_parity") is SimplifyMode.BARE_PARITY
+
+
+def test_simplify_mode_from_value_defaults_for_unknown_values() -> None:
+    assert simplify_mode_from_value("unknown") is SimplifyMode.BARE_PARITY
+    assert simplify_mode_from_value(None) is SimplifyMode.BARE_PARITY
 
 
 class TestRoutingSettingsModel:

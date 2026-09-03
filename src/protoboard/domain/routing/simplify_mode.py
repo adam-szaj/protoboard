@@ -18,3 +18,13 @@ class SimplifyMode(StrEnum):
 
     CHEBYSHEV = "chebyshev"
     BARE_PARITY = "bare_parity"
+
+
+def simplify_mode_from_value(raw: object) -> SimplifyMode:
+    """Parse a UI/configuration value, falling back to the safe default."""
+    if isinstance(raw, str):
+        try:
+            return SimplifyMode(raw)
+        except ValueError:
+            pass
+    return SimplifyMode.BARE_PARITY
