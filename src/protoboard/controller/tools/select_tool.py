@@ -46,6 +46,13 @@ from protoboard.controller.ports import (
     StatusEvent,
     WheelInput,
 )
+from protoboard.controller.selection.adapters import (
+    ComponentSelectable,
+    GroupSelectable,
+    PointSelectable,
+    WireSelectable,
+    WireVertexSelectable,
+)
 from protoboard.controller.selection.drag_controller import (
     DragController,
     FloatingPhase,
@@ -80,7 +87,6 @@ if TYPE_CHECKING:
     from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.drag_set import DragSet
     from protoboard.controller.ports.routing import UnweaveResult
-    from protoboard.controller.selection.adapters import WireVertexSelectable
     from protoboard.controller.selection.mouse_input import MouseInputController
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.wire_edit import WireRange
@@ -367,8 +373,6 @@ class SelectTool(ControllerTool):
         kind hit-tests for a board entity.
         """
         if what in ("pad", "point"):
-            from protoboard.controller.selection.adapters import PointSelectable
-
             return PointSelectable(point=self._snap(scene_pt, frozenset()))
         if what == "wire-vertex":
             sel, cycle = self._hit_tester().hit_wire_vertex(
@@ -658,12 +662,6 @@ class SelectTool(ControllerTool):
         group_ids: set[uuid.UUID],
     ) -> None:
         """Rebuild the service selection from raw id sets (adapter-wrapped)."""
-        from protoboard.controller.selection.adapters import (
-            ComponentSelectable,
-            GroupSelectable,
-            WireSelectable,
-        )
-
         targets: list[Selectable] = []
         for cid in comp_ids:
             pl = self._session.layout.placements.get(cid)
@@ -962,10 +960,6 @@ class SelectTool(ControllerTool):
         the session-backed connectivity seams, then wraps each id in its adapter
         so the selection / highlight pipelines consume them uniformly.
         """
-        from protoboard.controller.selection.adapters import (
-            ComponentSelectable,
-            WireSelectable,
-        )
         from protoboard.controller.selection.queries import (
             SessionConnQuery,
             SessionNetSource,
@@ -1207,8 +1201,6 @@ class SelectTool(ControllerTool):
         LTR: only fully-enclosed (every wire vertex inside).  RTL: anything
         touching (a wire vertex inside or a segment crossing the rect).
         """
-        from protoboard.controller.selection.adapters import WireSelectable
-
         out: list[object] = []
         for wire in self._session.layout.wires:
             pts = wire.path
@@ -1233,7 +1225,6 @@ class SelectTool(ControllerTool):
         LTR: only fully-enclosed (all group members inside).  RTL: anything
         touching (any group member intersecting the rect).
         """
-        from protoboard.controller.selection.adapters import GroupSelectable
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         out: list[object] = []
@@ -1529,7 +1520,6 @@ class SelectTool(ControllerTool):
         ``add`` only extends within the same relation, but a band is an explicit
         "these exact items" set that must union/subtract regardless of net.
         """
-        from protoboard.controller.selection.adapters import ComponentSelectable
         from protoboard.controller.selection.mouse_input import Mods
         from protoboard.controller.selection.rubber_band_controller import BandHit
 
@@ -1770,8 +1760,6 @@ class SelectTool(ControllerTool):
         Reads the ``pin_number`` the hit-test recorded on the current selection
         (set only on a true pad click, ``None`` for a body click).
         """
-        from protoboard.controller.selection.adapters import ComponentSelectable
-
         if self._selection is None:
             return None
         for sel in self._selection.selected():
@@ -1785,8 +1773,6 @@ class SelectTool(ControllerTool):
         Any pin is a valid re-drag grab: a bendable pin bends its lead, a rigid
         pin translates the body (feasibility is decided later per target).
         """
-        from protoboard.controller.selection.adapters import ComponentSelectable
-
         if (
             isinstance(sel, ComponentSelectable)
             and sel.component_id == comp_id
@@ -1865,8 +1851,6 @@ class SelectTool(ControllerTool):
         return
 
     def _redrag_commit(self, picked: list[Selectable]) -> None:
-        from protoboard.controller.selection.adapters import PointSelectable
-
         cid, pin = self._redrag_comp_id, self._redrag_pin
         self._redrag_clear()
         if cid is None or pin is None or not picked:
@@ -2139,8 +2123,6 @@ class SelectTool(ControllerTool):
 
     def _range_progress(self, picked: list[Selectable]) -> None:
         """Repaint the overlay as the two range vertices come in."""
-        from protoboard.controller.selection.adapters import WireVertexSelectable
-
         if picked and isinstance(picked[-1], WireVertexSelectable):
             self._wire_edit_start = (
                 picked[0] if isinstance(picked[0], WireVertexSelectable) else None
@@ -2158,7 +2140,6 @@ class SelectTool(ControllerTool):
         commit; ``return_to`` drops back to this SelectTool (delete / [Esc]),
         re-syncing the selection highlight to whatever wire survived.
         """
-        from protoboard.controller.selection.adapters import WireVertexSelectable
         from protoboard.controller.selection.wire_edit import WireRange
 
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
@@ -2208,8 +2189,6 @@ class SelectTool(ControllerTool):
         stale ``Wire`` snapshot / a dead wire id and the highlight would render
         pre-op geometry (memory ``feedback_refresh_highlights_after_mutation``).
         """
-        from protoboard.controller.selection.adapters import WireSelectable
-
         self._view.tools.set_tool(self)
         # Clear first: the per-session SelectionService still holds the wire
         # selection from before [E], but with a STALE ``Wire`` snapshot (the op
