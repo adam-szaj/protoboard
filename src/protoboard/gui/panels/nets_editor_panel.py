@@ -322,9 +322,8 @@ class NetsEditorPanel(QWidget):
 
         # Build a pin→net lookup.
         pin_to_net: dict[tuple[uuid.UUID, int], str] = {}
-        for net in session.schematic.nets.values():
-            for ref in net.pins:
-                pin_to_net[(ref.component_id, ref.pin_number)] = net.name
+        for ref, net in session.schematic.pin_net_map().items():
+            pin_to_net[(ref.component_id, ref.pin_number)] = net.name
 
         for inst_id, inst in sorted(
             session.instances.items(), key=lambda kv: kv[1].refdes
