@@ -52,6 +52,9 @@ from protoboard.domain.layout.wire_utils import (
     SplitRecord as _SplitRecord,
 )
 from protoboard.domain.layout.wire_utils import (
+    _wire_net_id as _wire_net_id,
+)
+from protoboard.domain.layout.wire_utils import (
     collapse_endpoint_joints as _collapse_endpoint_joints,
 )
 from protoboard.domain.layout.wire_utils import (
@@ -62,6 +65,12 @@ from protoboard.domain.layout.wire_utils import (
 )
 from protoboard.domain.layout.wire_utils import (
     merge_colocated_joints_capturing as _merge_colocated_joints_capturing,
+)
+from protoboard.domain.layout.wire_utils import (
+    plated_through_pads as _plated_through_pads,
+)
+from protoboard.domain.layout.wire_utils import (
+    remove_wire_capturing_orphans as _remove_wire_capturing_orphans,
 )
 from protoboard.domain.layout.wire_utils import (
     resolve_endpoint_knot as _resolve_endpoint_knot,
@@ -76,7 +85,16 @@ from protoboard.domain.layout.wire_utils import (
     restore_split as _restore_split,
 )
 from protoboard.domain.layout.wire_utils import (
+    restore_wire_geometry as _restore_wire_geometry,
+)
+from protoboard.domain.layout.wire_utils import (
+    restore_wire_with_orphans as _restore_wire_with_orphans,
+)
+from protoboard.domain.layout.wire_utils import (
     snapshot_wire as _snapshot_wire,
+)
+from protoboard.domain.layout.wire_utils import (
+    snapshot_wire_geometry as _snapshot_wire_geometry,
 )
 from protoboard.domain.layout.wire_utils import (
     split_existing_wires_at_endpoints as _split_existing_wires_at_endpoints,
@@ -322,8 +340,6 @@ def _wire_intended_net(
     schematic = getattr(state, "schematic", None)
     if schematic is None:
         return None
-    from protoboard.domain.layout.wire_utils import _wire_net_id
-
     return _wire_net_id(
         wire,
         schematic,
@@ -624,11 +640,7 @@ class RemoveWireCommand(Command[ComponentState]):
         return "Remove wire"
 
     def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire_utils import (
-            remove_wire_capturing_orphans,
-        )
-
-        wire, orphans = remove_wire_capturing_orphans(
+        wire, orphans = _remove_wire_capturing_orphans(
             state.layout,
             self.wire_id,
         )
@@ -654,11 +666,7 @@ class RemoveWireCommand(Command[ComponentState]):
     def revert(self, state: ComponentState) -> None:
         if self._saved_wire is None:
             return
-        from protoboard.domain.layout.wire_utils import (
-            restore_wire_with_orphans,
-        )
-
-        restore_wire_with_orphans(
+        _restore_wire_with_orphans(
             state.layout,
             self._saved_wire,
             self._saved_orphan_joints,
@@ -705,10 +713,8 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
         return f"Translate wires anchored to component {self.component_id}"
 
     def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
-
         self._saved_wires = list(state.layout.wires)
-        self._saved_geometry = snapshot_wire_geometry(state.layout)
+        self._saved_geometry = _snapshot_wire_geometry(state.layout)
         self.mark_applied(True)
         wires_before = {w.id: list(w.path) for w in state.layout.wires}
         _update_wires_for_move(
@@ -760,10 +766,8 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
             )
 
     def _do_revert(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire_utils import restore_wire_geometry
-
         state.layout.wires[:] = self._saved_wires
-        restore_wire_geometry(state.layout, self._saved_geometry)
+        _restore_wire_geometry(state.layout, self._saved_geometry)
 
 
 @dataclass
@@ -795,14 +799,10 @@ class DropWiresCommand(Command[ComponentState]):
         return f"Drop {n} wire{'s' if n != 1 else ''}"
 
     def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire_utils import (
-            remove_wire_capturing_orphans,
-        )
-
         saved: list[Wire] = []
         orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.wire_ids:
-            wire, w_orphans = remove_wire_capturing_orphans(state.layout, wid)
+            wire, w_orphans = _remove_wire_capturing_orphans(state.layout, wid)
             if wire is None:
                 continue
             saved.append(wire)
@@ -811,12 +811,8 @@ class DropWiresCommand(Command[ComponentState]):
         self._saved_orphan_joints = orphans
 
     def revert(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire_utils import (
-            restore_wire_with_orphans,
-        )
-
         for wire in self._saved_wires:
-            restore_wire_with_orphans(
+            _restore_wire_with_orphans(
                 state.layout,
                 wire,
                 self._saved_orphan_joints,
@@ -1003,9 +999,7 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         )
 
     def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire_utils import plated_through_pads
-
-        pt_pads = frozenset(plated_through_pads(state.board))
+        pt_pads = frozenset(_plated_through_pads(state.board))
         records: list[_CollapseRecord] = []
         # Phase 0 — pre-merge co-located degree-1 JointKnots so the main
         # collapse loop can see them as a single degree-2 hub.  Without
@@ -1397,8 +1391,6 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         Fragment's path is the concatenated vertices of its runs (so
         consecutive Fragments share their boundary vertex — the via).
         """
-        from protoboard.domain.layout.wire import Fragment as _Fragment
-
         path = list(wire.path)
         n_seg = len(path) - 1
         start, end = self.start_idx, self.end_idx
@@ -1423,7 +1415,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         # 3) Group consecutive same-side segments into runs.  Each run
         # spans segments [run_start..run_end]; its vertices are
         # path[run_start..run_end+1].
-        new_fragments: list[_Fragment] = []
+        new_fragments: list[Fragment] = []
         i = 0
         while i < n_seg:
             run_side = seg_side[i]
@@ -1431,7 +1423,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
             while j + 1 < n_seg and seg_side[j + 1] == run_side:
                 j += 1
             frag_path = path[i : j + 2]
-            new_fragments.append(_Fragment(path=list(frag_path), side=run_side))  # type: ignore[arg-type]
+            new_fragments.append(Fragment(path=list(frag_path), side=run_side))  # type: ignore[arg-type]
             i = j + 1
 
         return new_fragments
@@ -1524,9 +1516,6 @@ class LockComponentCommand(Command[ComponentState]):
 # ---------------------------------------------------------------------------
 
 
-from protoboard.domain.layout.wire import Fragment as _Fragment  # noqa: E402
-
-
 @dataclass
 class ReplaceWireFragmentsCommand(Command[ComponentState]):
     """Replace ``Wire.fragments`` in place — preserving ``Wire.id``.
@@ -1538,12 +1527,12 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
     """
 
     wire_id: uuid.UUID
-    new_fragments: tuple[_Fragment, ...]
+    new_fragments: tuple[Fragment, ...]
     # Caller-supplied pre-mutation fragments; if empty, apply() reads from state.
     # Mirrors the old_path escape hatch on ReplaceWireSegmentCommand for callers
     # (drag-commit) that mutate the wire in place before issuing the command.
-    old_fragments: tuple[_Fragment, ...] = field(default=())
-    _saved_fragments: tuple[_Fragment, ...] = field(default=(), init=False, repr=False)
+    old_fragments: tuple[Fragment, ...] = field(default=())
+    _saved_fragments: tuple[Fragment, ...] = field(default=(), init=False, repr=False)
     # Pre-apply positions of any free (degree-1) JointKnot endpoints, so
     # revert can slide them back to the original spot even when an
     # interleaved RemoveWireCommand later restored a sibling wire onto
