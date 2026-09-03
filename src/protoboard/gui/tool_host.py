@@ -39,6 +39,7 @@ from protoboard.gui.shortcuts_help import (
     category_label,
     tool_shortcut_rows,
 )
+from protoboard.gui.throttle import ParkLatestThrottle
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.qt_geometry import from_qpointf, to_qpointf
 
@@ -92,8 +93,6 @@ class ToolHost:
         # a fast move stream collapses to one empty_action per interval, whose
         # reply is published via notify_hover.  33 ms mirrors the rubber-band /
         # drag-refresh cadence.
-        from protoboard.gui.throttle import ParkLatestThrottle
-
         self._hover_throttle: ParkLatestThrottle[tuple[Point, Mods]] = (
             ParkLatestThrottle(33, self._fire_hover)
         )
