@@ -36,6 +36,13 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
+from protoboard.controller.selection.adapters import (
+    PointSelectable,
+    WireVertexSelectable,
+)
+from protoboard.controller.selection.hit_test import HitTester, WireEditCycle
+from protoboard.controller.selection.selectable import PickKind, Stop
+from protoboard.controller.selection.wire_edit import WireRange, WireRangeEdit
 from protoboard.controller.tools.base import ControllerTool
 from protoboard.instrumentation.debug_trace import traced
 
@@ -43,8 +50,6 @@ if TYPE_CHECKING:
     from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.wire_edit_arm import WireEditArm
     from protoboard.controller.ports import HoverEvent, PointerInput
-    from protoboard.controller.selection.adapters import WireVertexSelectable
-    from protoboard.controller.selection.hit_test import WireEditCycle
     from protoboard.controller.selection.mouse_input import (
         Intent,
         Mods,
@@ -52,7 +57,6 @@ if TYPE_CHECKING:
     )
     from protoboard.controller.selection.selectable import Selectable
     from protoboard.controller.selection.service import SelectionService
-    from protoboard.controller.selection.wire_edit import WireRange, WireRangeEdit
     from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.domain.commands.base import Command, ComponentState
@@ -82,8 +86,6 @@ class WireEditTool(ControllerTool):
         *,
         return_to: Callable[[], None],
     ) -> None:
-        from protoboard.controller.selection.hit_test import WireEditCycle
-
         super().__init__()  # sets _session / _view to None up-front
         self._return_to = return_to
         self._arm: WireEditArm | None = None
@@ -265,8 +267,6 @@ class WireEditTool(ControllerTool):
         orange polyline, ``on_preview`` draws the live cursor segment, Enter
         commits (``_commit_reroute``), Esc keeps the fragment.
         """
-        from protoboard.controller.selection.selectable import Stop
-
         if self._wire_edit is None:
             return
         self._status(
@@ -284,8 +284,6 @@ class WireEditTool(ControllerTool):
         )
 
     def _reroute_progress(self, picked: list[Selectable]) -> None:
-        from protoboard.controller.selection.adapters import PointSelectable
-
         pts = [p.point for p in picked if isinstance(p, PointSelectable)]
         self._draw_reroute_preview(pts)
 
@@ -318,8 +316,6 @@ class WireEditTool(ControllerTool):
 
     def _reroute_last_picked_point(self) -> Point | None:
         """The last confirmed waypoint from the active pick, or None."""
-        from protoboard.controller.selection.adapters import PointSelectable
-
         mouse = self._mouse
         session = getattr(mouse, "session", None)
         if session is None:
@@ -329,8 +325,6 @@ class WireEditTool(ControllerTool):
 
     def _commit_reroute(self, picked: list[Selectable]) -> None:
         """Commit the reroute: build the path command, execute, RE-ARM."""
-        from protoboard.controller.selection.adapters import PointSelectable
-
         state = self._wire_edit
         arm = self._arm
         if state is None or arm is None:
@@ -483,9 +477,6 @@ class WireEditTool(ControllerTool):
 
     def _arm_repick(self, survivor_wire_ids: tuple[uuid.UUID, ...]) -> None:
         """Disarm the fragment and wait for a fresh 2-vertex range pick."""
-        from protoboard.controller.selection.hit_test import WireEditCycle
-        from protoboard.controller.selection.selectable import Stop
-
         # Reassign the anchor to a surviving wire that still exists (the one
         # field whose set-once-in-__init__ assumption we deliberately relax).
         anchor = next(
@@ -521,9 +512,6 @@ class WireEditTool(ControllerTool):
         count(2)`` pick that got us here has already finished) — re-arm a
         fresh pick so the wait loop stays live instead of stalling until Esc.
         """
-        from protoboard.controller.selection.adapters import WireVertexSelectable
-        from protoboard.controller.selection.wire_edit import WireRange
-
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
             self._rearm_repick_if_waiting()
@@ -546,8 +534,6 @@ class WireEditTool(ControllerTool):
     def _rearm_repick_if_waiting(self) -> None:
         """Re-arm the 2-vertex re-pick if a failed resolution left the tool
         ``_awaiting_repick`` with no live pick (see ``_range_repicked``)."""
-        from protoboard.controller.selection.selectable import Stop
-
         if self._awaiting_repick:
             self._arm_pick(
                 "wire-vertex",
@@ -599,9 +585,6 @@ class WireEditTool(ControllerTool):
         of the surviving wire is the safe, always-selectable re-arm.  If the wire
         vanished (shouldn't happen for id-preserving ops), exit instead.
         """
-        from protoboard.controller.selection.hit_test import WireEditCycle
-        from protoboard.controller.selection.wire_edit import WireRange
-
         wire_id = self._wire_edit_wire_id
         wire = self._wire_by_id(wire_id) if wire_id is not None else None
         if wire is None:
@@ -621,8 +604,6 @@ class WireEditTool(ControllerTool):
 
     def _wire_edit_clear(self) -> None:
         """Leave wire-edit: drop the fragment, cycle, overlays."""
-        from protoboard.controller.selection.hit_test import WireEditCycle
-
         self._clear_wire_edit_overlay()
         self._clear_reroute_overlay()
         self._wire_edit = None
@@ -689,7 +670,6 @@ class WireEditTool(ControllerTool):
         from protoboard.controller.selection.point_pick_controller import (
             PointPickController,
         )
-        from protoboard.controller.selection.selectable import PickKind, Stop
 
         if self._mouse is not None and not self._mouse.finished:
             self._dispatch_intent_cancel()
@@ -721,11 +701,8 @@ class WireEditTool(ControllerTool):
         branches of ``SelectTool._pick_at``.
         """
         if what in ("pad", "point"):
-            from protoboard.controller.selection.adapters import PointSelectable
-
             return PointSelectable(point=self._snap(scene_pt))
         if what == "wire-vertex":
-            from protoboard.controller.selection.hit_test import HitTester
             from protoboard.types import Side
 
             view = self._view
