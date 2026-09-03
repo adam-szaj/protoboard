@@ -201,10 +201,10 @@ def find_conflicts(
         existing = {}
 
     # Build pin->net map from schematic.
-    pin_net: dict[tuple[uuid.UUID, int], tuple[uuid.UUID, str]] = {}
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            pin_net[(ref.component_id, ref.pin_number)] = (net.id, net.name)
+    pin_net = {
+        (ref.component_id, ref.pin_number): (net.id, net.name)
+        for ref, net in schematic.pin_net_map().items()
+    }
 
     def net_for_package_pin(
         component_id: uuid.UUID,
@@ -338,11 +338,11 @@ def find_wire_conflicts(
             wire_net_map[wire.id] = found
 
     # Net of incoming component's pins (for move conflicts where pin has a net).
-    pin_net_incoming: dict[int, tuple[uuid.UUID, str]] = {}
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            if ref.component_id == incoming_instance_id:
-                pin_net_incoming[ref.pin_number] = (net.id, net.name)
+    pin_net_incoming = {
+        ref.pin_number: (net.id, net.name)
+        for ref, net in schematic.pin_net_map().items()
+        if ref.component_id == incoming_instance_id
+    }
 
     conflicts: list[PadConflict] = []
     incoming_fp = footprint_of(incoming_defn, incoming_instance)
@@ -588,10 +588,10 @@ def find_wires_crossing_pads(
     # the layout/instances walk entirely.
     pad_net: dict[tuple[float, float], uuid.UUID | None] = {}
     if pad_index is None:
-        pin_net_map: dict[tuple[uuid.UUID, int], uuid.UUID] = {}
-        for net in schematic.nets.values():
-            for ref in net.pins:
-                pin_net_map[(ref.component_id, ref.pin_number)] = net.id
+        pin_net_map = {
+            (ref.component_id, ref.pin_number): net.id
+            for ref, net in schematic.pin_net_map().items()
+        }
         for component in iter_placed_components(
             layout_placements, instances, components
         ):
