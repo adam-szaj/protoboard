@@ -12,6 +12,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
 from protoboard.domain.layout.wire_utils import find_pin_at as find_layout_pin_at
+from protoboard.domain.schematic.net import PinRef
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -126,8 +127,6 @@ def classify_wire_nets(
     the new wire still "joins" that net without changing the pin list
     (handled by callers checking ``pin_*`` ``None`` before mutating).
     """
-    from protoboard.domain.schematic.net import PinRef
-
     pt_a = wire.path[0]
     pt_b = wire.path[-1]
 
