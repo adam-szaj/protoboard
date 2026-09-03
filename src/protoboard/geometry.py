@@ -25,7 +25,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from itertools import accumulate
+from itertools import accumulate, pairwise
+from math import atan2, degrees, sqrt
 from typing import Any, cast, overload
 
 # from _typeshed import Self
@@ -39,8 +40,6 @@ _COORD_ROUNDING_DIGITS = 4
 
 
 def norm(x: float, y: float, z: float) -> float:
-    from math import sqrt
-
     return sqrt(x * x + y * y + z * z)
 
 
@@ -138,14 +137,10 @@ class Vector:
         instead of unpacking components into trigonometry.  The zero vector
         returns ``0.0`` (atan2's convention).
         """
-        from math import atan2
-
         return atan2(self.dy, self.dx)
 
     def angle_deg(self) -> float:
         """Direction of the vector in degrees, measured CCW from +x."""
-        from math import degrees
-
         return degrees(self.angle())
 
     def with_dz(self, dz: float = 0.0) -> Vector3D:
@@ -568,8 +563,6 @@ def _make_offsets_from_points(points: Iterable[Point3D]) -> Iterator[Vector3D]: 
 
 
 def _make_offsets_from_points(points: Iterable[Any]) -> Iterator[Any]:
-    from itertools import pairwise
-
     return map(lambda pw: pw[1] - pw[0], pairwise(points))
 
 
