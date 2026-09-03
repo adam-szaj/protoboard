@@ -65,6 +65,7 @@ from protoboard.domain.commands.group_cmds import (
     RenameGroupCommand,
     SetExportedPinsCommand,
 )
+from protoboard.domain.components.package.kind import KIND_GENERATORS
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Vector
 from protoboard.gui import keybindings as KB
@@ -100,7 +101,12 @@ from protoboard.services.export.pdf import export_pdf
 from protoboard.services.export.png import export_png
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
+from protoboard.services.kicad.footprint_map import FootprintMap
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
+from protoboard.services.library.parametric import (
+    ComponentCatalog,
+    parametric_generator_kind,
+)
 from protoboard.services.persistence import git_repo
 from protoboard.services.persistence.project_yaml import (
     load_project,
@@ -834,12 +840,8 @@ class MainWindow(QMainWindow):
     ) -> ComponentDefinition | None:
         """Ask for a parametric part's pin count; return the concrete
         definition (registered in the session), or ``None`` on cancel."""
-        from protoboard.domain.components.package.kind import KIND_GENERATORS
         from protoboard.gui.dialogs.parametric_pins_dialog import (
             ParametricPinsDialog,
-        )
-        from protoboard.services.library.parametric import (
-            parametric_generator_kind,
         )
 
         kind = parametric_generator_kind(defn, self._session.package_families)
@@ -2627,8 +2629,6 @@ class MainWindow(QMainWindow):
     def _import_kicad_net(self) -> None:
         import warnings
 
-        from protoboard.services.kicad.footprint_map import FootprintMap
-
         path_str, _ = QFileDialog.getOpenFileName(
             self, "Import KiCAD Netlist", "", "Netlist files (*.net);;All files (*)"
         )
@@ -2736,8 +2736,6 @@ class MainWindow(QMainWindow):
     def _reload_kicad_net(self, net_path: Path) -> None:
         """Re-import *net_path* without user interaction (used by live sync)."""
         import warnings
-
-        from protoboard.services.kicad.footprint_map import FootprintMap
 
         try:
             imp = KiCadNetlistImporter()
@@ -2878,8 +2876,6 @@ class MainWindow(QMainWindow):
         load_generator_plugins(library_dirs)
         new_library = load_library(library_dirs, self._session.package_families)
         self._session.library = new_library
-        from protoboard.services.library.parametric import ComponentCatalog
-
         self._session.components = ComponentCatalog(
             ((name, new_library.get(name)) for name in new_library.names()),
             package_families=self._session.package_families,
