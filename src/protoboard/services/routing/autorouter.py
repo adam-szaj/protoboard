@@ -58,7 +58,7 @@ from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.results import AutorouteResult, NetStats, PassStats
-from protoboard.types import Side
+from protoboard.types import NodeKey, Side
 
 if TYPE_CHECKING:
     from protoboard.controller.ports.drc import DRCIssue
@@ -105,6 +105,19 @@ _FAIL_ON_SHORT = _os.environ.get("PROTOBOARD_FAIL_ON_SHORT", "0") == "1"
 _SEEN_FUSIONS: set[frozenset[str]] = set()
 
 
+def _net_names_by_node(
+    graph: ConnectivityGraph,
+    schematic: Schematic,
+) -> dict[NodeKey, set[str]]:
+    """Group declared net names by their canonical electrical node."""
+    result: dict[NodeKey, set[str]] = {}
+    for ref, net in schematic.pin_net_map().items():
+        node = graph.node_for_pin(ref)
+        if node is not None:
+            result.setdefault(node, set()).add(net.name)
+    return result
+
+
 def _check_no_net_fusion(
     graph: ConnectivityGraph,
     schematic: Schematic,
@@ -125,14 +138,7 @@ def _check_no_net_fusion(
     from flooding the console with one ERROR per subsequent wire.  The
     caller owns the set lifetime (reset on each ``autoroute()`` call).
     """
-    from collections import defaultdict as _dd
-
-    key_to_nets: dict[tuple[float, float, str], set[str]] = _dd(set)
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            ck = graph.node_for_pin(ref)
-            if ck is not None:
-                key_to_nets[ck].add(net.name)
+    key_to_nets = _net_names_by_node(graph, schematic)
     fused = {ck: names for ck, names in key_to_nets.items() if len(names) > 1}
     if not fused:
         return
@@ -180,14 +186,7 @@ def _log_preexisting_fusions(
     overlapping pin pads between two different nets, or user wires that
     already bridge nets.
     """
-    from collections import defaultdict as _dd
-
-    key_to_nets: dict[tuple[float, float, str], set[str]] = _dd(set)
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            ck = graph.node_for_pin(ref)
-            if ck is not None:
-                key_to_nets[ck].add(net.name)
+    key_to_nets = _net_names_by_node(graph, schematic)
     fused = {ck: names for ck, names in key_to_nets.items() if len(names) > 1}
     seen: set[frozenset[str]] = set()
     for ck, names in fused.items():

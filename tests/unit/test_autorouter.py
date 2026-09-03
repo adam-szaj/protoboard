@@ -31,7 +31,7 @@ from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.services.routing.autorouter import autoroute
+from protoboard.services.routing.autorouter import _net_names_by_node, autoroute
 from tests.instance_utils import bind
 
 
@@ -99,6 +99,24 @@ def _place(
     return ComponentPlacement(
         component_id=cid, position=Point(x, y), rotation=rotation, side="top"
     )
+
+
+class TestFusionQuery:
+    def test_groups_distinct_net_names_by_electric_node(self) -> None:
+        component_id = uuid.uuid4()
+        first = PinRef(component_id, 1)
+        second = PinRef(component_id, 2)
+        first_net = Net(id=uuid.uuid4(), name="VCC", pins={first})
+        second_net = Net(id=uuid.uuid4(), name="GND", pins={second})
+        schematic = Schematic(nets={first_net.id: first_net, second_net.id: second_net})
+
+        class _Graph:
+            def node_for_pin(self, _ref: PinRef) -> tuple[float, float, str]:
+                return (0.5, 0.5, "top")
+
+        result = _net_names_by_node(_Graph(), schematic)  # type: ignore[arg-type]
+
+        assert result == {(0.5, 0.5, "top"): {"VCC", "GND"}}
 
 
 class TestAutorouter:
