@@ -21,6 +21,7 @@ from protoboard.controller.ports.drc import DRCIssue
 from protoboard.controller.view_options.layers import LayerOverrides
 from protoboard.domain.board.board import Board
 from protoboard.domain.routing_settings import RoutingSettings
+from protoboard.domain.schematic.net import PinRef
 from protoboard.gui.highlight_state import HighlightStack
 from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import ComponentLibrary
@@ -297,8 +298,6 @@ class EditorSession(HeadlessSession, QObject):
         component- and net-panels react.  Falls back to a bare component request
         when the pin is netless.
         """
-        from protoboard.domain.schematic.net import PinRef
-
         net = self.schematic.net_for_pin(
             PinRef(component_id=comp_id, pin_number=pin_number)
         )
