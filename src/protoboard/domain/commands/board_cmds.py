@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import Box, HBox, SizePolicy, StripAtom, VBox
@@ -86,8 +86,6 @@ def replace_strip_in_board(
     board: Board, target: StripAtom, replacements: list[Box]
 ) -> Board:
     """Return a new Board with *target* replaced by *replacements* in-place."""
-    from dataclasses import replace as dc_replace
-
     root = board.root
     if isinstance(root, HBox):
         new_root: Box = _replace_in_hbox(root, target, replacements)
@@ -96,7 +94,7 @@ def replace_strip_in_board(
             _replace_in_hbox(c, target, replacements) if isinstance(c, HBox) else c
             for c in root.children
         ]
-        new_root = dc_replace(root, children=new_children)
+        new_root = replace(root, children=new_children)
     else:
         return board
     return Board(root=new_root, raster_pitch_mm=board.raster_pitch_mm)
