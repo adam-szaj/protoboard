@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QImage
 from pytestqt.qtbot import QtBot
 
 from protoboard.domain.board.board import Board
@@ -28,6 +28,7 @@ from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
 from protoboard.services.export.paint import build_export_scene, paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot
+from protoboard.services.rendering.qt_painter import active_painter
 
 
 def _empty_snapshot() -> BoardSnapshot:
@@ -147,11 +148,9 @@ class TestPaintSnapshot:
     def test_paints_to_qimage(self, qtbot: QtBot) -> None:
         img = QImage(100, 100, QImage.Format.Format_ARGB32)
         img.fill(0)
-        painter = QPainter(img)
-        try:
+        with active_painter(img) as painter:
             paint_snapshot(painter, _snapshot_with_resistor(), QRectF(0, 0, 100, 100))
-        finally:
-            painter.end()
+        assert not painter.isActive()
         # Verify at least some non-zero pixels exist (something was rendered).
         all_zero = True
         for y in range(100):
@@ -171,11 +170,8 @@ class TestPaintSnapshot:
         img1.fill(0)
         img2.fill(0)
         for img in (img1, img2):
-            painter = QPainter(img)
-            try:
+            with active_painter(img) as painter:
                 paint_snapshot(painter, snap, QRectF(0, 0, 100, 100))
-            finally:
-                painter.end()
         assert img1 == img2, "Same snapshot should paint identical images"
 
 

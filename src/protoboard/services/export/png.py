@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF, QSize
-from PySide6.QtGui import QImage, QPainter
+from PySide6.QtGui import QImage
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot, build_snapshot
+from protoboard.services.rendering.qt_painter import active_painter
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -77,11 +78,8 @@ def export_png_from_snapshot(
         raise ValueError(f"degenerate board bounds: {b.lx}×{b.ly}")
     img = QImage(QSize(img_w, img_h), QImage.Format.Format_ARGB32)
     img.fill(0)  # transparent canvas
-    painter = QPainter(img)
-    try:
+    with active_painter(img) as painter:
         paint_snapshot(painter, snapshot, QRectF(0, 0, img_w, img_h))
-    finally:
-        painter.end()
     # Let Qt infer the format from the ``.png`` extension.  Passing an explicit
     # format is fragile here: this PySide6's runtime rejects a ``bytes`` format
     # ("QImage.save called with wrong argument values") even though the type

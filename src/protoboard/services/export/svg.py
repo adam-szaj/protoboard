@@ -21,12 +21,12 @@ import uuid
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, QSizeF
-from PySide6.QtGui import QPainter
 from PySide6.QtSvg import QSvgGenerator
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot, build_snapshot
+from protoboard.services.rendering.qt_painter import active_painter
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -102,12 +102,8 @@ def export_svg_from_snapshot(
     # surprising physical sizes when the SVG is rasterised downstream.
     gen.setResolution(int(round(scale / snapshot.board.raster_pitch_mm * 25.4)))
 
-    painter = QPainter()
-    painter.begin(gen)
-    try:
+    with active_painter(gen) as painter:
         paint_snapshot(painter, snapshot, QRectF(0, 0, vb_w, vb_h))
-    finally:
-        painter.end()
     buffer.close()
 
     raw: QByteArray = buffer.data()

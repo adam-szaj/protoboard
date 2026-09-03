@@ -39,6 +39,7 @@ from protoboard.services.rendering.board_renderer import (
     paint_board,
 )
 from protoboard.services.rendering.net_color import build_net_color_map
+from protoboard.services.rendering.qt_painter import active_painter
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view import BoardView
@@ -451,16 +452,13 @@ class PaintPipeline:
         # Allocate a fresh pixmap matching the viewport device size.
         pix = QPixmap(vp_size)
         pix.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pix)
-        try:
+        with active_painter(pix) as painter:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, view.antialiasing)
             # Apply the same world→viewport transform that QGraphicsView
             # uses for scene items so display-list coordinates land in
             # the right place on the pixmap.
             painter.setTransform(view.viewportTransform())
             paint_board(painter, self._bg_display_list)
-        finally:
-            painter.end()
         self._bg_cache = pix
         self._bg_cache_dirty = False
         return (time.monotonic() - _t0) * 1000.0
@@ -528,7 +526,6 @@ class PaintPipeline:
 
         pix = QPixmap(vp_size)
         pix.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pix)
         # Hide front + overlay items during the render pass.  Easiest
         # approach: temporarily flip visibility on EVERYTHING that is NOT
         # in back_items, render, then restore.  Using setVisible on
@@ -548,60 +545,62 @@ class PaintPipeline:
 
         temporarily_hidden: list[QGraphicsItem] = []
         try:
-            for it in scene.items():
-                if id(it) in back_set:
-                    continue
-                if not it.isVisible():
-                    continue
-                if _has_back_ancestor(it):
-                    # Child of a back-side group — keep visible so it paints
-                    # into the back pixmap through its parent's paint pass.
-                    continue
-                it.setVisible(False)
-                temporarily_hidden.append(it)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, view.antialiasing)
-            # Source rect = current visible scene area in scene coords.
-            source = view.mapToScene(view.viewport().rect()).boundingRect()
-            vp_w = float(vp_size.width())
-            vp_h = float(vp_size.height())
-            # ``scene.render(painter, target, source)`` maps source→target
-            # as a positive-scale affine — it cannot reproduce the
-            # mirror_h / mirror_v sign that ``viewportTransform`` carries
-            # for the front paint pass.  Flipping the target rect itself
-            # achieves the mirror: an inverted target tells Qt to draw
-            # the source's left edge at what would have been the right
-            # edge of the un-mirrored target, etc.  The blit step in
-            # paintEvent then copies the already-mirrored pixmap at
-            # identity, aligning back items with the front pass.
-            mirror_h, mirror_v = view.mirror_flags()
-            sx = -1.0 if mirror_h else 1.0
-            sy = -1.0 if mirror_v else 1.0
-            if sx >= 0 and sy >= 0:
-                target = QRectF(0.0, 0.0, vp_w, vp_h)
-            else:
-                # Build the inverted target by swapping left↔right or
-                # top↔bottom so width/height stay positive but Qt's
-                # source→target mapping picks up the negative scale.
-                left = vp_w if sx < 0 else 0.0
-                right = 0.0 if sx < 0 else vp_w
-                top = vp_h if sy < 0 else 0.0
-                bottom = 0.0 if sy < 0 else vp_h
-                target = QRectF(
-                    min(left, right),
-                    min(top, bottom),
-                    abs(right - left),
-                    abs(bottom - top),
+            with active_painter(pix) as painter:
+                for it in scene.items():
+                    if id(it) in back_set:
+                        continue
+                    if not it.isVisible():
+                        continue
+                    if _has_back_ancestor(it):
+                        # Child of a back-side group — keep visible so it paints
+                        # into the back pixmap through its parent's paint pass.
+                        continue
+                    it.setVisible(False)
+                    temporarily_hidden.append(it)
+                painter.setRenderHint(
+                    QPainter.RenderHint.Antialiasing, view.antialiasing
                 )
-                # Apply the sign via painter transform around the target
-                # centre so the rasteriser stays inside the pixmap.
-                cx = target.center().x()
-                cy = target.center().y()
-                painter.translate(cx, cy)
-                painter.scale(sx, sy)
-                painter.translate(-cx, -cy)
-            scene.render(painter, target, source)
+                # Source rect = current visible scene area in scene coords.
+                source = view.mapToScene(view.viewport().rect()).boundingRect()
+                vp_w = float(vp_size.width())
+                vp_h = float(vp_size.height())
+                # ``scene.render(painter, target, source)`` maps source→target
+                # as a positive-scale affine — it cannot reproduce the
+                # mirror_h / mirror_v sign that ``viewportTransform`` carries
+                # for the front paint pass.  Flipping the target rect itself
+                # achieves the mirror: an inverted target tells Qt to draw
+                # the source's left edge at what would have been the right
+                # edge of the un-mirrored target, etc.  The blit step in
+                # paintEvent then copies the already-mirrored pixmap at
+                # identity, aligning back items with the front pass.
+                mirror_h, mirror_v = view.mirror_flags()
+                sx = -1.0 if mirror_h else 1.0
+                sy = -1.0 if mirror_v else 1.0
+                if sx >= 0 and sy >= 0:
+                    target = QRectF(0.0, 0.0, vp_w, vp_h)
+                else:
+                    # Build the inverted target by swapping left↔right or
+                    # top↔bottom so width/height stay positive but Qt's
+                    # source→target mapping picks up the negative scale.
+                    left = vp_w if sx < 0 else 0.0
+                    right = 0.0 if sx < 0 else vp_w
+                    top = vp_h if sy < 0 else 0.0
+                    bottom = 0.0 if sy < 0 else vp_h
+                    target = QRectF(
+                        min(left, right),
+                        min(top, bottom),
+                        abs(right - left),
+                        abs(bottom - top),
+                    )
+                    # Apply the sign via painter transform around the target
+                    # centre so the rasteriser stays inside the pixmap.
+                    cx = target.center().x()
+                    cy = target.center().y()
+                    painter.translate(cx, cy)
+                    painter.scale(sx, sy)
+                    painter.translate(-cx, -cy)
+                scene.render(painter, target, source)
         finally:
-            painter.end()
             for it in temporarily_hidden:
                 try:
                     it.setVisible(True)

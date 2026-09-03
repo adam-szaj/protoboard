@@ -36,6 +36,7 @@ from PySide6.QtPrintSupport import QPrinter
 
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot, ViewTransform
+from protoboard.services.rendering.qt_painter import active_painter
 
 if TYPE_CHECKING:
     pass
@@ -89,9 +90,7 @@ def export_template_pdf(
         )
     )
 
-    painter = QPainter()
-    painter.begin(printer)
-    try:
+    with active_painter(printer) as painter:
         _draw_template_page(
             painter,
             printer,
@@ -99,8 +98,6 @@ def export_template_pdf(
             panels,
             raster_pitch_mm=raster_pitch_mm,
         )
-    finally:
-        painter.end()
 
 
 def _draw_template_page(

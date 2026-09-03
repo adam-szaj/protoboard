@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QMarginsF, QRectF, QSizeF
-from PySide6.QtGui import QPageLayout, QPageSize, QPainter
+from PySide6.QtGui import QPageLayout, QPageSize
 from PySide6.QtPrintSupport import QPrinter
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.services.export.paint import paint_snapshot
 from protoboard.services.export.snapshot import BoardSnapshot, build_snapshot
+from protoboard.services.rendering.qt_painter import active_painter
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -84,13 +85,9 @@ def export_pdf_from_snapshot(
     )
     printer.setPageLayout(page_layout)
 
-    painter = QPainter()
-    painter.begin(printer)
-    try:
+    with active_painter(printer) as painter:
         page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
         paint_snapshot(painter, snapshot, QRectF(page_rect))
-    finally:
-        painter.end()
 
 
 __all__ = ["export_pdf", "export_pdf_from_snapshot"]
