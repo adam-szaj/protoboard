@@ -202,12 +202,11 @@ def check_and_resolve(
     # Build point→net map for wire-conflict detection.
     # Maps rounded (x, y) of any placed pin that has a net → (net_id, net_name).
     point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
-    for net in session.schematic.nets.values():
-        for ref in net.pins:
-            p = session.get_pin_position(ref.component_id, ref.pin_number)
-            if p is None:
-                continue
-            point_to_net[(_round(p.x), _round(p.y))] = (net.id, net.name)
+    for ref, net in session.schematic.pin_net_map().items():
+        p = session.get_pin_position(ref.component_id, ref.pin_number)
+        if p is None:
+            continue
+        point_to_net[(_round(p.x), _round(p.y))] = (net.id, net.name)
 
     already_conflicted = {
         (_round(c.position.x), _round(c.position.y)) for c in pad_conflicts
