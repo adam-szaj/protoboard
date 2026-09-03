@@ -104,19 +104,11 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
     for atom, center in board.atoms():
         if isinstance(atom, PadAtom):
             layers = atom.layers
-            if (
-                layers.plated_through
-                or (side == "top" and layers.top)
-                or (side == "bottom" and layers.bottom)
-            ):
+            if layers.plated_through or layers.has_layer(side):
                 pts.add(center)
         elif isinstance(atom, StripAtom):
             layers = atom.layers
-            if (
-                layers.plated_through
-                or (side == "top" and layers.top)
-                or (side == "bottom" and layers.bottom)
-            ):
+            if layers.plated_through or layers.has_layer(side):
                 n = int(atom.length) if isinstance(atom.length, int) else 1
                 if atom.orientation == "horizontal":
                     sx = center.x - n / 2.0 + 0.5

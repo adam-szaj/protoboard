@@ -581,9 +581,7 @@ class PadIndex:
                     pad = self._pads[key]
                     # Strip's copper is on whatever sides PadLayers indicate.
                     for s in _SIDES:
-                        if (s == "top" and atom.layers.top) or (
-                            s == "bottom" and atom.layers.bottom
-                        ):
+                        if atom.layers.has_layer(s):
                             pad._add_item(strip_item, s)
 
     def _add_pad(
