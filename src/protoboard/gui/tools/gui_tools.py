@@ -93,25 +93,22 @@ def _dispatch_key_by_action_id(tool: ControllerTool, inp: KeyInput) -> bool:
     return False
 
 
-# Composition order note: every class below lists the controller tool BEFORE
-# ViewToolMixin (``_XTool, ViewToolMixin`` — not the reverse).  Both
-# ControllerTool and ViewToolMixin define on_press/on_key/on_key_release
-# stubs AND make_key_map/_theme, so plain MRO order cannot make "the
-# controller subclass's real on_press/on_key win" and "ViewToolMixin's real
-# make_key_map/_theme win" hold at once — whichever base comes first also
-# wins any name only the *other* base overrides.  Putting the controller tool
-# first gets on_press/on_key/on_key_release right (its real bodies, not
-# ViewToolMixin's do-nothing default); make_key_map/_theme are then
-# explicitly re-pointed at ViewToolMixin's real implementation below.
+# Composition order note: every class below lists the controller tool before
+# ``_GuiToolBase``. The base keeps the controller's input handlers first while
+# centralising the two ViewToolMixin methods that must win the MRO.
 
 
-class CutTool(
-    _CutTool, ViewToolMixin
-):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
-    """Cut tool — no ``on_key``; click-only, already fully generic."""
+class _GuiToolBase(ViewToolMixin):
+    """Shared MRO bridge for Qt-composed controller tools."""
 
     make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
     _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
+
+
+class CutTool(
+    _CutTool, _GuiToolBase
+):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
+    """Cut tool — no ``on_key``; click-only, already fully generic."""
 
     def activate(self, session: object, view: object) -> None:
         # Same ``object``-typed signature as every sibling tool's ``activate``
@@ -123,7 +120,7 @@ class CutTool(
 
 
 class PlaceTool(
-    _PlaceTool, ViewToolMixin
+    _PlaceTool, _GuiToolBase
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """PlaceTool with the default ghost/reach Qt preview + Qt conflict prompts.
 
@@ -132,9 +129,6 @@ class PlaceTool(
     action id to its command handler, so this just resolves the key to an id
     via the KeyMap and dispatches it through the Controller.
     """
-
-    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
-    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         # Bind session/view first (ControllerTool.activate — no ghost build
@@ -158,7 +152,7 @@ class PlaceTool(
 
 
 class RouteTool(
-    _RouteTool, ViewToolMixin
+    _RouteTool, _GuiToolBase
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """RouteTool with the default segment/hint Qt preview + net-merge prompt.
 
@@ -166,9 +160,6 @@ class RouteTool(
     the controller tool's ``command_table()`` already maps every action id to
     its command handler — this just resolves the key through it.
     """
-
-    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
-    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
@@ -196,7 +187,7 @@ class RouteTool(
 
 
 class ArmedTransformTool(
-    _ArmedTransformTool, ViewToolMixin
+    _ArmedTransformTool, _GuiToolBase
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """ArmedTransformTool with the default pivot-marker preview + conflict overlay.
 
@@ -205,9 +196,6 @@ class ArmedTransformTool(
     rotate/move/step) to its command handler — this resolves the key to an id
     via the KeyMap and dispatches it through the Controller.
     """
-
-    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
-    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
@@ -223,7 +211,7 @@ class ArmedTransformTool(
 
 
 class WireEditTool(
-    _WireEditTool, ViewToolMixin
+    _WireEditTool, _GuiToolBase
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """WireEditTool with the default Qt wire-edit / reroute preview.
 
@@ -234,9 +222,6 @@ class WireEditTool(
     Controller.  The wire-edit + reroute overlays render through ``self.preview``
     (``QtSelectPreview``, the same overlay implementation SelectTool uses).
     """
-
-    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
-    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def key_actions(self) -> dict[str, str | None]:
         """The wire-edit op keys, registered on this tool's own KeyMap layer.
@@ -299,7 +284,7 @@ class WireEditTool(
 
 
 class SelectTool(
-    _SelectTool, ViewToolMixin
+    _SelectTool, _GuiToolBase
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SelectTool with the default Qt preview, group-target prompt, overlays.
 
@@ -309,9 +294,6 @@ class SelectTool(
     :mod:`protoboard.controller.tools.select_tool` for the full list of
     command methods it dispatches into.
     """
-
-    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
-    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         gui_view = _gui_view(view)
@@ -429,7 +411,7 @@ class SelectTool(
 
 
 class SimplifyTool(
-    _SimplifyTool, ViewToolMixin
+    _SimplifyTool, _GuiToolBase
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SimplifyTool with the default Qt draft-overlay preview.
 
@@ -441,9 +423,6 @@ class SimplifyTool(
     Qt-composed one — so ``gui_tools.SelectTool.activate``'s preview/overlays
     injection is not in this class's MRO and has to be repeated here.
     """
-
-    make_key_map = ViewToolMixin.make_key_map  # pyright: ignore[reportAssignmentType]
-    _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
         gui_view = _gui_view(view)
