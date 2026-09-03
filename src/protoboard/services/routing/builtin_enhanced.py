@@ -151,9 +151,9 @@ class EnhancedAStarRouter:
     def supported_cost_keys(self) -> frozenset[str]:
         # Enhanced router consumes everything vanilla A* does plus the
         # at-pad / parallel-side penalties it adds on top.
-        from protoboard.services.routing.builtin import _ASTAR_COST_KEYS
+        from protoboard.services.routing.builtin import ASTAR_COST_KEYS
 
-        return _ASTAR_COST_KEYS | _ENHANCED_EXTRA_COST_KEYS
+        return ASTAR_COST_KEYS | _ENHANCED_EXTRA_COST_KEYS
 
 
 _ENHANCED_EXTRA_COST_KEYS: frozenset[str] = frozenset(
