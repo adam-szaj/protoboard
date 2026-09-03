@@ -41,7 +41,17 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.components.package.pin_mapping import (
+    package_pins_for_meta_pin,
+)
 from protoboard.domain.components.resolution import resolve_instance_definition
+from protoboard.domain.layout.group_tree import GroupTree
+from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
+from protoboard.domain.layout.placement import (
+    iter_pin_world_positions,
+    pin_world_position,
+)
 from protoboard.instrumentation.call_counters import counted
 
 if TYPE_CHECKING:
@@ -151,8 +161,6 @@ def net_is_internal_to_group(
     if not net.pins:
         return False
     if groups is not None:
-        from protoboard.domain.layout.group_tree import GroupTree
-
         group_comp_ids = GroupTree(groups).all_component_ids(group.id)
     else:
         group_comp_ids = group.component_ids
@@ -182,8 +190,6 @@ def endpoint_pin_component(
     whether a wire endpoint is anchored to a component pin and, if so,
     to which component.
     """
-    from protoboard.domain.layout.knot import PinKnot
-
     if isinstance(knot, PinKnot):
         pin = knot.pin  # narrow for type-checkers that don't follow runtime_checkable
         return pin.component_id
@@ -216,8 +222,6 @@ def _pin_endpoint_matches_path(
     ``find_owned_wires`` call is the canonical scope (placements are
     constant within that call).
     """
-    from protoboard.domain.layout.knot import PinKnot
-
     if not isinstance(knot, PinKnot):
         return False
     pin = knot.pin
@@ -230,12 +234,6 @@ def _pin_endpoint_matches_path(
                 return False
             physical_positions = cast(tuple[object, ...], cached)
     if physical_positions is None:
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.components.package.pin_mapping import (
-            package_pins_for_meta_pin,
-        )
-        from protoboard.domain.layout.placement import pin_world_position
-
         pl = placements.get(pin.component_id)
         if pl is None:
             if pin_world_cache is not None:
@@ -319,8 +317,6 @@ def wire_is_owned_by_group(
             the caller — usually one set per drag/render frame.
         schematic: Source of truth for net membership and global flag.
     """
-    from protoboard.domain.layout.knot import JointKnot
-
     if wire.a is None or wire.b is None:
         return False
     ka = knots.get(wire.a.id)
@@ -405,8 +401,6 @@ def wire_is_owned_by_group(
     # ownership-wise behaves like a free joint: it doesn't anchor to
     # any other group).  Sanity check the free endpoint, then resolve
     # net membership.
-    from protoboard.domain.layout.knot import WirePinKnot
-
     if not a_in and not isinstance(ka, (JointKnot, WirePinKnot)):
         return False
     if not b_in and not isinstance(kb, (JointKnot, WirePinKnot)):
@@ -475,8 +469,6 @@ def group_bbox_with_owned_wires(
     Returns ``(x0, y0, x1, y1)`` with a ``pad`` margin, or ``None`` if
     the group has no resolvable pins (and therefore no meaningful bbox).
     """
-    from protoboard.domain.layout.placement import iter_pin_world_positions
-
     xs: list[float] = []
     ys: list[float] = []
 
