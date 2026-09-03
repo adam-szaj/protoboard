@@ -53,16 +53,42 @@ from protoboard.controller.selection.adapters import (
     WireSelectable,
     WireVertexSelectable,
 )
+from protoboard.controller.selection.context_options import (
+    build_highlight_options,
+    build_net_selection_options,
+)
 from protoboard.controller.selection.drag_controller import (
     DragController,
     FloatingPhase,
 )
 from protoboard.controller.selection.hit_test import HitTester, SelectionFilters
 from protoboard.controller.selection.mouse_input import Intent, Mods
+from protoboard.controller.selection.queries import (
+    RelationSource,
+    SessionConnQuery,
+    SessionNetSource,
+    relation_correlated,
+)
 from protoboard.controller.selection.rubber_band_controller import RubberBandController
 from protoboard.controller.selection.service import SelectionService
+from protoboard.controller.selection_axes import (
+    RELATION_LABELS,
+    RelationClass,
+    SelectionFilter,
+)
 from protoboard.controller.selection_fsm import BasisScope, SetOp
 from protoboard.controller.tools.base import ControllerTool, _ViewProto
+from protoboard.domain.commands.base import compose_command
+from protoboard.domain.commands.component_cmds import (
+    AddWireCommand,
+    ConvertEndpointToWirePinCommand,
+    ConvertWirePinToEndpointCommand,
+    DisconnectPinCommand,
+    FuseTouchingWiresCommand,
+    MoveComponentCommand,
+    RemoveWireCommand,
+    ReplaceWireFragmentsCommand,
+)
 from protoboard.domain.components.package import (
     effective_bend_specs,
     redrag_feasibility,
@@ -70,6 +96,7 @@ from protoboard.domain.components.package import (
 )
 from protoboard.domain.components.package.reach import is_two_pin_smd
 from protoboard.domain.components.resolution import resolve_placed_component
+from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import (
     flip_component,
@@ -78,6 +105,7 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.geometry import Point, Rect, round_coord
 from protoboard.instrumentation.debug_trace import traced
+from protoboard.types import Side
 
 _log = structlog.get_logger(__name__)
 
@@ -266,8 +294,6 @@ class SelectTool(ControllerTool):
         # Net/connectivity relation axis: which set is correlated to a clicked
         # object — drives Alt (RELATION-basis) selection and the auto-highlight
         # that follows any plain SET click.  Default = same logical net.
-        from protoboard.controller.selection_axes import RelationClass, SelectionFilter
-
         self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
         # Selection filter (which object kinds may be selected).
         # Enforcement in the hit-test is a deferred follow-up.
@@ -345,16 +371,12 @@ class SelectTool(ControllerTool):
     # -- helpers ------------------------------------------------------------
 
     def _hit_tester(self) -> HitTester:
-        from protoboard.types import Side
-
         return HitTester(self._session, camera_side=cast(Side, self._view.camera_side))
 
     def _filters(self) -> SelectionFilters:
         """Translate the held :class:`SelectionFilter` into the hit-test's
         per-kind gate, so the status-bar filter actually excludes kinds from
         selection (a component-only filter ignores wire/group hits, etc.)."""
-        from protoboard.controller.selection_axes import SelectionFilter
-
         f = self._filter
         return SelectionFilters(
             components=bool(f & SelectionFilter.COMPONENTS),
@@ -606,8 +628,6 @@ class SelectTool(ControllerTool):
         Same resolution as :meth:`_primary_net_id` but for an explicit anchor,
         so a SET click that passes ``primary=`` lights up the right net.
         """
-        from protoboard.controller.selection.queries import SessionConnQuery
-
         nets = anchor.net_ids(SessionConnQuery(self._session))
         return next(iter(nets), None)
 
@@ -792,8 +812,6 @@ class SelectTool(ControllerTool):
         primary = self._primary_selectable()
         if primary is None:
             return None
-        from protoboard.controller.selection.queries import SessionConnQuery
-
         nets = primary.net_ids(SessionConnQuery(self._session))
         return next(iter(nets), None)
 
@@ -904,8 +922,6 @@ class SelectTool(ControllerTool):
 
         Publishes the relation label so the GUI status bar reflects the active
         mode; headless sessions simply ignore the notification."""
-        from protoboard.controller.selection_axes import RELATION_LABELS, RelationClass
-
         if isinstance(relation, RelationClass):
             self._relation = relation
             self.refresh_highlight()
@@ -918,8 +934,6 @@ class SelectTool(ControllerTool):
         The keyboard counterpart to the status-bar relation widget; lost in the
         v2 rewrite (the action ids existed in the KeyMap but nothing dispatched
         them), restored by the parity test."""
-        from protoboard.controller.selection_axes import RelationClass
-
         relations = list(RelationClass)
         idx = relations.index(self._relation)
         step = 1 if forward else -1
@@ -935,15 +949,11 @@ class SelectTool(ControllerTool):
 
     def set_filter(self, f) -> None:  # type: ignore[no-untyped-def]
         """Replace the selection filter wholesale."""
-        from protoboard.controller.selection_axes import SelectionFilter
-
         if isinstance(f, SelectionFilter):
             self._filter = f
 
     def _relation_source(self, sel: Selectable):  # type: ignore[no-untyped-def]
         """Map a hit Selectable to a :class:`RelationSource` for the queries."""
-        from protoboard.controller.selection.queries import RelationSource
-
         hit = sel.to_hit()
         if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
             return RelationSource.wire(hit.id)
@@ -960,12 +970,6 @@ class SelectTool(ControllerTool):
         the session-backed connectivity seams, then wraps each id in its adapter
         so the selection / highlight pipelines consume them uniformly.
         """
-        from protoboard.controller.selection.queries import (
-            SessionConnQuery,
-            SessionNetSource,
-            relation_correlated,
-        )
-
         source = self._relation_source(sel)
         if source is None:
             return []
@@ -975,8 +979,6 @@ class SelectTool(ControllerTool):
             SessionConnQuery(self._session),
             SessionNetSource(self._session),
         )
-        from protoboard.controller.selection_axes import SelectionFilter
-
         # Respect the object filter: an Alt+click relation-expansion includes
         # only the kinds the filter admits (wire filter → just the net's wires;
         # component filter → just its components) — spec rule 5.
@@ -1878,8 +1880,6 @@ class SelectTool(ControllerTool):
         absorbing the shift within their own discs.  Returns ``None`` when the
         move is illegal.
         """
-        from protoboard.domain.commands.component_cmds import MoveComponentCommand
-
         component = resolve_placed_component(
             comp_id,
             self._session.layout.placements,
@@ -2524,9 +2524,6 @@ class SelectTool(ControllerTool):
 
     @traced()
     def flip_selected(self) -> None:
-        from protoboard.domain.commands.base import compose_command
-        from protoboard.domain.commands.component_cmds import MoveComponentCommand
-
         families = getattr(self._session, "package_families", None)
         cmds: list[object] = []
         for cid in self._selected_comp_ids():
@@ -2971,11 +2968,6 @@ class SelectTool(ControllerTool):
         wire_id: uuid.UUID | None,
     ) -> list[ActionOption]:
         """Select-by-net options — promote the click to its whole net(s)."""
-        from protoboard.controller.selection.context_options import (
-            build_net_selection_options,
-        )
-        from protoboard.controller.selection.queries import SessionConnQuery
-
         conn = SessionConnQuery(self._session)
         net_ids: list[uuid.UUID] = []
         if comp_id is not None:
@@ -2994,10 +2986,6 @@ class SelectTool(ControllerTool):
 
     def _ctx_highlight_options(self) -> list[ActionOption]:
         """Persistent-highlight options for the current selection."""
-        from protoboard.controller.selection.context_options import (
-            build_highlight_options,
-        )
-
         return build_highlight_options(self._session.highlight_stack.has_persistent())
 
     def _ctx_wire_options(self, wire_id: uuid.UUID | None) -> list[ActionOption]:
@@ -3225,8 +3213,6 @@ class SelectTool(ControllerTool):
         self._session.edit_controller.set_wires_insulated(wire_ids, insulated=insulated)
 
     def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:
-        from protoboard.types import Side
-
         if not wire_ids:
             return
         self._session.edit_controller.set_wires_side(wire_ids, side=cast(Side, side))
@@ -3240,8 +3226,6 @@ class SelectTool(ControllerTool):
         which runs the same conflict check as a move — a hard conflict (body
         overlap / different-net pad) leaves the component where it is.
         """
-        from protoboard.domain.commands.component_cmds import MoveComponentCommand
-
         component = resolve_placed_component(
             comp_id,
             self._session.layout.placements,
@@ -3272,10 +3256,6 @@ class SelectTool(ControllerTool):
             self._assign_pin(comp_id, pin_num)
 
     def _menu_disconnect_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:
-        from protoboard.domain.commands.component_cmds import (
-            DisconnectPinCommand,
-        )
-
         self._execute_command(
             DisconnectPinCommand(component_id=comp_id, pin_number=pin_num)
         )
@@ -3320,8 +3300,6 @@ class SelectTool(ControllerTool):
 
     def _menu_select_net(self, action: object, net_ids: tuple[uuid.UUID, ...]) -> None:
         """Replace the selection with the components and/or wires of *net_ids*."""
-        from protoboard.controller.selection.queries import SessionNetSource
-
         src = SessionNetSource(self._session)
         comp_ids: set[uuid.UUID] = set()
         wire_ids: set[uuid.UUID] = set()
@@ -3370,11 +3348,6 @@ class SelectTool(ControllerTool):
         only an interface to the Controller). Endpoint side preference: ``b``
         (last placed) when both endpoints are eligible, ``a`` otherwise.
         """
-        from protoboard.domain.commands.component_cmds import (
-            ConvertEndpointToWirePinCommand,
-        )
-        from protoboard.domain.layout.knot import JointKnot
-
         wire_id = self._single_selected_wire_id()
         if wire_id is None:
             self._status(
@@ -3415,12 +3388,6 @@ class SelectTool(ControllerTool):
 
     def convert_wire_pin_to_endpoint(self) -> None:
         """Demote every ``WirePinKnot`` owned by the selected wires to a free endpoint."""  # noqa: E501
-        from protoboard.domain.commands.base import compose_command
-        from protoboard.domain.commands.component_cmds import (
-            ConvertWirePinToEndpointCommand,
-        )
-        from protoboard.domain.layout.knot import WirePinKnot
-
         sel = self._selected_by_kind("wire")
         if not sel:
             self._status(
@@ -3464,8 +3431,6 @@ class SelectTool(ControllerTool):
 
     def _wire_has_wire_pin_endpoint(self, wire: Wire | None) -> bool:
         """True when *wire* owns a ``WirePinKnot`` at either endpoint."""
-        from protoboard.domain.layout.knot import WirePinKnot
-
         if wire is None:
             return False
         for ref in (wire.a, wire.b):
@@ -3477,8 +3442,6 @@ class SelectTool(ControllerTool):
 
     def _wire_endpoint_wire_pin_eligible(self, wire: Wire | None) -> bool:
         """True when *wire* has a half-orphan endpoint on a plated-through pad."""
-        from protoboard.domain.layout.knot import JointKnot
-
         if wire is None:
             return False
         for ref in (wire.b, wire.a):
@@ -3499,8 +3462,6 @@ class SelectTool(ControllerTool):
         "Wire: Move to Top/Bottom Layer". The per-fragment toggle flip is
         :meth:`flip_selected_wires`; the per-fragment [F] op is WireEditTool's.
         """
-        from protoboard.types import Side
-
         wire_ids = self._selected_by_kind("wire")
         if not wire_ids:
             return
@@ -3675,10 +3636,6 @@ class SelectTool(ControllerTool):
     def unweave_wires(self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
         from protoboard.controller.ports import BlockingJob
-        from protoboard.domain.commands.component_cmds import (
-            AddWireCommand,
-            RemoveWireCommand,
-        )
 
         session = self._session
         targets = [w for w in session.layout.wires if w.id in wire_ids]
@@ -3740,9 +3697,6 @@ class SelectTool(ControllerTool):
         same-side fragments coalesce.  Returns ``(commands, n_fragment_wires,
         n_fragments_removed)``.
         """
-        from protoboard.domain.commands.component_cmds import (
-            ReplaceWireFragmentsCommand,
-        )
         from protoboard.domain.layout.wire import Fragment
         from protoboard.domain.layout.wire_utils import coalesce_same_side_fragments
 
@@ -3775,10 +3729,6 @@ class SelectTool(ControllerTool):
 
     def merge_wires_and_fragments(self, wire_ids: frozenset[uuid.UUID] | None) -> None:
         """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
-        from protoboard.domain.commands.component_cmds import (
-            FuseTouchingWiresCommand,
-        )
-
         session = self._session
         state = cast("ComponentState", session)
 
@@ -3840,11 +3790,6 @@ class SelectTool(ControllerTool):
         Remove/Add commands.  Synchronous (PPM optimize-with acts on a handful
         of wires).  Port of the legacy method; collaborators reused verbatim.
         """
-        from protoboard.domain.commands.component_cmds import (
-            AddWireCommand,
-            RemoveWireCommand,
-        )
-
         session = self._session
         if not wire_ids:
             self._status("Optimize: nothing selected.")
@@ -3903,8 +3848,6 @@ class SelectTool(ControllerTool):
         self, cmds: list[object], description: str, *, invalidate: bool = False
     ) -> None:
         """Execute one-or-many wire commands as a macro, then refresh the view."""
-        from protoboard.domain.commands.base import compose_command
-
         typed = cast("list[Command[ComponentState]]", cmds)
         cmd = compose_command(typed, description=description)
         if cmd is None:
