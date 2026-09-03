@@ -45,8 +45,9 @@ from PySide6.QtWidgets import (
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
 from protoboard.controller.view_options.theme import Theme
+from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
-from protoboard.gui.keymap import AbstractKeyMap
+from protoboard.gui.keymap import AbstractKeyMap, FinalShortcutError, KeyMap
 from protoboard.services.preferences.theme_yaml import save_theme
 
 if TYPE_CHECKING:
@@ -226,8 +227,6 @@ class _KeyMapTab(QWidget):
         self, keymap: object, action_ids: list[str], parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
-        from protoboard.gui.keymap import KeyMap
-
         assert isinstance(keymap, KeyMap)
         self._km = keymap
         layout = QVBoxLayout(self)
@@ -274,8 +273,6 @@ class _KeyMapTab(QWidget):
             self._initial[action_id] = value
 
     def apply(self) -> None:
-        from protoboard.gui.keymap import FinalShortcutError
-
         for action_id, edit in self._edits.items():
             if not edit.isEnabled():
                 continue  # final — read-only
@@ -302,8 +299,6 @@ class _KeyMapTab(QWidget):
 
     def _steal(self, winner: str, text: str) -> None:
         """Remove the newly-assigned alternatives from every other action here."""
-        from protoboard.gui.keymap import FinalShortcutError
-
         wanted = {a for a in text.split("|") if a}
         for action_id, edit in self._edits.items():
             if action_id == winner or not edit.isEnabled():
@@ -1062,8 +1057,6 @@ class _RoutingPage(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        # Import here to avoid circular dependency with domain layer.
-        from protoboard.domain.routing_settings import ROUTING_DEFAULTS
         from protoboard.gui.session import EditorSession
 
         self._session: EditorSession = session  # type: ignore[assignment]
@@ -1456,8 +1449,6 @@ class _RoutingPage(QWidget):
             self._cost_preset.blockSignals(False)
 
     def _load_from_settings(self, s: object) -> None:
-        from protoboard.domain.routing_settings import RoutingSettings
-
         rs: RoutingSettings = s  # type: ignore[assignment]
         # Preset selection — fall back to "default" if the saved name is
         # no longer available (built-in removed, or user preset deleted).
@@ -1492,8 +1483,6 @@ class _RoutingPage(QWidget):
         self._load_from_settings(self._defaults)
 
     def apply(self) -> None:
-        from protoboard.domain.routing_settings import RoutingSettings
-
         rs_old = self._session.routing_settings
         new_settings = RoutingSettings(
             preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
