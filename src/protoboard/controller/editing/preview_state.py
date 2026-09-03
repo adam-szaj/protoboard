@@ -26,9 +26,15 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.controller.editing.spatial_index import build_component_spatial_index
+from protoboard.domain.components.resolution import (
+    PlacedComponent,
+    resolve_placed_component,
+)
+from protoboard.domain.layout.placement import iter_pin_world_positions
+
 if TYPE_CHECKING:
     from protoboard.controller.editing.contexts import PreviewProjectContext
-    from protoboard.domain.components.resolution import PlacedComponent
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.layout import Layout
     from protoboard.geometry import Point
@@ -51,8 +57,6 @@ class PreviewState:
 
     def placed_component(self, comp_id: uuid.UUID) -> PlacedComponent | None:
         """Resolve component records against the preview placement map."""
-        from protoboard.domain.components.resolution import resolve_placed_component
-
         return resolve_placed_component(
             comp_id,
             self.layout.placements,
@@ -67,18 +71,12 @@ class PreviewState:
         so it is rebuilt from the preview each call rather than served from the
         live session's placement-keyed cache.
         """
-        from protoboard.controller.editing.spatial_index import (
-            build_component_spatial_index,
-        )
-
         return build_component_spatial_index(
             self.layout, self.instances, self.components, self.package_families
         )
 
     def iter_pin_positions(self, comp_id: uuid.UUID) -> list[tuple[int, Point]]:
         """``[(pin_number, world_pos), …]`` for *comp_id* at the preview pose."""
-        from protoboard.domain.layout.placement import iter_pin_world_positions
-
         return list(
             iter_pin_world_positions(
                 comp_id,
