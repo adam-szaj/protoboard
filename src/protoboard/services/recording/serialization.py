@@ -318,6 +318,34 @@ def _register_uuid_command(command_type: type, name: str, field: str) -> None:
     _register(command_type, name, encode, decode)
 
 
+def _register_uuid_bool_command(
+    command_type: type,
+    name: str,
+    uuid_field: str,
+    bool_field: str,
+) -> None:
+    """Register a command carrying one UUID and one boolean option."""
+
+    def encode(command: Any) -> dict[str, Any]:
+        return {
+            uuid_field: _uuid_to(cast(uuid.UUID, getattr(command, uuid_field))),
+            bool_field: bool(getattr(command, bool_field)),
+        }
+
+    def decode(data: dict[str, Any]) -> Command[Any]:
+        return cast(
+            Command[Any],
+            command_type(
+                **{
+                    uuid_field: _uuid_from(str(data[uuid_field])),
+                    bool_field: bool(data[bool_field]),
+                }
+            ),
+        )
+
+    _register(command_type, name, encode, decode)
+
+
 def codec_for_command_type(command_type: type[Command[Any]]) -> Codec[Any] | None:
     """Return the registered codec for ``command_type``, if any."""
     return _CODEC_BY_TYPE.get(command_type)
@@ -470,22 +498,11 @@ _register(
 )
 
 
-def _set_wire_insulated_to(cmd: SetWireInsulatedCommand) -> dict[str, Any]:
-    return {"wire_id": _uuid_to(cmd.wire_id), "insulated": bool(cmd.insulated)}
-
-
-def _set_wire_insulated_from(d: dict[str, Any]) -> SetWireInsulatedCommand:
-    return SetWireInsulatedCommand(
-        wire_id=_uuid_from(d["wire_id"]),
-        insulated=bool(d["insulated"]),
-    )
-
-
-_register(
+_register_uuid_bool_command(
     SetWireInsulatedCommand,
     "set_wire_insulated",
-    _set_wire_insulated_to,
-    _set_wire_insulated_from,
+    "wire_id",
+    "insulated",
 )
 
 
@@ -680,25 +697,11 @@ _register(
 )
 
 
-def _lock_component_to(cmd: LockComponentCommand) -> dict[str, Any]:
-    return {
-        "component_id": _uuid_to(cmd.component_id),
-        "locked": bool(cmd.locked),
-    }
-
-
-def _lock_component_from(d: dict[str, Any]) -> LockComponentCommand:
-    return LockComponentCommand(
-        component_id=_uuid_from(d["component_id"]),
-        locked=bool(d["locked"]),
-    )
-
-
-_register(
+_register_uuid_bool_command(
     LockComponentCommand,
     "lock_component",
-    _lock_component_to,
-    _lock_component_from,
+    "component_id",
+    "locked",
 )
 
 
@@ -829,22 +832,11 @@ def _rename_net_from(d: dict[str, Any]) -> RenameNetCommand:
 _register(RenameNetCommand, "rename_net", _rename_net_to, _rename_net_from)
 
 
-def _set_net_global_to(cmd: SetNetGlobalCommand) -> dict[str, Any]:
-    return {"net_id": _uuid_to(cmd.net_id), "global_net": bool(cmd.global_net)}
-
-
-def _set_net_global_from(d: dict[str, Any]) -> SetNetGlobalCommand:
-    return SetNetGlobalCommand(
-        net_id=_uuid_from(d["net_id"]),
-        global_net=bool(d["global_net"]),
-    )
-
-
-_register(
+_register_uuid_bool_command(
     SetNetGlobalCommand,
     "set_net_global",
-    _set_net_global_to,
-    _set_net_global_from,
+    "net_id",
+    "global_net",
 )
 
 
