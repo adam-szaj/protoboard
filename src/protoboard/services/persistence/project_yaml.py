@@ -118,6 +118,12 @@ def _yaml_mapping(
     return {}
 
 
+def _yaml_text(data: object) -> str:
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
+
+
 @runtime_checkable
 class _MigrationLibrary(Protocol):
     """The subset of ``ComponentLibrary`` the migration passes duck-type.
@@ -268,9 +274,7 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
             for inst in instances.values()
         ]
     }
-    buf = io.StringIO()
-    _yaml.dump(data, buf)
-    return buf.getvalue()
+    return _yaml_text(data)
 
 
 # ---------------------------------------------------------------------------
@@ -435,9 +439,7 @@ def _layout_to_yaml(layout: Layout) -> str:
             else {}
         ),
     }
-    buf = io.StringIO()
-    _yaml.dump(data, buf)
-    return buf.getvalue()
+    return _yaml_text(data)
 
 
 def _schematic_to_yaml(schematic: Schematic) -> str:
@@ -459,9 +461,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
             for net in schematic.nets.values()
         ],
     }
-    buf = io.StringIO()
-    _yaml.dump(data, buf)
-    return buf.getvalue()
+    return _yaml_text(data)
 
 
 # ---------------------------------------------------------------------------
@@ -1390,9 +1390,7 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
     # missing key as an empty tuple.
     if s.optimizer_chain:
         data["optimizer_chain"] = list(s.optimizer_chain)
-    buf = io.StringIO()
-    _yaml.dump(data, buf)
-    return buf.getvalue()
+    return _yaml_text(data)
 
 
 def _routing_settings_from_yaml(text: str) -> RoutingSettings:
@@ -1470,9 +1468,7 @@ def _layer_overrides_to_yaml(overrides: LayerOverrides) -> str:
     data: dict[str, str] = {
         f: getattr(overrides, f).value for f in overrides.__dataclass_fields__
     }
-    buf = io.StringIO()
-    _yaml.dump(data, buf)
-    return buf.getvalue()
+    return _yaml_text(data)
 
 
 def _layer_overrides_from_yaml(text: str) -> LayerOverrides:
@@ -1496,9 +1492,7 @@ def _axis_labels_to_yaml(settings: AxisLabelSettings) -> str:
         "columns": settings.columns.value,
         "rows": settings.rows.value,
     }
-    buf = io.StringIO()
-    _yaml.dump(data, buf)
-    return buf.getvalue()
+    return _yaml_text(data)
 
 
 def _axis_labels_from_yaml(text: str) -> AxisLabelSettings:
