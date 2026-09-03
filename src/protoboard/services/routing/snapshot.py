@@ -32,18 +32,18 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.schematic.net import Net
+from protoboard.domain.schematic.schematic import Schematic
 from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
-    from protoboard.domain.schematic.net import Net
-    from protoboard.domain.schematic.schematic import Schematic
 
 
 @dataclass(frozen=True)
@@ -77,9 +77,6 @@ class LayoutSnapshot:
         The returned Layout is a fresh object; mutating it does not touch
         the snapshot or the original session Layout.
         """
-        from protoboard.domain.layout.layout import Layout
-        from protoboard.domain.layout.wire import WireCollection
-
         return Layout(
             placements=dict(self.placements),  # type: ignore[arg-type]
             wires=WireCollection(list(self.wires)),
@@ -99,8 +96,6 @@ class SchematicSnapshot:
 
     @classmethod
     def freeze(cls, schematic: Schematic) -> SchematicSnapshot:
-        from protoboard.domain.schematic.net import Net
-
         frozen_nets: dict[uuid.UUID, Net] = {}
         for nid, net in schematic.nets.items():
             frozen_nets[nid] = Net(
@@ -113,8 +108,6 @@ class SchematicSnapshot:
         return cls(nets=MappingProxyType(frozen_nets))
 
     def to_schematic(self) -> Schematic:
-        from protoboard.domain.schematic.schematic import Schematic
-
         return Schematic(nets=dict(self.nets))
 
 
