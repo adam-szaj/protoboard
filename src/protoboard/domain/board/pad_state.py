@@ -35,13 +35,32 @@ union:
 
 from __future__ import annotations
 
+import copy
+import math
 import uuid
+from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, TypeGuard
 
+from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.layer import PHYSICAL_LAYERS, LayerId
+from protoboard.domain.board.pad_geometry import qpair
 from protoboard.domain.board.pads import PadLayers
+from protoboard.domain.components.package.component_package import (
+    resolve_component_package,
+    resolved_footprint,
+)
+from protoboard.domain.components.package.mask import body_holes
+from protoboard.domain.components.package.pin_mapping import (
+    meta_pin_for_package_pin,
+)
+from protoboard.domain.components.resolution import iter_placed_components
+from protoboard.domain.layout.placement import (
+    iter_footprint_pin_positions,
+    placement_transform,
+)
+from protoboard.errors import UnboundInstanceError
 from protoboard.geometry import Point
 from protoboard.types import NetId
 
@@ -440,12 +459,6 @@ class ConnectedDoubleSidedBoardPad(Pad):
 # PadIndex — runtime index of all pads on the board with their occupancy
 # ---------------------------------------------------------------------------
 
-import math  # noqa: E402
-from collections import defaultdict  # noqa: E402
-from typing import TYPE_CHECKING  # noqa: E402
-
-from protoboard.domain.board.pad_geometry import qpair  # noqa: E402
-
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
@@ -538,8 +551,6 @@ class PadIndex:
 
     def _build_board_pads(self) -> None:
         """Walk board atoms and instantiate one Pad per hole."""
-        from protoboard.domain.board.boxes import PadAtom, StripAtom
-
         for atom, center in self._board.atoms():
             if isinstance(atom, PadAtom):
                 self._add_pad(center, atom.layers, strip_group_id=None)
@@ -596,8 +607,6 @@ class PadIndex:
         layout: Layout,
         schematic: Schematic,
     ) -> None:
-        from protoboard.domain.components.resolution import iter_placed_components
-
         for component in iter_placed_components(
             layout.placements,
             self._instances,
@@ -879,15 +888,6 @@ class PadIndex:
         """
         if comp_id in self._component_records:
             return
-        from protoboard.domain.components.package.component_package import (
-            resolve_component_package,
-            resolved_footprint,
-        )
-        from protoboard.domain.components.package.pin_mapping import (
-            meta_pin_for_package_pin,
-        )
-        from protoboard.domain.layout.placement import iter_footprint_pin_positions
-
         # Variant-aware footprint/package: a bound instance resolves the body
         # the user actually chose; without one (or an unbound stub) the
         # definition default applies. The free ``resolved_footprint`` degrades
@@ -898,8 +898,6 @@ class PadIndex:
             footprint_geom = resolved_footprint(defn, instance, families)
             package = resolve_component_package(defn, instance, families)
         else:
-            from protoboard.errors import UnboundInstanceError
-
             raise UnboundInstanceError(
                 f"add_component called for {defn.name!r} without an instance"
             )
@@ -1021,9 +1019,6 @@ class PadIndex:
         reflection about the package axis, then rotation, then translation — so
         the marked holes line up with the placed pins.
         """
-        from protoboard.domain.components.package import body_holes
-        from protoboard.domain.layout.placement import placement_transform
-
         to_world = placement_transform(package, placement)
         out: list[Pad] = []
         for hole in body_holes(package):
@@ -1044,13 +1039,11 @@ class PadIndex:
         query, discard.  ``Board`` and component definitions are shared
         (immutable); pads + records are deep-copied.
         """
-        import copy as _copy
-
         new = PadIndex.__new__(PadIndex)
         new._board = self._board
         new._components = self._components
         new._instances = self._instances
-        new._pads = {k: _copy.deepcopy(p) for k, p in self._pads.items()}
+        new._pads = {k: copy.deepcopy(p) for k, p in self._pads.items()}
         new._strips = {k: list(v) for k, v in self._strips.items()}
         new._next_strip_id = self._next_strip_id
         new._pad_grid = {k: list(v) for k, v in self._pad_grid.items()}
