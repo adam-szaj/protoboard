@@ -8,8 +8,9 @@ without creating a hard dependency on the GUI layer.
 
 from __future__ import annotations
 
+import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import structlog
@@ -103,6 +104,7 @@ from protoboard.domain.layout.wire_utils import (
     update_wires_for_move as _update_wires_for_move,
 )
 from protoboard.domain.schematic.net import PinRef
+from protoboard.domain.schematic.pin_siblings import same_name_refs
 from protoboard.geometry import Point
 
 _log = structlog.get_logger(__name__)
@@ -110,8 +112,6 @@ _log = structlog.get_logger(__name__)
 
 def _dbg_enabled() -> bool:
     """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
-    import logging
-
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
 
@@ -1275,18 +1275,16 @@ class SetComponentPackageVariantCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
         self._old_variant = inst.package_variant
-        import dataclasses as _dc
 
-        state.instances[self.component_id] = _dc.replace(
+        state.instances[self.component_id] = replace(
             inst,
             package_variant=self.new_variant,
         )
 
     def revert(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
-        import dataclasses as _dc
 
-        state.instances[self.component_id] = _dc.replace(
+        state.instances[self.component_id] = replace(
             inst,
             package_variant=self._old_variant,
         )
@@ -1316,18 +1314,16 @@ class SetComponentAppearanceCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
         self._old = inst.appearance
-        import dataclasses as _dc
 
-        state.instances[self.component_id] = _dc.replace(
+        state.instances[self.component_id] = replace(
             inst,
             appearance=self.new_appearance,
         )
 
     def revert(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
-        import dataclasses as _dc
 
-        state.instances[self.component_id] = _dc.replace(
+        state.instances[self.component_id] = replace(
             inst,
             appearance=self._old,
         )
@@ -1473,8 +1469,6 @@ class DisconnectPinCommand(Command[SchematicState]):
         return f"Disconnect pin {self.pin_number}"
 
     def apply(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.pin_siblings import same_name_refs
-
         refs = same_name_refs(
             self.component_id, self.pin_number, state.instances, state.components
         )
