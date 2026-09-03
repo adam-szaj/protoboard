@@ -446,12 +446,11 @@ class RouteTool(ControllerTool):
         if source_node is None:
             self._set_route_highlight(net_id=None)
             return
-        for net in self._session.schematic.nets.values():
-            for ref in net.pins:
-                if graph.node_for_pin(ref) == source_node:
-                    self._session.set_routing_net(net.id)
-                    self._set_route_highlight(net_id=net.id)
-                    return
+        for ref, net in self._session.schematic.pin_net_map().items():
+            if graph.node_for_pin(ref) == source_node:
+                self._session.set_routing_net(net.id)
+                self._set_route_highlight(net_id=net.id)
+                return
         # Start pad isn't on any pin → orphan route.  Still want the
         # dim+overlay treatment, just without a netted highlight.
         self._set_route_highlight(net_id=None)
