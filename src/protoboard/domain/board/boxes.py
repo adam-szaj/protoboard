@@ -15,12 +15,13 @@ overlapping rails on breadboards.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
 from protoboard.domain.board.pads import PadLayers
-from protoboard.geometry import Insets
+from protoboard.geometry import Insets, Point
 
 
 class SizePolicy(Enum):
@@ -96,6 +97,22 @@ class StripAtom(Box):
             raise ValueError(f"length must be > 0 or 'fill'; got {self.length}")
         if isinstance(self.length, str) and self.length != "fill":
             raise ValueError(f"string length must be 'fill'; got {self.length!r}")
+
+    def hole_positions(self, center: Point, *, fill_length: int = 1) -> Iterator[Point]:
+        """Yield the world-space centre of every hole in this strip.
+
+        ``fill_length`` makes callers explicit about how an unresolved
+        ``"fill"`` strip is represented in their context.
+        """
+        length = self.length if isinstance(self.length, int) else fill_length
+        if self.orientation == "horizontal":
+            start = center.x - length / 2.0 + 0.5
+            for index in range(length):
+                yield Point(start + index, center.y)
+        else:
+            start = center.y - length / 2.0 + 0.5
+            for index in range(length):
+                yield Point(center.x, start + index)
 
 
 @dataclass(frozen=True, slots=True)

@@ -89,15 +89,7 @@ class Board:
         positions: list[Point] = []
         for atom, center in self.atoms():
             if isinstance(atom, StripAtom):
-                n = int(atom.length) if atom.length != "fill" else 0
-                if atom.orientation == "horizontal":
-                    start_x = center.x - n / 2.0 + 0.5
-                    for i in range(n):
-                        positions.append(Point(start_x + i, center.y))
-                else:
-                    start_y = center.y - n / 2.0 + 0.5
-                    for i in range(n):
-                        positions.append(Point(center.x, start_y + i))
+                positions.extend(atom.hole_positions(center, fill_length=0))
             elif not isinstance(atom, GapAtom):
                 positions.append(center)
         return positions

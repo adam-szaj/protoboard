@@ -560,13 +560,7 @@ class PadIndex:
                 # Each hole of the strip = its own Pad, sharing a strip_group_id.
                 strip_id = self._next_strip_id
                 self._next_strip_id += 1
-                n = int(atom.length) if isinstance(atom.length, int) else 1
-                if atom.orientation == "horizontal":
-                    start_x = center.x - n / 2.0 + 0.5
-                    positions = [Point(start_x + i, center.y) for i in range(n)]
-                else:
-                    start_y = center.y - n / 2.0 + 0.5
-                    positions = [Point(center.x, start_y + i) for i in range(n)]
+                positions = list(atom.hole_positions(center))
                 for pt in positions:
                     self._add_pad(pt, atom.layers, strip_group_id=strip_id)
                 # Strip's holes are galvanically connected — represent that

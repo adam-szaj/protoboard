@@ -18,7 +18,7 @@ from protoboard.domain.board.boxes import (
     VBox,
 )
 from protoboard.domain.board.pads import PadLayers
-from protoboard.geometry import Insets
+from protoboard.geometry import Insets, Point
 
 
 def _pad() -> PadAtom:
@@ -162,6 +162,35 @@ class TestStripAtom:
             layers=PadLayers(),
         )
         assert strip.length == "fill"
+
+    def test_hole_positions_horizontal(self) -> None:
+        strip = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=3,
+            orientation="horizontal",
+            layers=PadLayers(),
+        )
+
+        assert list(strip.hole_positions(Point(1.5, 2.5))) == [
+            Point(0.5, 2.5),
+            Point(1.5, 2.5),
+            Point(2.5, 2.5),
+        ]
+
+    def test_hole_positions_fill_uses_context_length(self) -> None:
+        strip = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length="fill",
+            orientation="vertical",
+            layers=PadLayers(),
+        )
+
+        assert list(strip.hole_positions(Point(3.5, 3.5), fill_length=2)) == [
+            Point(3.5, 3.0),
+            Point(3.5, 4.0),
+        ]
 
 
 class TestGapAtom:

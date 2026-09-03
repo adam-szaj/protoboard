@@ -646,17 +646,10 @@ class ConnectivityGraph:
 
     def _build_strip_nodes(self, atom: StripAtom, center: Point) -> None:
         layers = atom.layers
-        n = int(atom.length) if isinstance(atom.length, int) else 1
         side: str = "top" if (layers.plated_through or layers.top) else "bottom"
-        if atom.orientation == "horizontal":
-            start_x = center.x - n / 2.0 + 0.5
-            positions = [Point(start_x + i, center.y) for i in range(n)]
-        else:
-            start_y = center.y - n / 2.0 + 0.5
-            positions = [Point(center.x, start_y + i) for i in range(n)]
 
         prev_entry: NodeEntry | None = None
-        for pt in positions:
+        for pt in atom.hole_positions(center):
             key: _NodeKey = _qkey(pt, side)
             self._board_pad_keys.add(key)
             entry = self._ensure_node(key)
