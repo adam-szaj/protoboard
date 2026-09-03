@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.domain.commands.component_cmds import AddWireCommand, RemoveWireCommand
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
@@ -32,6 +33,9 @@ from protoboard.domain.layout.placement import (
     component_bbox,
     iter_footprint_pin_positions,
 )
+from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.cost_model import RoutingCostModel
+from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import round_coord as _round
 
 if TYPE_CHECKING:
@@ -324,10 +328,6 @@ def _update_schematic(
     instance_id: uuid.UUID,
 ) -> None:
     """Add unconnected pins to nets after conflicts are resolved."""
-    import uuid as _uuid
-
-    from protoboard.domain.schematic.net import Net, PinRef
-
     _PAD_KINDS = {ConflictKind.ONE_UNCONNECTED, ConflictKind.BOTH_UNCONNECTED}
     _WIRE_KINDS = {
         ConflictKind.PIN_ON_WIRE_UNCONNECTED,
@@ -347,7 +347,7 @@ def _update_schematic(
                 session.schematic.add_pin_to_net(existing_ref, c.incoming_net_id)
             else:
                 inst = session.instances.get(instance_id)
-                new_net_id = _uuid.uuid4()
+                new_net_id = uuid.uuid4()
                 net_name = f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})"
                 session.schematic.nets[new_net_id] = Net(
                     id=new_net_id,
@@ -361,7 +361,7 @@ def _update_schematic(
                 session.schematic.add_pin_to_net(incoming_ref, c.existing_net_id)
             else:
                 inst = session.instances.get(instance_id)
-                new_net_id = _uuid.uuid4()
+                new_net_id = uuid.uuid4()
                 session.schematic.nets[new_net_id] = Net(
                     id=new_net_id,
                     name=f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})",
@@ -382,10 +382,6 @@ def _resolve_wire_conflicts(
 
     Returns (resolved_placement, extra_commands) or (None, []) on cancel.
     """
-    import uuid as _uuid
-
-    from protoboard.domain.schematic.net import Net, PinRef
-
     inst = session.instances.get(instance_id)
     incoming_refdes = inst.refdes if inst else defn.name
 
@@ -401,8 +397,6 @@ def _resolve_wire_conflicts(
 
     if action == WireConflictAction.REMOVE_AND_REROUTE:
         # Collect unique wire IDs to remove.
-        from protoboard.domain.commands.component_cmds import RemoveWireCommand
-
         seen: set[uuid.UUID] = set()
         for c in wire_conflicts:
             if c.wire_id is not None and c.wire_id not in seen:
@@ -427,7 +421,7 @@ def _resolve_wire_conflicts(
     if action == WireConflictAction.CREATE_NET:
         for c in wire_conflicts:
             ref = PinRef(component_id=instance_id, pin_number=c.incoming_pin)
-            new_net_id = _uuid.uuid4()
+            new_net_id = uuid.uuid4()
             net_name = f"Net-({incoming_refdes}-{c.incoming_pin})"
             session.schematic.nets[new_net_id] = Net(
                 id=new_net_id, name=net_name, pins={ref}
@@ -447,9 +441,6 @@ def _try_reroute_wire(
 
     Returns an AddWireWithNetsCommand if a path is found, else None.
     """
-    from protoboard.domain.layout.wire import Wire
-    from protoboard.domain.routing.cost_model import RoutingCostModel
-
     if not isinstance(wire, Wire) or len(wire.path) < 2:
         return None
 
@@ -470,18 +461,12 @@ def _try_reroute_wire(
         return None
 
     best = results[0]
-    import uuid as _uuid
-
-    from protoboard.domain.layout.wire import Wire as WS
-
-    new_wire = WS(
-        id=_uuid.uuid4(),
+    new_wire = Wire(
+        id=uuid.uuid4(),
         path=[pt for pt, _side in best.path],
         insulated=wire.insulated,
         side=wire.side,
     )
-    from protoboard.domain.commands.component_cmds import AddWireCommand
-
     return AddWireCommand(wire=new_wire)
 
 
@@ -496,8 +481,6 @@ def build_wire_removal_cmds(
     silently with toast + Ctrl+Z".  Callers wanting reroute can build
     `_try_reroute_wire` follow-ups separately.
     """
-    from protoboard.domain.commands.component_cmds import RemoveWireCommand
-
     cmds: list[object] = []
     seen: set[uuid.UUID] = set()
     for wid in wire_ids:
