@@ -60,6 +60,7 @@ from protoboard.domain.commands.group_cmds import (
     RotateComponentsCommand,
     RotateGroupCommand,
     SetExportedPinsCommand,
+    _rotation_about,
 )
 from protoboard.domain.commands.net_cmds import (
     AssignPinToNetCommand,
@@ -70,10 +71,11 @@ from protoboard.domain.commands.net_cmds import (
     SetNetGlobalCommand,
     UnassignPinCommand,
 )
+from protoboard.domain.components.appearance import parse_style
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point, Transform2D, Vector
@@ -249,8 +251,6 @@ def _group_from(d: dict[str, Any]) -> ComponentGroup:
         raw_origin = d.get("origin")
         rotation = int(d.get("rotation", 0))
         if rotation != 0 and raw_origin:
-            from protoboard.domain.commands.group_cmds import _rotation_about
-
             transform = _rotation_about(_pt_from(raw_origin), rotation)
         else:
             transform = Transform2D.identity()
@@ -441,8 +441,6 @@ def _fragment_to(frag: object) -> dict[str, Any]:
 
 
 def _fragment_from(d: dict[str, Any]) -> object:
-    from protoboard.domain.layout.wire import Fragment
-
     return Fragment(
         path=[_pt_from(p) for p in d["path"]],
         side=d["side"],
@@ -565,8 +563,6 @@ def _set_appearance_to(cmd: SetComponentAppearanceCommand) -> dict[str, Any]:
 
 
 def _set_appearance_from(d: dict[str, Any]) -> SetComponentAppearanceCommand:
-    from protoboard.domain.components.appearance import parse_style
-
     return SetComponentAppearanceCommand(
         component_id=_uuid_from(d["component_id"]),
         new_appearance=parse_style(d.get("style"), ctx="set_appearance"),
@@ -786,14 +782,12 @@ class _DeferredSplitStrip(Command[Any]):
         self._delegate: SplitStripCommand | None = None
 
     def _find_target(self, board: Board) -> StripAtom:
-        from protoboard.domain.board.boxes import StripAtom as _SA
-
         wanted_len = int(self._target_spec.get("length", 1))
         wanted_orient = self._target_spec.get("orientation")
         wanted_layers = self._target_spec.get("layers")
         wanted_iso = bool(self._target_spec.get("isolated", False))
         for atom, _center in board.atoms():
-            if not isinstance(atom, _SA):
+            if not isinstance(atom, StripAtom):
                 continue
             atom_len = int(atom.length) if isinstance(atom.length, int) else 1
             if atom_len != wanted_len:
