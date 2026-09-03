@@ -62,14 +62,8 @@ def _gui_view(view: object) -> AbstractBoardView:
 
 
 def _theme_fn(tool: ViewToolMixin) -> Callable[[], Theme]:
-    """The tool's theme reader typed as ``() -> Theme``.
-
-    ``ViewToolMixin._theme`` really returns :class:`Theme`, but on a concrete
-    tool pyright resolves the looser ``ControllerTool._theme`` (``-> object |
-    None``) from the MRO. Binding it through ``ViewToolMixin`` restores the
-    precise return type for the Qt preview constructors that require it.
-    """
-    return tool._theme
+    """Bind the public theme port for Qt preview constructors."""
+    return lambda: tool.theme
 
 
 __all__ = [
@@ -84,23 +78,17 @@ __all__ = [
 ]
 
 
-def _dispatch_key_by_action_id(tool: object, inp: KeyInput) -> bool:
-    """Resolve *inp* to one of the active tool's ``command_table()`` action
-    ids via the KeyMap, then run that command and return ITS verdict.
+def _dispatch_key_by_action_id(tool: ControllerTool, inp: KeyInput) -> bool:
+    """Resolve *inp* through the KeyMap and run the matching tool command.
 
-    The command-dispatch counterpart of the old ``ControllerTool._dispatch_
-    key`` (removed from the controller tools — Task 7): the View now owns the
-    key→action-id resolution (``tool.matches_key``, KeyMap-backed); the
-    command table itself comes from the Controller facade
-    (``EditController.tool_commands()``) so it is read from the same place a
-    headless driver would. Mirrors an ``elif`` ladder — the first matching
-    action id's handler decides, and its own return value (not just "a
-    command ran") is what ``on_key`` reports as consumed — some handlers
-    (e.g. PlaceTool's Esc-in-ANCHOR) legitimately decline.
+    Mirrors an ``elif`` ladder: the first matching action id's handler decides,
+    and its own return value (not just "a command ran") is what ``on_key``
+    reports as consumed — some handlers (e.g. PlaceTool's Esc-in-ANCHOR)
+    legitimately decline.
     """
-    commands = tool._session.edit_controller.tool_commands()  # type: ignore[attr-defined]
+    commands = tool.command_table()
     for action_id, handler in commands.items():
-        if tool.matches_key(inp, action_id):  # type: ignore[attr-defined]
+        if tool.matches_key(inp, action_id):
             return bool(handler())
     return False
 

@@ -411,12 +411,14 @@ class ViewToolMixin:
     def on_key_release(self, inp: KeyInput) -> None:
         pass
 
-    def _theme(self) -> Theme:
-        from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
-
+    @property
+    def theme(self) -> Theme:
+        """Return the theme exposed by the bound board view."""
         view = cast("AbstractBoardView", getattr(self, "_view"))
-        t = getattr(view, "_theme_override", None)
-        return t if isinstance(t, Theme) else DEFAULT_THEME
+        return view.theme
+
+    def _theme(self) -> Theme:
+        return self.theme
 
     @traced()
     def make_key_map(self, parent: AbstractKeyMap) -> KeyMap:
