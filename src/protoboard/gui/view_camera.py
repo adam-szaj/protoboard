@@ -15,10 +15,10 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.controller.tools.route_tool import RouteTool
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point, Rect, Transform2D
 from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
-from protoboard.gui.tools.gui_tools import RouteTool
 from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
