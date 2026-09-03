@@ -26,14 +26,16 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
+from protoboard.controller.ports import StatusEvent, WheelInput
 from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
 from protoboard.controller.tools.base import ControllerTool
+from protoboard.domain.layout.drag_analysis import DragAnalysis
 
 if TYPE_CHECKING:
     from protoboard.controller.editing import EditingContext
     from protoboard.controller.editing.armed_transform import ArmedTransform
     from protoboard.controller.editing.controller import EditController
-    from protoboard.controller.ports import PointerInput, WheelInput
+    from protoboard.controller.ports import PointerInput
     from protoboard.controller.tools.base import _ViewProto
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
@@ -370,8 +372,6 @@ class ArmedTransformTool(ControllerTool):
         return ((_ACT_WHEEL_ROTATE, self._mouse_wheel_rotate),)
 
     def _mouse_wheel_rotate(self, inp: PointerInput | WheelInput) -> bool:
-        from protoboard.controller.ports import WheelInput
-
         if not isinstance(inp, WheelInput) or not self.wants_wheel(inp):
             return False  # not armed → the chord falls through to zoom
         return self.on_wheel(inp)
@@ -385,8 +385,6 @@ class ArmedTransformTool(ControllerTool):
         show — so the step needs a real ``refresh()`` (which clears the scene, so
         the pivot markers are re-drawn after).
         """
-        from protoboard.domain.layout.drag_analysis import DragAnalysis
-
         view = self._view
         if view is not None:
             view.refresh()
@@ -432,8 +430,6 @@ class ArmedTransformTool(ControllerTool):
         self._draw_pivot_markers()
 
     def _status(self, msg: str) -> None:
-        from protoboard.controller.ports import StatusEvent
-
         view = self._view
         if view is not None:
             view.notify_status(StatusEvent("armed-transform.status", {"text": msg}))
