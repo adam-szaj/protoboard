@@ -42,7 +42,10 @@ from protoboard.domain.commands.component_cmds import (
 )
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.wire import Fragment, Wire, fragments_for_slice
-from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
+from protoboard.domain.layout.wire_utils import (
+    point_on_pads,
+    rebuild_fragments_from_path,
+)
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.types import Side
@@ -225,11 +228,7 @@ def net_wires_ordered(
     _eps = 1e-4
 
     def _shares_point(a: Wire, b: Wire) -> bool:
-        for pa in a.path:
-            for pb in b.path:
-                if abs(pa.x - pb.x) < _eps and abs(pa.y - pb.y) < _eps:
-                    return True
-        return False
+        return any(point_on_pads(pa, b.path, tol=_eps) for pa in a.path)
 
     adj: dict[uuid.UUID, list[uuid.UUID]] = {w.id: [] for w in net_wires}
     for i, wa in enumerate(net_wires):
@@ -274,10 +273,7 @@ def outer_endpoint_idx(wire: Wire, neighbour: Wire) -> int:
     last = wire.path[-1]
 
     def _touches(p: Point) -> bool:
-        for q in neighbour.path:
-            if abs(p.x - q.x) < _eps and abs(p.y - q.y) < _eps:
-                return True
-        return False
+        return point_on_pads(p, neighbour.path, tol=_eps)
 
     first_shared = _touches(first)
     last_shared = _touches(last)

@@ -12,6 +12,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
 from protoboard.domain.layout.wire_utils import find_pin_at as find_layout_pin_at
+from protoboard.domain.layout.wire_utils import point_on_pads
 from protoboard.domain.schematic.net import PinRef
 
 if TYPE_CHECKING:
@@ -72,19 +73,18 @@ def find_wire_net_at(
     for wire in session.layout.wires:
         if exclude_wire_id is not None and wire.id == exclude_wire_id:
             continue
-        for vertex in wire.path:
-            if abs(vertex.x - pt.x) < _EPS and abs(vertex.y - pt.y) < _EPS:
-                # Match — try to derive the net of this wire from any
-                # of its other vertices that coincide with a pin.
-                for v2 in wire.path:
-                    pin = find_pin_at(v2, session)
-                    if pin is None:
-                        continue
-                    matched_net = pin_to_net.get(pin)
-                    if matched_net is not None:
-                        return matched_net
-                # Wire has no pin endpoints with net — match-but-no-net.
-                return None
+        if point_on_pads(pt, wire.path, tol=_EPS):
+            # Match — try to derive the net of this wire from any
+            # of its other vertices that coincide with a pin.
+            for v2 in wire.path:
+                pin = find_pin_at(v2, session)
+                if pin is None:
+                    continue
+                matched_net = pin_to_net.get(pin)
+                if matched_net is not None:
+                    return matched_net
+            # Wire has no pin endpoints with net — match-but-no-net.
+            return None
     return None
 
 
