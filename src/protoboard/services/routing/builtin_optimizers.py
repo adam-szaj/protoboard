@@ -61,9 +61,13 @@ def _build_pad_context(
     Mirrors the boilerplate ``SimplifyOptimizer`` used to inline.
     """
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.resolution import resolve_placed_component
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.pad_conflict import footprint_of
-    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.layout.placement import (
+        iter_footprint_pin_positions,
+        pin_world_position,
+    )
     from protoboard.domain.layout.wire import WireCollection
     from protoboard.domain.layout.wire_utils import board_pads_for_side
 
@@ -82,32 +86,28 @@ def _build_pad_context(
     _FLOATING = uuid.UUID("00000000-0000-0000-0000-000000000002")
     for net in worker_schematic.nets.values():
         for ref in net.pins:
-            placement = worker_layout.placements.get(ref.component_id)
-            if placement is None:
+            component = resolve_placed_component(
+                ref.component_id, worker_layout.placements, instances, components
+            )
+            if component is None:
                 continue
-            inst = instances.get(ref.component_id)
-            if inst is None:
-                continue
-            defn = components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = footprint_of(defn, inst)
+            fp = footprint_of(component.definition, component.instance)
             for package_pin_number in package_pins_for_meta_pin(
-                defn, inst, ref.meta_pin_index
+                component.definition,
+                component.instance,
+                ref.meta_pin_index,
             ):
-                pt = pin_world_position(fp, placement, package_pin_number)
+                pt = pin_world_position(fp, component.placement, package_pin_number)
                 point_side_to_net[(pt, "top")] = net.id
                 point_side_to_net[(pt, "bottom")] = net.id
-    for comp_id, placement in worker_layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
+    for comp_id in worker_layout.placements:
+        component = resolve_placed_component(
+            comp_id, worker_layout.placements, instances, components
+        )
+        if component is None:
             continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = footprint_of(defn, inst)
-        for pin_num in range(1, fp.pin_count() + 1):
-            pt = pin_world_position(fp, placement, pin_num)
+        fp = footprint_of(component.definition, component.instance)
+        for _pin_num, pt in iter_footprint_pin_positions(fp, component.placement):
             ps_top = (pt, "top")
             ps_bot = (pt, "bottom")
             net_id = point_side_to_net.get(ps_top, _FLOATING)

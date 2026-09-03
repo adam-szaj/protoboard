@@ -162,3 +162,25 @@ class TestIterPinPositions:
         result = session.iter_pin_positions(inst.id)
         assert len(result) == 8
         assert [pn for pn, _ in result] == list(range(1, 9))
+
+
+class TestPlacedComponent:
+    """Tests for the session's canonical placement context lookup."""
+
+    def test_returns_all_live_records(self, session: EditorSession) -> None:
+        inst = _place_r(session, x=2.0, y=3.0)
+
+        placed = session.placed_component(inst.id)
+
+        assert placed is not None
+        assert placed.instance is inst
+        assert placed.placement is session.layout.placements[inst.id]
+        assert placed.definition is session.components[inst.definition_ref]
+
+    def test_returns_none_for_unplaced_instance(self, session: EditorSession) -> None:
+        inst = ComponentInstance(
+            id=uuid.uuid4(), definition_ref="R", refdes="R99", value="1k"
+        )
+        session.instances[inst.id] = inst
+
+        assert session.placed_component(inst.id) is None

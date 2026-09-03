@@ -16,20 +16,35 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, cast
+from dataclasses import replace
+from typing import TYPE_CHECKING
 
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsItemGroup, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsRectItem, QGraphicsScene
 
+from protoboard.controller.view_options.layer_state import (
+    Z_BOARD,
+    Z_SELECTION,
+)
+from protoboard.controller.view_options.layers import LayerVisibility
+from protoboard.domain.layout.group_ownership import OwnershipResolver
+from protoboard.domain.layout.group_tree import GroupTree
+from protoboard.domain.layout.knot import WirePinKnot
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Insets, Rect
+from protoboard.gui.renderers.axis_labels_renderer import render_axis_labels
+from protoboard.gui.scene_items import remove_scene_items
+from protoboard.gui.throttle import TimerWrap
 from protoboard.gui.view_camera import GRID_PX
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.component_renderer import (
     render_groups,
     update_component_groups,
 )
+from protoboard.services.rendering.net_color import build_net_color_map
 from protoboard.services.rendering.qt_geometry import to_qrectf
 from protoboard.services.rendering.wire_renderer import (
     render_ratsnest,
+    render_wire_pins,
     update_wire_groups_v2,
 )
 from protoboard.services.routing.net_status import routed_net_ids
@@ -84,9 +99,11 @@ class SceneComposer:
         # Overlay items (ratsnest + group outlines) for targeted removal.
         self._overlay_items: list[object] = []
         # Debounce refresh so rapid layout_changed bursts only redraw once.
-        from protoboard.gui.throttle import TimerWrap
-
         self._refresh_timer = TimerWrap(16, self.refresh)  # ~1 frame, arm-if-idle
+        # Component groups on the opposite side of the camera are hidden after
+        # being rasterised into the back cache.  Keep groups that are moved by
+        # the live drag in the scene paint pass until the next full refresh.
+        self._live_drag_comp_ids: set[uuid.UUID] = set()
 
     # -- small state hooks --------------------------------------------------------
 
@@ -114,6 +131,10 @@ class SceneComposer:
     def schedule_refresh(self) -> None:
         """Schedule a refresh for the next event-loop tick (debounce)."""
         self._refresh_timer.arm()
+
+    def dispose(self) -> None:
+        """Cancel refresh callbacks before the attached view is destroyed."""
+        self._refresh_timer.stop()
 
     @traced()
     def _invalidate_all_groups(self) -> None:
@@ -171,15 +192,12 @@ class SceneComposer:
         render_layout = self._render_layout(session)
 
         # Shared render inputs, computed once and passed down to the phases.
-        from dataclasses import replace as _dc_replace
-
         layers = view.layer_state()
-        theme = _dc_replace(
+        theme = replace(
             view.theme,
             raster_pitch_mm=session.board.raster_pitch_mm,
             package_families=session.package_families,
         )
-        from protoboard.services.rendering.net_color import build_net_color_map
 
         # Resolved per-net colour: manual ``net.color`` wins, then static
         # palette, then golden-ratio hue spin once palette is exhausted.
@@ -230,6 +248,10 @@ class SceneComposer:
         # change, etc.).
         view.highlight.apply()
 
+        # A terminal drag refresh restores the normal per-side z-values below;
+        # subsequent drags start with a clean transient set.
+        self._live_drag_comp_ids.clear()
+
         _ms = (time.monotonic() - _t0) * 1000
         session.perf.record_refresh(_ms)
         session.perf.scene_items = len(scene.items())
@@ -249,11 +271,7 @@ class SceneComposer:
         phases.  ``factory`` renders the fresh items (it also adds them to the
         scene); its result is materialised into the returned list.
         """
-        for it in old_items:
-            try:
-                scene.removeItem(cast("QGraphicsItem", it))
-            except Exception:  # noqa: BLE001
-                pass
+        remove_scene_items(scene, old_items)
         return list(factory())
 
     def _sync_board_layer(
@@ -303,14 +321,7 @@ class SceneComposer:
 
     def _clear_overlay_items(self, scene: QGraphicsScene) -> None:
         """Remove stale overlay items (ratsnest + group outlines)."""
-        for item in self._overlay_items:
-            if not isinstance(item, QGraphicsItem):
-                continue
-            try:
-                if item.scene() is scene:
-                    scene.removeItem(item)
-            except RuntimeError:
-                pass  # C++ object already deleted by scene.clear()
+        remove_scene_items(scene, self._overlay_items)
         self._overlay_items.clear()
 
     def _render_wires(
@@ -351,9 +362,6 @@ class SceneComposer:
         net_color_map: dict[uuid.UUID, str | None],
     ) -> None:
         """Wire-pin glyphs — rebuilt from scratch each refresh (tiny set)."""
-        from protoboard.domain.layout.knot import WirePinKnot
-        from protoboard.services.rendering.wire_renderer import render_wire_pins
-
         wire_pins: list[tuple[Point, uuid.UUID | None]] = [
             (k.position, k.net_id)
             for k in render_layout.knots.values()
@@ -486,8 +494,6 @@ class SceneComposer:
     ) -> None:
         """Overlays — ratsnest + group outlines + axis labels (always recreated)."""
         new_overlays: list[object] = []
-        from protoboard.controller.view_options.layers import LayerVisibility
-
         ratsnest_vis = self._view.layer_overrides.ratsnest
         if session.schematic.nets and ratsnest_vis != LayerVisibility.HIDDEN:
             # Ghost mode: only unrouted nets are drawn (current
@@ -525,10 +531,6 @@ class SceneComposer:
                 )
             )
         if session.axis_label_settings.any_enabled():
-            from protoboard.gui.renderers.axis_labels_renderer import (
-                render_axis_labels,
-            )
-
             new_overlays.extend(
                 render_axis_labels(
                     scene,
@@ -597,6 +599,7 @@ class SceneComposer:
         """
         session = self._view.session
         placements = session.layout.placements
+        promoted = False
         for comp_id, grp in self._comp_groups.items():
             if not isinstance(grp, QGraphicsItemGroup):
                 continue
@@ -607,11 +610,29 @@ class SceneComposer:
             # Delta from the position when items were baked into the scene.
             delta = pl.position - orig
             grp.setPos(delta.dx, delta.dy)
+            if delta.dx != 0.0 or delta.dy != 0.0:
+                self._live_drag_comp_ids.add(comp_id)
+            if comp_id in self._live_drag_comp_ids:
+                # Back-side groups are hidden by PaintPipeline's cache.  Raise
+                # the live drag group into the scene overlay band so setPos()
+                # remains visible while the pointer moves.
+                if grp.zValue() < Z_BOARD:
+                    grp.setZValue(Z_SELECTION)
+                    grp.setVisible(True)
+                    promoted = True
             # Move the matching label group by the same delta so labels track
             # the drag (they live in a separate group at Z_LABELS_TOP).
             lbl = self._comp_label_groups.get(comp_id)
             if isinstance(lbl, QGraphicsItemGroup):
                 lbl.setPos(delta.dx, delta.dy)
+                if comp_id in self._live_drag_comp_ids and lbl.zValue() < Z_BOARD:
+                    lbl.setZValue(Z_SELECTION)
+                    lbl.setVisible(True)
+
+        if promoted:
+            # Remove the stale rasterised pose before the next paint.  The
+            # promoted groups are excluded from the rebuilt back cache.
+            self._view.invalidate_back_cache()
 
         # Recompute outline rect for each group from the live pin positions
         # of its members.  Outline overlay items live outside _comp_groups
@@ -634,6 +655,7 @@ class SceneComposer:
             delta = wire.path[0] - orig
             grp.setPos(delta.dx, delta.dy)
 
+        self._view.highlight.update_selection_bbox_overlays()
         self._update_group_outlines_on_drag()
 
     @traced()
@@ -648,12 +670,6 @@ class SceneComposer:
         out of ``on_drag_moved`` so that method reads as "move groups, move
         wires, refresh outlines".
         """
-        from PySide6.QtWidgets import QGraphicsRectItem
-
-        from protoboard.domain.layout.group_ownership import OwnershipResolver
-        from protoboard.domain.layout.group_tree import GroupTree
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         session = self._view.session
         layout = session.layout
         # Used by the OwnershipResolver below (group-outline ownership classifier).

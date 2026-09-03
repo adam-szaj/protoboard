@@ -40,6 +40,7 @@ from protoboard.domain.board.pad_state import (
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox
@@ -190,14 +191,13 @@ def _under_component_pads(
     are skipped (mirror of the autorouter's behaviour).
     """
     out: set[Point] = set()
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
+    for component in iter_placed_components(layout.placements, instances, components):
+        if component.placement.side != "top":
             continue
-        defn = components.get(inst.definition_ref)
-        if defn is None or placement.side != "top":
-            continue
-        bbox = component_bbox(footprint_of(defn, inst), placement)
+        bbox = component_bbox(
+            footprint_of(component.definition, component.instance),
+            component.placement,
+        )
         for atom, pos in board.atoms():
             if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):
                 out.add(pos)

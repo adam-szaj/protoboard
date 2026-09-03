@@ -3,7 +3,7 @@
 
 These exercise the command builders that the v2 SelectTool's wire-edit actions
 call — reroute / delete / excise / dedupe — directly on plain wire lists + a
-``wire_net_map`` + a :class:`WireEditState`, with no Qt, no BoardView, no
+``wire_net_map`` + a :class:`WireRange`, with no Qt, no BoardView, no
 SelectTool.  They mirror the legacy parity (``test_excise_cross_wire.py``) but
 target the lifted free functions.
 """
@@ -18,7 +18,6 @@ from typing import cast
 import pytest
 
 from protoboard.controller.selection.wire_edit import (
-    WireEditState,
     WireRange,
     build_delete_command,
     build_delete_range_edit,
@@ -144,7 +143,7 @@ class TestExciseCrossWire:
 
     def test_excise_keeps_outer_suffix_of_start_wire(self) -> None:
         wire_a, wire_b, nm = self._chain()
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire_a.id,
             start_idx=3,
             end_wire_id=wire_b.id,
@@ -174,9 +173,7 @@ class TestExciseCrossWire:
         a = _wire((0, 0), (1, 0))
         b = _wire((10, 0), (11, 0))
         nm = _net_map(a, b)
-        state = WireEditState(
-            start_wire_id=a.id, start_idx=0, end_wire_id=b.id, end_idx=1
-        )
+        state = WireRange(start_wire_id=a.id, start_idx=0, end_wire_id=b.id, end_idx=1)
         assert excise_cross_wire_range([a, b], nm, state) is None
 
 
@@ -299,7 +296,7 @@ class TestBuildReroute:
         wire = _wire((0, 0), (1, 0), (2, 0), (3, 0))
         sess.layout.wires.append(wire)
         nm = _net_map(wire)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id,
             start_idx=1,
             end_wire_id=wire.id,
@@ -321,7 +318,7 @@ class TestBuildReroute:
         sess.layout.wires.append(wire)
         nm = _net_map(wire)
         # Whole-wire range with no waypoints collapses to < 2 points.
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id,
             start_idx=0,
             end_wire_id=wire.id,
@@ -339,7 +336,7 @@ class TestBuildReroute:
         wire_b = _wire((1.5, 10.5), (2.5, 9.5))
         sess.layout.wires.extend([wire_a, wire_b])
         nm = _net_map(wire_a, wire_b)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire_a.id,
             start_idx=2,
             end_wire_id=wire_b.id,
@@ -368,7 +365,7 @@ class TestBuildReroute:
         wire_b = _wire((1.5, 10.5), (2.5, 9.5), insulated=insulated)
         sess.layout.wires.extend([wire_a, wire_b])
         nm = _net_map(wire_a, wire_b)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire_a.id,
             start_idx=2,
             end_wire_id=wire_b.id,
@@ -390,7 +387,7 @@ class TestBuildDelete:
     def test_whole_same_wire_removes_wire(self) -> None:
         wire = _wire((0, 0), (1, 0), (2, 0))
         nm = _net_map(wire)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id,
             start_idx=0,
             end_wire_id=wire.id,
@@ -404,7 +401,7 @@ class TestBuildDelete:
         wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
         nm = _net_map(wire)
         # Remove interior [2..3): keep left [0..2] and right [3..4].
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id,
             start_idx=1,
             end_wire_id=wire.id,
@@ -420,7 +417,7 @@ class TestBuildDelete:
         wire_a = _wire((2.5, 9.5), (3.5, 10.5), (4.5, 11.5), (5.5, 12.5))
         wire_b = _wire((1.5, 10.5), (2.5, 9.5))
         nm = _net_map(wire_a, wire_b)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire_a.id,
             start_idx=2,
             end_wire_id=wire_b.id,
@@ -584,7 +581,7 @@ class TestAddFactoryInjection:
     def test_default_mints_plain_add_wire(self) -> None:
         wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
         nm = _net_map(wire)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=3
         )
         cmd = build_delete_command([wire], nm, state)  # no add_factory
@@ -596,7 +593,7 @@ class TestAddFactoryInjection:
     def test_injected_factory_replaces_the_adds(self) -> None:
         wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
         nm = _net_map(wire)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=3
         )
         cmd = build_delete_command(
@@ -614,7 +611,7 @@ class TestAddFactoryInjection:
         wire_a = _wire((2.5, 9.5), (3.5, 10.5), (4.5, 11.5), (5.5, 12.5))
         wire_b = _wire((1.5, 10.5), (2.5, 9.5))
         nm = _net_map(wire_a, wire_b)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire_a.id,
             start_idx=2,
             end_wire_id=wire_b.id,
@@ -633,18 +630,18 @@ class TestAddFactoryInjection:
         assert not any(isinstance(c, AddWireCommand) for c in macro._commands)
 
 
-# -- WireEditState ------------------------------------------------------------
+# -- WireRange ------------------------------------------------------------
 
 
-class TestWireEditState:
+class TestWireRangeBasics:
     def test_is_cross(self) -> None:
         a, b = uuid.uuid4(), uuid.uuid4()
-        assert WireEditState(a, 0, b, 1).is_cross is True
-        assert WireEditState(a, 0, a, 2).is_cross is False
+        assert WireRange(a, 0, b, 1).is_cross is True
+        assert WireRange(a, 0, a, 2).is_cross is False
 
     def test_with_waypoints_is_immutable_copy(self) -> None:
         a = uuid.uuid4()
-        s0 = WireEditState(a, 0, a, 2)
+        s0 = WireRange(a, 0, a, 2)
         s1 = s0.with_waypoints([Point(1, 1)])
         assert s0.waypoints == ()
         assert s1.waypoints == (Point(1, 1),)
@@ -653,11 +650,6 @@ class TestWireEditState:
 
 class TestWireRange:
     """The unified range abstraction — whole wire is the full-span special case."""
-
-    def test_alias_is_identity(self) -> None:
-        from protoboard.controller.selection.wire_edit import WireRange
-
-        assert WireEditState is WireRange
 
     def test_full_span_covers_whole_path(self) -> None:
         from protoboard.controller.selection.wire_edit import WireRange
@@ -723,22 +715,18 @@ class TestBuildFlipFragmentCommand:
     def test_cross_wire_returns_none(self) -> None:
         a = _wire((1.5, 1.5), (2.5, 1.5))
         b = _wire((2.5, 1.5), (3.5, 1.5))
-        state = WireEditState(
-            start_wire_id=a.id, start_idx=0, end_wire_id=b.id, end_idx=1
-        )
+        state = WireRange(start_wire_id=a.id, start_idx=0, end_wire_id=b.id, end_idx=1)
         assert state.is_cross
         assert build_flip_fragment_command([a, b], state) is None
 
     def test_degenerate_range_returns_none(self) -> None:
         w = _wire((1.5, 1.5), (2.5, 1.5), (3.5, 1.5))
-        state = WireEditState(
-            start_wire_id=w.id, start_idx=1, end_wire_id=w.id, end_idx=1
-        )
+        state = WireRange(start_wire_id=w.id, start_idx=1, end_wire_id=w.id, end_idx=1)
         assert build_flip_fragment_command([w], state) is None
 
     def test_missing_wire_returns_none(self) -> None:
         w = _wire((1.5, 1.5), (2.5, 1.5))
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=uuid.uuid4(),
             start_idx=0,
             end_wire_id=uuid.uuid4(),
@@ -750,7 +738,7 @@ class TestBuildFlipFragmentCommand:
         # range == [0 : len(path)-1] is the whole-wire special case: the builder
         # emits a FlipWireFragmentCommand spanning the entire path.
         w = _wire((1.5, 1.5), (2.5, 1.5), (3.5, 1.5))  # side="bottom"
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=w.id,
             start_idx=0,
             end_wire_id=w.id,
@@ -764,9 +752,7 @@ class TestBuildFlipFragmentCommand:
 
     def test_target_side_override(self) -> None:
         w = _wire((1.5, 1.5), (2.5, 1.5))
-        state = WireEditState(
-            start_wire_id=w.id, start_idx=0, end_wire_id=w.id, end_idx=1
-        )
+        state = WireRange(start_wire_id=w.id, start_idx=0, end_wire_id=w.id, end_idx=1)
         cmd = build_flip_fragment_command([w], state, target_side="bottom")
         assert isinstance(cmd, FlipWireFragmentCommand)
         assert cmd.target_side == "bottom"
@@ -828,7 +814,7 @@ class TestSplitPreservesFragmentSides:
     def test_delete_split_keeps_mixed_sides(self) -> None:
         wire = self._mixed_wire()
         nm = _net_map(wire)
-        state = WireEditState(
+        state = WireRange(
             start_wire_id=wire.id,
             start_idx=1,
             end_wire_id=wire.id,
@@ -845,7 +831,7 @@ class TestSplitPreservesFragmentSides:
         # its sides must be the LIVE per-segment sides, not wire.side.
         wire2 = self._mixed_wire()
         nm2 = _net_map(wire2)
-        state2 = WireEditState(
+        state2 = WireRange(
             start_wire_id=wire2.id,
             start_idx=0,
             end_wire_id=wire2.id,

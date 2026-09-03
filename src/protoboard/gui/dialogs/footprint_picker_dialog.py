@@ -115,7 +115,9 @@ class FootprintPickerDialog(QDialog):
                 )
             else:
                 child_visibility = [
-                    filter_item(item.child(index)) for index in range(item.childCount())
+                    filter_item(child)
+                    for index in range(item.childCount())
+                    if (child := item.child(index)) is not None
                 ]
                 visible = any(child_visibility)
             item.setHidden(not visible)
@@ -136,7 +138,10 @@ class FootprintPickerDialog(QDialog):
             if item.data(0, _VIEW_ROLE) is not None:
                 return item
             for index in range(item.childCount()):
-                found = find(item.child(index))
+                child = item.child(index)
+                if child is None:
+                    continue
+                found = find(child)
                 if found is not None:
                     return found
             return None
@@ -153,8 +158,9 @@ class FootprintPickerDialog(QDialog):
     def keyPressEvent(self, event: object) -> None:  # noqa: N802 (Qt override)
         # Space confirms the current row (Enter is delivered as itemActivated).
         key = event.key()  # type: ignore[attr-defined]
-        if key == Qt.Key.Key_Space and self._tree.currentItem() is not None:
-            self._confirm_item(self._tree.currentItem())
+        current = self._tree.currentItem()
+        if key == Qt.Key.Key_Space and current is not None:
+            self._confirm_item(current)
             return
         super().keyPressEvent(event)  # type: ignore[arg-type]
 

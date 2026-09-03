@@ -9,6 +9,7 @@ import uuid
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
 
 _FIELDS = ["RefDes", "Value", "Footprint", "Description"]
@@ -25,11 +26,13 @@ def export_bom_csv(
     writer.writeheader()
 
     rows: list[dict[str, str]] = []
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
+    for component in iter_placed_components(
+        layout.placements,
+        instances,
+        components,
+    ):
+        inst = component.instance
+        defn = component.definition
         # Prefer the placed variant's address ("d-tht/DO/35"), then the
         # definition's default package ref.
         fp_name = ""

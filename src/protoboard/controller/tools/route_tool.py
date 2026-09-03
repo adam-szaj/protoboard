@@ -10,6 +10,7 @@ import structlog
 
 from protoboard.controller.ports import LEFT_BUTTON, StatusEvent
 from protoboard.controller.tools.base import ControllerTool
+from protoboard.domain.components.resolution import resolve_instance_definition
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.routing.cost_model import RoutingCostModel
@@ -375,14 +376,16 @@ class RouteTool(ControllerTool):
         targets: list[Point] = []
         for net in session.schematic.nets.values():
             for pin_ref in net.pins:
-                inst = session.instances.get(pin_ref.component_id)
-                if inst is None:
+                resolved = resolve_instance_definition(
+                    pin_ref.component_id,
+                    session.instances,
+                    session.components,
+                )
+                if resolved is None:
                     continue
+                inst, defn = resolved
                 placement = session.layout.placements.get(pin_ref.component_id)
                 if placement is None:
-                    continue
-                defn = session.components.get(inst.definition_ref)
-                if defn is None:
                     continue
                 pin_pos = pin_world_position(
                     resolved_footprint(defn, inst, families),
@@ -395,14 +398,16 @@ class RouteTool(ControllerTool):
                     for other_ref in net.pins:
                         if other_ref == pin_ref:
                             continue
-                        other_inst = session.instances.get(other_ref.component_id)
-                        if other_inst is None:
+                        other_resolved = resolve_instance_definition(
+                            other_ref.component_id,
+                            session.instances,
+                            session.components,
+                        )
+                        if other_resolved is None:
                             continue
+                        other_inst, other_defn = other_resolved
                         other_pl = session.layout.placements.get(other_ref.component_id)
                         if other_pl is None:
-                            continue
-                        other_defn = session.components.get(other_inst.definition_ref)
-                        if other_defn is None:
                             continue
                         targets.append(
                             pin_world_position(

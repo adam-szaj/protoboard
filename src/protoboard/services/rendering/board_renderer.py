@@ -44,9 +44,15 @@ from PySide6.QtWidgets import (
 from protoboard.controller.view_options.layer_state import Z_BOARD, LayerState
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.board.board import Board
-from protoboard.domain.board.boxes import PadAtom, StripAtom
+from protoboard.domain.board.boxes import BoardGrid, HBox, PadAtom, StripAtom, VBox
 from protoboard.domain.board.layout_engine import LayoutNode
+from protoboard.domain.components.package import meta_pin_for_package_pin
+from protoboard.domain.components.resolution import iter_placed_components
+from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
+from protoboard.domain.layout.placement import iter_footprint_pin_positions
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
+from protoboard.services.rendering.net_color import build_net_color_map
 from protoboard.services.rendering.qt_geometry import to_qrectf
 
 # Per-pad colour mapping passed to ``build_board_display_list``.
@@ -297,8 +303,6 @@ def _build_frames(
     theme: Theme,
     alpha: float,
 ) -> None:
-    from protoboard.domain.board.boxes import BoardGrid, HBox, VBox
-
     if is_root or isinstance(node.box, (HBox, VBox, BoardGrid)):
         rect = to_qrectf(node.bounds)
         if is_root:
@@ -534,14 +538,6 @@ def build_pad_net_map(
     ``session.layout.placements``, ``session.instances``,
     ``session.components``, ``session.schematic``.
     """
-    from protoboard.domain.components.package import meta_pin_for_package_pin
-    from protoboard.domain.layout.pad_conflict import (
-        resolved_footprint_or_default,
-    )
-    from protoboard.domain.layout.placement import pin_world_position
-    from protoboard.domain.schematic.net import PinRef
-    from protoboard.services.rendering.net_color import build_net_color_map
-
     pin_to_net: dict[PinRef, uuid.UUID] = {}
     nets = getattr(schematic, "nets", None)
     if nets:
@@ -555,17 +551,13 @@ def build_pad_net_map(
         net_color_map = {}
 
     result: PadNetMap = {}
-    for comp_id, placement in placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
+    for component in iter_placed_components(placements, instances, components):
+        comp_id = component.placement.component_id
+        placement = component.placement
+        inst = component.instance
+        defn = component.definition
         fp = resolved_footprint_or_default(defn, inst)
-        for n in range(fp.pin_count()):
-            pin_number = n + 1
-            pos = pin_world_position(fp, placement, pin_number)
+        for pin_number, pos in iter_footprint_pin_positions(fp, placement):
             meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_number)
             if meta_pin_index is None:
                 continue

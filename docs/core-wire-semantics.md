@@ -56,7 +56,7 @@ This asymmetry is the root cause of most gaps below: an op-table that offers
 both "set insulated" and "flip fragment" on the same "fragment" selection is
 mixing a whole-wire attribute with a per-fragment one.
 
-`WireEditState` (`controller/selection/wire_edit.py:63-93`) is the fragment
+`WireRange` (`controller/selection/wire_edit.py`) is the fragment
 value object: `start_wire_id/start_idx` … `end_wire_id/end_idx`, plus reroute
 `waypoints`. `is_cross` is true when the two wire ids differ (a fragment
 spanning two sibling wires of the same net).

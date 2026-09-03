@@ -24,12 +24,23 @@ import structlog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import (
-    QGraphicsItem,
+    QAbstractGraphicsShapeItem,
+    QGraphicsEllipseItem,
     QGraphicsItemGroup,
+    QGraphicsLineItem,
     QGraphicsRectItem,
 )
 
+from protoboard.controller.interaction_mode import HighlightProfile
+from protoboard.controller.view_options.layer_state import (
+    Z_NET_PAD_HIGHLIGHT,
+    Z_SELECTION,
+    Z_WIRE_HIGHLIGHT,
+)
+from protoboard.domain.layout.pin_pad_classification import PinPadInfo
 from protoboard.geometry import Insets
+from protoboard.gui.highlight_state import PROFILE_DIMMED_1, HighlightEntry
+from protoboard.gui.scene_items import remove_scene_items
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.qt_geometry import to_qrectf
 
@@ -287,9 +298,6 @@ class HighlightRenderer:
         Comps/wires belonging to *any* contributing set are shown at full
         opacity; everything else is dimmed by the active profile.
         """
-        from protoboard.controller.interaction_mode import HighlightProfile
-        from protoboard.gui.highlight_state import PROFILE_DIMMED_1, HighlightEntry
-
         session = self._view.session
         _base = self._view.theme
 
@@ -603,8 +611,6 @@ class HighlightRenderer:
         which colour to look for (used when restoring, where the current pen is
         cyan, not ``from_colour``).
         """
-        from PySide6.QtWidgets import QAbstractGraphicsShapeItem
-
         want = match_rgb if match_rgb is not None else from_colour.rgb() & 0x00FFFFFF
         changed = False
         for child in grp.childItems():
@@ -637,8 +643,6 @@ class HighlightRenderer:
 
     @traced()
     def _add_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
-        from protoboard.controller.view_options.layer_state import Z_SELECTION
-
         bbox = self._view.session.component_bbox(comp_id)
         if bbox is None:
             return
@@ -668,13 +672,7 @@ class HighlightRenderer:
     @traced()
     def _remove_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
         rect = self._selection_bbox_overlays.pop(comp_id, None)
-        if rect is None:
-            return
-        try:
-            if rect.scene() is self._view.scene():
-                self._view.scene().removeItem(rect)
-        except RuntimeError:
-            pass
+        remove_scene_items(self._view.scene(), (rect,))
 
     @traced()
     def _sync_selection_bbox_overlays(self, selected: set[uuid.UUID]) -> None:
@@ -689,6 +687,13 @@ class HighlightRenderer:
                 self._update_selection_bbox_overlay(cid)
             else:
                 self._add_selection_bbox_overlay(cid)
+
+    @traced()
+    def update_selection_bbox_overlays(self) -> None:
+        """Refresh selected-component frames against the live drag pose."""
+        tool = self._view.active_tool
+        selected = set(getattr(tool, "selected_component_ids", set()))
+        self._sync_selection_bbox_overlays(selected)
 
     # -- selected-wire neon overlays -------------------------------------------
 
@@ -710,10 +715,6 @@ class HighlightRenderer:
         overlay and a second one on top would only clutter.  Returns the
         selected wire-id set for the caller's back-cache signature.
         """
-        from PySide6.QtWidgets import QGraphicsLineItem
-
-        from protoboard.controller.view_options.layer_state import Z_WIRE_HIGHLIGHT
-
         theme = self._view.theme
         tool = self._view.active_tool
         selected: set[uuid.UUID] = set(getattr(tool, "selected_wire_ids", set()))
@@ -755,14 +756,7 @@ class HighlightRenderer:
     @traced()
     def _remove_wire_select_overlay(self, wire_id: uuid.UUID) -> None:
         group = self._wire_select_overlays.pop(wire_id, None)
-        if group is None:
-            return
-        try:
-            if group.scene() is self._view.scene():
-                self._view.scene().removeItem(group)
-        except RuntimeError:
-            # C++ item already destroyed by a scene rebuild — nothing to do.
-            pass
+        remove_scene_items(self._view.scene(), (group,))
 
     # -- net-pad discs + free-pad ring -------------------------------------------
 
@@ -815,11 +809,6 @@ class HighlightRenderer:
         so no reclassification happens on a plain selection click.  An empty
         *net_ids* just tears the discs down.
         """
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
-        from protoboard.controller.view_options.layer_state import Z_NET_PAD_HIGHLIGHT
-        from protoboard.domain.layout.pin_pad_classification import PinPadInfo
-
         self._clear_net_pad_highlights()
         self._draw_free_pad_ring()  # the clicked free-pad ring (net-independent)
         if not net_ids:
@@ -855,10 +844,6 @@ class HighlightRenderer:
         Tracked in ``_net_pad_highlight_items`` so it is torn down with the discs
         on the next highlight pass.  No-op when no free pad is the click target.
         """
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
-        from protoboard.controller.view_options.layer_state import Z_NET_PAD_HIGHLIGHT
-
         pos = self._free_pad_ring_pos
         if pos is None:
             return
@@ -876,10 +861,5 @@ class HighlightRenderer:
     @traced()
     def _clear_net_pad_highlights(self) -> None:
         scene = self._view.scene()
-        for item in self._net_pad_highlight_items:
-            try:
-                if isinstance(item, QGraphicsItem) and item.scene() is scene:
-                    scene.removeItem(item)
-            except RuntimeError:
-                pass  # C++ item already gone (scene cleared)
+        remove_scene_items(scene, self._net_pad_highlight_items)
         self._net_pad_highlight_items.clear()

@@ -40,8 +40,10 @@ from protoboard.domain.commands.component_cmds import (
     ReplaceWireFragmentsCommand,
     SetWireInsulatedCommand,
 )
+from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.wire import Fragment, Wire, fragments_for_slice
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.geometry import Point
 from protoboard.types import Side
 
@@ -107,7 +109,7 @@ class WireRange:
     reroute operation (empty otherwise).  Constructed only when both endpoints
     are chosen — the "armed but incomplete" state is ``None`` in the tool.
 
-    (Formerly ``WireEditState``; kept as an alias for callers not yet renamed.)
+    ``WireRange`` is shared by whole-wire and fragment operations.
     """
 
     start_wire_id: uuid.UUID
@@ -149,12 +151,6 @@ class WireRange:
             end_idx=self.end_idx,
             waypoints=tuple(waypoints),
         )
-
-
-#: Backward-compatible alias — ``WireRange`` was introduced when whole-wire ops
-#: were unified onto the same range abstraction as wire-edit fragments. Existing
-#: callers still importing ``WireEditState`` keep working.
-WireEditState = WireRange
 
 
 # -- small pure geometry helpers (ports of the legacy free/static funcs) -----
@@ -753,9 +749,6 @@ def autoroute_fragment_path(
     caller supplies the :class:`ConnectivityGraph` (built from the session) and
     the boundary points/side; this stays Qt-free and returns just the geometry.
     """
-    from protoboard.domain.connectivity.incremental import ConnectivityGraph
-    from protoboard.domain.routing.cost_model import RoutingCostModel
-
     results = find_paths(
         graph=cast(ConnectivityGraph, graph),
         source=source,

@@ -41,6 +41,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+from protoboard.domain.components.resolution import resolve_instance_definition
 from protoboard.instrumentation.call_counters import counted
 
 if TYPE_CHECKING:
@@ -240,16 +241,16 @@ def _pin_endpoint_matches_path(
             if pin_world_cache is not None:
                 pin_world_cache[cache_key] = False
             return False
-        inst = instances.get(pin.component_id)
-        if inst is None:
+        resolved = resolve_instance_definition(
+            pin.component_id,
+            instances,
+            definitions,
+        )
+        if resolved is None:
             if pin_world_cache is not None:
                 pin_world_cache[cache_key] = False
             return False
-        defn = definitions.get(inst.definition_ref)
-        if defn is None:
-            if pin_world_cache is not None:
-                pin_world_cache[cache_key] = False
-            return False
+        inst, defn = resolved
         try:
             fp = resolved_footprint(defn, inst, inst.families)
             physical_positions = tuple(
@@ -474,21 +475,20 @@ def group_bbox_with_owned_wires(
     Returns ``(x0, y0, x1, y1)`` with a ``pad`` margin, or ``None`` if
     the group has no resolvable pins (and therefore no meaningful bbox).
     """
-    from protoboard.domain.components.resolution import resolve_component
-    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.layout.placement import iter_pin_world_positions
 
     xs: list[float] = []
     ys: list[float] = []
 
     for cid in group_comp_ids:
-        component = resolve_component(cid, placements, instances, definitions)
-        if component is None or component.package is None:
-            continue
-        fp = component.package
-        for n in range(fp.pin_count()):
-            p = pin_world_position(fp, component.placement, n + 1)
-            xs.append(p.x)
-            ys.append(p.y)
+        for _, position in iter_pin_world_positions(
+            cid,
+            placements=placements,
+            instances=instances,
+            components=definitions,
+        ):
+            xs.append(position.x)
+            ys.append(position.y)
 
     for wire in wires:
         if not wire_is_owned_by_group(

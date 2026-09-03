@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.contexts import PreviewProjectContext
+    from protoboard.domain.components.resolution import PlacedComponent
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.layout import Layout
     from protoboard.geometry import Point
@@ -48,6 +49,17 @@ class PreviewState:
 
     # -- the swapped-in pose (preview) --------------------------------------
 
+    def placed_component(self, comp_id: uuid.UUID) -> PlacedComponent | None:
+        """Resolve component records against the preview placement map."""
+        from protoboard.domain.components.resolution import resolve_placed_component
+
+        return resolve_placed_component(
+            comp_id,
+            self.layout.placements,
+            self.instances,
+            self.components,
+        )
+
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
         """Grid-cell → comp_id index from the *preview* placements (uncached).
 
@@ -65,31 +77,17 @@ class PreviewState:
 
     def iter_pin_positions(self, comp_id: uuid.UUID) -> list[tuple[int, Point]]:
         """``[(pin_number, world_pos), …]`` for *comp_id* at the preview pose."""
-        from protoboard.domain.layout.pad_conflict import (
-            resolved_footprint_or_default,
-        )
-        from protoboard.domain.layout.placement import resolve_pin_world_position
+        from protoboard.domain.layout.placement import iter_pin_world_positions
 
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return []
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return []
-        result: list[tuple[int, Point]] = []
-        for n in range(resolved_footprint_or_default(defn, inst).pin_count()):
-            pin_num = n + 1
-            pos = resolve_pin_world_position(
+        return list(
+            iter_pin_world_positions(
                 comp_id,
-                pin_num,
                 placements=self.layout.placements,
                 instances=self.instances,
                 components=self.components,
                 families=self.package_families,
             )
-            if pos is not None:
-                result.append((pin_num, pos))
-        return result
+        )
 
     def group_tree(self) -> GroupTree:
         return self._live.group_tree()

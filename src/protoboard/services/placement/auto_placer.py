@@ -36,6 +36,7 @@ import structlog
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import (
     footprint_of,
@@ -109,11 +110,17 @@ def auto_place(
         uuid.UUID,
         tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
     ] = {}
-    for comp_id, existing_placement in session.layout.placements.items():
-        inst = session.instances.get(comp_id)
-        defn = session.components.get(inst.definition_ref) if inst else None
-        if defn is not None and inst is not None:
-            existing[comp_id] = (existing_placement, defn, inst)
+    for component in iter_placed_components(
+        session.layout.placements,
+        session.instances,
+        session.components,
+    ):
+        comp_id = component.placement.component_id
+        existing[comp_id] = (
+            component.placement,
+            component.definition,
+            component.instance,
+        )
 
     # Pre-sort: process components with the most gravity connections first.
     ordered = _sort_by_gravity(instances_to_place, session, existing)

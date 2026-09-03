@@ -14,8 +14,16 @@ from protoboard.domain.components.definition import (
 )
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.generated_families import sil_family
-from protoboard.domain.components.resolution import resolve_component
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+    resolve_component,
+    resolve_placed_component,
+)
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    iter_footprint_pin_positions,
+    iter_pin_world_positions,
+)
 from protoboard.geometry import Point
 
 
@@ -72,6 +80,67 @@ def test_resolve_component_returns_complete_context() -> None:
     assert resolved.placement is placement
     assert resolved.package_option is definition.package_options[0]
     assert resolved.package is package
+
+
+def test_resolve_placed_component_returns_structural_context() -> None:
+    cid, placement, instance, definition, _ = _context(bound=False)
+
+    resolved = resolve_placed_component(
+        cid,
+        {cid: placement},
+        {cid: instance},
+        {definition.name: definition},
+    )
+
+    assert resolved is not None
+    assert resolved.placement is placement
+    assert resolved.instance is instance
+    assert resolved.definition is definition
+
+
+def test_iter_placed_components_skips_unresolvable_records() -> None:
+    cid, placement, instance, definition, _ = _context(bound=False)
+    missing_id = uuid.uuid4()
+
+    resolved = list(
+        iter_placed_components(
+            {cid: placement, missing_id: placement},
+            {cid: instance},
+            {definition.name: definition},
+        )
+    )
+
+    assert resolved == [
+        resolve_placed_component(
+            cid,
+            {cid: placement},
+            {cid: instance},
+            {definition.name: definition},
+        )
+    ]
+
+
+def test_iter_pin_world_positions_uses_bound_variant_geometry() -> None:
+    cid, placement, instance, definition, _ = _context()
+
+    positions = list(
+        iter_pin_world_positions(
+            cid,
+            placements={cid: placement},
+            instances={cid: instance},
+            components={definition.name: definition},
+        )
+    )
+
+    assert positions == [(1, Point(2.5, 3.5)), (2, Point(2.5, 4.5))]
+
+
+def test_iter_footprint_pin_positions_preserves_physical_pin_numbers() -> None:
+    _cid, placement, _instance, _definition, package = _context()
+
+    positions = list(iter_footprint_pin_positions(package, placement))
+
+    assert positions == [(1, Point(2.5, 3.5)), (2, Point(2.5, 4.5))]
 
 
 @pytest.mark.parametrize("missing", ["placement", "instance", "definition"])

@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem
 
+from protoboard.geometry import Point
+from protoboard.gui.scene_items import remove_scene_items
+
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsScene
 
@@ -75,8 +78,6 @@ class DragCornerText:
         """Re-anchor the text + background to the view's top-left corner."""
         if self._text_item is None or self._bg_item is None:
             return
-        from protoboard.geometry import Point
-
         port = view.viewport_port
         top_left_scene = port.map_view_to_scene(
             Point(float(_MARGIN_PX), float(_MARGIN_PX))
@@ -103,13 +104,7 @@ class DragCornerText:
 
     def hide(self, scene: QGraphicsScene) -> None:
         """Remove the corner text from *scene*."""
-        for item in (self._text_item, self._bg_item):
-            if item is None:
-                continue
-            try:
-                scene.removeItem(item)
-            except RuntimeError:
-                pass  # C++ object already gone via scene.clear()
+        remove_scene_items(scene, (self._text_item, self._bg_item))
         self._text_item = None
         self._bg_item = None
         self._last_text = ""

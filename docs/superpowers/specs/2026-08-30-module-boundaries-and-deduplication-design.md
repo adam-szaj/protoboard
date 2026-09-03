@@ -356,12 +356,11 @@ traceback before the controlled timeout. No production GUI consumer accesses
 `BoardView`'s private tool or layer state, and the only remaining verification
 item is manual smoke testing with a real display server.
 
-The wire-edit boundary pass also migrated all production annotations and
-imports from the historical `WireEditState` name to the canonical `WireRange`
-value object. The compatibility alias is no longer part of `__all__` and is
-retained only for existing external/test imports; no controller implementation
-depends on the old name. The source tree is at 97,085 physical lines, and the
-focused wire-edit/select gate passes 172 tests.
+The wire-edit boundary pass migrated all production annotations and imports
+from the historical `WireEditState` name to the canonical `WireRange` value
+object. The obsolete compatibility alias was then removed after all in-repo
+callers and tests were migrated. The source tree is at 97,085 physical lines,
+and the focused wire-edit/select gate passes 172 tests.
 
 The final alias cleanup removed obsolete action, mirror, settings, renderer,
 group-ownership, keymap, and routing-discovery compatibility shims where

@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+    resolve_placed_component,
+)
 from protoboard.domain.layout.drag_analysis import (
     DragAnalysis,
     DragReason,
@@ -30,6 +34,7 @@ from protoboard.domain.layout.pad_conflict import (
 from protoboard.domain.layout.pad_strategy import PadStrategy
 from protoboard.domain.layout.placement import (
     component_bbox,
+    iter_footprint_pin_positions,
     pin_world_position,
 )
 from protoboard.domain.layout.wire_utils import find_skewed_wires
@@ -158,13 +163,17 @@ class DragDetector:
         reasons: list[DragReason] = []
 
         for cid in moved_comp_ids:
-            pl = snapshot.placements.get(cid)
-            inst = snapshot.instances.get(cid)
-            if pl is None or inst is None:
+            component = resolve_placed_component(
+                cid,
+                snapshot.placements,
+                snapshot.instances,
+                snapshot.components,
+            )
+            if component is None:
                 continue
-            defn = snapshot.components.get(inst.definition_ref)
-            if defn is None:
-                continue
+            pl = component.placement
+            inst = component.instance
+            defn = component.definition
 
             # --- Body-on-body overlap (no strategy involvement) ---
             body_overlap_refdes = self._detect_body_overlap(
@@ -509,32 +518,27 @@ class DragDetector:
             defn.component_class,
         )
         _eps = 1e-4
-        for other_id, other_pl in snapshot.placements.items():
+        for other in iter_placed_components(
+            snapshot.placements,
+            snapshot.instances,
+            snapshot.components,
+        ):
+            other_id = other.placement.component_id
             if other_id == cid or other_id in moved_comp_ids:
                 continue
-            other_inst = snapshot.instances.get(other_id)
-            if other_inst is None:
-                continue
-            other_defn = snapshot.components.get(other_inst.definition_ref)
-            if other_defn is None:
-                continue
-            other_fp = footprint_of(other_defn, other_inst)
+            other_fp = footprint_of(other.definition, other.instance)
             other_bbox = component_bbox(
                 other_fp,
-                other_pl,
-                other_defn.component_class,
+                other.placement,
+                other.definition.component_class,
             )
             if not incoming_bbox.intersects(other_bbox):
                 continue
             has_pin_overlap = False
-            for in_pin in range(1, incoming_fp.pin_count() + 1):
-                in_pos = pin_world_position(incoming_fp, pl, in_pin)
-                for ot_pin in range(1, other_fp.pin_count() + 1):
-                    ot_pos = pin_world_position(
-                        other_fp,
-                        other_pl,
-                        ot_pin,
-                    )
+            for _in_pin, in_pos in iter_footprint_pin_positions(incoming_fp, pl):
+                for _ot_pin, ot_pos in iter_footprint_pin_positions(
+                    other_fp, other.placement
+                ):
                     if (
                         abs(in_pos.x - ot_pos.x) < _eps
                         and abs(in_pos.y - ot_pos.y) < _eps
@@ -544,7 +548,7 @@ class DragDetector:
                 if has_pin_overlap:
                     break
             if not has_pin_overlap:
-                return other_inst.refdes
+                return other.instance.refdes
         return None
 
     def _wire_conflicts_via_strategy(

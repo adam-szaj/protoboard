@@ -22,6 +22,8 @@ from protoboard.domain.board.templates import (
     make_perfboard,
     make_stripboard,
 )
+from protoboard.domain.components.resolution import iter_placed_components
+from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
 if TYPE_CHECKING:
     import uuid
@@ -80,26 +82,23 @@ def components_outside_bounds(
     components: dict[str, ComponentDefinition],
 ) -> list[tuple[str, float, float]]:
     """Return list of (refdes, x, y) for components outside new board bounds."""
-    from protoboard.domain.layout.placement import pin_world_position
-
     bounds = new_board.bounds
     outside = []
     from protoboard.domain.components.package import resolved_footprint
 
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        defn = components.get(inst.definition_ref) if inst else None
-        if defn is None:
-            continue
-        fp = resolved_footprint(defn, inst, inst.families if inst else None)
-        for pin_num in range(1, fp.pin_count() + 1):
-            pt = pin_world_position(fp, placement, pin_num)
+    for component in iter_placed_components(
+        layout.placements,
+        instances,
+        components,
+    ):
+        inst = component.instance
+        fp = resolved_footprint(component.definition, inst, inst.families)
+        for _pin_num, pt in iter_footprint_pin_positions(fp, component.placement):
             if not (
                 bounds.x <= pt.x <= bounds.x + bounds.lx
                 and bounds.y <= pt.y <= bounds.y + bounds.ly
             ):
-                refdes = inst.refdes if inst else str(comp_id)[:8]
-                outside.append((refdes, pt.x, pt.y))
+                outside.append((inst.refdes, pt.x, pt.y))
                 break  # one violation per component is enough
     return outside
 

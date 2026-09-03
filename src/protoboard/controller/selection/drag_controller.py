@@ -40,6 +40,7 @@ import structlog
 
 from protoboard.controller.editing.drag_set import DragSet
 from protoboard.controller.selection.mouse_input import Intent, Mods
+from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.layout.drag_analysis import DragSeverity
 from protoboard.geometry import Point, Vector
 
@@ -348,16 +349,21 @@ class DragController:
                 self._trial_pad_index = self._ctx.pad_index().clone()  # type: ignore[attr-defined]
             assert isinstance(self._trial_pad_index, PadIndex)
             for cid in self._member_ids:
-                pl = self._ctx.layout.placements.get(cid)
-                inst = self._ctx.instances.get(cid)
-                if pl is None or inst is None:
-                    continue
-                defn = self._ctx.components.get(inst.definition_ref)
-                if defn is None:
+                component = resolve_placed_component(
+                    cid,
+                    self._ctx.layout.placements,
+                    self._ctx.instances,
+                    self._ctx.components,
+                )
+                if component is None:
                     continue
                 self._trial_pad_index.remove_component(cid)
                 self._trial_pad_index.add_component(
-                    cid, pl, defn, schematic=self._ctx.schematic, instance=inst
+                    cid,
+                    component.placement,
+                    component.definition,
+                    schematic=self._ctx.schematic,
+                    instance=component.instance,
                 )
         except Exception as exc:  # noqa: BLE001 — best-effort; fall back to layout
             _log.warning("drag.pad_index.refresh_failed", error=str(exc))

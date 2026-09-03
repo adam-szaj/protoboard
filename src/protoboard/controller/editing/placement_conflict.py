@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
     PadConflict,
@@ -29,7 +30,7 @@ from protoboard.domain.layout.pad_conflict import (
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     component_bbox,
-    pin_world_position,
+    iter_footprint_pin_positions,
 )
 from protoboard.geometry import round_coord as _round
 
@@ -145,18 +146,18 @@ def check_and_resolve(
     in_footprint = _footprint_of(defn, incoming_instance)
     incoming_bbox = component_bbox(in_footprint, placement, defn.component_class)
     _EPS = 1e-4
-    for other_id, other_pl in session.layout.placements.items():
-        if other_id == instance_id:
+    for other in iter_placed_components(
+        session.layout.placements,
+        session.instances,
+        session.components,
+    ):
+        if other.placement.component_id == instance_id:
             continue
-        other_inst = session.instances.get(other_id)
-        if other_inst is None:
-            continue
-        other_defn = session.components.get(other_inst.definition_ref)
-        if other_defn is None:
-            continue
-        other_footprint = _footprint_of(other_defn, other_inst)
+        other_footprint = _footprint_of(other.definition, other.instance)
         other_bbox = component_bbox(
-            other_footprint, other_pl, other_defn.component_class
+            other_footprint,
+            other.placement,
+            other.definition.component_class,
         )
         if not incoming_bbox.intersects(other_bbox):
             continue
@@ -165,10 +166,10 @@ def check_and_resolve(
         # the pad-conflict logic below decide.  If no pin coincides at all,
         # it is a pure body-on-body overlap → block.
         has_pin_overlap = False
-        for in_pin in range(1, in_footprint.pin_count() + 1):
-            in_pos = pin_world_position(in_footprint, placement, in_pin)
-            for ot_pin in range(1, other_footprint.pin_count() + 1):
-                ot_pos = pin_world_position(other_footprint, other_pl, ot_pin)
+        for _in_pin, in_pos in iter_footprint_pin_positions(in_footprint, placement):
+            for _ot_pin, ot_pos in iter_footprint_pin_positions(
+                other_footprint, other.placement
+            ):
                 if abs(in_pos.x - ot_pos.x) < _EPS and abs(in_pos.y - ot_pos.y) < _EPS:
                     has_pin_overlap = True
                     break

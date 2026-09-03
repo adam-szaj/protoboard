@@ -12,6 +12,11 @@ import structlog
 
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+    resolve_instance_definition,
+    resolve_placed_component,
+)
 from protoboard.geometry import Point, Rect, Transform2D, Vector, round_coord
 from protoboard.instrumentation.call_counters import counted
 from protoboard.types import Side
@@ -607,20 +612,59 @@ def resolve_pin_world_position(
 
     Pure function — no Qt, no side effects.
     """
-    placement = placements.get(comp_id)
-    if placement is None:
-        return None
-    inst = instances.get(comp_id)
-    if inst is None:
-        return None
-    defn = components.get(inst.definition_ref)
-    if defn is None:
+    component = resolve_placed_component(comp_id, placements, instances, components)
+    if component is None:
         return None
     try:
-        fp = resolved_footprint(defn, inst, families)
-        return pin_world_position(fp, placement, pin_number)
+        fp = resolved_footprint(
+            component.definition,
+            component.instance,
+            families,
+        )
+        return pin_world_position(fp, component.placement, pin_number)
     except (IndexError, ValueError):
         return None
+
+
+def iter_footprint_pin_positions(
+    footprint: Footprint,
+    placement: ComponentPlacement,
+) -> Iterator[tuple[int, Point]]:
+    """Yield physical pin numbers and world positions for a footprint pose."""
+    for pin_number in range(1, footprint.pin_count() + 1):
+        try:
+            position = pin_world_position(footprint, placement, pin_number)
+        except (IndexError, ValueError):
+            continue
+        yield pin_number, position
+
+
+def iter_pin_world_positions(
+    comp_id: uuid.UUID,
+    *,
+    placements: PlacementMap,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    families: dict[str, PackageFamily] | None = None,
+) -> Iterator[tuple[int, Point]]:
+    """Yield ``(pin_number, world_position)`` for a placed component.
+
+    The component and its concrete footprint are resolved once. Missing
+    records, an unavailable footprint, or an invalid pin are treated as an
+    empty/partial result, matching :func:`resolve_pin_world_position`.
+    """
+    component = resolve_placed_component(comp_id, placements, instances, components)
+    if component is None:
+        return
+    try:
+        footprint = resolved_footprint(
+            component.definition,
+            component.instance,
+            families,
+        )
+    except (IndexError, ValueError):
+        return
+    yield from iter_footprint_pin_positions(footprint, component.placement)
 
 
 def validate_pins_on_pads(
@@ -636,9 +680,7 @@ def validate_pins_on_pads(
     An empty return list means all pins are correctly placed.
     """
     misses: list[tuple[int, Point]] = []
-    for n in range(footprint.pin_count()):
-        pin_num = n + 1
-        wp = pin_world_position(footprint, placement, pin_num)
+    for pin_num, wp in iter_footprint_pin_positions(footprint, placement):
         if not any(
             abs(wp.x - px) < tol and abs(wp.y - py) < tol for px, py in pad_positions
         ):
@@ -655,12 +697,10 @@ def warn_pins_off_pads(
     board: Board,
 ) -> None:
     """Log a warning if any pin of the component does not land on a board pad."""
-    inst = instances.get(comp_id)
-    if inst is None:
+    resolved = resolve_instance_definition(comp_id, instances, components)
+    if resolved is None:
         return
-    defn = components.get(inst.definition_ref)
-    if defn is None:
-        return
+    inst, defn = resolved
     from protoboard.domain.board.boxes import GapAtom
 
     pad_set: frozenset[tuple[float, float]] = frozenset(
@@ -696,8 +736,7 @@ def _pin_position_set(
     """
     return {
         (round_coord(p.x), round_coord(p.y))
-        for n in range(1, footprint.pin_count() + 1)
-        for p in (pin_world_position(footprint, placement, n),)
+        for _pin_number, p in iter_footprint_pin_positions(footprint, placement)
     }
 
 
@@ -715,12 +754,10 @@ def move_blocked(
     another's *and* none of their pins coincide — a shared pad is a legal
     soldering scenario handled by the GUI conflict resolver, not a block.
     """
-    inst = instances.get(comp_id)
-    if inst is None:
+    resolved = resolve_instance_definition(comp_id, instances, components)
+    if resolved is None:
         return False
-    defn = components.get(inst.definition_ref)
-    if defn is None:
-        return False
+    inst, defn = resolved
 
     # Geometry resolves the moved/other components' chosen variant footprints,
     # not the definition default (pin_count stays on defn — variant-invariant).
@@ -728,27 +765,31 @@ def move_blocked(
     new_bbox = component_bbox(fp, new_pl, defn.component_class)
     new_pin_positions = _pin_position_set(fp, new_pl)
 
-    for other_id, other_pl in layout.placements.items():
-        if other_id == comp_id:
-            continue
-        other_inst = instances.get(other_id)
-        if other_inst is None:
-            continue
-        other_defn = components.get(other_inst.definition_ref)
-        if other_defn is None:
+    for other in iter_placed_components(
+        layout.placements,
+        instances,
+        components,
+    ):
+        if other.placement.component_id == comp_id:
             continue
 
-        other_fp = resolved_footprint(other_defn, other_inst, other_inst.families)
+        other_fp = resolved_footprint(
+            other.definition,
+            other.instance,
+            other.instance.families,
+        )
         other_bbox = component_bbox(
             other_fp,
-            other_pl,
-            other_defn.component_class,
+            other.placement,
+            other.definition.component_class,
         )
         if new_bbox.intersects(other_bbox):
             # Only block when no pin of the moved component coincides with a pin
             # of the other — that would be a shared-pad scenario which the GUI
             # conflict resolver handles separately.
-            if new_pin_positions.isdisjoint(_pin_position_set(other_fp, other_pl)):
+            if new_pin_positions.isdisjoint(
+                _pin_position_set(other_fp, other.placement)
+            ):
                 return True
 
     return False

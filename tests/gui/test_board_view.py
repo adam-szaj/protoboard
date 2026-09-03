@@ -71,6 +71,14 @@ class TestSnap:
 
 
 class TestRefresh:
+    def test_dispose_stops_scheduled_refresh(self, board_view: BoardView) -> None:
+        board_view.composer.schedule_refresh()
+        assert board_view.composer._refresh_timer.is_active()
+
+        board_view.composer.dispose()
+
+        assert not board_view.composer._refresh_timer.is_active()
+
     def test_refresh_builds_bg_cache_display_list(self, board_view: BoardView) -> None:
         # Board layer no longer lives in the scene — it's rasterised
         # into the background cache by drawBackground.  Verify that the
@@ -82,6 +90,17 @@ class TestRefresh:
         assert isinstance(board_view.paint._bg_display_list, BoardDisplayList)
         # 5×5 = 25 pads expected for the test fixture board.
         assert len(board_view.paint._bg_display_list.pads) >= 25
+
+    def test_bg_cache_rebuild_reuses_existing_display_list(
+        self, board_view: BoardView
+    ) -> None:
+        board_view.paint._ensure_bg_cache()
+        display_list = board_view.paint._bg_display_list
+
+        board_view.paint.invalidate_bg_cache(keep_anchor=True)
+        board_view.paint._ensure_bg_cache()
+
+        assert board_view.paint._bg_display_list is display_list
 
     def test_refresh_is_idempotent(self, board_view: BoardView) -> None:
         board_view.refresh()
@@ -197,6 +216,37 @@ class TestBoardSandwichCache:
             back_grp = getattr(wire_group, "back", wire_group)
             assert back_grp in board_view.paint._back_hidden_items
             assert back_grp.isVisible() is False
+
+    def test_back_side_component_drag_remains_live(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """A component dragged from the opposite side must escape the cache."""
+        from protoboard.controller.view_options.layer_state import Z_BOARD
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.geometry import Point
+
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        session.instances[inst.id] = inst
+        session.layout.placements[inst.id] = ComponentPlacement(
+            component_id=inst.id,
+            position=Point(1.5, 1.5),
+            rotation=0,
+            side="bottom",
+        )
+        session.invalidate_graph()
+        session.rebuild_all_pin_identities()
+        board_view.refresh()
+        board_view.paint._ensure_back_cache()
+
+        group = cast(QGraphicsItemGroup, board_view.composer._comp_groups[inst.id])
+        assert group.isVisible() is False
+
+        session.layout.placements[inst.id].position = Point(2.5, 2.5)
+        board_view.composer.on_drag_moved()
+
+        assert group.isVisible() is True
+        assert group.zValue() >= Z_BOARD
 
     def test_alpha_for_board_mid_default(self) -> None:
         from protoboard.controller.view_options.layer_state import LayerState

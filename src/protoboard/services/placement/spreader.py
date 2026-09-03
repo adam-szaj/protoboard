@@ -39,6 +39,10 @@ import structlog
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+    resolve_placed_component,
+)
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire_utils import board_pads_for_side
@@ -99,13 +103,10 @@ def spread_components(
     # Filter to only those IDs that are actually placed, have a definition, and are unlocked.  # noqa: E501
     mobile_ids: list[uuid.UUID] = []
     for cid in component_ids:
-        pl = session.layout.placements.get(cid)
-        if pl is None or pl.locked:
-            continue
-        inst = session.instances.get(cid)
-        if inst is None:
-            continue
-        if session.components.get(inst.definition_ref) is None:
+        component = resolve_placed_component(
+            cid, session.layout.placements, session.instances, session.components
+        )
+        if component is None or component.placement.locked:
             continue
         mobile_ids.append(cid)
 
@@ -119,13 +120,19 @@ def spread_components(
         uuid.UUID,
         tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
     ] = {}
-    for cid, pl in session.layout.placements.items():
+    for component in iter_placed_components(
+        session.layout.placements,
+        session.instances,
+        session.components,
+    ):
+        cid = component.placement.component_id
         if cid in mobile_set:
             continue
-        inst = session.instances.get(cid)
-        defn = session.components.get(inst.definition_ref) if inst else None
-        if defn is not None and inst is not None:
-            fixed[cid] = (pl, defn, inst)
+        fixed[cid] = (
+            component.placement,
+            component.definition,
+            component.instance,
+        )
 
     pads_top: set[Point] = board_pads_for_side(session.board, "top")
     pads_bottom: set[Point] = board_pads_for_side(session.board, "bottom")
@@ -288,16 +295,19 @@ def _snap_to_grid(
     result: dict[uuid.UUID, ComponentPlacement] = {}
 
     for cid in ordered:
-        inst = session.instances.get(cid)
-        if inst is None:
+        component = resolve_placed_component(
+            cid,
+            original_placements,
+            session.instances,
+            session.components,
+        )
+        if component is None:
             result[cid] = original_placements[cid]
             continue
-        defn = session.components.get(inst.definition_ref)
-        if defn is None:
-            result[cid] = original_placements[cid]
-            continue
+        orig_pl = component.placement
+        defn = component.definition
+        inst = component.instance
 
-        orig_pl = original_placements[cid]
         target = ideal_positions[cid]
 
         board_pads = pads_top if orig_pl.side == "top" else pads_bottom

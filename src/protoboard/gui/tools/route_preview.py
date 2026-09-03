@@ -20,12 +20,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush, QColor, QPen
+from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene
+
 from protoboard.controller.tools.route_preview import RoutePreview as RoutePreview
+from protoboard.gui.renderers.routing_overlay import render_routing_hints
+from protoboard.gui.scene_items import remove_scene_items
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-
-    from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
     from protoboard.controller.ports.routing import RoutePath
     from protoboard.controller.view_options.theme import Theme
@@ -55,8 +59,7 @@ class QtRoutePreview:
         self._segments.append(self._add_line(a, b, dashed=False))
 
     def clear_segments(self) -> None:
-        for item in self._segments:
-            self._scene().removeItem(item)
+        remove_scene_items(self._scene(), self._segments)
         self._segments.clear()
 
     # -- live segment -----------------------------------------------------------
@@ -66,24 +69,17 @@ class QtRoutePreview:
         self._live = self._add_line(a, b, dashed=True)
 
     def clear_live(self) -> None:
-        if self._live is not None:
-            try:
-                self._scene().removeItem(self._live)
-            except RuntimeError:
-                pass  # C++ object already deleted by scene.clear()
-            self._live = None
+        remove_scene_items(self._scene(), (self._live,))
+        self._live = None
 
     # -- routing hints -----------------------------------------------------------
 
     def show_hints(self, results: Sequence[RoutePath]) -> None:
-        from protoboard.gui.renderers.routing_overlay import render_routing_hints
-
         self.clear_hints()
         self._hints = render_routing_hints(self._scene(), results, theme=self._theme())
 
     def clear_hints(self) -> None:
-        for item in self._hints:
-            self._scene().removeItem(item)
+        remove_scene_items(self._scene(), self._hints)
         self._hints = []
 
     # -- background dim ------------------------------------------------------------
@@ -95,10 +91,6 @@ class QtRoutePreview:
         (z = -0.5 vs board z = -10), so unrelated items dim further while
         the routed items (higher z + bold highlight) remain visible.
         """
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QBrush, QColor
-        from PySide6.QtWidgets import QGraphicsRectItem
-
         if self._dim is not None:
             return
         scene = self._scene()
@@ -114,12 +106,7 @@ class QtRoutePreview:
         self._dim = rect_item
 
     def clear_dim(self) -> None:
-        if self._dim is None:
-            return
-        try:
-            self._scene().removeItem(self._dim)  # type: ignore[arg-type]
-        except RuntimeError:
-            pass  # scene already cleared
+        remove_scene_items(self._scene(), (self._dim,))
         self._dim = None
 
     # -- lifecycle ---------------------------------------------------------------
@@ -133,10 +120,6 @@ class QtRoutePreview:
     # -- helpers -----------------------------------------------------------------
 
     def _add_line(self, a: Point, b: Point, *, dashed: bool) -> QGraphicsLineItem:
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QColor, QPen
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
         if dashed:
             pen.setStyle(Qt.PenStyle.DashLine)

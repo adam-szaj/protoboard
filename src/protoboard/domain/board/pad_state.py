@@ -596,15 +596,19 @@ class PadIndex:
         layout: Layout,
         schematic: Schematic,
     ) -> None:
-        for comp_id, placement in layout.placements.items():
-            inst = self._instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = self._components.get(inst.definition_ref)
-            if defn is None:
-                continue
+        from protoboard.domain.components.resolution import iter_placed_components
+
+        for component in iter_placed_components(
+            layout.placements,
+            self._instances,
+            self._components,
+        ):
             self.add_component(
-                comp_id, placement, defn, schematic=schematic, instance=inst
+                component.placement.component_id,
+                component.placement,
+                component.definition,
+                schematic=schematic,
+                instance=component.instance,
             )
 
     def _build_wires(
@@ -882,7 +886,7 @@ class PadIndex:
         from protoboard.domain.components.package.pin_mapping import (
             meta_pin_for_package_pin,
         )
-        from protoboard.domain.layout.placement import pin_world_position
+        from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
         # Variant-aware footprint/package: a bound instance resolves the body
         # the user actually chose; without one (or an unbound stub) the
@@ -908,8 +912,7 @@ class PadIndex:
                 for ref in net.pins:
                     if ref.component_id == comp_id:
                         pin_net_map[ref.pin_number] = net.id
-        for pin_num in range(1, footprint_geom.pin_count() + 1):
-            pin_pos = pin_world_position(footprint_geom, placement, pin_num)
+        for pin_num, pin_pos in iter_footprint_pin_positions(footprint_geom, placement):
             key = qpair(pin_pos)
             pad = self._pads.get(key)
             if pad is None:

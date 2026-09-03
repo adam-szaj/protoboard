@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 
@@ -311,6 +312,17 @@ class TestSelectionBasicsExtra:
 
 
 class TestRubberBand:
+    def test_rubber_band_stays_in_live_overlay_layer(
+        self, board_view: BoardView
+    ) -> None:
+        """The live band must not be folded into the back-side cache."""
+        from protoboard.controller.view_options.layer_state import Z_BOARD
+
+        preview = QtSelectPreview(board_view.scene)
+        preview.show_band(Point(0.5, 0.5), Point(2.5, 2.5), ltr=True)
+        assert preview.band.item is not None
+        assert preview.band.item.zValue() >= Z_BOARD
+
     def test_ltr_selects_components_inside(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
@@ -466,6 +478,27 @@ class TestRotate:
 
 
 class TestDragGesture:
+    @pytest.mark.parametrize("camera_side", ["top", "bottom"])
+    def test_selection_bbox_follows_live_drag(
+        self,
+        board_view: BoardView,
+        session: EditorSession,
+        camera_side: str,
+    ) -> None:
+        """The standalone selection frame tracks the component mid-drag."""
+        board_view.set_camera_side(camera_side)
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        rect = board_view.highlight._selection_bbox_overlays.get(inst.id)
+        assert rect is not None
+        before = rect.sceneBoundingRect()
+
+        _move(tool, 2.5, 0.5)
+
+        after = rect.sceneBoundingRect()
+        assert after.x() != before.x()
+
     def test_drag_component_moves_and_commits(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

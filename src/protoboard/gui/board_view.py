@@ -39,16 +39,20 @@ from PySide6.QtGui import (  # noqa: E402
     QWheelEvent,
 )
 from PySide6.QtWidgets import (  # noqa: E402
+    QGraphicsRectItem,
     QGraphicsScene,
+    QGraphicsTextItem,
     QGraphicsView,
     QWidget,
 )
 
+from protoboard.controller.selection.queries import SessionNetSource  # noqa: E402
 from protoboard.controller.view_options.layer_state import LayerState  # noqa: E402
 from protoboard.controller.view_options.layers import LayerOverrides  # noqa: E402
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme  # noqa: E402
+from protoboard.domain.layout.layout import ROOT_GROUP_ID  # noqa: E402
 from protoboard.domain.layout.snapping import SnapRequest, snap_point  # noqa: E402
-from protoboard.geometry import Point  # noqa: E402
+from protoboard.geometry import Point, Vector  # noqa: E402
 from protoboard.gui.board_view_tool import _Tool  # noqa: E402
 from protoboard.gui.highlight.renderer import HighlightRenderer  # noqa: E402
 from protoboard.gui.hover_reveal import HoverReveal  # noqa: E402
@@ -59,7 +63,9 @@ from protoboard.gui.qt_help_overlay import QtHelpOverlay  # noqa: E402
 from protoboard.gui.qt_viewport import QtViewport  # noqa: E402
 from protoboard.gui.scene_composer import SceneComposer  # noqa: E402
 from protoboard.gui.session import EditorSession  # noqa: E402
+from protoboard.gui.throttle import TimerWrap  # noqa: E402
 from protoboard.gui.tool_host import ToolHost  # noqa: E402
+from protoboard.gui.tools.gui_tools import SelectTool  # noqa: E402
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX  # noqa: E402
 from protoboard.gui.view_camera import ViewCamera  # noqa: E402
 from protoboard.instrumentation.debug_trace import traced  # noqa: E402
@@ -162,8 +168,6 @@ class BoardView(QGraphicsView):
         self._meta_pin_labels_reveal_cid: uuid.UUID | None = None
         self._pad_positions: list[Point] = []
         # Active group for rendering context (set by SelectTool on navigation).
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         self._active_group_id: uuid.UUID = ROOT_GROUP_ID
         # Highlight mechanism (dimming, cyan outlines, wire/net-pad overlays,
         # selection bbox) — extracted service; owns all highlight state.
@@ -193,6 +197,7 @@ class BoardView(QGraphicsView):
         # Scene construction (groups, fingerprints, overlays, drag anchors,
         # refresh debounce) — extracted service (see gui/scene_composer.py).
         self.composer = SceneComposer(self)
+        self.destroyed.connect(self.composer.dispose)
         # Hover-reveal (2A tooltip / 2B pin-name reveal) — owns the dwell
         # timer; needs the viewport, layer overrides and refresh (see
         # gui/hover_reveal.py).
@@ -212,8 +217,6 @@ class BoardView(QGraphicsView):
         # debounce to ~80 ms so a burst of wheel ticks (typical user
         # scroll: 4–8 ticks in <100 ms) collapses to a single
         # visibility refresh after the burst settles.
-        from protoboard.gui.throttle import TimerWrap
-
         self._label_vis_timer = TimerWrap(80, self._apply_label_visibility)
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
@@ -358,8 +361,6 @@ class BoardView(QGraphicsView):
         "label_bg") are shown/hidden together with their text items.
         """
         _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
-        from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
-
         scene_scale = abs(self.transform().m11())
         show = scene_scale >= self._LABEL_MIN_SCENE_UNITS
         n_items = 0
@@ -392,8 +393,6 @@ class BoardView(QGraphicsView):
 
     @traced()
     def set_theme(self, theme: object) -> None:
-        from protoboard.controller.view_options.theme import Theme
-
         if isinstance(theme, Theme):
             self._theme_override = theme
             # board_bg is applied as the QGraphicsView background brush, not
@@ -588,8 +587,6 @@ class BoardView(QGraphicsView):
     @traced()
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""
-        from protoboard.gui.tools.gui_tools import SelectTool
-
         if not isinstance(self.active_tool, SelectTool):
             self.set_tool(SelectTool())
         tool = self.active_tool
@@ -617,9 +614,6 @@ class BoardView(QGraphicsView):
         would re-pass already-selected items to ``set_many``, which toggles them
         back OFF (the documented FSM trap).
         """
-        from protoboard.controller.selection.queries import SessionNetSource
-        from protoboard.gui.tools.gui_tools import SelectTool
-
         if not isinstance(self.active_tool, SelectTool):
             self.set_tool(SelectTool())
         tool = self.active_tool
@@ -745,8 +739,6 @@ class BoardView(QGraphicsView):
     @traced()
     def center_on_scene_point(self, scene_pt: Point) -> None:
         """Scroll the view so that scene_pt appears at the centre of the viewport."""
-        from protoboard.geometry import Vector
-
         port = self.viewport_port
         centre = port.viewport_rect().center
         current = port.map_view_to_scene(centre)

@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPen
 from PySide6.QtWidgets import (
     QAbstractGraphicsShapeItem,
     QGraphicsEllipseItem,
@@ -24,14 +24,24 @@ from protoboard.controller.view_options.layer_state import (
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import meta_pin_for_package_pin
+from protoboard.domain.components.package import (
+    meta_pin_for_package_pin,
+    resolve_component_package,
+    resolved_footprint,
+)
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+)
+from protoboard.domain.layout.group_ownership import OwnershipResolver
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
-    pin_world_position,
+    iter_footprint_pin_positions,
+    iter_pin_world_positions,
 )
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect, Vector
@@ -311,13 +321,11 @@ def update_component_groups(
             existing_fingerprints.pop(cid, None)
             _drop_label_group(cid)
 
-    for comp_id, placement in placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
+    for component in iter_placed_components(placements, instances, components):
+        comp_id = component.placement.component_id
+        placement = component.placement
+        inst = component.instance
+        defn = component.definition
 
         pin_net_for_comp: dict[int, uuid.UUID] = {
             ref.pin_number: nid
@@ -406,10 +414,14 @@ def update_component_groups(
         # we deliberately don't touch it here.  Doing so previously
         # clobbered the route-active dim profile every time a refresh
         # fired during a wire drag.
+        # A previous live drag may have raised a back-side group into the
+        # overlay band.  Full refreshes restore the canonical per-side z stack.
+        grp.setZValue(layers.z_for_component(placement.side))
         _op = alpha_map.get(comp_id, 1.0)
         grp.setOpacity(_op)
         lbl = label_groups.get(comp_id)
         if lbl is not None:
+            lbl.setZValue(layers.z_for_label(placement.side))
             lbl.setOpacity(_op)
 
 
@@ -456,13 +468,11 @@ def render_components(
 
     comp_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     label_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
-    for comp_id, placement in placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
+    for component in iter_placed_components(placements, instances, components):
+        comp_id = component.placement.component_id
+        placement = component.placement
+        inst = component.instance
+        defn = component.definition
         group_alpha = alpha_map.get(comp_id, 1.0)
         if highlighted_net_id is not None:
             net_dim = (
@@ -537,11 +547,10 @@ def _render_one(
     # default — an R placed as SMD-0805 has a 1-hole pitch, not the default
     # axial 3.2-hole pitch. Resolve the variant footprint (falls back to
     # the definition's default package when none resolves).
-    from protoboard.domain.components.package import resolved_footprint
-
     fp = resolved_footprint(defn, inst, theme.package_families)
     positions = [
-        pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
+        position
+        for _pin_number, position in iter_footprint_pin_positions(fp, placement)
     ]
     if not positions:
         return None
@@ -780,15 +789,12 @@ def make_ghost_item(
             value="",
             package_variant=package_variant,
         )
-        from protoboard.domain.components.package import (
-            resolve_component_package,
-        )
-
         pkg = resolve_component_package(defn, ghost_inst, theme.package_families or {})
         if pkg is not None:
             fp = pkg
     positions = [
-        pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
+        position
+        for _pin_number, position in iter_footprint_pin_positions(fp, placement)
     ]
     if not positions:
         return QGraphicsItemGroup()
@@ -921,30 +927,24 @@ def render_groups(
         comp_ids = frozenset(_tree.all_component_ids(group.id))
         positions: list[Point] = []
         for cid in comp_ids:
-            pl = placements.get(cid)
-            inst = instances.get(cid)
-            if pl is None or inst is None:
-                continue
-            defn = components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            from protoboard.domain.components.package import resolved_footprint
-
-            fp = resolved_footprint(defn, inst, theme.package_families)
-            for n in range(fp.pin_count()):
-                positions.append(pin_world_position(fp, pl, n + 1))
+            positions.extend(
+                position
+                for _pin_number, position in iter_pin_world_positions(
+                    cid,
+                    placements=placements,
+                    instances=instances,
+                    components=components,
+                    families=theme.package_families,
+                )
+            )
         if not positions:
             continue
         # Extend bbox to include all points of owned wires (net-aware
         # classification — half-orphan tails of *internal* nets count
         # as owned, tails of *exported* nets do not).
         if wires:
-            from protoboard.domain.layout.group_ownership import OwnershipResolver
-            from protoboard.domain.layout.wire import Wire
-            from protoboard.domain.schematic.schematic import Schematic as _Schematic
-
             typed_wires = [w for w in wires if isinstance(w, Wire)]
-            sch_obj = schematic if isinstance(schematic, _Schematic) else None
+            sch_obj = schematic if isinstance(schematic, Schematic) else None
             # Bind the LOCAL render context directly (this is a renderer
             # given explicit dicts, not session state).
             owned_ids = OwnershipResolver(
@@ -1002,8 +1002,6 @@ def render_groups(
             # edge of the outline (y0).  ItemIgnoresTransformations keeps
             # font-pixel size constant, so the label's scene-space height
             # is metric_height / view_scale.
-            from PySide6.QtGui import QFontMetricsF
-
             label_h_scene = QFontMetricsF(label_font).height() / max(view_scale, 1e-6)
             for item in _make_overlay_label(
                 group.name,

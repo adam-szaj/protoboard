@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 
 from protoboard.controller.selection.wire_edit import (
-    WireEditState,
+    WireRange,
     build_flip_fragment_command,
 )
 from protoboard.domain.board.board import Board
@@ -112,7 +112,7 @@ class TestRepeatedFlipToggles:
         # Whole-wire (side="top"), single fragment.
         _add(state, [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)], side="top")
         wire = list(state.layout.wires)[0]
-        full = WireEditState(
+        full = WireRange(
             start_wire_id=wire.id,
             start_idx=0,
             end_wire_id=wire.id,
@@ -129,7 +129,7 @@ class TestRepeatedFlipToggles:
 
         # Second flip on the SAME full-span range must target "top" (toggle
         # back) — reading the fragment's current side, not stale wire.side.
-        full2 = WireEditState(
+        full2 = WireRange(
             start_wire_id=w.id,
             start_idx=0,
             end_wire_id=w.id,
@@ -164,9 +164,7 @@ class TestRepeatedFlipToggles:
         w = list(state.layout.wires)[0]
         assert [f.side for f in w.fragments] == ["top", "bottom", "top"]
 
-        mid = WireEditState(
-            start_wire_id=w.id, start_idx=1, end_wire_id=w.id, end_idx=3
-        )
+        mid = WireRange(start_wire_id=w.id, start_idx=1, end_wire_id=w.id, end_idx=3)
         cmd = build_flip_fragment_command(list(state.layout.wires), mid)
         assert cmd is not None
         assert cmd.target_side == "top"  # type: ignore[attr-defined]

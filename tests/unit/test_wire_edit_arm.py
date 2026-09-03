@@ -24,10 +24,7 @@ import pytest
 
 from protoboard.controller.editing.wire_edit_arm import WireEditArm
 from protoboard.controller.ports.routing import FindPaths, SimplifyRequest, SimplifyWire
-from protoboard.controller.selection.wire_edit import (
-    WireEditState,
-    WireRange,
-)
+from protoboard.controller.selection.wire_edit import WireRange
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -134,7 +131,7 @@ def test_delete_full_span_collapses_to_remove_wire() -> None:
 
 def test_flip_builds_flip_fragment_command() -> None:
     wire = _wire((1.5, 1.5), (2.5, 1.5), (3.5, 1.5))
-    state = WireEditState(
+    state = WireRange(
         start_wire_id=wire.id, start_idx=0, end_wire_id=wire.id, end_idx=2
     )
     cmd = WireEditArm().flip([wire], state)
@@ -158,7 +155,7 @@ def test_default_arm_mints_plain_add_wire() -> None:
     """A mint-a-wire op via the default arm produces ``AddWireCommand``s."""
     wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
     nm = _net_map(wire)
-    state = WireEditState(
+    state = WireRange(
         start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=3
     )
     cmd = WireEditArm().delete([wire], nm, state)  # cut interior → two halves
@@ -173,7 +170,7 @@ def test_injected_factory_is_used_for_mint_a_wire_op() -> None:
     the injected factory — proving the arm's one piece of state is honoured."""
     wire = _wire((0, 0), (1, 0), (2, 0), (3, 0), (4, 0))
     nm = _net_map(wire)
-    state = WireEditState(
+    state = WireRange(
         start_wire_id=wire.id, start_idx=1, end_wire_id=wire.id, end_idx=3
     )
     arm = WireEditArm(add_factory=cast("object", _MarkerAdd))  # type: ignore[arg-type]
@@ -193,7 +190,7 @@ def test_injected_factory_used_by_cross_wire_reroute() -> None:
     sess.layout.wires.extend([wire_a, wire_b])
     wires = cast(Sequence[Wire], sess.layout.wires)
     nm = _net_map(wire_a, wire_b)
-    state = WireEditState(
+    state = WireRange(
         start_wire_id=wire_a.id,
         start_idx=2,
         end_wire_id=wire_b.id,
@@ -216,7 +213,7 @@ def test_reroute_same_wire_replaces_fragments() -> None:
     sess.layout.wires.append(wire)
     wires = cast(Sequence[Wire], sess.layout.wires)
     nm = _net_map(wire)
-    state = WireEditState(
+    state = WireRange(
         start_wire_id=wire.id,
         start_idx=1,
         end_wire_id=wire.id,
@@ -239,7 +236,7 @@ def test_autoroute_uses_injected_pathfinder() -> None:
     sess.layout.wires.append(wire)
     wires = cast(Sequence[Wire], sess.layout.wires)
     nm = _net_map(wire)
-    state = WireEditState(
+    state = WireRange(
         start_wire_id=wire.id, start_idx=0, end_wire_id=wire.id, end_idx=1
     )
     calls: list[dict[str, object]] = []

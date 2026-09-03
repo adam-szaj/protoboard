@@ -24,12 +24,21 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import structlog
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QPainter, QPixmap, QTransform
+from PySide6.QtGui import QColor, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import QGraphicsItem
+
+from protoboard.controller.view_options.layer_state import Z_BOARD
+from protoboard.services.rendering.board_renderer import (
+    build_board_display_list,
+    build_pad_net_map,
+    paint_board,
+)
+from protoboard.services.rendering.net_color import build_net_color_map
 
 if TYPE_CHECKING:
     from protoboard.gui.board_view import BoardView
@@ -242,9 +251,7 @@ class PaintPipeline:
                 burst_filter_alpha = burst_layers.alpha_for_back_filter()
                 burst_alpha_mid = burst_layers.alpha_for_board_mid()
                 if burst_filter_alpha > 0.0:
-                    from PySide6.QtGui import QColor as _QColor
-
-                    filter_color = _QColor(view.theme.back_filter_color)
+                    filter_color = QColor(view.theme.back_filter_color)
                     filter_color.setAlphaF(burst_filter_alpha)
                     # QGraphicsView calls drawBackground with the live
                     # viewport transform already applied.  resetTransform
@@ -331,9 +338,7 @@ class PaintPipeline:
         # filter; axis labels live at Z_OVERLAY and are repainted by Qt
         # on top of this sandwich so they keep their colour.
         if alpha_back_filter > 0.0:
-            from PySide6.QtGui import QColor as _QColor
-
-            filter_color = _QColor(view.theme.back_filter_color)
+            filter_color = QColor(view.theme.back_filter_color)
             filter_color.setAlphaF(alpha_back_filter)
             painter.setOpacity(1.0)
             # Painter is in identity / device coords here (the enclosing
@@ -415,24 +420,15 @@ class PaintPipeline:
         # Build display list if missing (board / theme / alpha changes
         # clear _bg_display_list; pure viewport resize does not).
         if self._bg_display_list is None:
-            from dataclasses import replace as _dc_replace
-
-            from protoboard.services.rendering.board_renderer import (
-                build_board_display_list,
-                build_pad_net_map,
-            )
-
             _base = view.theme
             layers = view.layer_state()
-            _theme = _dc_replace(
+            _theme = replace(
                 _base,
                 raster_pitch_mm=session.board.raster_pitch_mm,
                 package_families=session.package_families,
             )
             # Reuse the same resolved colour map the wire renderer uses,
             # so a wire and the pad it lands on share an identical colour.
-            from protoboard.services.rendering.net_color import build_net_color_map
-
             pad_color_map = build_net_color_map(
                 session.schematic.nets,
                 theme=_theme,
@@ -453,8 +449,6 @@ class PaintPipeline:
             )
 
         # Allocate a fresh pixmap matching the viewport device size.
-        from protoboard.services.rendering.board_renderer import paint_board
-
         pix = QPixmap(vp_size)
         pix.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pix)
@@ -484,8 +478,6 @@ class PaintPipeline:
         Returns build wall time in milliseconds (0.0 when cache was fresh
         or there were no back items to draw).
         """
-        from protoboard.controller.view_options.layer_state import Z_BOARD
-
         view = self._view
         if view.session is None:
             return 0.0

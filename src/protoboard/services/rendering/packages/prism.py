@@ -8,8 +8,12 @@ from typing import ClassVar
 from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.definition import ComponentClass
+from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
+)
+from protoboard.domain.components.package.shapes import (
+    local_size_holes_or_none,
 )
 from protoboard.geometry import Point
 from protoboard.services.rendering.packages.base import (
@@ -43,10 +47,6 @@ class PrismRenderer(PackageRenderer):
         pin-column guess (``silhouette_for``), preserving the historical look
         of footprint-only DIP/SIL parts.  ``None`` → the plain bbox rectangle.
         """
-        from protoboard.domain.components.package.kind import (
-            is_generic_package,
-        )
-
         if is_generic_package(pkg):
             return silhouette_for(pkg)
         return None
@@ -139,10 +139,6 @@ class PrismRenderer(PackageRenderer):
         the pad axis makes ortho and diagonal placements both render correctly.
         No leads and no pin-1 marker — a chip carries neither.
         """
-        from protoboard.domain.components.package.shapes import (
-            local_size_holes_or_none,
-        )
-
         s = local_size_holes_or_none(pkg)  # local frame: lx along the pads
         if s is None:
             # No explicit dims/margin to size the chip — degrade to the bbox

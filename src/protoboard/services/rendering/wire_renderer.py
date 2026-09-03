@@ -28,6 +28,7 @@ from protoboard.domain.components.package import (
     package_pins_for_meta_pin,
     resolved_footprint,
 )
+from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
@@ -728,14 +729,17 @@ def _pin_islands_for_net(
     by_island: dict[object, list[Point]] = {}
     unassigned: list[Point] = []
     for ref in pins:
-        pl = placements.get(ref.component_id)
-        inst = instances.get(ref.component_id)
-        if pl is None or inst is None:
+        component = resolve_placed_component(
+            ref.component_id, placements, instances, components
+        )
+        if component is None or ref.pin_number > len(component.definition.meta_pins):
             continue
-        defn = components.get(inst.definition_ref)
-        if defn is None or ref.pin_number > len(defn.meta_pins):
-            continue
-        positions = _physical_positions_for_ref(ref, pl, inst, defn)
+        positions = _physical_positions_for_ref(
+            ref,
+            component.placement,
+            component.instance,
+            component.definition,
+        )
         node = node_for_pin(ref)
         if node is None:
             unassigned.extend(positions)
@@ -871,14 +875,19 @@ def _placed_pin_positions(
 ) -> list[Point]:
     result: list[Point] = []
     for ref in pins:
-        pl = placements.get(ref.component_id)
-        inst = instances.get(ref.component_id)
-        if pl is None or inst is None:
+        component = resolve_placed_component(
+            ref.component_id, placements, instances, components
+        )
+        if component is None or ref.pin_number > len(component.definition.meta_pins):
             continue
-        defn = components.get(inst.definition_ref)
-        if defn is None or ref.pin_number > len(defn.meta_pins):
-            continue
-        result.extend(_physical_positions_for_ref(ref, pl, inst, defn))
+        result.extend(
+            _physical_positions_for_ref(
+                ref,
+                component.placement,
+                component.instance,
+                component.definition,
+            )
+        )
     return result
 
 

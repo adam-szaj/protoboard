@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from protoboard.domain.board.boxes import PadAtom, StripAtom
+from protoboard.domain.components.resolution import resolve_instance_definition
 from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragments
 from protoboard.geometry import Point
 from protoboard.instrumentation.call_counters import counted
@@ -961,7 +962,7 @@ def _pin_at(
     that terminate at a top-side component pin (the autoroute common
     case for through-hole parts) resolve to the right schematic net.
     """
-    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.layout.placement import iter_footprint_pin_positions
     from protoboard.domain.schematic.net import PinRef
 
     cross_side_ok = plated_pads is not None and any(
@@ -971,21 +972,24 @@ def _pin_at(
     from protoboard.domain.components.package.pin_mapping import (
         meta_pin_for_package_pin,
     )
+    from protoboard.domain.components.resolution import iter_placed_components
 
-    for comp_id, placement in layout.placements.items():
-        if not cross_side_ok and placement.side != side:
+    for component in iter_placed_components(layout.placements, instances, components):
+        comp_id = component.placement.component_id
+        if not cross_side_ok and component.placement.side != side:
             continue
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = resolved_footprint(defn, inst, inst.families)
-        for pin_num in range(1, fp.pin_count() + 1):
-            wp = pin_world_position(fp, placement, pin_num)
+        fp = resolved_footprint(
+            component.definition,
+            component.instance,
+            component.instance.families,
+        )
+        for pin_num, wp in iter_footprint_pin_positions(fp, component.placement):
             if abs(wp.x - position.x) < tol and abs(wp.y - position.y) < tol:
-                meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+                meta_pin_index = meta_pin_for_package_pin(
+                    component.definition,
+                    component.instance,
+                    pin_num,
+                )
                 if meta_pin_index is None:
                     continue
                 return PinRef(component_id=comp_id, pin_number=meta_pin_index)
@@ -1984,28 +1988,27 @@ def find_pin_at(
     from protoboard.domain.components.package.pin_mapping import (
         meta_pin_for_package_pin,
     )
-    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.components.resolution import iter_placed_components
+    from protoboard.domain.layout.placement import iter_footprint_pin_positions
     from protoboard.domain.schematic.net import PinRef
 
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = resolved_footprint(defn, inst, inst.families)
-        n_pins = fp.pin_count()
-        for pin_num in range(1, n_pins + 1):
-            try:
-                pos = pin_world_position(fp, placement, pin_num)
-            except (IndexError, ValueError):
-                continue
+    for component in iter_placed_components(layout.placements, instances, components):
+        comp_id = component.placement.component_id
+        fp = resolved_footprint(
+            component.definition,
+            component.instance,
+            component.instance.families,
+        )
+        for pin_num, pos in iter_footprint_pin_positions(fp, component.placement):
             if not (
                 abs(pos.x - point.x) < _EPS_KNOT and abs(pos.y - point.y) < _EPS_KNOT
             ):
                 continue
-            meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+            meta_pin_index = meta_pin_for_package_pin(
+                component.definition,
+                component.instance,
+                pin_num,
+            )
             if meta_pin_index is None:
                 continue
             pin_ref = PinRef(component_id=comp_id, pin_number=meta_pin_index)
@@ -2295,12 +2298,10 @@ def update_wires_for_move(
     from protoboard.domain.layout.knot import PinKnot
     from protoboard.domain.layout.placement import pin_world_position
 
-    inst = instances.get(comp_id)
-    if inst is None:
+    resolved = resolve_instance_definition(comp_id, instances, components)
+    if resolved is None:
         return
-    defn = components.get(inst.definition_ref)
-    if defn is None:
-        return
+    inst, defn = resolved
 
     fp = resolved_footprint(defn, inst, inst.families)
     n_pins = fp.pin_count()

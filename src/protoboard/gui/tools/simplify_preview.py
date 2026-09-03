@@ -15,14 +15,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPen
+from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
+
 from protoboard.controller.tools.simplify_preview import (
     SimplifyPreview as SimplifyPreview,
 )
+from protoboard.gui.scene_items import remove_scene_items
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
     from protoboard.controller.view_options.theme import Theme
     from protoboard.geometry import Point
@@ -48,10 +51,6 @@ class QtSimplifyPreview:
         return self._items
 
     def show_draft(self, path: list[Point]) -> None:
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QColor, QPen
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         self.clear_draft()
         scene = self._scene()
         if scene is None:
@@ -68,12 +67,8 @@ class QtSimplifyPreview:
 
     def clear_draft(self) -> None:
         scene = self._scene()
-        for item in self._items:
-            if scene is not None:
-                try:
-                    scene.removeItem(item)
-                except RuntimeError:
-                    pass  # C++ object already gone
+        if scene is not None:
+            remove_scene_items(scene, self._items)
         self._items.clear()
 
     def on_scene_cleared(self) -> None:

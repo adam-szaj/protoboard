@@ -42,7 +42,17 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
-from protoboard.controller.app_settings import AppSettings
+from protoboard.controller.app_settings import AppSettings, save_app_settings
+from protoboard.controller.ports import KeyInput, Mods
+from protoboard.controller.selection_axes import (
+    RelationClass,
+    SelectionFilter,
+    filter_from_tokens,
+    filter_to_tokens,
+    relation_from_str,
+)
+from protoboard.controller.view_options.theme import Theme
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Vector
 from protoboard.gui import keybindings as KB
 from protoboard.gui import recent_projects
@@ -58,6 +68,7 @@ from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
 from protoboard.gui.panels.performance_panel import PerformancePanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
+from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
 from protoboard.gui.tools.gui_tools import (
     CutTool,
     PlaceTool,
@@ -66,6 +77,7 @@ from protoboard.gui.tools.gui_tools import (
     SimplifyTool,
 )
 from protoboard.gui.window_state import load_window_state, save_window_state
+from protoboard.gui.workers.operation_worker import run_with_progress
 from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.pdf import export_pdf
 from protoboard.services.export.png import export_png
@@ -80,6 +92,7 @@ from protoboard.services.persistence.project_yaml import (
 )
 from protoboard.services.placement.auto_placer import AutoPlaceResult, auto_place
 from protoboard.services.placement.spreader import spread_components
+from protoboard.services.preferences.theme_yaml import load_theme
 from protoboard.services.rendering.qt_geometry import to_qpointf
 
 _log = structlog.get_logger(__name__)
@@ -114,10 +127,7 @@ class MainWindow(QMainWindow):
         self._watched_net_path: Path | None = None
         self._kicad_watcher = QFileSystemWatcher(self)
         self._kicad_watcher.fileChanged.connect(self._on_kicad_net_changed)
-        from protoboard.controller.view_options.theme import Theme as _Theme
-        from protoboard.services.preferences.theme_yaml import load_theme
-
-        self._theme: _Theme = load_theme()
+        self._theme: Theme = load_theme()
         self._update_title()
         self.resize(1280, 800)
 
@@ -254,8 +264,6 @@ class MainWindow(QMainWindow):
         # which is an X11 round-trip — over SSH this queues hundreds of
         # stale "intermediate position" repaints after the cursor stops.
         # Park the latest coords and let the throttle batch updates to ~30 fps.
-        from protoboard.gui.throttle import ParkLatestThrottle
-
         self._cursor_throttle: ParkLatestThrottle[tuple[float, float]] = (
             ParkLatestThrottle(
                 self._app_settings.cursor_label_throttle_ms,
@@ -272,8 +280,6 @@ class MainWindow(QMainWindow):
 
         # Auto-DRC timer — fires 600 ms after the last layout_changed (settle:
         # each layout_changed restarts it via arm()).
-        from protoboard.gui.throttle import TimerWrap
-
         self._drc_timer = TimerWrap(
             600,
             self._run_drc_silent,
@@ -319,11 +325,7 @@ class MainWindow(QMainWindow):
         self._components_panel.auto_place_all_requested.connect(
             self._auto_place_instances
         )
-        session.layout_changed.connect(session.invalidate_graph)
-        session.layout_changed.connect(self._panels_timer.arm)
-        session.layout_changed.connect(self._drc_timer.arm)
-        session.layout_changed.connect(self._update_undo_redo)
-        session.layout_changed.connect(session.mark_dirty)
+        self._bind_layout_changed(session, connect=True)
         session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
         session.gui_highlight_stack.changed.connect(self._update_highlight_action)
         session.dirty_changed.connect(self._update_title)
@@ -552,11 +554,7 @@ class MainWindow(QMainWindow):
         recent_projects.add(path)
         session.start_recording()
         # Reconnect signals from the old session.
-        self._session.layout_changed.disconnect(self._session.invalidate_graph)
-        self._session.layout_changed.disconnect(self._panels_timer.arm)
-        self._session.layout_changed.disconnect(self._drc_timer.arm)
-        self._session.layout_changed.disconnect(self._update_undo_redo)
-        self._session.layout_changed.disconnect(self._session.mark_dirty)
+        self._bind_layout_changed(self._session, connect=False)
         self._session.dirty_changed.disconnect(self._update_title)
         self._session.drc_changed.disconnect(self._props_panel.update_issues)
         try:
@@ -564,11 +562,7 @@ class MainWindow(QMainWindow):
         except (TypeError, RuntimeError):
             pass  # not connected yet — first-time path
         self._session = session
-        session.layout_changed.connect(session.invalidate_graph)
-        session.layout_changed.connect(self._panels_timer.arm)
-        session.layout_changed.connect(self._drc_timer.arm)
-        session.layout_changed.connect(self._update_undo_redo)
-        session.layout_changed.connect(session.mark_dirty)
+        self._bind_layout_changed(session, connect=True)
         session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
         session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
@@ -669,6 +663,24 @@ class MainWindow(QMainWindow):
             suffix = vis.label()
             base = _NAMES[field_name]
             act.setText(f"{base}  {suffix}" if suffix else base)
+
+    # ------------------------------------------------------------------
+
+    def _bind_layout_changed(self, session: EditorSession, *, connect: bool) -> None:
+        """Connect or disconnect the common layout-derived session handlers."""
+        bind = (
+            session.layout_changed.connect
+            if connect
+            else session.layout_changed.disconnect
+        )
+        for handler in (
+            session.invalidate_graph,
+            self._panels_timer.arm,
+            self._drc_timer.arm,
+            self._update_undo_redo,
+            session.mark_dirty,
+        ):
+            bind(handler)
 
     # ------------------------------------------------------------------
 
@@ -867,7 +879,6 @@ class MainWindow(QMainWindow):
         from protoboard.domain.commands.component_cmds import (
             PlaceComponentCommand,
         )
-        from protoboard.gui.workers.operation_worker import run_with_progress
         from protoboard.services.placement.auto_placer import AutoPlaceState
 
         to_place = [
@@ -967,7 +978,6 @@ class MainWindow(QMainWindow):
         from protoboard.domain.commands.component_cmds import (
             MoveComponentCommand,
         )
-        from protoboard.gui.workers.operation_worker import run_with_progress
         from protoboard.services.placement.spreader import SpreadState
 
         selected = self._selected_component_ids()
@@ -1050,8 +1060,6 @@ class MainWindow(QMainWindow):
 
     def _persist_wire_defaults(self) -> None:
         """Save the current manual-wire choice as the persistent default."""
-        from protoboard.controller.app_settings import save_app_settings
-
         self._app_settings.wire_default_insulated = self._wire_insulated
         self._app_settings.wire_default_side = self._wire_side
         save_app_settings(self._app_settings)
@@ -1327,8 +1335,6 @@ class MainWindow(QMainWindow):
         # alone is enough to freeze the GUI for hundreds of ms.  Run
         # it in a background worker with a busy-bar dialog so the
         # window stays responsive.
-        from protoboard.gui.workers.operation_worker import run_with_progress
-
         board = self._session.board
         layout = self._session.layout
         schematic = self._session.schematic
@@ -1620,8 +1626,6 @@ class MainWindow(QMainWindow):
         tool = self._get_select_tool()
         if tool is None:
             return
-        from protoboard.controller.ports import KeyInput, Mods
-
         # Simulate Del key through SelectTool's handler.
         tool.on_key(
             KeyInput(
@@ -1691,8 +1695,6 @@ class MainWindow(QMainWindow):
     def _active_group_or_warn(self) -> uuid.UUID | None:
         """Return the active group ID, or show a status message and
         return None when the user is at root."""
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         tool = self._board_view.active_tool
         if not isinstance(tool, SelectTool):
             self._status.showMessage("Group action requires the Select tool.", 3000)
@@ -1930,9 +1932,8 @@ class MainWindow(QMainWindow):
         if comp_id is None:
             self._status.showMessage("Select a component first", 2000)
             return
-        inst = self._session.instances.get(comp_id)
-        defn = self._session.components.get(inst.definition_ref) if inst else None
-        if inst is None or defn is None:
+        placed = self._session.placed_component(comp_id)
+        if placed is None:
             return
 
         from protoboard.domain.commands.component_cmds import (
@@ -2042,8 +2043,6 @@ class MainWindow(QMainWindow):
         if tool is None:
             return
         # Priority: outline-selected group > navigated-into group > inferred from selection.  # noqa: E501
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         group_id: uuid.UUID | None = None
         if (
             tool.selected_group_id is not None
@@ -2105,12 +2104,10 @@ class MainWindow(QMainWindow):
             # Collect nets for all pins of selected components.
             net_ids = set()
             for comp_id in board_selected_ids:
-                inst = self._session.instances.get(comp_id)
-                defn = (
-                    self._session.components.get(inst.definition_ref) if inst else None
-                )
-                if defn is None:
+                component = self._session.placed_component(comp_id)
+                if component is None:
                     continue
+                defn = component.definition
                 for pin_num in range(1, len(defn.meta_pins) + 1):
                     ref = PinRef(component_id=comp_id, pin_number=pin_num)
                     net = self._session.schematic.net_for_pin(ref)
@@ -2882,14 +2879,11 @@ class MainWindow(QMainWindow):
             act.setShortcut(self._ks(action_id))
 
     def _on_theme_applied(self, theme: object) -> None:
-        from protoboard.controller.view_options.theme import Theme
-
         if isinstance(theme, Theme):
             self._theme = theme
             self._board_view.set_theme(theme)
 
     def _on_paths_applied(self, settings: object) -> None:
-        from protoboard.controller.app_settings import AppSettings
         from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.services.library.loader import load_library
 
@@ -3027,8 +3021,6 @@ class MainWindow(QMainWindow):
         # *final* viewport regardless of how many intermediate resizes the
         # WM produces.
         if not getattr(self, "_initial_fit_done", False):
-            from protoboard.gui.throttle import TimerWrap
-
             self._initial_fit_done = True
             self._initial_fit_pending = True
             # Settle detector: each resize restarts it, so the final fit runs
@@ -3172,30 +3164,16 @@ class MainWindow(QMainWindow):
 
     def _apply_selection_settings_to_tool(self, tool: SelectTool) -> None:
         """Push filter+relation from app_settings into a freshly built SelectTool."""
-        from protoboard.controller.selection_axes import (
-            filter_from_tokens,
-            relation_from_str,
-        )
-
         tool.set_filter(filter_from_tokens(self._app_settings.selection_filter_tokens))
         tool.set_relation(relation_from_str(self._app_settings.selection_relation))
 
     def _on_filter_changed(self, new_filter: object) -> None:
-        from protoboard.controller.app_settings import save_app_settings
-        from protoboard.controller.selection_axes import (
-            SelectionFilter,
-            filter_to_tokens,
-        )
-
         if not isinstance(new_filter, SelectionFilter):
             return
         self._app_settings.selection_filter_tokens = filter_to_tokens(new_filter)
         save_app_settings(self._app_settings)
 
     def _on_relation_changed(self, new_relation: object) -> None:
-        from protoboard.controller.app_settings import save_app_settings
-        from protoboard.controller.selection_axes import RelationClass
-
         if not isinstance(new_relation, RelationClass):
             return
         self._app_settings.selection_relation = new_relation.value
@@ -3207,8 +3185,6 @@ class MainWindow(QMainWindow):
         Pushes the new value back through SelectionFilterWidget so the
         status-bar buttons stay in sync and the change is persisted.
         """
-        from protoboard.controller.selection_axes import SelectionFilter
-
         current = self._select_tool.filter
         flag = {
             "components": SelectionFilter.COMPONENTS,
@@ -3225,8 +3201,6 @@ class MainWindow(QMainWindow):
 
     def _set_relation_by_name(self, value: str) -> None:
         """Set the SelectTool's relation class from a string identifier."""
-        from protoboard.controller.selection_axes import relation_from_str
-
         relation = relation_from_str(value)
         self._select_tool.set_relation(relation)
         self._hl_mode_widget.set_tool(self._select_tool)
@@ -3234,8 +3208,6 @@ class MainWindow(QMainWindow):
 
     def _cycle_relation(self, forward: bool) -> None:
         """Cycle through RelationClass values forward or backward."""
-        from protoboard.controller.selection_axes import RelationClass
-
         relations = list(RelationClass)
         idx = relations.index(self._select_tool.relation)
         step = 1 if forward else -1

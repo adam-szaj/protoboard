@@ -46,6 +46,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.pin_mapping import (
     package_pins_for_meta_pin,
 )
+from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import pin_world_position
@@ -597,21 +598,21 @@ class ConnectivityGraph:
 
     def _build_component_internal_nets(self, layout: Layout) -> None:
         """Merge physical package pins that carry the same MetaPin."""
-        for comp_id, placement in layout.placements.items():
-            inst = self._instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = self._components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = resolved_footprint_or_default(defn, inst)
-            for meta_pin_index in range(1, len(defn.meta_pins) + 1):
+        for component in iter_placed_components(
+            layout.placements, self._instances, self._components
+        ):
+            fp = resolved_footprint_or_default(component.definition, component.instance)
+            for meta_pin_index in range(1, len(component.definition.meta_pins) + 1):
                 anchor: NodeEntry | None = None
-                for pin_num in package_pins_for_meta_pin(defn, inst, meta_pin_index):
+                for pin_num in package_pins_for_meta_pin(
+                    component.definition,
+                    component.instance,
+                    meta_pin_index,
+                ):
                     if pin_num < 1 or pin_num > fp.pin_count():
                         continue
-                    world_pos = pin_world_position(fp, placement, pin_num)
-                    key: _NodeKey = _qkey(world_pos, placement.side)
+                    world_pos = pin_world_position(fp, component.placement, pin_num)
+                    key: _NodeKey = _qkey(world_pos, component.placement.side)
                     entry = self._pad_index.get(key)
                     if entry is None:
                         entry = self._make_node(key)
@@ -682,23 +683,24 @@ class ConnectivityGraph:
             self.add_wire(wire)
 
     def _build_component_pin_map(self, layout: Layout) -> None:
-        for comp_id, placement in layout.placements.items():
-            inst = self._instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = self._components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = resolved_footprint_or_default(defn, inst)
-            for meta_pin_index in range(1, len(defn.meta_pins) + 1):
-                package_pins = package_pins_for_meta_pin(defn, inst, meta_pin_index)
+        for component in iter_placed_components(
+            layout.placements, self._instances, self._components
+        ):
+            comp_id = component.placement.component_id
+            fp = resolved_footprint_or_default(component.definition, component.instance)
+            for meta_pin_index in range(1, len(component.definition.meta_pins) + 1):
+                package_pins = package_pins_for_meta_pin(
+                    component.definition,
+                    component.instance,
+                    meta_pin_index,
+                )
                 if not package_pins:
                     continue
                 pin_num = package_pins[0]
                 if pin_num > fp.pin_count():
                     continue
-                world_pos = pin_world_position(fp, placement, pin_num)
-                key: _NodeKey = _qkey(world_pos, placement.side)
+                world_pos = pin_world_position(fp, component.placement, pin_num)
+                key: _NodeKey = _qkey(world_pos, component.placement.side)
                 entry = self._pad_index.get(key)
                 if entry is None:
                     # Pin on a pad not in the board layout — create a stub.

@@ -19,6 +19,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from protoboard.domain.components.resolution import resolve_instance_definition
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.schematic.net import PinRef
 
@@ -250,12 +251,10 @@ class GroupTree:
             return frozenset()
         surface: set[PinRef] = set()
         for cid in group.component_ids:
-            inst = instances.get(cid)
-            if inst is None:
+            resolved = resolve_instance_definition(cid, instances, definitions)
+            if resolved is None:
                 continue
-            defn = definitions.get(inst.definition_ref)
-            if defn is None:
-                continue
+            _inst, defn = resolved
             for meta_pin_index in range(1, len(defn.meta_pins) + 1):
                 surface.add(PinRef(component_id=cid, pin_number=meta_pin_index))
         for child_id in group.child_group_ids:
@@ -391,7 +390,7 @@ class GroupTree:
         top-left pin".
         """
         from protoboard.domain.components.resolution import resolve_component
-        from protoboard.domain.layout.placement import pin_world_position
+        from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
         best: Point | None = None
         best_key = float("inf")
@@ -400,8 +399,7 @@ class GroupTree:
             if component is None or component.package is None:
                 continue
             fp = component.package
-            for n in range(fp.pin_count()):
-                p = pin_world_position(fp, component.placement, n + 1)
+            for _pin_number, p in iter_footprint_pin_positions(fp, component.placement):
                 key = p.x + p.y
                 if key < best_key:
                     best_key, best = key, p
@@ -417,39 +415,20 @@ class GroupTree:
         """World ``(x, y)`` positions of every pin of *component_ids*.
 
         Pure geometry over the supplied dicts (hence ``@staticmethod``), the
-        plural sibling of :meth:`group_origin`. Each pin resolves through
-        :func:`resolve_pin_world_position` so the whole codebase shares one
-        safety chain.
+        plural sibling of :meth:`group_origin`. Component records are resolved
+        once, then each pin is projected from that concrete footprint.
         """
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.layout.pad_conflict import (
-            resolved_footprint_or_default,
-        )
-        from protoboard.domain.layout.placement import (
-            ComponentPlacement,
-            resolve_pin_world_position,
-        )
+        from protoboard.domain.layout.placement import iter_pin_world_positions
 
         positions: set[tuple[float, float]] = set()
         for cid in component_ids:
-            pl = placements.get(cid)
-            inst = instances.get(cid) if pl is not None else None
-            defn = definitions.get(inst.definition_ref) if inst is not None else None
-            if not isinstance(pl, ComponentPlacement) or not isinstance(
-                defn, ComponentDefinition
+            for _, position in iter_pin_world_positions(
+                cid,
+                placements=placements,
+                instances=instances,
+                components=definitions,
             ):
-                continue
-            fp = resolved_footprint_or_default(defn, inst)
-            for n in range(fp.pin_count()):
-                p = resolve_pin_world_position(
-                    cid,
-                    n + 1,
-                    placements=placements,
-                    instances=instances,
-                    components=definitions,
-                )
-                if p is not None:
-                    positions.add((p.x, p.y))
+                positions.add((position.x, position.y))
         return positions
 
 

@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
-from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.components.resolution import iter_placed_components
+from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -37,18 +38,21 @@ def find_pin_at(
     session: _SessionLike,
 ) -> tuple[uuid.UUID, int] | None:
     """Return (component_id, pin_number) if *pt* coincides with a placed pin."""
-    for comp_id, placement in session.layout.placements.items():
-        inst = session.instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = session.components.get(inst.definition_ref)
-        if defn is None:
-            continue
+    for component in iter_placed_components(
+        session.layout.placements,
+        session.instances,
+        session.components,
+    ):
+        comp_id = component.placement.component_id
+        placement = component.placement
         from protoboard.domain.components.package import resolved_footprint
 
-        fp = resolved_footprint(defn, inst, inst.families)
-        for pin_num in range(1, fp.pin_count() + 1):
-            pos = pin_world_position(fp, placement, pin_num)
+        fp = resolved_footprint(
+            component.definition,
+            component.instance,
+            component.instance.families,
+        )
+        for pin_num, pos in iter_footprint_pin_positions(fp, placement):
             if abs(pos.x - pt.x) < _EPS and abs(pos.y - pt.y) < _EPS:
                 return (comp_id, pin_num)
     return None

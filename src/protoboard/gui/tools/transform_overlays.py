@@ -19,6 +19,10 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor
 
+from protoboard.domain.layout.drag_analysis import DragSeverity
+from protoboard.gui.tools.drag_corner_text import DragCornerText
+from protoboard.gui.tools.drag_messages import format_drag_reasons
+
 if TYPE_CHECKING:
     from protoboard.domain.layout.drag_analysis import DragAnalysis
     from protoboard.gui.board_view_tool import AbstractBoardView
@@ -37,16 +41,12 @@ class TransformOverlays:
         SOFT amber / HARD red while conflicting; hidden the instant the state is
         CLEAR (or ``None``) so the frame never lingers.
         """
-        from protoboard.domain.layout.drag_analysis import DragSeverity
-
         if decision is None or decision.severity is DragSeverity.CLEAR:
             self.clear()
             return
         amber = QColor(180, 130, 0, 220)
         red = QColor(180, 40, 25, 230)
         color = red if decision.severity is DragSeverity.HARD else amber
-        from protoboard.gui.tools.drag_messages import format_drag_reasons
-
         text = format_drag_reasons(decision.reasons) or (
             "Cannot drop here — overlap  ·  [Esc] cancel"
             if decision.severity is DragSeverity.HARD
@@ -59,8 +59,6 @@ class TransformOverlays:
 
     def clear(self) -> None:
         """Hide the corner and restore the cyan selection outline."""
-        from protoboard.gui.tools.drag_corner_text import DragCornerText
-
         if isinstance(self._corner, DragCornerText):
             self._corner.hide(self._view.scene())
         self._set_outline(None)
@@ -68,8 +66,6 @@ class TransformOverlays:
     # -- internals ----------------------------------------------------------
 
     def _show_corner(self, text: str, color: QColor) -> None:
-        from protoboard.gui.tools.drag_corner_text import DragCornerText
-
         if not isinstance(self._corner, DragCornerText):
             self._corner = DragCornerText()
         self._corner.show(self._view.scene(), self._view, text, color)

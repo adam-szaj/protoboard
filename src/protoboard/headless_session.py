@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from protoboard.controller.selection.service import SelectionService
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.footprints import Footprint
+    from protoboard.domain.components.resolution import PlacedComponent
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
@@ -46,6 +47,7 @@ from protoboard.domain.commands.base import CommandStack, ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import PackageFamily
+from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.routing_settings import RoutingSettings
@@ -262,17 +264,26 @@ class HeadlessSession:
     def _resolve_footprint_for_flip(self, comp_id: uuid.UUID) -> Footprint | None:
         """Resolve *comp_id*'s chosen-variant footprint for the seam's group-flip
         compose branch.  Returns None (a flipped group then raises loudly) when
-        the chain instance→definition→footprint can't be resolved."""
+        the chain instance→definition→footprint can't be resolved.
+
+        This is called while a placement is being composed, so it must not read
+        a composed placement through :meth:`placed_component` (that would
+        re-enter this resolver).
+        """
         from protoboard.domain.components.package import resolved_footprint
 
-        inst = self.instances.get(comp_id)
-        if inst is None:
+        instance = self.instances.get(comp_id)
+        if instance is None:
             return None
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
+        definition = self.components.get(instance.definition_ref)
+        if definition is None:
             return None
         try:
-            return resolved_footprint(defn, inst, self.package_families)
+            return resolved_footprint(
+                definition,
+                instance,
+                self.package_families,
+            )
         except (IndexError, ValueError):
             return None
 
@@ -532,6 +543,20 @@ class HeadlessSession:
     # Component / pin lookups
     # ------------------------------------------------------------------
 
+    def placed_component(self, comp_id: uuid.UUID) -> PlacedComponent | None:
+        """Return the complete live context for a placed component.
+
+        Keeping the placement → instance → definition lookup here prevents
+        GUI and controller callers from reaching into the session's storage
+        maps and accidentally implementing a second resolution policy.
+        """
+        return resolve_placed_component(
+            comp_id,
+            self.layout.placements,
+            self.instances,
+            self.components,
+        )
+
     def _resolve_pin_for_knot(self, pin: object) -> Point:
         """PinKnot resolver — bridges Layout's resolver protocol to session.
 
@@ -581,35 +606,17 @@ class HeadlessSession:
         Returns an empty list if the component or its definition is not found.
         Every pin resolution delegates to the canonical safety chain.
         """
-        from protoboard.domain.layout.pad_conflict import (
-            resolved_footprint_or_default,
-        )
-        from protoboard.domain.layout.placement import (
-            resolve_pin_world_position,
-        )
+        from protoboard.domain.layout.placement import iter_pin_world_positions
 
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return []
-        if comp_id not in self.layout.placements:
-            return []
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return []
-        result: list[tuple[int, Point]] = []
-        for n in range(resolved_footprint_or_default(defn, inst).pin_count()):
-            pin_num = n + 1
-            pos = resolve_pin_world_position(
+        return list(
+            iter_pin_world_positions(
                 comp_id,
-                pin_num,
                 placements=self.layout.placements,
                 instances=self.instances,
                 components=self.components,
                 families=self.package_families,
             )
-            if pos is not None:
-                result.append((pin_num, pos))
-        return result
+        )
 
     def meta_pin_for_package_pin(
         self,
@@ -619,13 +626,14 @@ class HeadlessSession:
         """Translate a physical package pin to its logical MetaPin ordinal."""
         from protoboard.domain.components.package import meta_pin_for_package_pin
 
-        inst = self.instances.get(comp_id)
-        if inst is None:
+        component = self.placed_component(comp_id)
+        if component is None:
             return None
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return None
-        return meta_pin_for_package_pin(defn, inst, package_pin_number)
+        return meta_pin_for_package_pin(
+            component.definition,
+            component.instance,
+            package_pin_number,
+        )
 
     def component_bbox(self, comp_id: uuid.UUID) -> Rect | None:
         """Return the world-space bounding rect of *comp_id*, or None.
@@ -639,34 +647,22 @@ class HeadlessSession:
         from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import component_bbox
 
-        placement = self.layout.placements.get(comp_id)
-        if placement is None:
-            return None
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return None
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
+        component = self.placed_component(comp_id)
+        if component is None:
             return None
         try:
-            fp = resolved_footprint(defn, inst, self.package_families)
-            return component_bbox(fp, placement, defn.component_class)
+            fp = resolved_footprint(
+                component.definition,
+                component.instance,
+                self.package_families,
+            )
+            return component_bbox(
+                fp,
+                component.placement,
+                component.definition.component_class,
+            )
         except Exception:  # noqa: BLE001
             return None
-
-    def component_definition(
-        self,
-        comp_id: uuid.UUID,
-    ) -> ComponentDefinition | None:
-        """Return the ComponentDefinition for *comp_id*, or None.
-
-        Resolves the placement → instance → definition chain so renderers
-        and tools needing the footprint don't have to inline it.
-        """
-        inst = self.instances.get(comp_id)
-        if inst is None:
-            return None
-        return self.components.get(inst.definition_ref)
 
 
 __all__ = ["HeadlessSession"]

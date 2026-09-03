@@ -21,14 +21,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPen
+from PySide6.QtGui import QBrush, QColor, QPen
+from PySide6.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsItem,
+    QGraphicsItemGroup,
+    QGraphicsLineItem,
+    QGraphicsRectItem,
+    QGraphicsScene,
+)
 
 from protoboard.controller.tools.select_preview import SelectPreview as SelectPreview
+from protoboard.controller.view_options.layer_state import Z_SELECTION
+from protoboard.geometry import Rect
+from protoboard.gui.scene_items import remove_scene_items
+from protoboard.services.rendering.qt_geometry import to_qrectf
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection
-
-    from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsScene
 
     from protoboard.geometry import Point
 
@@ -70,8 +80,6 @@ class _PivotMarkers:
         self.items: list[QGraphicsItem] = []
 
     def show(self, pos: Point, *, shared: bool) -> None:
-        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
-
         # Shared pivot is bigger + brighter (it governs the whole selection);
         # per-object markers are small.  Orange = "transforming" (distinct from
         # the cyan static-selection outline).
@@ -91,11 +99,7 @@ class _PivotMarkers:
             self.items.append(cross)
 
     def clear(self) -> None:
-        for item in self.items:
-            try:
-                self._scene().removeItem(item)
-            except RuntimeError:
-                pass
+        remove_scene_items(self._scene(), self.items)
         self.items = []
 
 
@@ -107,17 +111,13 @@ class _RubberBandRect:
         self.item: QGraphicsRectItem | None = None
 
     def show(self, a: Point, b: Point, ltr: bool) -> None:
-        from PySide6.QtWidgets import QGraphicsRectItem
-
         x0, y0 = min(a.x, b.x), min(a.y, b.y)
-        from protoboard.geometry import Rect
-        from protoboard.services.rendering.qt_geometry import to_qrectf
-
         rect = to_qrectf(Rect.of(x0, y0, abs(b.x - a.x), abs(b.y - a.y)))
         if self.item is None:
             item = QGraphicsRectItem(rect)
             item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
             item.setBrush(_BAND_FILL_LR if ltr else _BAND_FILL_RL)
+            item.setZValue(Z_SELECTION)
             self._scene().addItem(item)
             self.item = item
         else:
@@ -126,12 +126,8 @@ class _RubberBandRect:
             self.item.setBrush(_BAND_FILL_LR if ltr else _BAND_FILL_RL)
 
     def clear(self) -> None:
-        if self.item is not None:
-            try:
-                self._scene().removeItem(self.item)
-            except RuntimeError:
-                pass
-            self.item = None
+        remove_scene_items(self._scene(), (self.item,))
+        self.item = None
 
 
 class _RedragOverlay:
@@ -143,9 +139,6 @@ class _RedragOverlay:
         self.live: QGraphicsItem | None = None
 
     def show_pad(self, pt: Point) -> None:
-        from PySide6.QtGui import QBrush
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
         r = _REDRAG_PAD_RADIUS
         item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
         item.setBrush(QBrush(_REDRAG_GREEN))
@@ -155,9 +148,6 @@ class _RedragOverlay:
         self.items.append(item)
 
     def show_disc(self, centre: Point, radius: float) -> None:
-        from PySide6.QtGui import QBrush
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
         ring = QGraphicsEllipseItem(
             centre.x - radius, centre.y - radius, 2 * radius, 2 * radius
         )
@@ -168,13 +158,6 @@ class _RedragOverlay:
         self.items.append(ring)
 
     def show_live(self, pos: Point, ok: bool) -> None:
-        from PySide6.QtGui import QBrush
-        from PySide6.QtWidgets import (
-            QGraphicsEllipseItem,
-            QGraphicsItemGroup,
-            QGraphicsLineItem,
-        )
-
         self.clear_live()
         r = 0.28
         group = QGraphicsItemGroup()
@@ -198,20 +181,12 @@ class _RedragOverlay:
         self.live = group
 
     def clear_live(self) -> None:
-        if self.live is not None:
-            try:
-                self._scene().removeItem(self.live)
-            except RuntimeError:
-                pass
-            self.live = None
+        remove_scene_items(self._scene(), (self.live,))
+        self.live = None
 
     def clear(self) -> None:
         self.clear_live()
-        for item in self.items:
-            try:
-                self._scene().removeItem(item)
-            except RuntimeError:
-                pass
+        remove_scene_items(self._scene(), self.items)
         self.items = []
 
 
@@ -228,9 +203,6 @@ class _WireEditOverlay:
         marked: Collection[int],
         span: list[Point] | None = None,
     ) -> None:
-        from PySide6.QtGui import QBrush
-        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
-
         pts = path
         for i in range(len(pts) - 1):
             seg = QGraphicsLineItem(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y)
@@ -265,11 +237,7 @@ class _WireEditOverlay:
             self.items.append(dot)
 
     def clear(self) -> None:
-        for item in self.items:
-            try:
-                self._scene().removeItem(item)
-            except RuntimeError:
-                pass
+        remove_scene_items(self._scene(), self.items)
         self.items = []
 
 
@@ -282,8 +250,6 @@ class _RerouteOverlay:
         self.live: QGraphicsItem | None = None
 
     def show_path(self, points: list[Point]) -> None:
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         self.clear()
         for a, b in zip(points, points[1:]):
             line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
@@ -293,8 +259,6 @@ class _RerouteOverlay:
             self.items.append(line)
 
     def show_live(self, a: Point, b: Point) -> None:
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         self.clear_live()
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         line.setPen(_EDIT_PREVIEW_PEN)
@@ -303,20 +267,12 @@ class _RerouteOverlay:
         self.live = line
 
     def clear_live(self) -> None:
-        if self.live is not None:
-            try:
-                self._scene().removeItem(self.live)
-            except RuntimeError:
-                pass
-            self.live = None
+        remove_scene_items(self._scene(), (self.live,))
+        self.live = None
 
     def clear(self) -> None:
         self.clear_live()
-        for item in self.items:
-            try:
-                self._scene().removeItem(item)
-            except RuntimeError:
-                pass
+        remove_scene_items(self._scene(), self.items)
         self.items = []
 
 

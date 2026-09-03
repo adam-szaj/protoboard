@@ -161,6 +161,10 @@ class PlaceTool(ControllerTool):
         """Return the active GUI theme or the headless default."""
         return self._theme()
 
+    def _definition(self) -> ComponentDefinition | None:
+        """Resolve the definition currently being placed."""
+        return self._session.components.get(self._definition_ref)
+
     @traced()
     def _is_phase(self, phase: PhaseEnum) -> bool:
         return self._phase == phase
@@ -239,7 +243,7 @@ class PlaceTool(ControllerTool):
             self._commit_floating_place()
             return True
 
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         specs = self._bend_specs(defn) if defn else {}
         bendable = sorted(specs.keys())
 
@@ -384,7 +388,7 @@ class PlaceTool(ControllerTool):
         """Flip pin1/pin2 while dragging a pin — anchor moves to old pin2 pad."""
         if not self._is_phase(PhaseEnum.DRAG_PIN):
             return False
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         fp = self._resolved_footprint(defn) if defn else None
         if (
             defn
@@ -427,7 +431,7 @@ class PlaceTool(ControllerTool):
     @traced()
     def _key_redrag(self) -> bool:
         """Re-drag — restart drag for the current bendable pin from default."""
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         specs = self._bend_specs(defn) if defn else {}
         if not specs:
             return False
@@ -461,7 +465,7 @@ class PlaceTool(ControllerTool):
 
     @traced()
     def _rebuild_ghost(self) -> None:
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         if defn is None:
             self.preview.clear_ghost()
             return
@@ -511,7 +515,7 @@ class PlaceTool(ControllerTool):
         self.preview.clear_reach()
         if self._phase != "drag_pin" or self._anchor_pos is None:
             return
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         if defn is None or self._current_drag_pin is None:
             return
         spec = self._bend_specs(defn).get(self._current_drag_pin)
@@ -535,7 +539,7 @@ class PlaceTool(ControllerTool):
         self.preview.clear_reach_line()
         if self._phase != "drag_pin" or self._anchor_pos is None:
             return
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         if defn is None or self._current_drag_pin is None:
             return
         spec = self._bend_specs(defn).get(self._current_drag_pin)
@@ -570,7 +574,7 @@ class PlaceTool(ControllerTool):
         """World position of the pin ignoring any current offset."""
         if self._anchor_pos is None:
             return None
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         if defn is None:
             return None
         temp = ComponentPlacement(
@@ -586,7 +590,7 @@ class PlaceTool(ControllerTool):
     def _compute_drag_offset(self, cursor: Point) -> Vector | None:
         """Return the clamped/snapped local offset for the active drag pin."""
         assert self._anchor_pos is not None and self._current_drag_pin is not None
-        defn = self._session.components.get(self._definition_ref)
+        defn = self._definition()
         if defn is None:
             return None
         spec: PinBendSpec | None = self._bend_specs(defn).get(self._current_drag_pin)

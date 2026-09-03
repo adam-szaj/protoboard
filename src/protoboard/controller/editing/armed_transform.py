@@ -64,10 +64,10 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Fragment
     from protoboard.geometry import Transform2D
 
-    SnapFn = Callable[[Point], "Point | None"]
-    ExecuteFn = Callable[["Command[ComponentState]"], bool]
+    SnapFn = Callable[[Point], Point | None]
+    ExecuteFn = Callable[[Command[ComponentState]], bool]
     StatusFn = Callable[[str], None]
-    Matcher = Callable[["KeyInput", str], bool]
+    Matcher = Callable[[KeyInput, str], bool]
 
 
 # Action ids this sub-tool reacts to (resolved against SelectTool's KeyMap via
@@ -432,16 +432,13 @@ class ArmedTransform:
         tree = GroupTree(getattr(self._layout, "groups", {}))
         if tree.world_transform(cid) != Transform2D.identity():
             return None
-        inst = self._ctx.instances.get(cid)
-        if inst is None:
-            return None
-        defn = self._ctx.components.get(inst.definition_ref)
-        if defn is None:
+        component = self._ctx.placed_component(cid)
+        if component is None:
             return None
         families = getattr(self._ctx, "package_families", None)
-        if not is_two_pin_smd(defn, inst, families):
+        if not is_two_pin_smd(component.definition, component.instance, families):
             return None
-        fp = resolved_footprint_or_default(defn, inst)
+        fp = resolved_footprint_or_default(component.definition, component.instance)
         return smd_orientation_step(fp, pl, 1 if delta > 0 else -1)
 
     def _move(self, dx: float, dy: float) -> None:
@@ -470,10 +467,8 @@ class ArmedTransform:
         self._emit_preview()
 
     def _defn_for(self, cid: uuid.UUID) -> object | None:
-        inst = self._ctx.instances.get(cid)
-        if inst is None:
-            return None
-        return self._ctx.components.get(inst.definition_ref)
+        component = self._ctx.placed_component(cid)
+        return component.definition if component is not None else None
 
     @staticmethod
     def _pin_count(defn: object) -> int:

@@ -60,12 +60,13 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.package.shapes import (
     Package,
     bbox_or_none,
+    local_size_holes,
 )
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.domain.components.value_text import body_print_text
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, placement_transform
 from protoboard.geometry import Point, Rect, Transform2D
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.packages.body_label import make_body_label
@@ -596,10 +597,6 @@ class PackageRenderer(BodyShape):
             return []
         if box.lx <= 0.0 or box.ly <= 0.0:
             return []
-        from protoboard.domain.components.package.shapes import (
-            local_size_holes,
-        )
-
         s = local_size_holes(self._pkg)
         along, across = s.lx, s.ly
         if along <= 0.0 or across <= 0.0:
@@ -687,10 +684,6 @@ class PackageRenderer(BodyShape):
         generic silhouette); round shapes override with their radius.
         """
         del mm  # used by the round-shape overrides (mm → holes conversion)
-        from protoboard.domain.components.package.shapes import (
-            local_size_holes,
-        )
-
         along = local_size_holes(self._pkg).lx
         return along / 2.0
 
@@ -710,8 +703,6 @@ class PackageRenderer(BodyShape):
         already-oriented bbox.
         """
         if self._placement is not None:
-            from protoboard.domain.layout.placement import placement_transform
-
             return _qtransform(placement_transform(self._pkg, self._placement))
         p1 = positions[0]
         place = QTransform()
@@ -823,10 +814,6 @@ class PackageRenderer(BodyShape):
         lets a polar override place the ``-`` marker.
         """
         del neg_pin  # only round polar silhouettes mark the negative lead
-        from protoboard.domain.components.package.shapes import (
-            local_size_holes,
-        )
-
         paint = self.paint
         s = local_size_holes(self._pkg)
         length_r, width_r = s.lx, s.ly

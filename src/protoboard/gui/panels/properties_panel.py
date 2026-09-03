@@ -274,16 +274,14 @@ class PropertiesPanel(QWidget):
             self.clear_component()
             return
         cid = ids[0]
-        inst = self._session.instances.get(cid)
-        if inst is None:
+        placed = self._session.placed_component(cid)
+        if placed is None:
             self.clear_component()
             return
-        placement = self._session.layout.placements.get(cid)
-        defn = self._session.components.get(inst.definition_ref)
         self.show_component(
-            inst,
-            placement,
-            defn,
+            placed.instance,
+            placed.placement,
+            placed.definition,
             package_families=self._session.package_families,
         )
 

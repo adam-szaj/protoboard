@@ -56,8 +56,20 @@ from protoboard.controller.selection.rubber_band_controller import RubberBandCon
 from protoboard.controller.selection.service import SelectionService
 from protoboard.controller.selection_fsm import BasisScope, SetOp
 from protoboard.controller.tools.base import ControllerTool, _ViewProto
+from protoboard.domain.components.package import (
+    effective_bend_specs,
+    redrag_feasibility,
+    resolved_footprint,
+)
+from protoboard.domain.components.package.reach import is_two_pin_smd
+from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.geometry import Point, Rect
+from protoboard.domain.layout.placement import (
+    flip_component,
+    flip_component_side,
+    pin_world_position,
+)
+from protoboard.geometry import Point, Rect, round_coord
 from protoboard.instrumentation.debug_trace import traced
 
 _log = structlog.get_logger(__name__)
@@ -1721,16 +1733,13 @@ class SelectTool(ControllerTool):
 
     def _is_two_pin_smd(self, comp_id: uuid.UUID) -> bool:
         """Whether *comp_id* is a rigid 2-pin SMD chip (variant-aware)."""
-        from protoboard.domain.components.package.reach import is_two_pin_smd
-
-        inst = self._session.instances.get(comp_id)
-        if inst is None:
-            return False
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
+        component = self._session.placed_component(comp_id)
+        if component is None:
             return False
         return is_two_pin_smd(
-            defn, inst, getattr(self._session, "package_families", None)
+            component.definition,
+            component.instance,
+            getattr(self._session, "package_families", None),
         )
 
     def _movable_pins(self, comp_id: uuid.UUID) -> set[int]:
@@ -1740,17 +1749,18 @@ class SelectTool(ControllerTool):
         maps and geometry-derived reach follow the selected package variant.
         Replaces the legacy single-pin ``_redraggable_pin``.
         """
-        from protoboard.domain.components.package import effective_bend_specs
-
-        inst = self._session.instances.get(comp_id)
-        pl = self._session.layout.placements.get(comp_id)
-        if inst is None or pl is None:
-            return set()
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
+        component = resolve_placed_component(
+            comp_id,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+        )
+        if component is None:
             return set()
         specs = effective_bend_specs(
-            defn, inst, getattr(self._session, "package_families", None)
+            component.definition,
+            component.instance,
+            getattr(self._session, "package_families", None),
         )
         return {pin for pin, spec in specs.items() if spec.is_free()}
 
@@ -1886,9 +1896,13 @@ class SelectTool(ControllerTool):
         """
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
 
-        pl = self._session.layout.placements.get(comp_id)
-        inst = self._session.instances.get(comp_id)
-        if pl is None or inst is None:
+        component = resolve_placed_component(
+            comp_id,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+        )
+        if component is None:
             return None
         result = self._redrag_feasibility(comp_id, pin, target)
         if result is None or not result.ok or result.new_placement is None:
@@ -1896,7 +1910,7 @@ class SelectTool(ControllerTool):
         return MoveComponentCommand(
             component_id=comp_id,
             new_placement=result.new_placement,
-            old_placement=pl.copy(),
+            old_placement=component.placement.copy(),
         )
 
     def _redrag_feasibility(
@@ -1908,26 +1922,24 @@ class SelectTool(ControllerTool):
         predicate.  Shared by the commit and the overlay so both agree on
         legality.  ``None`` when the component cannot be resolved.
         """
-        from protoboard.domain.components.package import (
-            effective_bend_specs,
-            redrag_feasibility,
+        component = resolve_placed_component(
+            comp_id,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
         )
-
-        pl = self._session.layout.placements.get(comp_id)
-        inst = self._session.instances.get(comp_id)
-        if pl is None or inst is None:
-            return None
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
+        if component is None:
             return None
         families = getattr(self._session, "package_families", None)
-        specs = effective_bend_specs(defn, inst, families)
+        specs = effective_bend_specs(component.definition, component.instance, families)
         snapped = self._snap(target, frozenset())
-        from protoboard.domain.components.package import resolved_footprint
-
         return redrag_feasibility(
-            footprint=resolved_footprint(defn, inst, families),
-            placement=pl,
+            footprint=resolved_footprint(
+                component.definition,
+                component.instance,
+                families,
+            ),
+            placement=component.placement,
             specs=specs,
             grabbed_pin=pin,
             target=snapped,
@@ -1938,8 +1950,6 @@ class SelectTool(ControllerTool):
         """Rounded (x, y) keys of every board pad — landing set for a moved pin."""
         if self._view is None:
             return frozenset()
-        from protoboard.geometry import round_coord
-
         return frozenset(
             (round_coord(p.x), round_coord(p.y))
             for p in self._view.board_pad_positions()
@@ -1957,12 +1967,6 @@ class SelectTool(ControllerTool):
         Only drawn for a bendable (free) grab with a positive reach; a no-op
         otherwise.
         """
-        from protoboard.domain.components.package import (
-            effective_bend_specs,
-            resolved_footprint,
-        )
-        from protoboard.domain.layout.placement import pin_world_position
-
         families = getattr(self._session, "package_families", None)
         spec = effective_bend_specs(defn, inst, families).get(pin)
         if spec is None or not spec.is_free() or spec.max_reach <= 0.0:
@@ -1982,12 +1986,13 @@ class SelectTool(ControllerTool):
         """
         self._clear_redrag_overlay()
         pin = self._redrag_pin
-        inst = self._session.instances.get(comp_id)
-        pl = self._session.layout.placements.get(comp_id)
-        if pin is None or inst is None or pl is None:
-            return
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
+        component = resolve_placed_component(
+            comp_id,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+        )
+        if pin is None or component is None:
             return
 
         # Legal landing pads — feasibility per pad (overlay == commit).
@@ -1997,7 +2002,12 @@ class SelectTool(ControllerTool):
                 self.preview.show_redrag_pad(pt)
 
         # Reach-disc outline for a bendable grab, centred on the pin's default.
-        self._draw_reach_disc_outline(defn, inst, pl, pin)
+        self._draw_reach_disc_outline(
+            component.definition,
+            component.instance,
+            component.placement,
+            pin,
+        )
 
     def _redrag_preview(self, scene_pt: Point, _mods: Mods) -> None:
         """Live validity tint under the cursor during the re-drag pad pick.
@@ -2535,32 +2545,29 @@ class SelectTool(ControllerTool):
 
     @traced()
     def flip_selected(self) -> None:
-        from typing import cast
-
         from protoboard.domain.commands.base import compose_command
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.layout.placement import flip_component
 
         families = getattr(self._session, "package_families", None)
         cmds: list[object] = []
         for cid in self._selected_comp_ids():
-            pl = self._session.layout.placements.get(cid)
-            inst = self._session.instances.get(cid)
-            if pl is None or inst is None:
+            component = resolve_placed_component(
+                cid,
+                self._session.layout.placements,
+                self._session.instances,
+                self._session.components,
+            )
+            if component is None:
                 continue
-            defn = self._session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = resolved_footprint(defn, inst, families)
+            fp = resolved_footprint(component.definition, component.instance, families)
             if fp.pin_count() != 2:
                 continue
             cmds.append(
                 MoveComponentCommand(
                     component_id=cid,
                     # flip pivots around the pin span → variant-sensitive.
-                    new_placement=flip_component(fp, pl),
-                    old_placement=pl.copy(),
+                    new_placement=flip_component(fp, component.placement),
+                    old_placement=component.placement.copy(),
                 )
             )
         if not cmds:
@@ -2747,12 +2754,8 @@ class SelectTool(ControllerTool):
                 is None
             ):
                 free_pos = self._session.get_pin_position(hit.id, pin)
-                inst = self._session.instances.get(hit.id)
-                defn = (
-                    self._session.components.get(inst.definition_ref)
-                    if inst is not None
-                    else None
-                )
+                placed = self._session.placed_component(hit.id)
+                defn = placed.definition if placed is not None else None
                 name = (
                     " / ".join(defn.meta_pin(pin).labels)
                     if defn is not None
@@ -2794,13 +2797,9 @@ class SelectTool(ControllerTool):
         Mirrors the legacy component section on v2's services."""
         if comp_id is None:
             return []
-        inst = self._session.instances.get(comp_id)
-        defn = (
-            self._session.components.get(inst.definition_ref)
-            if inst is not None
-            else None
-        )
-        if inst is None or defn is None:
+        placed = self._session.placed_component(comp_id)
+        defn = placed.definition if placed is not None else None
+        if defn is None:
             return []
 
         from protoboard.domain.schematic.net import PinRef as _PinRef
@@ -3263,23 +3262,22 @@ class SelectTool(ControllerTool):
         overlap / different-net pad) leaves the component where it is.
         """
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
-        from protoboard.domain.components.package import resolved_footprint
-        from protoboard.domain.layout.placement import flip_component_side
 
-        pl = self._session.layout.placements.get(comp_id)
-        inst = self._session.instances.get(comp_id)
-        if pl is None or inst is None:
-            return
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
+        component = resolve_placed_component(
+            comp_id,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+        )
+        if component is None:
             return
         families = getattr(self._session, "package_families", None)
-        fp = resolved_footprint(defn, inst, families)
+        fp = resolved_footprint(component.definition, component.instance, families)
         self._execute(
             MoveComponentCommand(
                 component_id=comp_id,
-                new_placement=flip_component_side(fp, pl),
-                old_placement=pl.copy(),
+                new_placement=flip_component_side(fp, component.placement),
+                old_placement=component.placement.copy(),
             )
         )
         self._notify_selection()  # refresh Properties panel (side changed)

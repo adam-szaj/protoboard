@@ -656,6 +656,7 @@ class EditController:
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
         from protoboard.domain.commands.group_cmds import FlipGroupCommand
         from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.components.resolution import resolve_placed_component
         from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.placement import flip_component
 
@@ -668,14 +669,15 @@ class EditController:
         ]
         loose = self._loose_unlocked(comp_ids, active_group_id=active_group_id)
         for cid in loose:
-            pl = state.layout.placements.get(cid)
-            inst = state.instances.get(cid)
-            if pl is None or inst is None:
+            component = resolve_placed_component(
+                cid,
+                state.layout.placements,
+                state.instances,
+                state.components,
+            )
+            if component is None:
                 continue
-            defn = state.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = resolved_footprint(defn, inst, families)
+            fp = resolved_footprint(component.definition, component.instance, families)
             if fp.pin_count() != 2:
                 continue
             cmds.append(
@@ -683,8 +685,8 @@ class EditController:
                     "Command[ComponentState]",
                     MoveComponentCommand(
                         component_id=cid,
-                        new_placement=flip_component(fp, pl),
-                        old_placement=pl.copy(),
+                        new_placement=flip_component(fp, component.placement),
+                        old_placement=component.placement.copy(),
                     ),
                 )
             )

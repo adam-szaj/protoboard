@@ -15,7 +15,10 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point, Rect, Transform2D
+from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
+from protoboard.gui.tools.gui_tools import RouteTool
 from protoboard.instrumentation.debug_trace import traced
 
 if TYPE_CHECKING:
@@ -45,8 +48,6 @@ class ViewCamera:
         # cursor pivot, and fold the burst into one scale + scroll pass ~1 frame
         # later.  The parked sample is ``(delta, pivot)``; combine sums the delta
         # while the latest pivot wins.
-        from protoboard.gui.throttle import ParkLatestThrottle, TimerWrap
-
         self._wheel_throttle: ParkLatestThrottle[tuple[int, Point]] = (
             ParkLatestThrottle(
                 16,  # ~1 frame
@@ -162,8 +163,6 @@ class ViewCamera:
 
     @traced()
     def _sync_tool_side(self, side: str) -> None:
-        from protoboard.gui.tools.gui_tools import RouteTool
-
         tool = self._view.active_tool
         if isinstance(tool, RouteTool):
             tool.set_options(side=side)
@@ -213,18 +212,12 @@ class ViewCamera:
     @traced()
     def fit_area(self) -> None:
         """Fit view to the active group's components (ROOT → whole board)."""
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         view = self._view
         session = view.session
         active = view.active_group_id
 
-        import uuid as _uuid
-
         if active == ROOT_GROUP_ID:
-            comp_ids: frozenset[_uuid.UUID] = frozenset(
-                session.layout.placements.keys()
-            )
+            comp_ids: frozenset[uuid.UUID] = frozenset(session.layout.placements.keys())
         else:
             comp_ids = session.group_tree().all_component_ids(active)
 

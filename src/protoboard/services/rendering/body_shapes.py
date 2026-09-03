@@ -30,6 +30,9 @@ from __future__ import annotations
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.component_package import (
+    resolve_component_package,
+)
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.services.rendering.packages import (
@@ -115,8 +118,6 @@ def body_shape_for(
     # resolve_component_package.
     # Polarity / anchor come from the class and placement, not the
     # (class-agnostic) package.
-    from protoboard.domain.components.package import resolve_component_package
-
     pkg = resolve_component_package(defn, instance, package_families or {})
     if pkg is not None:
         return PackageBody(

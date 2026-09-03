@@ -16,6 +16,7 @@ dependencies = [
     "ruamel.yaml>=0.18",
     "structlog>=24.0",
     "typing-extensions>=4.4",
+    "uv>=0.12.7",
 ]
 
 [project.optional-dependencies]

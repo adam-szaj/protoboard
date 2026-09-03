@@ -17,16 +17,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush, QColor, QPen
+from PySide6.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsItem,
+    QGraphicsItemGroup,
+    QGraphicsLineItem,
+    QGraphicsScene,
+)
+
 from protoboard.controller.tools.place_preview import PlacePreview as PlacePreview
+from protoboard.gui.scene_items import remove_scene_items
+from protoboard.services.rendering.component_renderer import make_ghost_item
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from PySide6.QtWidgets import (
-        QGraphicsItem,
-        QGraphicsItemGroup,
-        QGraphicsScene,
-    )
 
     from protoboard.controller.view_options.theme import Theme
     from protoboard.domain.components.definition import ComponentDefinition
@@ -65,8 +71,6 @@ class QtPlacePreview:
         package_variant: str | None,
         theme: Theme,
     ) -> None:
-        from protoboard.services.rendering.component_renderer import make_ghost_item
-
         self.clear_ghost()
         ghost = make_ghost_item(
             defn,
@@ -92,9 +96,8 @@ class QtPlacePreview:
             # the back-cache filter no longer hides the ghost's children.
 
     def clear_ghost(self) -> None:
-        if self._ghost is not None:
-            self._scene().removeItem(self._ghost)
-            self._ghost = None
+        remove_scene_items(self._scene(), (self._ghost,))
+        self._ghost = None
 
     @property
     def has_ghost(self) -> bool:
@@ -103,10 +106,6 @@ class QtPlacePreview:
     # -- reach overlay ------------------------------------------------------------
 
     def show_reach_dots(self, points: list[Point]) -> None:
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QBrush, QColor, QPen
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
         self._clear_reach_dots()
         r = _REACH_PAD_RADIUS
         color = QColor(self._theme().placement_reach_color)
@@ -119,10 +118,6 @@ class QtPlacePreview:
             self._reach_dots.append(item)
 
     def show_reach_line(self, a: Point, b: Point) -> None:
-        from PySide6.QtCore import Qt
-        from PySide6.QtGui import QColor, QPen
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         self.clear_reach_line()
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         pen = QPen(QColor(self._theme().placement_reach_line_color), 0.05)
@@ -133,17 +128,15 @@ class QtPlacePreview:
         self._reach_line = line
 
     def clear_reach_line(self) -> None:
-        if self._reach_line is not None:
-            self._scene().removeItem(self._reach_line)
-            self._reach_line = None
+        remove_scene_items(self._scene(), (self._reach_line,))
+        self._reach_line = None
 
     def clear_reach(self) -> None:
         self._clear_reach_dots()
         self.clear_reach_line()
 
     def _clear_reach_dots(self) -> None:
-        for item in self._reach_dots:
-            self._scene().removeItem(item)
+        remove_scene_items(self._scene(), self._reach_dots)
         self._reach_dots = []
 
     # -- lifecycle ---------------------------------------------------------------

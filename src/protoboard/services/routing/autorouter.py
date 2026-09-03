@@ -42,6 +42,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
@@ -1386,22 +1387,21 @@ def _build_pin_positions(
     )
 
     pos: dict[PinRef, tuple[Point, str]] = {}
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = footprint_of(defn, inst)
-        for meta_pin_index in range(1, len(defn.meta_pins) + 1):
-            package_pins = package_pins_for_meta_pin(defn, inst, meta_pin_index)
+    for component in iter_placed_components(layout.placements, instances, components):
+        comp_id = component.placement.component_id
+        fp = footprint_of(component.definition, component.instance)
+        for meta_pin_index in range(1, len(component.definition.meta_pins) + 1):
+            package_pins = package_pins_for_meta_pin(
+                component.definition,
+                component.instance,
+                meta_pin_index,
+            )
             if not package_pins:
                 continue
-            p = pin_world_position(fp, placement, package_pins[0])
+            p = pin_world_position(fp, component.placement, package_pins[0])
             pos[PinRef(component_id=comp_id, pin_number=meta_pin_index)] = (
                 p,
-                placement.side,
+                component.placement.side,
             )
     return pos
 
@@ -2432,18 +2432,15 @@ def _build_under_component_penalty(
         return {}
 
     result: dict[tuple[Point, str], float] = {}
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        if placement.side != "top":
+    for component in iter_placed_components(layout.placements, instances, components):
+        if component.placement.side != "top":
             # Bottom-mounted components penalise bottom pads instead.
             # (Rare case — skip for now, extend if needed.)
             continue
-        bbox = component_bbox(footprint_of(defn, inst), placement)
+        bbox = component_bbox(
+            footprint_of(component.definition, component.instance),
+            component.placement,
+        )
         # Iterate board atoms and mark those inside the bbox on the top layer.
         for atom, pos in board.atoms():
             if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):

@@ -46,6 +46,8 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 
+from protoboard.domain.components.resolution import iter_placed_components
+from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point, Vector, segments_cross_strict
 from protoboard.services.routing.postprocess import _canonical_subpath
@@ -578,19 +580,20 @@ def unweave_wires(
     forbidden_pads: set[Point] | None = None
     if graph is not None:
         from protoboard.domain.layout.pad_conflict import footprint_of
-        from protoboard.domain.layout.placement import pin_world_position
 
         forbidden_pads = set()
-        for cid, pl in graph.layout.placements.items():
-            inst = graph.instances.get(cid)
-            if inst is None:
-                continue
-            defn = graph.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            comp_fp = footprint_of(defn, inst)
-            for pn in range(1, comp_fp.pin_count() + 1):
-                forbidden_pads.add(pin_world_position(comp_fp, pl, pn))
+        for component in iter_placed_components(
+            graph.layout.placements,
+            graph.instances,
+            graph.components,
+        ):
+            comp_fp = footprint_of(component.definition, component.instance)
+            forbidden_pads.update(
+                position
+                for _pin_number, position in iter_footprint_pin_positions(
+                    comp_fp, component.placement
+                )
+            )
 
     # Foreign-wire vertices = every (pad, side) used by a wire on the board
     # that is NOT one of our unweave targets.  Used by Phase 0 to reject

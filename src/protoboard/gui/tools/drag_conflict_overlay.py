@@ -14,6 +14,9 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
 )
 
+from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
+from protoboard.gui.scene_items import remove_scene_items
+
 if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import MoveConflictResult
     from protoboard.geometry import Point
@@ -88,11 +91,7 @@ class DragConflictOverlay:
     # ------------------------------------------------------------------
 
     def _drop_items(self, scene: QGraphicsScene) -> None:
-        for item in self._items:
-            try:
-                scene.removeItem(item)
-            except RuntimeError:
-                pass  # C++ object already deleted by scene.clear()
+        remove_scene_items(scene, self._items)
         self._items.clear()
 
     def _render(
@@ -101,8 +100,6 @@ class DragConflictOverlay:
         result: MoveConflictResult,
         drag_bbox: tuple[float, float, float, float] | None,
     ) -> None:
-        from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
-
         if result.severity == MoveConflictSeverity.CLEAR:
             return
 

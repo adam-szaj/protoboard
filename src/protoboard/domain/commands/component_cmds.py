@@ -21,6 +21,7 @@ from protoboard.domain.commands.base import (
     SchematicState,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.resolution import resolve_instance_definition
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -155,12 +156,10 @@ def build_pin_identities_for(state: ComponentState, comp_id: uuid.UUID) -> None:
     into ``state.instances``. No-op if the instance or its definition is
     missing.
     """
-    inst = state.instances.get(comp_id)
-    if inst is None:
+    resolved = resolve_instance_definition(comp_id, state.instances, state.components)
+    if resolved is None:
         return
-    defn = state.components.get(inst.definition_ref)
-    if defn is None:
-        return
+    inst, defn = resolved
     bound = inst.bind(defn, getattr(state, "package_families", None))
     state.instances[comp_id] = bound
     bound.build_pin_identities(defn)

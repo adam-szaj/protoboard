@@ -27,10 +27,16 @@ def _dbg_enabled() -> bool:
 from protoboard.domain.components.package.pin_mapping import (  # noqa: E402
     meta_pin_for_package_pin,
 )
+from protoboard.domain.components.resolution import (  # noqa: E402
+    iter_placed_components,
+    resolve_instance_definition,
+    resolve_placed_component,
+)
 from protoboard.domain.layout.placement import (  # noqa: E402
     ComponentPlacement,
     PlacementMap,
     component_bbox,
+    iter_footprint_pin_positions,
     pin_world_position,
 )
 from protoboard.geometry import Point, round_coord  # noqa: E402
@@ -177,23 +183,18 @@ def find_conflicts(
     """
     incoming_inst = incoming_instance or instances.get(incoming_instance_id)
     incoming_fp = footprint_of(incoming_defn, incoming_inst)
-    n_pins = incoming_fp.pin_count()
     existing: dict[tuple[float, float], tuple[uuid.UUID, int]]
     if pad_index is None:
         # Pre-build: world pos -> (comp_id, pin_num) for all existing placements.
         existing = {}
-        for comp_id, pl in layout_placements.items():
+        for component in iter_placed_components(
+            layout_placements, instances, components
+        ):
+            comp_id = component.placement.component_id
             if comp_id == incoming_instance_id:
                 continue
-            inst = instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = footprint_of(defn, inst)
-            for pin_num in range(1, fp.pin_count() + 1):
-                p = pin_world_position(fp, pl, pin_num)
+            fp = footprint_of(component.definition, component.instance)
+            for pin_num, p in iter_footprint_pin_positions(fp, component.placement):
                 key = (round_coord(p.x), round_coord(p.y))
                 existing[key] = (comp_id, pin_num)
     else:
@@ -209,12 +210,10 @@ def find_conflicts(
         component_id: uuid.UUID,
         package_pin_number: int,
     ) -> tuple[uuid.UUID, str] | None:
-        instance = instances.get(component_id)
-        if instance is None:
+        resolved = resolve_instance_definition(component_id, instances, components)
+        if resolved is None:
             return None
-        definition = components.get(instance.definition_ref)
-        if definition is None:
-            return None
+        instance, definition = resolved
         meta_pin_index = meta_pin_for_package_pin(
             definition, instance, package_pin_number
         )
@@ -223,10 +222,9 @@ def find_conflicts(
         return pin_net.get((component_id, meta_pin_index))
 
     conflicts: list[PadConflict] = []
-    for pin_num in range(1, n_pins + 1):
+    for pin_num, p in iter_footprint_pin_positions(incoming_fp, incoming_placement):
         if pin_num in incoming_placement.shared_pins:
             continue
-        p = pin_world_position(incoming_fp, incoming_placement, pin_num)
         key = (round_coord(p.x), round_coord(p.y))
         hit: tuple[uuid.UUID, int] | None
         if pad_index is None:
@@ -348,11 +346,9 @@ def find_wire_conflicts(
 
     conflicts: list[PadConflict] = []
     incoming_fp = footprint_of(incoming_defn, incoming_instance)
-    n_pins = incoming_fp.pin_count()
     _sentinel = uuid.UUID(int=0)
 
-    for pin_num in range(1, n_pins + 1):
-        p = pin_world_position(incoming_fp, incoming_placement, pin_num)
+    for pin_num, p in iter_footprint_pin_positions(incoming_fp, incoming_placement):
         key = (round_coord(p.x), round_coord(p.y))
         if key in already_conflicted:
             continue
@@ -596,17 +592,17 @@ def find_wires_crossing_pads(
         for net in schematic.nets.values():
             for ref in net.pins:
                 pin_net_map[(ref.component_id, ref.pin_number)] = net.id
-        for comp_id, pl in layout_placements.items():
-            inst = instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            fp = footprint_of(defn, inst)
-            for pin_num in range(1, fp.pin_count() + 1):
-                p = pin_world_position(fp, pl, pin_num)
-                meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+        for component in iter_placed_components(
+            layout_placements, instances, components
+        ):
+            comp_id = component.placement.component_id
+            fp = footprint_of(component.definition, component.instance)
+            for pin_num, p in iter_footprint_pin_positions(fp, component.placement):
+                meta_pin_index = meta_pin_for_package_pin(
+                    component.definition,
+                    component.instance,
+                    pin_num,
+                )
                 net_id = (
                     None
                     if meta_pin_index is None
@@ -782,37 +778,42 @@ def check_group_move_conflicts(
 
     # --- 1. Pad-on-pad AND bbox conflicts for every moved component ---
     for comp_id in moved_ids:
-        pl = layout_placements.get(comp_id)
-        inst = instances.get(comp_id)
-        if pl is None or inst is None:
+        component = resolve_placed_component(
+            comp_id,
+            layout_placements,
+            instances,
+            components,
+        )
+        if component is None:
             continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
+        pl = component.placement
+        inst = component.instance
+        defn = component.definition
         fp = footprint_of(defn, inst)
         # Bbox overlap with external (non-moved) components — same logic as
         # _move_blocked() in component_cmds.py.
         new_bbox = component_bbox(fp, pl, defn.component_class)
         moved_pin_positions: set[tuple[float, float]] = set()
-        for pn in range(1, fp.pin_count() + 1):
-            p2 = pin_world_position(fp, pl, pn)
+        for _pn, p2 in iter_footprint_pin_positions(fp, pl):
             moved_pin_positions.add((round_coord(p2.x), round_coord(p2.y)))
 
-        for other_id, other_pl in layout_placements.items():
+        for other in iter_placed_components(
+            layout_placements,
+            instances,
+            components,
+        ):
+            other_id = other.placement.component_id
             if other_id in moved_ids:
                 continue  # skip fellow group members
-            other_inst = instances.get(other_id)
-            if other_inst is None:
-                continue
-            other_defn = components.get(other_inst.definition_ref)
-            if other_defn is None:
-                continue
-            other_fp = footprint_of(other_defn, other_inst)
-            other_bbox = component_bbox(other_fp, other_pl, other_defn.component_class)
+            other_fp = footprint_of(other.definition, other.instance)
+            other_bbox = component_bbox(
+                other_fp,
+                other.placement,
+                other.definition.component_class,
+            )
             if new_bbox.intersects(other_bbox):
                 other_pins: set[tuple[float, float]] = set()
-                for pn in range(1, other_fp.pin_count() + 1):
-                    p2 = pin_world_position(other_fp, other_pl, pn)
+                for _pn, p2 in iter_footprint_pin_positions(other_fp, other.placement):
                     other_pins.add((round_coord(p2.x), round_coord(p2.y)))
                 if moved_pin_positions.isdisjoint(other_pins):
                     # Pure body overlap — blocking (mirrors _move_blocked behaviour).
@@ -1069,16 +1070,16 @@ def _compute_bbox(
     xs: list[float] = []
     ys: list[float] = []
     for cid in comp_ids:
-        pl = placements.get(cid)
-        inst = instances.get(cid)
-        if pl is None or inst is None:
+        component = resolve_placed_component(
+            cid,
+            placements,
+            instances,
+            components,
+        )
+        if component is None:
             continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        fp = footprint_of(defn, inst)
-        for n in range(1, fp.pin_count() + 1):
-            p = pin_world_position(fp, pl, n)
+        fp = footprint_of(component.definition, component.instance)
+        for _pin_number, p in iter_footprint_pin_positions(fp, component.placement):
             xs.append(p.x)
             ys.append(p.y)
     if not xs:

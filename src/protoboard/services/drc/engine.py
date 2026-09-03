@@ -29,10 +29,14 @@ from protoboard.domain.components.package.pin_mapping import (
     meta_pin_for_package_pin,
 )
 from protoboard.domain.components.package.reach import is_pin_bendable
+from protoboard.domain.components.resolution import (
+    iter_placed_components,
+    resolve_placed_component,
+)
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of, package_of
-from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, segments_cross_strict
@@ -268,17 +272,11 @@ def _check_overlap(
     """
     # Build: (x, y, side) → list of (comp_id, pin)
     pad_occupancy: dict[tuple[float, float, str], list[tuple[uuid.UUID, int]]] = {}
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        footprint = footprint_of(defn, inst)
-        for pin_num in range(1, footprint.pin_count() + 1):
-            wp = pin_world_position(footprint, placement, pin_num)
-            key = (wp.x, wp.y, placement.side)
+    for component in iter_placed_components(layout.placements, instances, components):
+        comp_id = component.placement.component_id
+        footprint = footprint_of(component.definition, component.instance)
+        for pin_num, wp in iter_footprint_pin_positions(footprint, component.placement):
+            key = (wp.x, wp.y, component.placement.side)
             pad_occupancy.setdefault(key, []).append((comp_id, pin_num))
 
     issues: list[DRCIssue] = []
@@ -304,27 +302,25 @@ def _check_overlap(
         # component definition — the user has marked those leads as
         # legitimately shareable.
         def _is_bendable(cid: uuid.UUID, pin_num: int) -> bool:
-            inst = instances.get(cid)
-            if inst is None:
+            component = resolve_placed_component(
+                cid, layout.placements, instances, components
+            )
+            if component is None:
                 return False
-            defn = components.get(inst.definition_ref)
-            if defn is None:
-                return False
-            pkg = package_of(defn, inst)
+            pkg = package_of(component.definition, component.instance)
             return pkg is not None and is_pin_bendable(pkg, pin_num)
 
         if all(_is_bendable(cid, p) for cid, p in unshared):
             continue
         affected_pins: list[PinRef] = []
         for cid, package_pin_number in occupants:
-            instance = instances.get(cid)
-            if instance is None:
-                continue
-            definition = components.get(instance.definition_ref)
-            if definition is None:
+            placed = resolve_placed_component(
+                cid, layout.placements, instances, components
+            )
+            if placed is None:
                 continue
             meta_pin_index = meta_pin_for_package_pin(
-                definition, instance, package_pin_number
+                placed.definition, placed.instance, package_pin_number
             )
             if meta_pin_index is not None:
                 affected_pins.append(PinRef(cid, meta_pin_index))
@@ -407,17 +403,12 @@ def _check_body_overlap(
     placed: list[tuple[uuid.UUID, ComponentPlacement, ComponentDefinition, Package]] = (
         []
     )
-    for cid, pl in layout.placements.items():
-        inst = instances.get(cid)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        pkg = package_of(defn, inst)
+    for component in iter_placed_components(layout.placements, instances, components):
+        cid = component.placement.component_id
+        pkg = package_of(component.definition, component.instance)
         if pkg is None or is_generic_package(pkg):
             continue
-        placed.append((cid, pl, defn, pkg))
+        placed.append((cid, component.placement, component.definition, pkg))
     if len(placed) < 2:
         return []
 
@@ -432,8 +423,7 @@ def _check_body_overlap(
         defn = components[inst.definition_ref]
         pl = layout.placements[cid]
         footprint = footprint_of(defn, inst)
-        for pin_num in range(1, footprint.pin_count() + 1):
-            wp = pin_world_position(footprint, pl, pin_num)
+        for pin_num, wp in iter_footprint_pin_positions(footprint, pl):
             if wp.x == hole.x and wp.y == hole.y:
                 return pin_num
         return None
@@ -949,17 +939,11 @@ def _check_off_board_pins(
         }
 
     issues: list[DRCIssue] = []
-    for comp_id, placement in layout.placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        side = placement.side
-        fp = footprint_of(defn, inst)
-        for pin_num in range(1, fp.pin_count() + 1):
-            wp = pin_world_position(fp, placement, pin_num)
+    for component in iter_placed_components(layout.placements, instances, components):
+        comp_id = component.placement.component_id
+        side = component.placement.side
+        fp = footprint_of(component.definition, component.instance)
+        for pin_num, wp in iter_footprint_pin_positions(fp, component.placement):
             on_pad = False
             if pad_index is not None:
                 pad = pad_index.pad_at(wp)
@@ -978,11 +962,13 @@ def _check_off_board_pins(
             if on_pad:
                 continue
             loc_label = _format_location(wp, axis_labels)
-            meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_num)
+            meta_pin_index = meta_pin_for_package_pin(
+                component.definition, component.instance, pin_num
+            )
             pin_name = (
                 str(pin_num)
                 if meta_pin_index is None
-                else defn.meta_pin(meta_pin_index).labels[0]
+                else component.definition.meta_pin(meta_pin_index).labels[0]
             )
             affected_pins = (
                 []
@@ -994,9 +980,9 @@ def _check_off_board_pins(
                     severity="error",
                     code="OFF_BOARD_PIN",
                     message=(
-                        f"Pin {pin_num} ({pin_name}) of {inst.refdes} at "
+                        f"Pin {pin_num} ({pin_name}) of {component.instance.refdes} at "
                         f"{loc_label} is not on a board pad on the "
-                        f"{placement.side} side. Move the component onto "
+                        f"{component.placement.side} side. Move the component onto "
                         f"the board."
                     ),
                     locations=[wp],
