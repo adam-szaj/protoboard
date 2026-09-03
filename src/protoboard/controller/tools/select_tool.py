@@ -35,6 +35,10 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 import structlog
 
+from protoboard.controller.editing.group_lock import (
+    component_locked_in_group,
+    wire_locked_in_group,
+)
 from protoboard.controller.editing.item_handle import ItemId, ItemTag
 from protoboard.controller.highlight_controller import HighlightController
 from protoboard.controller.ports import (
@@ -61,7 +65,11 @@ from protoboard.controller.selection.drag_controller import (
     DragController,
     FloatingPhase,
 )
-from protoboard.controller.selection.hit_test import HitTester, SelectionFilters
+from protoboard.controller.selection.hit_test import (
+    HitTester,
+    SelectionFilters,
+    WireEditCycle,
+)
 from protoboard.controller.selection.mouse_input import Intent, Mods
 from protoboard.controller.selection.queries import (
     RelationSource,
@@ -70,7 +78,9 @@ from protoboard.controller.selection.queries import (
     relation_correlated,
 )
 from protoboard.controller.selection.rubber_band_controller import RubberBandController
+from protoboard.controller.selection.selectable import PickKind, Stop
 from protoboard.controller.selection.service import SelectionService
+from protoboard.controller.selection.wire_edit import WireRange, replace_wire_path_cmd
 from protoboard.controller.selection_axes import (
     RELATION_LABELS,
     RelationClass,
@@ -89,6 +99,8 @@ from protoboard.domain.commands.component_cmds import (
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
 )
+from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.package import (
     effective_bend_specs,
     redrag_feasibility,
@@ -103,6 +115,11 @@ from protoboard.domain.layout.placement import (
     flip_component_side,
     pin_world_position,
 )
+from protoboard.domain.layout.wire_utils import (
+    board_pads_for_side,
+    insert_pad_nodes,
+)
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, Rect, round_coord
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.types import Side
@@ -117,14 +134,12 @@ if TYPE_CHECKING:
     from protoboard.controller.ports.routing import UnweaveResult
     from protoboard.controller.selection.mouse_input import MouseInputController
     from protoboard.controller.selection.selectable import Selectable
-    from protoboard.controller.selection.wire_edit import WireRange
     from protoboard.controller.tools.armed_transform_tool import ArmedTransformTool
     from protoboard.controller.tools.select_preview import SelectPreview
     from protoboard.controller.tools.select_prompts import GroupTargetPrompt
     from protoboard.controller.tools.transform_overlays import TransformOverlaysPort
     from protoboard.controller.tools.wire_edit_tool import WireEditTool
     from protoboard.domain.commands.base import Command, ComponentState
-    from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import RedragResult
     from protoboard.domain.layout.drag_analysis import DragAnalysis
@@ -281,8 +296,6 @@ class SelectTool(ControllerTool):
         # (which owns the fragment ops); SelectTool never itself runs an op.
         # `_wire_edit` therefore stays None in practice — it is the transient
         # in-progress range only the draw-overlay reads.
-        from protoboard.controller.selection.hit_test import WireEditCycle
-
         self._wire_edit: WireRange | None = None
         self._wire_edit_cycle: WireEditCycle = WireEditCycle()
         self._wire_edit_wire_id: uuid.UUID | None = None  # wire [E] armed on
@@ -854,8 +867,6 @@ class SelectTool(ControllerTool):
         here and skips it.  Delegates to the shared pure guard in
         ``controller.editing.group_lock``.
         """
-        from protoboard.controller.editing.group_lock import wire_locked_in_group
-
         return wire_locked_in_group(
             self._session, wire_id, active_group_id=self._current_group_id
         )
@@ -1139,8 +1150,6 @@ class SelectTool(ControllerTool):
         double-click-to-enter; resolves via member bboxes so a click anywhere on
         the group's footprint counts, not only on a component body.
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         px, py = scene_pt.x, scene_pt.y
         active = self._current_group_id
         tree = self._session.group_tree()
@@ -1227,8 +1236,6 @@ class SelectTool(ControllerTool):
         LTR: only fully-enclosed (all group members inside).  RTL: anything
         touching (any group member intersecting the rect).
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         out: list[object] = []
         tree = self._session.group_tree()
         for gid, grp in self._session.layout.groups.items():
@@ -1479,10 +1486,6 @@ class SelectTool(ControllerTool):
         with :meth:`EditController.delete`), binding the active group from this
         tool's interaction context.
         """
-        from protoboard.controller.editing.group_lock import (
-            component_locked_in_group,
-        )
-
         return component_locked_in_group(
             self._session, comp_id, active_group_id=self._current_group_id
         )
@@ -1817,7 +1820,6 @@ class SelectTool(ControllerTool):
         from protoboard.controller.selection.point_pick_controller import (
             PointPickController,
         )
-        from protoboard.controller.selection.selectable import PickKind, Stop
 
         # A pick takes over the interaction — abort any in-flight gesture first.
         if self._mouse is not None and not self._mouse.finished:
@@ -2066,9 +2068,6 @@ class SelectTool(ControllerTool):
         the pick (intents route to it); once the fragment is selected the
         op-keys (``[W]`` / ``[A]`` / ``[Del]`` / ``[Esc]``) take over.
         """
-        from protoboard.controller.selection.hit_test import WireEditCycle
-        from protoboard.controller.selection.selectable import Stop
-
         wire_id = self.primary_wire_id
         if wire_id is None:
             self._status("Wire-edit: select a wire first")
@@ -2098,12 +2097,6 @@ class SelectTool(ControllerTool):
         considered (a plated-through pad on the far side still anchors a vertex).
         Restored from the legacy tool; dropped in the v2 hit-test rewrite.
         """
-        from protoboard.controller.selection.wire_edit import replace_wire_path_cmd
-        from protoboard.domain.layout.wire_utils import (
-            board_pads_for_side,
-            insert_pad_nodes,
-        )
-
         wire = self._wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
@@ -2140,8 +2133,6 @@ class SelectTool(ControllerTool):
         commit; ``return_to`` drops back to this SelectTool (delete / [Esc]),
         re-syncing the selection highlight to whatever wire survived.
         """
-        from protoboard.controller.selection.wire_edit import WireRange
-
         verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
         if len(verts) < 2:
             self._status("Wire edit: pick two different vertices on one wire.")
@@ -2215,8 +2206,6 @@ class SelectTool(ControllerTool):
         The fragment edit itself now lives in :class:`WireEditTool`; SelectTool
         only owns the ``[E]`` entry (the whole-wire selection + the two-vertex
         range pick), so this clears the transient pick state — not any op."""
-        from protoboard.controller.selection.hit_test import WireEditCycle
-
         self._clear_wire_edit_overlay()
         self._wire_edit = None
         self._wire_edit_wire_id = None
@@ -2712,8 +2701,6 @@ class SelectTool(ControllerTool):
         (drawn by BoardView).  Both clear on any non-free-pin press.  Only a
         component hit whose *clicked pin* is unassigned qualifies.
         """
-        from protoboard.domain.schematic.net import PinRef
-
         free_pos: Point | None = None
         hit = sel.to_hit() if sel is not None else None
         if (
@@ -2778,8 +2765,6 @@ class SelectTool(ControllerTool):
         if defn is None:
             return []
 
-        from protoboard.domain.schematic.net import PinRef as _PinRef
-
         out: list[ActionOption] = []
         clicked_pin = self._menu_clicked_pin(scene_pt, comp_id)
 
@@ -2787,7 +2772,7 @@ class SelectTool(ControllerTool):
         if clicked_pin is not None:
             pin_name = " / ".join(defn.meta_pin(clicked_pin).labels)
             cp_net = self._session.schematic.net_for_pin(
-                _PinRef(component_id=comp_id, pin_number=clicked_pin)
+                PinRef(component_id=comp_id, pin_number=clicked_pin)
             )
             out.append(
                 ActionOption(
@@ -2867,8 +2852,6 @@ class SelectTool(ControllerTool):
         defn: object,
         clicked_pin: int | None,
     ) -> list[ActionOption]:
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
         active_gid = self._current_group_id
         if active_gid == ROOT_GROUP_ID:
             return []
@@ -2936,14 +2919,11 @@ class SelectTool(ControllerTool):
         clicked_pin: int | None,
     ) -> list[ActionOption]:
         """Per-pin export/unexport options for a directly-grouped component."""
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.schematic.net import PinRef as _PinRef
-
         if not isinstance(defn, ComponentDefinition):
             return []
         out: list[ActionOption] = []
         for pin_num, meta_pin in enumerate(defn.meta_pins, start=1):
-            ep = _PinRef(component_id=comp_id, pin_number=pin_num)
+            ep = PinRef(component_id=comp_id, pin_number=pin_num)
             pin_name = " / ".join(meta_pin.labels)
             already = ep in active_grp.exported_pins
             marker = " ◀" if pin_num == clicked_pin else ""
@@ -3261,9 +3241,6 @@ class SelectTool(ControllerTool):
         )
 
     def _menu_export(self, action: str, data: Mapping[str, object]) -> None:
-        from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-        from protoboard.domain.schematic.net import PinRef
-
         group_id = cast("uuid.UUID", data["group_id"])
         grp = self._session.layout.groups.get(group_id)
         if grp is None:
@@ -3617,8 +3594,6 @@ class SelectTool(ControllerTool):
         )
         if worker_out is None:
             return
-
-        from protoboard.controller.selection.wire_edit import replace_wire_path_cmd
 
         cmds: list[object] = []
         for wid, new_path, orig_path in worker_out:
