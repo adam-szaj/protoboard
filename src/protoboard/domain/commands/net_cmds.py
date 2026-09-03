@@ -8,12 +8,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from protoboard.domain.commands.base import Command
+from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.domain.schematic.pin_siblings import same_name_refs
 from protoboard.domain.schematic.schematic import Schematic
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.schematic.net import PinRef
     from protoboard.domain.schematic.schematic import PinGroupUndo
 
 
@@ -138,8 +139,6 @@ class CreateNetCommand(Command[NetState]):
         return f"Create net '{self.name}'"
 
     def apply(self, state: NetState) -> None:
-        from protoboard.domain.schematic.net import Net
-
         state.schematic.nets[self.net_id] = Net(id=self.net_id, name=self.name)
 
     def revert(self, state: NetState) -> None:
@@ -170,8 +169,6 @@ class DeleteNetCommand(Command[NetState]):
             self._saved_pins = net.pins.copy()
 
     def revert(self, state: NetState) -> None:
-        from protoboard.domain.schematic.net import Net
-
         if self._saved_pins is None:
             return
         state.schematic.nets[self.net_id] = Net(
@@ -205,8 +202,6 @@ class AssignPinToNetCommand(Command[NetState]):
         return f"Assign pin {self.pin_number} to net"
 
     def apply(self, state: NetState) -> None:
-        from protoboard.domain.schematic.pin_siblings import same_name_refs
-
         refs = same_name_refs(
             self.component_id, self.pin_number, state.instances, state.components
         )
@@ -237,8 +232,6 @@ class UnassignPinCommand(Command[NetState]):
         return f"Unassign pin {self.pin_number} from net"
 
     def apply(self, state: NetState) -> None:
-        from protoboard.domain.schematic.net import PinRef
-
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
         removed = state.schematic.unassign_pin(ref)
         if removed is None:
@@ -246,8 +239,6 @@ class UnassignPinCommand(Command[NetState]):
         self._saved_net_id, self._saved_net_name, self._saved_pins = removed
 
     def revert(self, state: NetState) -> None:
-        from protoboard.domain.schematic.net import Net, PinRef
-
         if self._saved_net_id is None or self._saved_pins is None:
             return
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
