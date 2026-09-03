@@ -38,13 +38,19 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.component_package import resolved_footprint
+from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.normalize import (
     NormalizeReport,
     normalize_layout_positions,
 )
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import Wire, transform_wire_geometry
+from protoboard.domain.layout.wire import (
+    Fragment,
+    KnotRef,
+    Wire,
+    transform_wire_geometry,
+)
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -245,11 +251,7 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
 
 
 def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
-    from protoboard.domain.layout.knot import JointKnot as _Joint
-    from protoboard.domain.layout.knot import PinKnot as _Pin
-    from protoboard.domain.layout.knot import WirePinKnot as _WirePin
-
-    if isinstance(knot, _Pin):
+    if isinstance(knot, PinKnot):
         return {
             "id": str(knot.id),
             "kind": "pin",
@@ -258,14 +260,14 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
                 "meta_pin": knot.pin.meta_pin_index,
             },
         }
-    if isinstance(knot, _WirePin):
+    if isinstance(knot, WirePinKnot):
         return {
             "id": str(knot.id),
             "kind": "wire_pin",
             "position": {"x": knot.position.x, "y": knot.position.y},
             "net_id": str(knot.net_id) if knot.net_id is not None else None,
         }
-    if isinstance(knot, _Joint):
+    if isinstance(knot, JointKnot):
         return {
             "id": str(knot.id),
             "kind": "joint",
@@ -275,9 +277,7 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
 
 
 def _wire_to_yaml_dict(wire: object) -> dict[str, Any]:
-    from protoboard.domain.layout.wire import Wire as _Wire
-
-    if not isinstance(wire, _Wire):
+    if not isinstance(wire, Wire):
         raise SerializationError(f"expected Wire, got {type(wire).__name__}")
     if wire.a is None or wire.b is None:
         raise SerializationError(
@@ -839,10 +839,8 @@ def load_project(
     # *first* one encountered (load order); the dropped ones lose their
     # uuid, but no electrical content.
     if layout.wires:
-        from protoboard.domain.layout.wire import Wire as _W
-
         seen_connection_sigs: set[tuple[object, ...]] = set()
-        kept_wires: list[_W] = []
+        kept_wires: list[Wire] = []
         dropped: list[tuple[str, tuple[object, ...]]] = []
         for w in list(layout.wires):
             if w.a is None or w.b is None:
@@ -861,34 +859,24 @@ def load_project(
                     new_ids = k.wire_ids - {w.id}
                     # Replace knot in-place.  All three Knot subtypes
                     # take wire_ids as kwarg.
-                    from protoboard.domain.layout.knot import (
-                        JointKnot as _JK,
-                    )
-                    from protoboard.domain.layout.knot import (
-                        PinKnot as _PK,
-                    )
-                    from protoboard.domain.layout.knot import (
-                        WirePinKnot as _WK,
-                    )
-
-                    if isinstance(k, _PK):
-                        layout.knots[ref.id] = _PK(
+                    if isinstance(k, PinKnot):
+                        layout.knots[ref.id] = PinKnot(
                             id=k.id,
                             pin=k.pin,
                             wire_ids=new_ids,
                         )
-                    elif isinstance(k, _WK):
-                        layout.knots[ref.id] = _WK(
+                    elif isinstance(k, WirePinKnot):
+                        layout.knots[ref.id] = WirePinKnot(
                             id=k.id,
                             position=k.position,
                             net_id=k.net_id,
                             wire_ids=new_ids,
                         )
-                    elif isinstance(k, _JK):
+                    elif isinstance(k, JointKnot):
                         # Sole-owner free joint with the dead wire as
                         # its only incident → drop the knot.
                         if new_ids:
-                            layout.knots[ref.id] = _JK(
+                            layout.knots[ref.id] = JointKnot(
                                 id=k.id,
                                 position=k.position,
                                 wire_ids=new_ids,
@@ -919,8 +907,6 @@ def load_project(
     # disagrees with PinKnot position``.  Snap each offending endpoint
     # back to the pin position so the layout opens consistent.
     if _library_for_migration is not None and layout.wires and layout.knots:
-        from protoboard.domain.layout.knot import PinKnot as _PK
-
         snapped_endpoints: list[dict[str, object]] = []
         for w in layout.wires:
             if w.a is None or w.b is None:
@@ -930,7 +916,7 @@ def load_project(
                 ("b", w.b, -1),
             ):
                 k = layout.knots.get(ref.id)
-                if not isinstance(k, _PK):
+                if not isinstance(k, PinKnot):
                     continue
                 comp_id = k.pin.component_id
                 endpoint_placement = layout.placements.get(comp_id)
@@ -1291,14 +1277,6 @@ def _decode_knots_and_wires(
     layout: Layout,
     raw_wires: list[dict[str, Any]] | None = None,
 ) -> None:
-    from protoboard.domain.layout.knot import (
-        JointKnot,
-        Knot,
-        PinKnot,
-        WirePinKnot,
-    )
-    from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
-
     raw_knots = data.get("knots") or []
     for raw in raw_knots:
         kid = uuid.UUID(raw["id"])
