@@ -37,12 +37,13 @@ from protoboard.domain.axis_labels_settings import (
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.normalize import (
     NormalizeReport,
     normalize_layout_positions,
 )
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import Wire, transform_wire_geometry
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
@@ -673,13 +674,6 @@ def load_project(
         # We need the library to look up footprints; library load happens
         # before load_project at the call site, so plumb it via the
         # `_library_for_migration` module global set by load_project below.
-        from protoboard.domain.components.package import (
-            resolved_footprint as _resolved_footprint,
-        )
-        from protoboard.domain.layout.placement import (
-            pin_world_position as _pwp,
-        )
-
         pin_index: dict[Point, PinRef] = {}
         library = _library_for_migration
         if library is not None:
@@ -690,11 +684,11 @@ def load_project(
                 defn = library.get(inst.definition_ref)
                 if defn is None:
                     continue
-                fp = _resolved_footprint(defn, inst, _families_for_migration)
+                fp = resolved_footprint(defn, inst, _families_for_migration)
                 n_pins = fp.pin_count()
                 for pin_num in range(1, n_pins + 1):
                     try:
-                        pos = _pwp(fp, pl, pin_num)
+                        pos = pin_world_position(fp, pl, pin_num)
                     except (IndexError, ValueError):
                         continue
                     pin_index[pos] = PinRef(component_id=comp_id, pin_number=pin_num)
@@ -713,8 +707,8 @@ def load_project(
                 if defn is None:
                     return None
                 try:
-                    fp = _resolved_footprint(defn, inst, _families_for_migration)
-                    return _pwp(fp, pl, pin_num)
+                    fp = resolved_footprint(defn, inst, _families_for_migration)
+                    return pin_world_position(fp, pl, pin_num)
                 except (IndexError, ValueError):
                     return None
 
@@ -926,11 +920,7 @@ def load_project(
     # disagrees with PinKnot position``.  Snap each offending endpoint
     # back to the pin position so the layout opens consistent.
     if _library_for_migration is not None and layout.wires and layout.knots:
-        from protoboard.domain.components.package import (
-            resolved_footprint as _resolved_footprint,
-        )
         from protoboard.domain.layout.knot import PinKnot as _PK
-        from protoboard.domain.layout.placement import pin_world_position as _pwp
 
         snapped_endpoints: list[dict[str, object]] = []
         for w in layout.wires:
@@ -957,8 +947,10 @@ def load_project(
                     # pin pitch) is measured against its default axial body
                     # (3.2-hole pitch) and every pin "moves", snapping the whole
                     # wire and dragging neighbours.
-                    fp = _resolved_footprint(defn, inst, _families_for_migration)
-                    pin_pos = _pwp(fp, endpoint_placement, k.pin.pin_number)
+                    fp = resolved_footprint(defn, inst, _families_for_migration)
+                    pin_pos = pin_world_position(
+                        fp, endpoint_placement, k.pin.pin_number
+                    )
                 except (IndexError, ValueError):
                     continue
                 if not w.path:
