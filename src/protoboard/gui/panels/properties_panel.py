@@ -31,7 +31,12 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import meta_pin_for_package_pin
 from protoboard.domain.components.package.bend import PinBendSpec
+from protoboard.domain.components.package.component_package import (
+    resolve_component_package,
+    resolved_footprint,
+)
 from protoboard.domain.components.package.family import PackageFamily
+from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
 from protoboard.instrumentation.debug_trace import traced
@@ -406,8 +411,6 @@ class PropertiesPanel(QWidget):
         # the catalogue so a part whose bodies live in ``package_options:``
         # (e.g. ``R`` as ``SMD-0805``) shows the SMD mount picker, matching the
         # place tool — not the legacy axial ``bendable_pins``.
-        from protoboard.domain.components.package import effective_bend_specs
-
         specs = (
             effective_bend_specs(defn, instance, package_families)
             if defn is not None
@@ -457,10 +460,6 @@ class PropertiesPanel(QWidget):
         if defn is None:
             self._params_grp.setVisible(False)
             return
-        from protoboard.domain.components.package.component_package import (
-            resolve_component_package,
-        )
-
         package = resolve_component_package(defn, inst, packages)
         schema = getattr(package, "schema", None)
         raw_values = getattr(package, "raw_values", None)
@@ -535,8 +534,6 @@ class PropertiesPanel(QWidget):
 
         # Per-pin geometry — resolved against the instance's chosen variant.
         if defn is not None:
-            from protoboard.domain.components.package import resolved_footprint
-
             fp = resolved_footprint(defn, inst, package_families)
             fp_positions = fp.pin_positions()
             for i, fp_pos in enumerate(fp_positions):
