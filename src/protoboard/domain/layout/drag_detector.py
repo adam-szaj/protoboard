@@ -23,6 +23,7 @@ from protoboard.domain.layout.drag_classification import (
     DragWireClassification,
     classify_wires_for_drag,
 )
+from protoboard.domain.layout.group_ownership import OwnershipResolver
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
     PadConflict,
@@ -36,6 +37,7 @@ from protoboard.domain.layout.placement import (
     component_bbox,
     iter_footprint_pin_positions,
     pin_world_position,
+    resolve_pin_world_position,
 )
 from protoboard.domain.layout.wire_utils import find_skewed_wires
 from protoboard.geometry import Point
@@ -438,8 +440,6 @@ class DragDetector:
         Used to bucket auto-remove candidates as "needs ask-remove"
         when they belong to a group the drag set is not part of.
         """
-        from protoboard.domain.layout.group_ownership import OwnershipResolver
-
         # No placements/instances/definitions here → the resolver skips the
         # geometric sanity check, matching the original call's argument set.
         resolver = OwnershipResolver(
@@ -474,8 +474,6 @@ class DragDetector:
         flat list of pad positions (vertices of the offending wires)
         so the overlay can mark them red.
         """
-        from protoboard.domain.layout.group_ownership import OwnershipResolver
-
         if not stationary_locked_groups or not conflict_wire_ids:
             return []
         resolver = OwnershipResolver(
@@ -642,8 +640,6 @@ def _get_pin_position(
     Kept as a module-level alias for callsite convenience; the actual
     safety chain lives in domain.layout.placement.
     """
-    from protoboard.domain.layout.placement import resolve_pin_world_position
-
     return resolve_pin_world_position(
         comp_id,
         pin_number,
