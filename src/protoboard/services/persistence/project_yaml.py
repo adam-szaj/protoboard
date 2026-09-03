@@ -99,6 +99,25 @@ _yaml = YAML(typ="safe")
 _yaml.default_flow_style = False
 
 
+def _yaml_mapping(
+    text: str,
+    context: str,
+    *,
+    required: bool = True,
+) -> dict[str, Any]:
+    """Load one YAML document and require a mapping when *required*."""
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"{context} YAML error: {exc}") from exc
+    if isinstance(data, dict):
+        return data
+    if required:
+        filename = f"{context.lower().replace(' ', '_')}.yaml"
+        raise SerializationError(f"{filename} must be a mapping")
+    return {}
+
+
 @runtime_checkable
 class _MigrationLibrary(Protocol):
     """The subset of ``ComponentLibrary`` the migration passes duck-type.
@@ -1022,12 +1041,7 @@ def pop_last_normalize_report(directory: Path) -> NormalizeReport | None:
 
 
 def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
-    try:
-        data = _yaml.load(text)
-    except Exception as exc:
-        raise SerializationError(f"Instances YAML error: {exc}") from exc
-    if not isinstance(data, dict):
-        raise SerializationError("instances.yaml must be a mapping")
+    data = _yaml_mapping(text, "Instances")
     result: dict[uuid.UUID, ComponentInstance] = {}
     for raw in data.get("instances") or []:
         inst_id = uuid.UUID(raw["id"])
@@ -1063,12 +1077,7 @@ def _layout_from_yaml(
     for :func:`_migrate_groups_v2_to_v3` to fold into ``transform`` (empty for
     v3 files and never-rotated groups).
     """
-    try:
-        data = _yaml.load(text)
-    except Exception as exc:
-        raise SerializationError(f"Layout YAML error: {exc}") from exc
-    if not isinstance(data, dict):
-        raise SerializationError("layout.yaml must be a mapping")
+    data = _yaml_mapping(text, "Layout")
     placements: dict[uuid.UUID, ComponentPlacement] = {}
     for raw in data.get("placements") or []:
         comp_id = uuid.UUID(raw["component_id"])
@@ -1329,12 +1338,7 @@ def _decode_knots_and_wires(
 
 
 def _schematic_from_yaml(text: str) -> Schematic:
-    try:
-        data = _yaml.load(text)
-    except Exception as exc:
-        raise SerializationError(f"Schematic YAML error: {exc}") from exc
-    if not isinstance(data, dict):
-        raise SerializationError("schematic.yaml must be a mapping")
+    data = _yaml_mapping(text, "Schematic")
     nets: dict[uuid.UUID, Net] = {}
     for raw in data.get("nets") or []:
         net_id = uuid.UUID(raw["id"])
@@ -1392,11 +1396,8 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
 
 
 def _routing_settings_from_yaml(text: str) -> RoutingSettings:
-    try:
-        data = _yaml.load(text)
-    except Exception as exc:
-        raise SerializationError(f"Routing YAML error: {exc}") from exc
-    if not isinstance(data, dict):
+    data = _yaml_mapping(text, "Routing", required=False)
+    if not data:
         return RoutingSettings()
     wire_mode = data.get("wire_mode", "auto")
     if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
@@ -1475,11 +1476,8 @@ def _layer_overrides_to_yaml(overrides: LayerOverrides) -> str:
 
 
 def _layer_overrides_from_yaml(text: str) -> LayerOverrides:
-    try:
-        data = _yaml.load(text)
-    except Exception as exc:
-        raise SerializationError(f"Layers YAML error: {exc}") from exc
-    if not isinstance(data, dict):
+    data = _yaml_mapping(text, "Layers", required=False)
+    if not data:
         return LayerOverrides()
     valid = {v.value for v in LayerVisibility}
     overrides = LayerOverrides()
@@ -1504,11 +1502,8 @@ def _axis_labels_to_yaml(settings: AxisLabelSettings) -> str:
 
 
 def _axis_labels_from_yaml(text: str) -> AxisLabelSettings:
-    try:
-        data = _yaml.load(text)
-    except Exception as exc:
-        raise SerializationError(f"Axis labels YAML error: {exc}") from exc
-    if not isinstance(data, dict):
+    data = _yaml_mapping(text, "Axis labels", required=False)
+    if not data:
         return AxisLabelSettings()
     valid = {v.value for v in AxisLabelFormat}
 
