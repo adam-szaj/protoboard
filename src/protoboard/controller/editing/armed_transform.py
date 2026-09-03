@@ -47,11 +47,12 @@ from typing import TYPE_CHECKING, cast
 
 from protoboard.controller.ports import WheelInput
 from protoboard.controller.ports.inputs_details import WheelNotchAccumulator
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     PlacementMap,
 )
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Transform2D, Vector
 
 if TYPE_CHECKING:
     from protoboard.controller.editing.contexts import PreviewProjectContext
@@ -214,8 +215,6 @@ class ArmedTransform:
         layout = layout if layout is not None else self._layout
         groups = getattr(layout, "groups", {})
         if self._group_id is not None and self._group_id in groups:
-            from protoboard.domain.layout.group_tree import GroupTree
-
             tree = GroupTree(groups)
             owned = find_owned_wires(
                 list(layout.wires),
@@ -350,7 +349,6 @@ class ArmedTransform:
 
     def _write_world_op(self, cid: uuid.UUID, op: Transform2D) -> None:
         """Store the local-frame equivalent of world op *op* for member *cid*."""
-        from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.placement import compose_placement
 
         layout = self._layout
@@ -421,11 +419,9 @@ class ArmedTransform:
             is_two_pin_smd,
             smd_orientation_step,
         )
-        from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.pad_conflict import (
             resolved_footprint_or_default,
         )
-        from protoboard.geometry import Transform2D
 
         if len(self._comp_ids) != 1:
             return None
@@ -442,8 +438,6 @@ class ArmedTransform:
         return smd_orientation_step(fp, pl, 1 if delta > 0 else -1)
 
     def _move(self, dx: float, dy: float) -> None:
-        from protoboard.geometry import Transform2D
-
         op = Transform2D.translation(Vector(dx, dy))
         for cid in self._comp_ids:
             self._write_world_op(cid, op)
