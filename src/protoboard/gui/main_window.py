@@ -12,9 +12,7 @@ from typing import TYPE_CHECKING, cast
 import structlog
 
 if TYPE_CHECKING:
-    from protoboard.controller.highlight_entry import HighlightEntry
     from protoboard.controller.ports import InteractionContext, StatusEvent
-    from protoboard.controller.ports.drc import DRCIssue
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.gui.workers.drc_worker import DRCWorker
@@ -44,6 +42,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.controller.app_settings import AppSettings, save_app_settings
 from protoboard.controller.ports import KeyInput, Mods
+from protoboard.controller.ports.drc import DRCIssue
 from protoboard.controller.selection_axes import (
     RelationClass,
     SelectionFilter,
@@ -65,6 +64,7 @@ from protoboard.domain.commands.group_cmds import (
     RenameGroupCommand,
     SetExportedPinsCommand,
 )
+from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.package.kind import KIND_GENERATORS
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Vector
@@ -73,6 +73,7 @@ from protoboard.gui import recent_projects
 from protoboard.gui.action_builder import build_actions
 from protoboard.gui.actions import ALL_ACTIONS
 from protoboard.gui.board_view import BoardView
+from protoboard.gui.highlight_state import HighlightEntry
 from protoboard.gui.panels.components_panel import ComponentsPanel
 from protoboard.gui.panels.groups_panel import GroupsPanel
 from protoboard.gui.panels.layers_panel import LayersPanel
@@ -122,6 +123,7 @@ from protoboard.services.placement.auto_placer import (
 from protoboard.services.placement.spreader import SpreadState, spread_components
 from protoboard.services.preferences.theme_yaml import load_theme
 from protoboard.services.rendering.qt_geometry import to_qpointf
+from protoboard.services.routing.results import AutorouteResult
 
 _log = structlog.get_logger(__name__)
 
@@ -2265,8 +2267,6 @@ class MainWindow(QMainWindow):
         the "nothing to route" / "all duplicates" / summary dialogs and the
         dirty/undo/refresh bookkeeping.
         """
-        from protoboard.services.routing.results import AutorouteResult
-
         if not isinstance(result, AutorouteResult):
             return
 
@@ -2428,13 +2428,10 @@ class MainWindow(QMainWindow):
         clicks replace (not stack) the entry, and a tool's transient
         highlight still wins over it.
         """
-        from protoboard.controller.ports.drc import DRCIssue as _DRCIssue
-        from protoboard.gui.highlight_state import HighlightEntry
-
         stack = self._session.highlight_stack
         stack.clear_auto(self._DRC_HIGHLIGHT_SOURCE)
 
-        if not isinstance(issue, _DRCIssue):
+        if not isinstance(issue, DRCIssue):
             return
 
         comp_ids = frozenset(issue.affected_components)
@@ -2516,8 +2513,6 @@ class MainWindow(QMainWindow):
         comp_id: uuid.UUID,
         appearance: object,
     ) -> None:
-        from protoboard.domain.components.appearance import Appearance
-
         new_appearance = appearance if isinstance(appearance, Appearance) else None
         cmd = SetComponentAppearanceCommand(
             component_id=comp_id,
