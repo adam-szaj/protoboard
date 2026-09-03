@@ -13,7 +13,7 @@ intentionally omitted, because replay always proceeds forward.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar, cast
 
@@ -113,6 +113,14 @@ def _uuid_to(u: uuid.UUID) -> str:
 
 def _uuid_from(s: str) -> uuid.UUID:
     return uuid.UUID(s)
+
+
+def _uuid_list_to(values: Iterable[uuid.UUID]) -> list[str]:
+    return sorted(_uuid_to(value) for value in values)
+
+
+def _uuid_set_from(raw: Iterable[Any] | None) -> frozenset[uuid.UUID]:
+    return frozenset(_uuid_from(str(value)) for value in (raw or ()))
 
 
 def _placement_to(pl: ComponentPlacement) -> dict[str, Any]:
@@ -229,9 +237,9 @@ def _group_to(g: ComponentGroup) -> dict[str, Any]:
         "name": g.name,
     }
     if g.component_ids:
-        out["component_ids"] = sorted(_uuid_to(c) for c in g.component_ids)
+        out["component_ids"] = _uuid_list_to(g.component_ids)
     if g.child_group_ids:
-        out["child_group_ids"] = sorted(_uuid_to(c) for c in g.child_group_ids)
+        out["child_group_ids"] = _uuid_list_to(g.child_group_ids)
     if g.exported_pins:
         out["exported_pins"] = _exported_pins_to(g.exported_pins)
     if g.transform != Transform2D.identity():
@@ -257,10 +265,8 @@ def _group_from(d: dict[str, Any]) -> ComponentGroup:
     return ComponentGroup(
         id=_uuid_from(d["id"]),
         name=str(d["name"]),
-        component_ids=frozenset(_uuid_from(c) for c in (d.get("component_ids") or [])),
-        child_group_ids=frozenset(
-            _uuid_from(c) for c in (d.get("child_group_ids") or [])
-        ),
+        component_ids=_uuid_set_from(d.get("component_ids")),
+        child_group_ids=_uuid_set_from(d.get("child_group_ids")),
         exported_pins=_exported_pins_from(d.get("exported_pins")),
         transform=transform,
     )
@@ -458,7 +464,7 @@ def _move_to(cmd: MoveComponentCommand) -> dict[str, Any]:
         "old_placement": _placement_to(cmd.old_placement),
         "new_placement": _placement_to(cmd.new_placement),
         "skip_conflict_check": bool(cmd.skip_conflict_check),
-        "exclude_wire_ids": sorted(_uuid_to(w) for w in cmd.exclude_wire_ids),
+        "exclude_wire_ids": _uuid_list_to(cmd.exclude_wire_ids),
     }
 
 
@@ -468,9 +474,7 @@ def _move_from(d: dict[str, Any]) -> MoveComponentCommand:
         new_placement=_placement_from(d["new_placement"]),
         old_placement=_placement_from(d["old_placement"]),
         skip_conflict_check=bool(d.get("skip_conflict_check", False)),
-        exclude_wire_ids=frozenset(
-            _uuid_from(w) for w in (d.get("exclude_wire_ids") or [])
-        ),
+        exclude_wire_ids=_uuid_set_from(d.get("exclude_wire_ids")),
     )
 
 
@@ -695,13 +699,11 @@ _register_uuid_command(
 
 
 def _drop_wires_to(cmd: DropWiresCommand) -> dict[str, Any]:
-    return {"wire_ids": sorted(_uuid_to(w) for w in cmd.wire_ids)}
+    return {"wire_ids": _uuid_list_to(cmd.wire_ids)}
 
 
 def _drop_wires_from(d: dict[str, Any]) -> DropWiresCommand:
-    return DropWiresCommand(
-        wire_ids=frozenset(_uuid_from(w) for w in (d.get("wire_ids") or []))
-    )
+    return DropWiresCommand(wire_ids=_uuid_set_from(d.get("wire_ids")))
 
 
 _register(DropWiresCommand, "drop_wires", _drop_wires_to, _drop_wires_from)
@@ -710,16 +712,14 @@ _register(DropWiresCommand, "drop_wires", _drop_wires_to, _drop_wires_from)
 def _fuse_wires_to(cmd: FuseTouchingWiresCommand) -> dict[str, Any]:
     # wire_ids is None → whole-layout scope; else the caller-supplied scope.
     return {
-        "wire_ids": (
-            None if cmd.wire_ids is None else sorted(_uuid_to(w) for w in cmd.wire_ids)
-        ),
+        "wire_ids": (None if cmd.wire_ids is None else _uuid_list_to(cmd.wire_ids)),
     }
 
 
 def _fuse_wires_from(d: dict[str, Any]) -> FuseTouchingWiresCommand:
     raw = d.get("wire_ids")
     return FuseTouchingWiresCommand(
-        wire_ids=None if raw is None else frozenset(_uuid_from(w) for w in raw)
+        wire_ids=None if raw is None else _uuid_set_from(raw)
     )
 
 
@@ -955,18 +955,16 @@ _register_uuid_command(DisbandGroupCommand, "disband_group", "group_id")
 def _add_to_group_to(cmd: AddToGroupCommand) -> dict[str, Any]:
     return {
         "group_id": _uuid_to(cmd.group_id),
-        "component_ids": sorted(_uuid_to(c) for c in cmd.component_ids),
-        "child_group_ids": sorted(_uuid_to(c) for c in cmd.child_group_ids),
+        "component_ids": _uuid_list_to(cmd.component_ids),
+        "child_group_ids": _uuid_list_to(cmd.child_group_ids),
     }
 
 
 def _add_to_group_from(d: dict[str, Any]) -> AddToGroupCommand:
     return AddToGroupCommand(
         group_id=_uuid_from(d["group_id"]),
-        component_ids=frozenset(_uuid_from(c) for c in (d.get("component_ids") or [])),
-        child_group_ids=frozenset(
-            _uuid_from(c) for c in (d.get("child_group_ids") or [])
-        ),
+        component_ids=_uuid_set_from(d.get("component_ids")),
+        child_group_ids=_uuid_set_from(d.get("child_group_ids")),
     )
 
 
@@ -981,18 +979,16 @@ _register(
 def _remove_from_group_to(cmd: RemoveFromGroupCommand) -> dict[str, Any]:
     return {
         "group_id": _uuid_to(cmd.group_id),
-        "component_ids": sorted(_uuid_to(c) for c in cmd.component_ids),
-        "child_group_ids": sorted(_uuid_to(c) for c in cmd.child_group_ids),
+        "component_ids": _uuid_list_to(cmd.component_ids),
+        "child_group_ids": _uuid_list_to(cmd.child_group_ids),
     }
 
 
 def _remove_from_group_from(d: dict[str, Any]) -> RemoveFromGroupCommand:
     return RemoveFromGroupCommand(
         group_id=_uuid_from(d["group_id"]),
-        component_ids=frozenset(_uuid_from(c) for c in (d.get("component_ids") or [])),
-        child_group_ids=frozenset(
-            _uuid_from(c) for c in (d.get("child_group_ids") or [])
-        ),
+        component_ids=_uuid_set_from(d.get("component_ids")),
+        child_group_ids=_uuid_set_from(d.get("child_group_ids")),
     )
 
 
@@ -1055,14 +1051,14 @@ _register(
 
 def _rotate_components_to(cmd: RotateComponentsCommand) -> dict[str, Any]:
     return {
-        "comp_ids": sorted(_uuid_to(c) for c in cmd.comp_ids),
+        "comp_ids": _uuid_list_to(cmd.comp_ids),
         "delta": int(cmd.delta),
     }
 
 
 def _rotate_components_from(d: dict[str, Any]) -> RotateComponentsCommand:
     return RotateComponentsCommand(
-        comp_ids=frozenset(_uuid_from(c) for c in (d.get("comp_ids") or [])),
+        comp_ids=_uuid_set_from(d.get("comp_ids")),
         delta=int(d["delta"]),
     )
 
@@ -1077,7 +1073,7 @@ _register(
 
 def _rotate_around_point_to(cmd: RotateAroundPointCommand) -> dict[str, Any]:
     return {
-        "comp_ids": sorted(_uuid_to(c) for c in cmd.comp_ids),
+        "comp_ids": _uuid_list_to(cmd.comp_ids),
         "origin": _pt_to(cmd.origin),
         "delta": int(cmd.delta),
     }
@@ -1085,7 +1081,7 @@ def _rotate_around_point_to(cmd: RotateAroundPointCommand) -> dict[str, Any]:
 
 def _rotate_around_point_from(d: dict[str, Any]) -> RotateAroundPointCommand:
     return RotateAroundPointCommand(
-        comp_ids=frozenset(_uuid_from(c) for c in (d.get("comp_ids") or [])),
+        comp_ids=_uuid_set_from(d.get("comp_ids")),
         origin=_pt_from(d["origin"]),
         delta=int(d["delta"]),
     )
@@ -1157,8 +1153,8 @@ def _members_from(
 def _move_drag_set_to(cmd: MoveDragSetCommand) -> dict[str, Any]:
     return {
         "members": _members_to(cmd.members),
-        "internal_wire_ids": sorted(_uuid_to(w) for w in cmd.internal_wire_ids),
-        "dropped_wire_ids": sorted(_uuid_to(w) for w in cmd.dropped_wire_ids),
+        "internal_wire_ids": _uuid_list_to(cmd.internal_wire_ids),
+        "dropped_wire_ids": _uuid_list_to(cmd.dropped_wire_ids),
         "delta": _vec_to(cmd.delta),
     }
 
@@ -1166,12 +1162,8 @@ def _move_drag_set_to(cmd: MoveDragSetCommand) -> dict[str, Any]:
 def _move_drag_set_from(d: dict[str, Any]) -> MoveDragSetCommand:
     return MoveDragSetCommand(
         members=_members_from(d.get("members") or []),
-        internal_wire_ids=frozenset(
-            _uuid_from(w) for w in (d.get("internal_wire_ids") or [])
-        ),
-        dropped_wire_ids=frozenset(
-            _uuid_from(w) for w in (d.get("dropped_wire_ids") or [])
-        ),
+        internal_wire_ids=_uuid_set_from(d.get("internal_wire_ids")),
+        dropped_wire_ids=_uuid_set_from(d.get("dropped_wire_ids")),
         delta=_vec_from(d["delta"]),
     )
 
