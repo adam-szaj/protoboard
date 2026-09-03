@@ -41,13 +41,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 from typing_extensions import override
 
+import protoboard.paths as paths
 from protoboard.errors import ProtoboardError
 from protoboard.instrumentation.debug_trace import traced
-from protoboard.paths import (
-    BUILTIN_DEFAULT_KEYBINDINGS_FILE,
-    CONFIG_DIR,
-    KEYBINDINGS_V2_FILE,
-)
 
 __all__ = [
     "KeyAction",
@@ -675,8 +671,8 @@ class KeyMap(AbstractKeyMap):
         (:meth:`load_overrides`, loaded after this) still wins either way.
         Missing file / missing section / corrupt file are no-ops.
         """
-        self._load_defaults_tree(BUILTIN_DEFAULT_KEYBINDINGS_FILE)
-        self._load_defaults_tree(KEYBINDINGS_V2_FILE)
+        self._load_defaults_tree(paths.BUILTIN_DEFAULT_KEYBINDINGS_FILE)
+        self._load_defaults_tree(paths.KEYBINDINGS_V2_FILE)
 
     def _load_defaults_tree(self, path: object) -> None:
         """Register the ``defaults:`` section of the YAML file at *path*."""
@@ -723,13 +719,13 @@ class KeyMap(AbstractKeyMap):
         no-entry default anyway, so we skip it.  Corrupt files fall back to
         defaults silently.
         """
-        if not KEYBINDINGS_V2_FILE.exists():
+        if not paths.KEYBINDINGS_V2_FILE.exists():
             return
         try:
             from ruamel.yaml import YAML  # type: ignore[import-untyped,unused-ignore]
 
             yaml = YAML()
-            raw = yaml.load(KEYBINDINGS_V2_FILE)
+            raw = yaml.load(paths.KEYBINDINGS_V2_FILE)
             if not isinstance(raw, dict):
                 return
             # New shape nests overrides under `overrides:` (alongside
@@ -767,9 +763,9 @@ class KeyMap(AbstractKeyMap):
             tree.setdefault(category, {})[name] = shortcut
 
         existing_defaults = None
-        if KEYBINDINGS_V2_FILE.exists():
+        if paths.KEYBINDINGS_V2_FILE.exists():
             try:
-                raw = YAML().load(KEYBINDINGS_V2_FILE)
+                raw = YAML().load(paths.KEYBINDINGS_V2_FILE)
                 if isinstance(raw, dict):
                     existing_defaults = raw.get("defaults")
             except Exception:  # noqa: BLE001 — corrupt file → don't preserve
@@ -780,10 +776,10 @@ class KeyMap(AbstractKeyMap):
             out["defaults"] = existing_defaults
         out["overrides"] = tree
 
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        paths.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         yaml = YAML()
         yaml.default_flow_style = False
-        with KEYBINDINGS_V2_FILE.open("w", encoding="utf-8") as fh:
+        with paths.KEYBINDINGS_V2_FILE.open("w", encoding="utf-8") as fh:
             fh.write("# Protoboard Designer — namespaced keyboard shortcuts\n")
             fh.write("# Grouped by category. null = inherit the global default.\n")
             yaml.dump(out, fh)
