@@ -73,11 +73,15 @@ def qcolor_from_css(value: str) -> QColor:
     return QColor(v)
 
 
-def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
+def body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
     """The standard body-outline pen: *border* at *alpha*."""
     c = QColor(border)
     c.setAlphaF(alpha)
     return QPen(c, width)
+
+
+# Compatibility alias for renderer plugins using the old private helper.
+_body_pen = body_pen
 
 
 def _as_qcolor(value: QColor | str) -> QColor:
@@ -367,5 +371,5 @@ class BodyCanvas:
             return out
         border_c = self._border if border is None else _as_qcolor(border)
         if pen_width is not None:
-            return _body_pen(border_c, self._alpha, width=pen_width)
-        return _body_pen(border_c, self._alpha)
+            return body_pen(border_c, self._alpha, width=pen_width)
+        return body_pen(border_c, self._alpha)

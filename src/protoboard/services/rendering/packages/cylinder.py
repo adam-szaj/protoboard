@@ -25,7 +25,7 @@ from protoboard.services.rendering.packages.base import (
     PackageRenderer,
     _lead_pen,
 )
-from protoboard.services.rendering.packages.canvas import _body_pen
+from protoboard.services.rendering.packages.canvas import body_pen
 from protoboard.services.rendering.qt_geometry import to_qrectf
 
 
@@ -142,7 +142,7 @@ class CylinderRenderer(PackageRenderer):
             )
         body.setZValue(paint.z)
         body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(paint.border, paint.alpha))
+        body.setPen(body_pen(paint.border, paint.alpha))
         if not self._is_polar:
             return [body]
         return [body, self._disc_segment(centre, r, neg_angle_deg)]
@@ -199,7 +199,7 @@ class CylinderRenderer(PackageRenderer):
         dark = QColor(paint.theme.body_diode_cathode_color)
         dark.setAlphaF(paint.alpha)
         seg.setBrush(QBrush(dark))
-        seg.setPen(_body_pen(dark, paint.alpha, width=0.0))
+        seg.setPen(body_pen(dark, paint.alpha, width=0.0))
         seg.setZValue(paint.z + 0.01)
         t = QTransform()
         t.translate(centre.x, centre.y)
@@ -333,7 +333,7 @@ class CylinderRenderer(PackageRenderer):
         fill_c = QColor(paint.fill)
         fill_c.setAlphaF(fill_c.alphaF() * paint.alpha)
         body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(paint.border, paint.alpha))
+        body.setPen(body_pen(paint.border, paint.alpha))
         body.setZValue(paint.z)
         t = QTransform()
         t.translate(mid_x, mid_y)
@@ -357,7 +357,7 @@ class CylinderRenderer(PackageRenderer):
             dark = QColor(paint.theme.body_led_stripe_color)
             dark.setAlphaF(paint.alpha)
             stripe.setBrush(QBrush(dark))
-            stripe.setPen(_body_pen(paint.border, paint.alpha, width=0.0))
+            stripe.setPen(body_pen(paint.border, paint.alpha, width=0.0))
             stripe.setZValue(paint.z + 0.01)
             t_stripe = QTransform()
             t_stripe.translate(mid_x, mid_y)

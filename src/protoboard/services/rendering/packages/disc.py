@@ -19,7 +19,7 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.geometry import Point
 from protoboard.services.rendering.packages.base import PackageRenderer
-from protoboard.services.rendering.packages.canvas import _body_pen
+from protoboard.services.rendering.packages.canvas import body_pen
 
 
 class DiscRenderer(PackageRenderer):
@@ -93,7 +93,7 @@ class DiscRenderer(PackageRenderer):
         fill_c = QColor(paint.fill)
         fill_c.setAlphaF(fill_c.alphaF() * paint.alpha)
         lens.setBrush(QBrush(fill_c))
-        lens.setPen(_body_pen(paint.border, paint.alpha))
+        lens.setPen(body_pen(paint.border, paint.alpha))
         lens.setZValue(paint.z)
         t = QTransform()
         t.translate(centre.x, centre.y)

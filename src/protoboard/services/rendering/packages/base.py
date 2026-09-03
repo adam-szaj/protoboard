@@ -74,7 +74,7 @@ from protoboard.services.rendering.packages.canvas import (
     BodyCanvas,
     PaintState,
     _as_qcolor,
-    _body_pen,
+    body_pen,
     qcolor_from_css,
 )
 from protoboard.services.rendering.prism_silhouette import rounded_rect_path
@@ -219,12 +219,12 @@ class GenericBody(BodyShape):
                 )
             )
             path_item.setBrush(QBrush(fill))
-            path_item.setPen(_body_pen(border, alpha))
+            path_item.setPen(body_pen(border, alpha))
             path_item.setZValue(z)
             return [path_item], []
         rect = QGraphicsRectItem(to_qrectf(Rect.of(x0, y0, w, h)))
         rect.setBrush(QBrush(fill))
-        rect.setPen(_body_pen(border, alpha))
+        rect.setPen(body_pen(border, alpha))
         rect.setZValue(z)
         return [rect], []
 
