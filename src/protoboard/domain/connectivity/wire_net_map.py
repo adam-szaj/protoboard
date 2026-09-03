@@ -31,11 +31,10 @@ def build_wire_net_map(
 
     # canonical_key → net.id  (one net per electric set that has named pins)
     canonical_to_net: dict[object, uuid.UUID] = {}
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            ck = graph.node_for_pin(ref)
-            if ck is not None:
-                canonical_to_net[ck] = net.id
+    for ref, net in schematic.pin_net_map().items():
+        ck = graph.node_for_pin(ref)
+        if ck is not None:
+            canonical_to_net[ck] = net.id
 
     result: dict[uuid.UUID, uuid.UUID] = {}
     for wire in layout.wires:
