@@ -13,9 +13,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from PySide6.QtCore import Qt
+
+from protoboard.controller.selection.mouse_input import Intent
 from protoboard.controller.tools.armed_transform_tool import (
     ArmedTransformTool as _ArmedTransformTool,
 )
+from protoboard.controller.tools.base import ControllerTool
 from protoboard.controller.tools.cut_tool import CutTool as _CutTool
 from protoboard.controller.tools.place_tool import PlaceTool as _PlaceTool
 from protoboard.controller.tools.route_tool import RouteTool as _RouteTool
@@ -32,12 +36,13 @@ from protoboard.controller.tools.select_tool import SelectTool as _SelectTool
 from protoboard.controller.tools.simplify_tool import SimplifyTool as _SimplifyTool
 from protoboard.controller.tools.wire_edit_tool import WireEditTool as _WireEditTool
 from protoboard.gui.board_view_tool import ViewToolMixin
+from protoboard.gui.tools.select_preview import QtSelectPreview
+from protoboard.gui.tools.transform_overlays import TransformOverlays
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from protoboard.controller.ports import KeyInput
-    from protoboard.controller.selection.mouse_input import Intent
     from protoboard.controller.tools.select_prompts import (
         GroupTargetChoice,
         GroupTargetRequest,
@@ -126,8 +131,6 @@ class CutTool(
         # ``(EditorSession, AbstractBoardView)``, which ``ControllerTool``'s
         # Qt-free ``(EditingContext, _ViewProto)`` does not match — so the concrete
         # tools re-declare it wide.  No extra activation work for CutTool.
-        from protoboard.controller.tools.base import ControllerTool
-
         ControllerTool.activate(self, session, view)  # type: ignore[arg-type]
 
 
@@ -150,8 +153,6 @@ class PlaceTool(
         # yet), inject the default Qt collaborators, THEN finish activation:
         # finish_activate() bakes the initial ghost, which needs self.preview
         # to already exist.
-        from protoboard.controller.tools.base import ControllerTool
-
         ControllerTool.activate(self, session, view)  # type: ignore[arg-type]
         gui_view = _gui_view(view)
         if not self._preview_injected:
@@ -221,9 +222,6 @@ class ArmedTransformTool(
     _theme = ViewToolMixin._theme  # pyright: ignore[reportAssignmentType]
 
     def activate(self, session: object, view: object) -> None:
-        from protoboard.gui.tools.select_preview import QtSelectPreview
-        from protoboard.gui.tools.transform_overlays import TransformOverlays
-
         super().activate(session, view)  # type: ignore[arg-type]
         gui_view = _gui_view(view)
         self._preview = QtSelectPreview(gui_view.scene)
@@ -291,18 +289,12 @@ class WireEditTool(
         )
 
     def activate(self, session: object, view: object) -> None:
-        from protoboard.gui.tools.select_preview import QtSelectPreview
-
         # Inject the Qt preview BEFORE base activate() (it draws the fragment
         # overlay), matching PlaceTool's inject-then-activate ordering.
         self._preview = QtSelectPreview(view.scene)  # type: ignore[attr-defined]
         super().activate(session, view)  # type: ignore[arg-type]
 
     def on_key(self, inp: KeyInput) -> bool:
-        from PySide6.QtCore import Qt
-
-        from protoboard.controller.selection.mouse_input import Intent
-
         # A live reroute waypoint pick consumes Enter (commit) / Backspace
         # (drop last waypoint) before the op-keys — the same intent routing
         # gui SelectTool did for wire-edit.  Esc is handled by the host's
@@ -343,8 +335,6 @@ class SelectTool(
             autoroute_group=autoroute_group if callable(autoroute_group) else None,
         )
         if not self._preview_injected:
-            from protoboard.gui.tools.select_preview import QtSelectPreview
-
             self._preview = QtSelectPreview(gui_view.scene)
         if not self._group_prompt_injected:
             self._group_prompt = qt_group_target_prompt(lambda: gui_view.window())
@@ -353,8 +343,6 @@ class SelectTool(
         if not self._wire_edit_factory_injected:
             self._wire_edit_factory = WireEditTool
         super().activate(session, view)  # type: ignore[arg-type]
-        from protoboard.gui.tools.transform_overlays import TransformOverlays
-
         self._overlays = TransformOverlays(gui_view)
 
     @staticmethod
@@ -365,10 +353,6 @@ class SelectTool(
         keycodes.  A future revision can resolve this through the app's
         keybinding registry; the defaults match the conventional bindings.
         """
-        from PySide6.QtCore import Qt
-
-        from protoboard.controller.selection.mouse_input import Intent
-
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             return Intent.CONFIRM
         if key == Qt.Key.Key_Escape:
@@ -378,8 +362,6 @@ class SelectTool(
         return None
 
     def on_key(self, inp: KeyInput) -> bool:
-        from PySide6.QtCore import Qt
-
         key = inp.key
         ctrl = inp.mods.ctrl
         shift = inp.mods.shift
@@ -478,12 +460,8 @@ class SimplifyTool(
     def activate(self, session: object, view: object) -> None:
         gui_view = _gui_view(view)
         if not self._preview_injected:
-            from protoboard.gui.tools.select_preview import QtSelectPreview
-
             self._preview = QtSelectPreview(gui_view.scene)
         super().activate(session, view)  # type: ignore[arg-type]
-        from protoboard.gui.tools.transform_overlays import TransformOverlays
-
         self._overlays = TransformOverlays(gui_view)
         if not self._draft_preview_injected:
             from protoboard.gui.tools.simplify_preview import QtSimplifyPreview
@@ -493,8 +471,6 @@ class SimplifyTool(
             )
 
     def on_key(self, inp: KeyInput) -> bool:
-        from PySide6.QtCore import Qt
-
         if inp.key == Qt.Key.Key_Escape:
             self._clear_draft()
         return super().on_key(inp)
