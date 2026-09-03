@@ -67,6 +67,7 @@ from protoboard.services.library.loader import ComponentLibrary
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
+from protoboard.services.library.parametric import ComponentCatalog
 from protoboard.services.routing.cost_analyzer import compute_under_component_pads
 
 _click_log = _structlog.get_logger("protoboard.gui.session.click")
@@ -105,8 +106,6 @@ class HeadlessSession:
         # definitions. A ComponentCatalog synthesizes parametric variants
         # (PinHeader_1x05) on miss, so instance refs from loaded projects and
         # the placement dialog resolve transparently.
-        from protoboard.services.library.parametric import ComponentCatalog
-
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Package-family body catalogue, keyed by family id: the authored
         # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
