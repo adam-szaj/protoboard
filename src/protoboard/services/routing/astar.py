@@ -191,7 +191,7 @@ def _find_paths_rust(
 BareSegIndex = dict[tuple[int, int, str], list[tuple[Point, Point, int]]]
 
 
-def _build_bare_seg_index(
+def build_bare_seg_index(
     bare_segs: set[tuple[Point, Point, str, int]] | set[tuple[Point, Point, str]],
 ) -> BareSegIndex:
     """Build a spatial index of bare wire segments.
@@ -219,6 +219,10 @@ def _build_bare_seg_index(
                     idx[key] = []
                 idx[key].append((p1, p2, net_idx))
     return idx
+
+
+# Compatibility alias for callers that used the old private helper.
+_build_bare_seg_index = build_bare_seg_index
 
 
 # 4 orthogonal + 4 diagonal neighbours (same layer), each with its distance
@@ -2296,4 +2300,11 @@ def split_path_by_side(path: list[PathStep]) -> list[tuple[list[Point], str]]:
     return segments
 
 
-__all__ = ["RoutingResult", "PathStep", "find_paths", "split_path_by_side"]
+__all__ = [
+    "BareSegIndex",
+    "PathStep",
+    "RoutingResult",
+    "build_bare_seg_index",
+    "find_paths",
+    "split_path_by_side",
+]

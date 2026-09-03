@@ -44,7 +44,7 @@ from protoboard.geometry import (  # noqa: E402
     point_on_segment_interior,
     segments_cross_strict,
 )
-from protoboard.services.routing.astar import _build_bare_seg_index  # noqa: E402
+from protoboard.services.routing.astar import build_bare_seg_index  # noqa: E402
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import Pad
@@ -142,7 +142,7 @@ def corner_cut_wire(
         if ow.insulated or ow.id == wire.id:
             continue
         other_segs.update(_wire_to_bare_segs(ow))
-    bare_idx = _build_bare_seg_index(other_segs)
+    bare_idx = build_bare_seg_index(other_segs)
 
     # Also accumulate segments from this same wire that aren't being replaced,
     # so we don't introduce a self-cross.
