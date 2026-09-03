@@ -49,10 +49,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
-from protoboard.services.placement.slot_search import (
-    find_free_slot,
-    has_collision,
-)
+from protoboard.services.placement.slot_search import find_free_slot
 
 _log = structlog.get_logger(__name__)
 
@@ -316,8 +313,3 @@ def _extended_candidates(board_pads: set[Point], board_bounds: Rect) -> list[Poi
             if pt not in board_pads:
                 extra.append(pt)
     return extra
-
-
-# Compatibility aliases for callers that used the old private helpers.
-_find_free_slot = find_free_slot
-_has_collision = has_collision
