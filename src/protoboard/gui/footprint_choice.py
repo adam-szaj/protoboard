@@ -32,6 +32,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from protoboard.domain.components.package.family import resolve_variant
+
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.package.family import PackageFamily
@@ -156,8 +158,6 @@ class DefaultFootprintChoiceProvider:
         """Whether *address* is a declared leaf or a built declared kind."""
         if any(option.address == address for option in self.options(defn)):
             return True
-        from protoboard.domain.components.package.family import resolve_variant
-
         selected = resolve_variant(self._families, address)
         selected_kind = (
             getattr(selected.package, "kind", None) if selected is not None else None
@@ -355,10 +355,6 @@ class DefaultFootprintChoiceProvider:
         """
         pkg: object | None = None
         if address:
-            from protoboard.domain.components.package.family import (
-                resolve_variant,
-            )
-
             variant = resolve_variant(self._families, address)
             pkg = variant.package if variant is not None else None
         kind = getattr(pkg, "kind", None)
@@ -404,8 +400,6 @@ class DefaultFootprintChoiceProvider:
         return out
 
     def _ref_is_kind(self, address: str) -> bool:
-        from protoboard.domain.components.package.family import resolve_variant
-
         variant = resolve_variant(self._families, address)
         return variant is not None and self._package_is_kind(variant.package)
 
