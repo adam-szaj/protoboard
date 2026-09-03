@@ -143,3 +143,42 @@ def test_group_queries_use_group_tree_without_legacy_shims() -> None:
 
     assert not definitions, f"legacy group query definitions: {sorted(definitions)}"
     assert not imports, "legacy group query imports:\n" + "\n".join(imports)
+
+
+def test_group_tree_declares_required_domain_dependencies_at_module_scope() -> None:
+    """GroupTree's non-optional domain collaborators must be visible in imports."""
+    path = SRC / "domain/layout/group_tree.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    required = {
+        "protoboard.domain.components.resolution",
+        "protoboard.domain.layout.placement",
+        "protoboard.domain.schematic.net",
+        "protoboard.domain.schematic.schematic",
+        "protoboard.geometry",
+    }
+    deferred: list[str] = []
+
+    class _Visitor(ast.NodeVisitor):
+        function_depth = 0
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self.function_depth += 1
+            self.generic_visit(node)
+            self.function_depth -= 1
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            if self.function_depth and node.module in required:
+                deferred.append(f"{node.lineno}: {node.module}")
+            self.generic_visit(node)
+
+        def visit_Import(self, node: ast.Import) -> None:
+            if self.function_depth:
+                for alias in node.names:
+                    if alias.name in required:
+                        deferred.append(f"{node.lineno}: {alias.name}")
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    assert not deferred, "GroupTree defers required imports:\n" + "\n".join(deferred)

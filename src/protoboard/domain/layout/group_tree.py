@@ -19,9 +19,18 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from protoboard.domain.components.resolution import resolve_instance_definition
+from protoboard.domain.components.resolution import (
+    resolve_component,
+    resolve_instance_definition,
+)
 from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.schematic.net import PinRef
+from protoboard.domain.layout.placement import (
+    iter_footprint_pin_positions,
+    iter_pin_world_positions,
+)
+from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.domain.schematic.schematic import Schematic
+from protoboard.geometry import Point, Transform2D
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -29,8 +38,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.placement import (
         PlacementMap,
     )
-    from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.geometry import Point, Transform2D
 
 
 @dataclass(frozen=True)
@@ -140,8 +147,6 @@ class GroupTree:
         local point travelling out through the hierarchy.  A component in no
         group (or only in identity-transform groups) yields identity.
         """
-        from protoboard.geometry import Transform2D
-
         # Direct group containing the component, then the parent chain to root.
         direct: uuid.UUID | None = None
         for gid, g in self._groups.items():
@@ -176,8 +181,6 @@ class GroupTree:
         own transform** — the group sibling of :meth:`world_transform` (which
         starts from a component). Identity when the group is unknown.
         """
-        from protoboard.geometry import Transform2D
-
         parent_map: dict[uuid.UUID, uuid.UUID] = {}
         for gid, g in self._groups.items():
             for child_id in g.child_group_ids:
@@ -359,9 +362,6 @@ class GroupTree:
     ) -> Schematic:
         """Projection of *schematic* keeping only pins on *component_ids*; nets
         with fewer than two surviving pins are dropped."""
-        from protoboard.domain.schematic.net import Net
-        from protoboard.domain.schematic.schematic import Schematic
-
         projected_nets: dict[uuid.UUID, Net] = {}
         for net in schematic.nets.values():
             internal_pins = {p for p in net.pins if p.component_id in component_ids}
@@ -389,9 +389,6 @@ class GroupTree:
         ``@staticmethod``. The group's origin invariant is "(0,0) lives at the
         top-left pin".
         """
-        from protoboard.domain.components.resolution import resolve_component
-        from protoboard.domain.layout.placement import iter_footprint_pin_positions
-
         best: Point | None = None
         best_key = float("inf")
         for cid in component_ids:
@@ -418,8 +415,6 @@ class GroupTree:
         plural sibling of :meth:`group_origin`. Component records are resolved
         once, then each pin is projected from that concrete footprint.
         """
-        from protoboard.domain.layout.placement import iter_pin_world_positions
-
         positions: set[tuple[float, float]] = set()
         for cid in component_ids:
             for _, position in iter_pin_world_positions(
