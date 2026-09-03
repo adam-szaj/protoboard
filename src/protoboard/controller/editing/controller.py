@@ -32,7 +32,14 @@ from protoboard.controller.editing.group_lock import (
     component_locked_in_group,
     wire_locked_in_group,
 )
-from protoboard.controller.editing.item_handle import ItemTag
+from protoboard.controller.editing.item_handle import (
+    ComponentHandle,
+    GroupHandle,
+    ItemId,
+    ItemTag,
+    ReadOnlyComponentHandle,
+    WireHandle,
+)
 from protoboard.controller.editing.placement_conflict import check_and_resolve
 from protoboard.controller.editing.wire_nets import resolve_wire_nets
 from protoboard.domain.commands.base import (
@@ -85,14 +92,7 @@ if TYPE_CHECKING:
 
     from protoboard.controller.editing.armed_transform import ArmedTransform
     from protoboard.controller.editing.drag_preferences import DragPreferences
-    from protoboard.controller.editing.item_handle import (
-        ComponentHandle,
-        GroupHandle,
-        HandleKind,
-        ItemId,
-        ReadOnlyComponentHandle,
-        WireHandle,
-    )
+    from protoboard.controller.editing.item_handle import HandleKind
     from protoboard.controller.editing.placement_conflict import PlacementPrompts
     from protoboard.controller.editing.wire_nets import NetMergePrompt
     from protoboard.controller.ports.drc import DRCIssue
@@ -399,13 +399,6 @@ class EditController:
         mutating op at all. *active_group_id* is that edit context (defaults to
         ROOT).
         """
-        from protoboard.controller.editing.item_handle import (
-            ComponentHandle,
-            GroupHandle,
-            ReadOnlyComponentHandle,
-            WireHandle,
-        )
-
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
         if item_id.tag is ItemTag.group:
             return GroupHandle(self, item_id.uuid)
@@ -422,8 +415,6 @@ class EditController:
         ``KeyError`` if *group_id* is not a group in the current layout — the id
         is mistyped, not a silently-wrong handle.
         """
-        from protoboard.controller.editing.item_handle import GroupHandle
-
         if group_id not in self._state.layout.groups:
             raise KeyError(f"no group with id {group_id}")
         return GroupHandle(self, group_id)
@@ -433,8 +424,6 @@ class EditController:
 
         Raises ``KeyError`` if *wire_id* is not a wire in the current layout.
         """
-        from protoboard.controller.editing.item_handle import WireHandle
-
         if self._state.wire_by_id(wire_id) is None:
             raise KeyError(f"no wire with id {wire_id}")
         return WireHandle(self, wire_id)
@@ -448,11 +437,6 @@ class EditController:
         outside *active_group_id* (defaults to ROOT), editable otherwise. Raises
         ``KeyError`` if *comp_id* has no placement.
         """
-        from protoboard.controller.editing.item_handle import (
-            ComponentHandle,
-            ReadOnlyComponentHandle,
-        )
-
         if comp_id not in self._state.layout.placements:
             raise KeyError(f"no component with id {comp_id}")
         active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
@@ -483,8 +467,6 @@ class EditController:
         naive ``for h in get_items(): h.rotate()`` loop would be N undo steps,
         not one.
         """
-        from protoboard.controller.editing.item_handle import ItemId
-
         if item_ids is None:
             ids: list[ItemId] = list(self._state.selection())
         elif isinstance(item_ids, ItemId):
