@@ -10,19 +10,27 @@ from typing import TYPE_CHECKING, cast
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
     QKeySequenceEdit,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSlider,
@@ -30,6 +38,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,8 +50,6 @@ from protoboard.gui.keymap import AbstractKeyMap
 from protoboard.services.preferences.theme_yaml import save_theme
 
 if TYPE_CHECKING:
-    from PySide6.QtWidgets import QComboBox, QFormLayout
-
     from protoboard.domain.routing.simplify_mode import SimplifyMode
 
 
@@ -112,8 +119,6 @@ class _AppShortcutsTab(QWidget):
         # consumes the rest of the row width.  Without ResizeToContents
         # the default ~100px crops long action names like
         # "Component → Toggle Footprint Side".
-        from PySide6.QtWidgets import QHeaderView
-
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -221,8 +226,6 @@ class _KeyMapTab(QWidget):
         self, keymap: object, action_ids: list[str], parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
-        from PySide6.QtWidgets import QHeaderView, QLineEdit
-
         from protoboard.gui.keymap import KeyMap
 
         assert isinstance(keymap, KeyMap)
@@ -271,8 +274,6 @@ class _KeyMapTab(QWidget):
             self._initial[action_id] = value
 
     def apply(self) -> None:
-        from PySide6.QtWidgets import QMessageBox
-
         from protoboard.gui.keymap import FinalShortcutError
 
         for action_id, edit in self._edits.items():
@@ -331,8 +332,6 @@ class _ShortcutsPage(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        from PySide6.QtWidgets import QTabWidget
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         tabs = QTabWidget()
@@ -371,8 +370,6 @@ class _ShortcutsPage(QWidget):
                 self._add_km_tab(tabs, layer, ids, category_label(ids[0]))
 
     def _add_km_tab(self, tabs: object, km: object, ids: list[str], label: str) -> None:
-        from PySide6.QtWidgets import QTabWidget
-
         assert isinstance(tabs, QTabWidget)
         tab = _KeyMapTab(km, ids)
         tabs.addTab(tab, label)
@@ -920,8 +917,6 @@ class _PathsPage(QWidget):
         # (33 / 33 / 80) are fine on local X11; remote SSH sessions
         # benefit from raising them so we send fewer X11 round-trips per
         # second.
-        from PySide6.QtWidgets import QFormLayout
-
         perf_grp = QGroupBox("Render throttles (ms)")
         perf_form = QFormLayout(perf_grp)
         perf_note = QLabel(
@@ -988,8 +983,6 @@ class _PathsPage(QWidget):
         # only each pin → nearest other pin.  Multi-island nets always
         # use the "ratsnest_islands_color" warning colour from the theme
         # regardless of this setting.
-        from PySide6.QtWidgets import QButtonGroup, QRadioButton
-
         conn_grp = QGroupBox("Connections layer (ratsnest)")
         conn_layout = QVBoxLayout(conn_grp)
         self._ratsnest_mode_group = QButtonGroup(conn_grp)
@@ -1088,8 +1081,6 @@ class _RoutingPage(QWidget):
         gen_grp = QGroupBox("General")
         gen_form = _RoutingFormLayout(gen_grp)
 
-        from PySide6.QtWidgets import QComboBox
-
         self._preferred_side = QComboBox()
         self._preferred_side.addItems(["bottom", "top"])
         gen_form.addRow("Preferred layer", self._preferred_side)
@@ -1118,9 +1109,7 @@ class _RoutingPage(QWidget):
         self._enable_simplify = QCheckBox()
         gen_form.addRow("Simplify after routing", self._enable_simplify)
 
-        from PySide6.QtWidgets import QComboBox as _QComboBox
-
-        self._simplify_mode = _QComboBox()
+        self._simplify_mode = QComboBox()
         self._simplify_mode.addItem("Chebyshev (shortcut via diag)", "chebyshev")
         self._simplify_mode.addItem(
             "Bare-parity (respect anti-short rule)", "bare_parity"
@@ -1158,9 +1147,7 @@ class _RoutingPage(QWidget):
         preset_grp = QGroupBox("Cost preset")
         preset_form = _RoutingFormLayout(preset_grp)
 
-        from PySide6.QtWidgets import QComboBox as _PresetCombo
-
-        self._cost_preset = _PresetCombo()
+        self._cost_preset = QComboBox()
         # Built-ins first (reserved names; cannot be edited).
         self._builtin_preset_names = sorted(builtin_preset_names())
         for name in self._builtin_preset_names:
@@ -1174,9 +1161,7 @@ class _RoutingPage(QWidget):
         )
         preset_form.addRow("Active preset", self._cost_preset)
 
-        from PySide6.QtWidgets import QPushButton as _PresetEditBtn
-
-        edit_presets_btn = _PresetEditBtn("Edit presets…")
+        edit_presets_btn = QPushButton("Edit presets…")
         edit_presets_btn.clicked.connect(self._open_preset_editor)
         preset_form.addRow("", edit_presets_btn)
 
@@ -1212,15 +1197,6 @@ class _RoutingPage(QWidget):
         ``self._pending_overrides`` and merged into ``cost_overrides``
         when ``apply()`` runs.
         """
-        from PySide6.QtWidgets import (
-            QFormLayout,
-            QGroupBox,
-            QLabel,
-            QScrollArea,
-            QVBoxLayout,
-            QWidget,
-        )
-
         # Defensive imports — ensure built-in routers register themselves
         # before we ask for their supported / user-tunable cost keys.
         import protoboard.services.routing.builtin  # noqa: F401
@@ -1374,8 +1350,6 @@ class _RoutingPage(QWidget):
         switches the active preset to the new one and clears overrides so
         the user is not left with redundant deltas.
         """
-        from PySide6.QtWidgets import QInputDialog, QMessageBox
-
         from protoboard.controller.app_settings import save_app_settings
         from protoboard.domain.routing.cost_presets import builtin_preset_names
 
@@ -1560,8 +1534,6 @@ def _resolve_simplify_mode(raw: object) -> SimplifyMode:
 
 
 def _RoutingFormLayout(parent: QWidget) -> QFormLayout:
-    from PySide6.QtWidgets import QFormLayout
-
     form = QFormLayout()
     form.setSpacing(6)
     form.setContentsMargins(8, 8, 8, 8)
@@ -1611,8 +1583,6 @@ class _BoardPage(QWidget):
 
         grp = QGroupBox("Axis index labels")
         form = _RoutingFormLayout(grp)
-
-        from PySide6.QtWidgets import QComboBox
 
         self._columns = QComboBox()
         for label, data in self._OPTIONS:
@@ -1694,8 +1664,6 @@ class _DragPage(QWidget):
         settings: AppSettings,
         parent: QWidget | None = None,
     ) -> None:
-        from PySide6.QtWidgets import QFormLayout
-
         from protoboard.controller.editing.drag_preferences import DRAG_CONFLICT_VALUES
 
         assert {
@@ -1762,8 +1730,6 @@ class _DragPage(QWidget):
         vbox.addStretch()
 
     def _make_combo(self, current: str) -> QComboBox:
-        from PySide6.QtWidgets import QComboBox
-
         combo = QComboBox()
         for value, label in self._CONFLICT_CHOICES:
             combo.addItem(label, value)
