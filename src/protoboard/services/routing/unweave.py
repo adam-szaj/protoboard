@@ -49,8 +49,10 @@ import structlog
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import Wire, WireCollection
+from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, Vector, segments_cross_strict
 from protoboard.services.routing.postprocess import _canonical_subpath
@@ -235,13 +237,11 @@ def _directions_interleave(
     another.  Otherwise (``[W1, W1, W2, W2]`` etc.) they just touch and
     return.
     """
-    import math as _math
-
     items = [
-        ("1", _math.atan2(d1a[1], d1a[0])),
-        ("1", _math.atan2(d1b[1], d1b[0])),
-        ("2", _math.atan2(d2a[1], d2a[0])),
-        ("2", _math.atan2(d2b[1], d2b[0])),
+        ("1", math.atan2(d1a[1], d1a[0])),
+        ("1", math.atan2(d1b[1], d1b[0])),
+        ("2", math.atan2(d2a[1], d2a[0])),
+        ("2", math.atan2(d2b[1], d2b[0])),
     ]
     items.sort(key=lambda t: t[1])
     labels = [t[0] for t in items]
@@ -528,8 +528,6 @@ def unweave_wires(
     # Default board pads from graph.board so callers passing only graph still
     # benefit from pad-preservation on bare links.
     if board_pads is None and graph is not None and graph.board is not None:
-        from protoboard.domain.layout.wire_utils import board_pads_for_side
-
         board_pads = board_pads_for_side(graph.board, "top") | board_pads_for_side(
             graph.board, "bottom"
         )
@@ -578,8 +576,6 @@ def unweave_wires(
     # pass so that reroute candidates stay on free pads (no alien pins).
     forbidden_pads: set[Point] | None = None
     if graph is not None:
-        from protoboard.domain.layout.pad_conflict import footprint_of
-
         forbidden_pads = set()
         for component in iter_placed_components(
             graph.layout.placements,
@@ -782,11 +778,9 @@ def _rebalance_sides(
                     continue
                 # Propose flipping just this segment.  Preserve seg.id —
                 # this is an attribute edit, not a creation.
-                from typing import cast as _cast
-
                 new_seg = replace(
                     seg,
-                    side=_cast(Side, target_side),
+                    side=cast(Side, target_side),
                 )
                 proposed = [list(c) for c in logical]
                 proposed[i][k] = new_seg
