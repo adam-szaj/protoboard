@@ -714,7 +714,7 @@ def merge_colocated_joints(
                 and components is not None
             ):
                 nets.add(
-                    _wire_net_id(
+                    wire_net_id(
                         w, schematic, layout, instances, components, board=board
                     )
                 )
@@ -896,7 +896,7 @@ def _pin_at(
         bridges them electrically into one node.
       * Otherwise restrict to pins whose placement side equals *side*.
 
-    Used by :func:`_wire_net_id` so wires routed on the bottom layer
+    Used by :func:`wire_net_id` so wires routed on the bottom layer
     that terminate at a top-side component pin (the autoroute common
     case for through-hole parts) resolve to the right schematic net.
     """
@@ -926,7 +926,7 @@ def _pin_at(
     return None
 
 
-def _wire_net_id(
+def wire_net_id(
     wire: Wire,
     schematic: Schematic,
     layout: Layout,
@@ -944,7 +944,7 @@ def _wire_net_id(
     electrically into one node) — that case dominates real-world
     autoroute output, where a wire ends on the bottom layer but the
     component pin lives on the top layer of the same hole.  Without
-    the plated-through allowance, ``_wire_net_id`` returned None for
+    the plated-through allowance, ``wire_net_id`` returned None for
     every through-hole termination and the cross-net joint gate
     silently no-op'd.
 
@@ -988,22 +988,26 @@ def _wire_net_id(
     return None
 
 
+# Kept as a local compatibility alias for older tests and integrations; new
+# callers should use the public name above.
+_wire_net_id = wire_net_id
+
+
 @dataclass(frozen=True)
 class WireNetResolver:
     """Cohesive view for "what net does this wire belong to?" over one context.
 
     Collapses the 5-required-plus-2-keyword parameter sprawl of
-    :func:`_wire_net_id` — ``schematic / layout / instances / components``
+    :func:`wire_net_id` — ``schematic / layout / instances / components``
     plus optional ``board`` / ``pad_index`` — into fields gathered once. The
     callers that resolve two wires in a row against the same context
     (``_classify_t_junction``, ``merge_endpoint_wires``,
     ``merge_colocated_joints``) become a single ``resolver.net_id(w)`` per
     wire instead of re-threading six arguments each time.
 
-    :meth:`net_id` delegates verbatim to the free :func:`_wire_net_id`, which
-    stays the canonical implementation (it is imported cross-module by
-    ``component_cmds.py`` and is the documented pure helper). Frozen because
-    no per-batch cache is kept — each ``_wire_net_id`` call builds and discards
+    :meth:`net_id` delegates verbatim to the free :func:`wire_net_id`, which
+    stays the canonical implementation and documented pure helper. Frozen
+    because no per-batch cache is kept — each ``wire_net_id`` call builds and discards
     its own plated-pad set (or skips it entirely on the ``pad_index`` fast
     path). Build via :meth:`from_state` or directly with the context.
 
@@ -1044,8 +1048,8 @@ class WireNetResolver:
         )
 
     def net_id(self, wire: Wire) -> uuid.UUID | None:
-        """Resolve *wire* to a schematic net id (see :func:`_wire_net_id`)."""
-        return _wire_net_id(
+        """Resolve *wire* to a schematic net id (see :func:`wire_net_id`)."""
+        return wire_net_id(
             wire,
             self.schematic,
             self.layout,
@@ -1106,7 +1110,7 @@ def can_form_t_junction(
     if schematic is None or layout is None or instances is None or components is None:
         return TJunctionVerdict.SAFE, None, None
 
-    net_through = _wire_net_id(
+    net_through = wire_net_id(
         w_through,
         schematic,
         layout,
@@ -1115,7 +1119,7 @@ def can_form_t_junction(
         board=board,
         pad_index=pad_index,
     )
-    net_incoming = _wire_net_id(
+    net_incoming = wire_net_id(
         w_incoming,
         schematic,
         layout,
@@ -1357,10 +1361,10 @@ def merge_endpoint_wires(
                 and instances is not None
                 and components is not None
             ):
-                n1 = _wire_net_id(
+                n1 = wire_net_id(
                     w1, schematic, layout, instances, components, board=board
                 )
-                n2 = _wire_net_id(
+                n2 = wire_net_id(
                     w2, schematic, layout, instances, components, board=board
                 )
                 if n1 is not None and n2 is not None and n1 != n2:
@@ -1421,6 +1425,7 @@ def find_skewed_wires(
 __all__ = [
     "board_pads_for_side",
     "plated_through_pads",
+    "wire_net_id",
     "insert_pad_nodes",
     "coalesce_same_side_fragments",
     "find_wire_with_interior_vertex_at",
@@ -1948,7 +1953,7 @@ def _wire_net_for_joint(
     """Resolve *wire*'s schematic net id for joint-compatibility checks."""
     if schematic is None:
         return None
-    return _wire_net_id(
+    return wire_net_id(
         wire,
         schematic,
         layout,

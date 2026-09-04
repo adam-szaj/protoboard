@@ -25,12 +25,8 @@ from protoboard.domain.components.resolution import resolve_instance_definition
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-)
-from protoboard.domain.layout.placement import (
-    move_blocked as _move_blocked,
-)
-from protoboard.domain.layout.placement import (
-    warn_pins_off_pads as _warn_pins_off_pads,
+    move_blocked,
+    warn_pins_off_pads,
 )
 from protoboard.domain.layout.wire import (
     Fragment,
@@ -38,69 +34,27 @@ from protoboard.domain.layout.wire import (
     Wire,
     rebuild_fragments,
 )
-
-# Wire-path helpers that operate on Wire/Layout (not command state) live in
-# wire_utils next to their collaborators; imported under the historic private
-# names so the command call-sites read the same.
 from protoboard.domain.layout.wire_utils import (
-    CollapseRecord as _CollapseRecord,
-)
-from protoboard.domain.layout.wire_utils import (
-    ColocatedFuseRecord as _CoLocatedFuseRecord,
-)
-from protoboard.domain.layout.wire_utils import (
-    SplitRecord as _SplitRecord,
-)
-from protoboard.domain.layout.wire_utils import (
-    _wire_net_id as _wire_net_id,
-)
-from protoboard.domain.layout.wire_utils import (
-    collapse_endpoint_joints as _collapse_endpoint_joints,
-)
-from protoboard.domain.layout.wire_utils import (
-    enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
-)
-from protoboard.domain.layout.wire_utils import (
-    enrich_insulated_wire_with_pad_nodes as _enrich_insulated_with_pad_nodes,
-)
-from protoboard.domain.layout.wire_utils import (
-    merge_colocated_joints_capturing as _merge_colocated_joints_capturing,
-)
-from protoboard.domain.layout.wire_utils import (
-    plated_through_pads as _plated_through_pads,
-)
-from protoboard.domain.layout.wire_utils import (
-    remove_wire_capturing_orphans as _remove_wire_capturing_orphans,
-)
-from protoboard.domain.layout.wire_utils import (
-    resolve_endpoint_knot as _resolve_endpoint_knot,
-)
-from protoboard.domain.layout.wire_utils import (
-    restore_collapse as _restore_collapse,
-)
-from protoboard.domain.layout.wire_utils import (
-    restore_colocated_fuse as _restore_colocated_fuse,
-)
-from protoboard.domain.layout.wire_utils import (
-    restore_split as _restore_split,
-)
-from protoboard.domain.layout.wire_utils import (
-    restore_wire_geometry as _restore_wire_geometry,
-)
-from protoboard.domain.layout.wire_utils import (
-    restore_wire_with_orphans as _restore_wire_with_orphans,
-)
-from protoboard.domain.layout.wire_utils import (
-    snapshot_wire as _snapshot_wire,
-)
-from protoboard.domain.layout.wire_utils import (
-    snapshot_wire_geometry as _snapshot_wire_geometry,
-)
-from protoboard.domain.layout.wire_utils import (
-    split_existing_wires_at_endpoints as _split_existing_wires_at_endpoints,
-)
-from protoboard.domain.layout.wire_utils import (
-    update_wires_for_move as _update_wires_for_move,
+    CollapseRecord,
+    ColocatedFuseRecord,
+    SplitRecord,
+    collapse_endpoint_joints,
+    enrich_insulated_fragments_with_pad_nodes,
+    enrich_insulated_wire_with_pad_nodes,
+    merge_colocated_joints_capturing,
+    plated_through_pads,
+    remove_wire_capturing_orphans,
+    resolve_endpoint_knot,
+    restore_collapse,
+    restore_colocated_fuse,
+    restore_split,
+    restore_wire_geometry,
+    restore_wire_with_orphans,
+    snapshot_wire,
+    snapshot_wire_geometry,
+    split_existing_wires_at_endpoints,
+    update_wires_for_move,
+    wire_net_id,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.pin_siblings import same_name_refs
@@ -192,7 +146,7 @@ class PlaceComponentCommand(Command[ComponentState]):
         state.layout.placements[self.component_id] = self.placement
         state.instances[self.component_id] = self.instance
         build_pin_identities_for(state, self.component_id)
-        _warn_pins_off_pads(
+        warn_pins_off_pads(
             self.component_id,
             self.placement,
             instances=state.instances,
@@ -210,9 +164,9 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
     component_id: uuid.UUID
     new_placement: ComponentPlacement
     old_placement: ComponentPlacement
-    # When True, skip the _move_blocked() check (caller already verified).
+    # When True, skip the move_blocked() check (caller already verified).
     skip_conflict_check: bool = field(default=False)
-    # Wire IDs already translated by live drag — skip in _update_wires_for_move
+    # Wire IDs already translated by live drag — skip in update_wires_for_move
     # to prevent double-translation when old_pin_pos == new_pin_pos of another component.  # noqa: E501
     exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     # When True, the command mutates only ``layout.placements`` and leaves
@@ -234,7 +188,7 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
             self.mark_applied(False)
             return
         if not self.skip_conflict_check:
-            blocked = _move_blocked(
+            blocked = move_blocked(
                 self.component_id,
                 self.new_placement,
                 instances=state.instances,
@@ -251,7 +205,7 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
             self._saved_wires = list(state.layout.wires)
         state.layout.placements[self.component_id] = self.new_placement
         if not self.placement_only:
-            _update_wires_for_move(
+            update_wires_for_move(
                 state.layout.wires,
                 layout=state.layout,
                 instances=state.instances,
@@ -261,7 +215,7 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
                 new_pl=self.new_placement,
                 exclude_ids=self.exclude_wire_ids,
             )
-        _warn_pins_off_pads(
+        warn_pins_off_pads(
             self.component_id,
             self.new_placement,
             instances=state.instances,
@@ -335,7 +289,7 @@ def _wire_intended_net(
     schematic = getattr(state, "schematic", None)
     if schematic is None:
         return None
-    return _wire_net_id(
+    return wire_net_id(
         wire,
         schematic,
         state.layout,
@@ -357,10 +311,10 @@ class AddWireCommand(Command[ComponentState]):
     # Split records — one per endpoint that produced a T-junction by
     # cutting an existing wire at the meeting pad.  Empty when no
     # interior-vertex collision was detected.
-    _splits: list[_SplitRecord] = field(default_factory=list, init=False, repr=False)
+    _splits: list[SplitRecord] = field(default_factory=list, init=False, repr=False)
     # Collapse records — one per endpoint that fused with a neighbouring
     # wire of matching ``insulated``.  Empty when no fusion happened.
-    _collapses: list[_CollapseRecord] = field(
+    _collapses: list[CollapseRecord] = field(
         default_factory=list, init=False, repr=False
     )
 
@@ -372,7 +326,7 @@ class AddWireCommand(Command[ComponentState]):
         # Enrich insulated wires with pad-position vertices so simplify /
         # unweave / edit tools have nodes at every pad the wire physically
         # crosses.  Idempotent — redo doesn't re-grow the path.
-        self.wire = _enrich_insulated_with_pad_nodes(self.wire, state.board)
+        self.wire = enrich_insulated_wire_with_pad_nodes(self.wire, state.board)
         if not self._knots_resolved:
             if self.wire.a is None or self.wire.b is None:
                 start = self.wire.path[0]
@@ -384,7 +338,7 @@ class AddWireCommand(Command[ComponentState]):
                 wire_net_id = _wire_intended_net(state, self.wire)
                 strategy = _strategy_from_state(state)
                 pad_index = _pad_index_from_state(state)
-                a_ref, a_created = _resolve_endpoint_knot(
+                a_ref, a_created = resolve_endpoint_knot(
                     start,
                     layout=state.layout,
                     instances=state.instances,
@@ -396,7 +350,7 @@ class AddWireCommand(Command[ComponentState]):
                     strategy=strategy,
                     pad_index=pad_index,
                 )
-                b_ref, b_created = _resolve_endpoint_knot(
+                b_ref, b_created = resolve_endpoint_knot(
                     end,
                     layout=state.layout,
                     instances=state.instances,
@@ -428,7 +382,7 @@ class AddWireCommand(Command[ComponentState]):
         # that wire and re-anchor our endpoint to the shared hub
         # (T-junction with degree-3 at the meeting pad).  ``make_t_junction``
         # mutates ``self.wire``'s ``a``/``b`` knot refs in place.
-        new_splits = _split_existing_wires_at_endpoints(
+        new_splits = split_existing_wires_at_endpoints(
             self.wire,
             layout=state.layout,
             board=state.board,
@@ -446,7 +400,7 @@ class AddWireCommand(Command[ComponentState]):
         # so revert() can undo it on demand.  Recompute on every apply
         # (including redo) so the layout state matches what the first
         # apply produced — the recorded snapshots are only used by revert.
-        new_collapses = _collapse_endpoint_joints(
+        new_collapses = collapse_endpoint_joints(
             self.wire,
             layout=state.layout,
             board=state.board,
@@ -456,11 +410,11 @@ class AddWireCommand(Command[ComponentState]):
 
     def revert(self, state: ComponentState) -> None:
         if self._collapses:
-            # Undo collapses in reverse order — ``_restore_collapse``
+            # Undo collapses in reverse order — ``restore_collapse``
             # reinstates BOTH source wires (including ``self.wire`` in its
             # pre-collapse form, so we don't remove it again here).
             for collapse_record in reversed(self._collapses):
-                _restore_collapse(state.layout, collapse_record)
+                restore_collapse(state.layout, collapse_record)
             # Now drop just ``self.wire`` so the layout reaches the
             # pre-apply state (one wire = the other source = neighbour
             # that existed before this AddWireCommand fired).
@@ -473,7 +427,7 @@ class AddWireCommand(Command[ComponentState]):
         # are restored to their pre-split single-piece form.  Run after
         # we removed ``self.wire`` so the hub becomes orphan-eligible.
         for split_record in reversed(self._splits):
-            _restore_split(state.layout, self.wire, split_record)
+            restore_split(state.layout, self.wire, split_record)
         # Joints we created may still hold back-refs to other wires (shared
         # joint).  ``remove_wire`` already prunes orphans; anything still
         # in layout.knots is a non-orphan we must leave alone.
@@ -511,8 +465,8 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         default_factory=list, init=False, repr=False
     )
     _knots_resolved: bool = field(default=False, init=False, repr=False)
-    _splits: list[_SplitRecord] = field(default_factory=list, init=False, repr=False)
-    _collapses: list[_CollapseRecord] = field(
+    _splits: list[SplitRecord] = field(default_factory=list, init=False, repr=False)
+    _collapses: list[CollapseRecord] = field(
         default_factory=list, init=False, repr=False
     )
 
@@ -534,14 +488,14 @@ class AddWireWithNetsCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         # Enrich insulated wires the same way AddWireCommand does — single
         # chokepoint for every wire-creation path.
-        self.wire = _enrich_insulated_with_pad_nodes(self.wire, state.board)
+        self.wire = enrich_insulated_wire_with_pad_nodes(self.wire, state.board)
         if not self._knots_resolved:
             if self.wire.a is None or self.wire.b is None:
                 start = self.wire.path[0]
                 end = self.wire.path[-1]
                 strategy = _strategy_from_state(state)
                 pad_index = _pad_index_from_state(state)
-                a_ref, a_created = _resolve_endpoint_knot(
+                a_ref, a_created = resolve_endpoint_knot(
                     start,
                     layout=state.layout,
                     instances=state.instances,
@@ -551,7 +505,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                     strategy=strategy,
                     pad_index=pad_index,
                 )
-                b_ref, b_created = _resolve_endpoint_knot(
+                b_ref, b_created = resolve_endpoint_knot(
                     end,
                     layout=state.layout,
                     instances=state.instances,
@@ -577,7 +531,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         # for the full rationale.  Same ordering matters: split first so
         # the hub exists at degree-3 before merge looks for degree-2
         # endpoint joints to collapse.
-        new_splits = _split_existing_wires_at_endpoints(
+        new_splits = split_existing_wires_at_endpoints(
             self.wire,
             layout=state.layout,
             board=state.board,
@@ -587,7 +541,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         )
         if new_splits and not self._splits:
             self._splits = new_splits
-        new_collapses = _collapse_endpoint_joints(
+        new_collapses = collapse_endpoint_joints(
             self.wire,
             layout=state.layout,
             board=state.board,
@@ -608,11 +562,11 @@ class AddWireWithNetsCommand(Command[ComponentState]):
 
     def revert(self, state: ComponentState) -> None:
         for collapse_record in reversed(self._collapses):
-            _restore_collapse(state.layout, collapse_record)
+            restore_collapse(state.layout, collapse_record)
         if self.wire.id in state.layout.wires:
             state.layout.remove_wire(self.wire.id)
         for split_record in reversed(self._splits):
-            _restore_split(state.layout, self.wire, split_record)
+            restore_split(state.layout, self.wire, split_record)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:
@@ -635,13 +589,13 @@ class RemoveWireCommand(Command[ComponentState]):
         return "Remove wire"
 
     def apply(self, state: ComponentState) -> None:
-        wire, orphans = _remove_wire_capturing_orphans(
+        wire, orphans = remove_wire_capturing_orphans(
             state.layout,
             self.wire_id,
         )
         if wire is None:
             # Macro race: a prior command in the same macro already
-            # dropped this wire (e.g. ``_update_wires_for_move`` dropped
+            # dropped this wire (e.g. ``update_wires_for_move`` dropped
             # it as ``skewed`` after translating a PinKnot endpoint by
             # the drag delta).  The wire would have been removed
             # anyway, so treat this as a successful no-op rather than
@@ -661,7 +615,7 @@ class RemoveWireCommand(Command[ComponentState]):
     def revert(self, state: ComponentState) -> None:
         if self._saved_wire is None:
             return
-        _restore_wire_with_orphans(
+        restore_wire_with_orphans(
             state.layout,
             self._saved_wire,
             self._saved_orphan_joints,
@@ -677,7 +631,7 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
     underlying helper is shared with the legacy in-Move path —
     behavior is identical, but observability and rollback are not.
 
-    Anchoring is decided by ``_update_wires_for_move``'s PinKnot
+    Anchoring is decided by ``update_wires_for_move``'s PinKnot
     check: only wires whose endpoints reference this component's pins
     are translated; foreign wires whose path happens to pass through
     the old pin position are left alone (this is what fixes the
@@ -709,10 +663,10 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
 
     def apply(self, state: ComponentState) -> None:
         self._saved_wires = list(state.layout.wires)
-        self._saved_geometry = _snapshot_wire_geometry(state.layout)
+        self._saved_geometry = snapshot_wire_geometry(state.layout)
         self.mark_applied(True)
         wires_before = {w.id: list(w.path) for w in state.layout.wires}
-        _update_wires_for_move(
+        update_wires_for_move(
             state.layout.wires,
             layout=state.layout,
             instances=state.instances,
@@ -762,7 +716,7 @@ class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
 
     def _do_revert(self, state: ComponentState) -> None:
         state.layout.wires[:] = self._saved_wires
-        _restore_wire_geometry(state.layout, self._saved_geometry)
+        restore_wire_geometry(state.layout, self._saved_geometry)
 
 
 @dataclass
@@ -797,7 +751,7 @@ class DropWiresCommand(Command[ComponentState]):
         saved: list[Wire] = []
         orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.wire_ids:
-            wire, w_orphans = _remove_wire_capturing_orphans(state.layout, wid)
+            wire, w_orphans = remove_wire_capturing_orphans(state.layout, wid)
             if wire is None:
                 continue
             saved.append(wire)
@@ -807,7 +761,7 @@ class DropWiresCommand(Command[ComponentState]):
 
     def revert(self, state: ComponentState) -> None:
         for wire in self._saved_wires:
-            _restore_wire_with_orphans(
+            restore_wire_with_orphans(
                 state.layout,
                 wire,
                 self._saved_orphan_joints,
@@ -941,7 +895,7 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
 
     Runs repeatedly until no more collapses succeed — a chain of N
     touching wires needs N-1 passes.  Each successful collapse is
-    snapshotted as a :class:`_CollapseRecord` so ``revert`` can split
+    snapshotted as a :class:`CollapseRecord` so ``revert`` can split
     every fused pair back into its two source wires (in reverse
     order, mirroring AddWireCommand's collapse-undo path).
 
@@ -954,12 +908,12 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
     """
 
     wire_ids: frozenset[uuid.UUID] | None = None  # None → whole layout
-    _records: list[_CollapseRecord] = field(
+    _records: list[CollapseRecord] = field(
         default_factory=list,
         init=False,
         repr=False,
     )
-    _colocated_records: list[_CoLocatedFuseRecord] = field(
+    _colocated_records: list[ColocatedFuseRecord] = field(
         default_factory=list,
         init=False,
         repr=False,
@@ -987,15 +941,15 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         Delegates to ``wire_utils.merge_colocated_joints_capturing``.
         """
         self._colocated_records.extend(
-            _merge_colocated_joints_capturing(
+            merge_colocated_joints_capturing(
                 state.layout,
                 scope_wire_ids=self.wire_ids,
             )
         )
 
     def apply(self, state: ComponentState) -> None:
-        pt_pads = frozenset(_plated_through_pads(state.board))
-        records: list[_CollapseRecord] = []
+        pt_pads = frozenset(plated_through_pads(state.board))
+        records: list[CollapseRecord] = []
         # Phase 0 — pre-merge co-located degree-1 JointKnots so the main
         # collapse loop can see them as a single degree-2 hub.  Without
         # this, legacy artefacts from pre-fix flip-fragment edits leave
@@ -1070,11 +1024,11 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
                         w2_in=(w2.id in self.wire_ids),
                     )
                     continue
-                snapshot = _CollapseRecord(
+                snapshot = CollapseRecord(
                     joint_id=knot_id,
                     joint_pos=knot.position,
-                    w1_snapshot=_snapshot_wire(w1, state.layout),
-                    w2_snapshot=_snapshot_wire(w2, state.layout),
+                    w1_snapshot=snapshot_wire(w1, state.layout),
+                    w2_snapshot=snapshot_wire(w2, state.layout),
                 )
                 stat["try_collapse_called"] += 1
                 merged = state.layout.try_collapse_joint(
@@ -1118,16 +1072,16 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
             self._records = records
 
     def revert(self, state: ComponentState) -> None:
-        # Undo collapses in reverse order — _restore_collapse reinstates
+        # Undo collapses in reverse order — restore_collapse reinstates
         # both source wires.  Each iteration drops the merged wire and
         # re-inserts the two pre-fuse wires.
         for rec in reversed(self._records):
-            _restore_collapse(state.layout, rec)
+            restore_collapse(state.layout, rec)
         # Phase-0 co-located fuses run BEFORE the main collapse loop in
         # apply, so their inverses must run AFTER the collapse-restore
         # walk to land in the right model state.
         for crec in reversed(self._colocated_records):
-            _restore_colocated_fuse(state.layout, crec)
+            restore_colocated_fuse(state.layout, crec)
 
 
 # ---------------------------------------------------------------------------
@@ -1560,7 +1514,7 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
         # fragments are returned unchanged.  Cache _saved_fragments BEFORE
         # the rewrite so revert restores the user's exact pre-apply state,
         # not the enriched form.
-        new_fragments = _enrich_insulated_fragments_with_pad_nodes(
+        new_fragments = enrich_insulated_fragments_with_pad_nodes(
             self.new_fragments,
             wire.insulated,
             state.board,
