@@ -69,7 +69,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.appearance import Appearance
     from protoboard.domain.layout.pad_strategy import PadStrategy
     from protoboard.domain.schematic.net import Net
-    from protoboard.domain.schematic.schematic import PinGroupUndo
+    from protoboard.domain.schematic.schematic import PinGroupUndo, Schematic
 
 
 def _strategy_from_state(state: ComponentState) -> PadStrategy | None:
@@ -299,6 +299,81 @@ def _wire_intended_net(
     )
 
 
+def _prepare_wire_for_add(
+    state: ComponentState,
+    wire: Wire,
+    *,
+    knots_resolved: bool,
+    created_joints: list[JointKnot],
+    endpoint_schematic: Schematic | None,
+    endpoint_side: str | None,
+    endpoint_net_id: uuid.UUID | None,
+    resolve_endpoint_net: bool,
+) -> tuple[Wire, bool, list[SplitRecord], list[CollapseRecord]]:
+    """Prepare a wire for insertion and return the undo records it creates.
+
+    Both wire-add commands share this geometry lifecycle. The optional
+    endpoint context keeps their intentional difference explicit: plain wire
+    adds gate joint reuse by wire net/side, while the net-aware command lets
+    its resolver own that decision.
+    """
+    wire = enrich_insulated_wire_with_pad_nodes(wire, state.board)
+    if (
+        resolve_endpoint_net
+        and not knots_resolved
+        and (wire.a is None or wire.b is None)
+    ):
+        endpoint_net_id = _wire_intended_net(state, wire)
+    if not knots_resolved:
+        if wire.a is None or wire.b is None:
+            strategy = _strategy_from_state(state)
+            pad_index = _pad_index_from_state(state)
+            refs: list[tuple[KnotRef, JointKnot | None]] = []
+            for point in (wire.path[0], wire.path[-1]):
+                refs.append(
+                    resolve_endpoint_knot(
+                        point,
+                        layout=state.layout,
+                        instances=state.instances,
+                        components=state.components,
+                        board=state.board,
+                        schematic=endpoint_schematic,
+                        side=endpoint_side,
+                        net_id=endpoint_net_id,
+                        strategy=strategy,
+                        pad_index=pad_index,
+                    )
+                )
+            (wire.a, a_created), (wire.b, b_created) = refs
+            if a_created is not None:
+                created_joints.append(a_created)
+            if b_created is not None:
+                created_joints.append(b_created)
+        knots_resolved = True
+    else:
+        for joint in created_joints:
+            state.layout.knots.setdefault(joint.id, joint)
+
+    if wire.id not in state.layout.wires:
+        state.layout.add_wire(wire)
+
+    schematic = getattr(state, "schematic", None)
+    new_splits = split_existing_wires_at_endpoints(
+        wire,
+        layout=state.layout,
+        board=state.board,
+        schematic=schematic,
+        instances=state.instances,
+        components=state.components,
+    )
+    new_collapses = collapse_endpoint_joints(
+        wire,
+        layout=state.layout,
+        board=state.board,
+    )
+    return wire, knots_resolved, new_splits, new_collapses
+
+
 @dataclass
 class AddWireCommand(Command[ComponentState]):
     wire: Wire
@@ -323,88 +398,20 @@ class AddWireCommand(Command[ComponentState]):
         return "Add wire"
 
     def apply(self, state: ComponentState) -> None:
-        # Enrich insulated wires with pad-position vertices so simplify /
-        # unweave / edit tools have nodes at every pad the wire physically
-        # crosses.  Idempotent — redo doesn't re-grow the path.
-        self.wire = enrich_insulated_wire_with_pad_nodes(self.wire, state.board)
-        if not self._knots_resolved:
-            if self.wire.a is None or self.wire.b is None:
-                start = self.wire.path[0]
-                end = self.wire.path[-1]
-                # Constrain joint reuse to compatible existing joints so
-                # an autoroute pass cannot fuse wires of different nets
-                # into a phantom degree-N hub at an off-pin pad (the
-                # reference_big_project bug).
-                wire_net_id = _wire_intended_net(state, self.wire)
-                strategy = _strategy_from_state(state)
-                pad_index = _pad_index_from_state(state)
-                a_ref, a_created = resolve_endpoint_knot(
-                    start,
-                    layout=state.layout,
-                    instances=state.instances,
-                    components=state.components,
-                    board=state.board,
-                    schematic=getattr(state, "schematic", None),
-                    side=self.wire.side,
-                    net_id=wire_net_id,
-                    strategy=strategy,
-                    pad_index=pad_index,
-                )
-                b_ref, b_created = resolve_endpoint_knot(
-                    end,
-                    layout=state.layout,
-                    instances=state.instances,
-                    components=state.components,
-                    board=state.board,
-                    schematic=getattr(state, "schematic", None),
-                    side=self.wire.side,
-                    net_id=wire_net_id,
-                    strategy=strategy,
-                    pad_index=pad_index,
-                )
-                self.wire.a = a_ref
-                self.wire.b = b_ref
-                if a_created is not None:
-                    self._created_joints.append(a_created)
-                if b_created is not None:
-                    self._created_joints.append(b_created)
-            self._knots_resolved = True
-        else:
-            # Redo: re-register joints we created and dropped on revert.
-            for jk in self._created_joints:
-                state.layout.knots.setdefault(jk.id, jk)
-        # add_wire is a no-op on redo when the previous revert restored
-        # ``self.wire`` from a collapse snapshot — it's already in layout.
-        if self.wire.id not in state.layout.wires:
-            state.layout.add_wire(self.wire)
-        # Interior-vertex split: when an endpoint of ``self.wire`` lands
-        # on the interior vertex of an existing wire, atomically split
-        # that wire and re-anchor our endpoint to the shared hub
-        # (T-junction with degree-3 at the meeting pad).  ``make_t_junction``
-        # mutates ``self.wire``'s ``a``/``b`` knot refs in place.
-        new_splits = split_existing_wires_at_endpoints(
-            self.wire,
-            layout=state.layout,
-            board=state.board,
-            schematic=getattr(state, "schematic", None),
-            instances=state.instances,
-            components=state.components,
+        self.wire, self._knots_resolved, new_splits, new_collapses = (
+            _prepare_wire_for_add(
+                state,
+                self.wire,
+                knots_resolved=self._knots_resolved,
+                created_joints=self._created_joints,
+                endpoint_schematic=getattr(state, "schematic", None),
+                endpoint_side=self.wire.side,
+                endpoint_net_id=None,
+                resolve_endpoint_net=True,
+            )
         )
         if new_splits and not self._splits:
             self._splits = new_splits
-        # Endpoint-merge: when this wire's endpoint sits on an off-pin pad
-        # already used by exactly one other wire and they share
-        # ``insulated``, the two wires represent one solderable artifact —
-        # fuse them through ``try_collapse_joint``.  Pin endpoints are
-        # never fused (pins are physical hubs).  We record each collapse
-        # so revert() can undo it on demand.  Recompute on every apply
-        # (including redo) so the layout state matches what the first
-        # apply produced — the recorded snapshots are only used by revert.
-        new_collapses = collapse_endpoint_joints(
-            self.wire,
-            layout=state.layout,
-            board=state.board,
-        )
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
 
@@ -486,66 +493,20 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         self._nets_after[net_id] = after
 
     def apply(self, state: ComponentState) -> None:
-        # Enrich insulated wires the same way AddWireCommand does — single
-        # chokepoint for every wire-creation path.
-        self.wire = enrich_insulated_wire_with_pad_nodes(self.wire, state.board)
-        if not self._knots_resolved:
-            if self.wire.a is None or self.wire.b is None:
-                start = self.wire.path[0]
-                end = self.wire.path[-1]
-                strategy = _strategy_from_state(state)
-                pad_index = _pad_index_from_state(state)
-                a_ref, a_created = resolve_endpoint_knot(
-                    start,
-                    layout=state.layout,
-                    instances=state.instances,
-                    components=state.components,
-                    board=state.board,
-                    schematic=getattr(state, "schematic", None),
-                    strategy=strategy,
-                    pad_index=pad_index,
-                )
-                b_ref, b_created = resolve_endpoint_knot(
-                    end,
-                    layout=state.layout,
-                    instances=state.instances,
-                    components=state.components,
-                    board=state.board,
-                    schematic=getattr(state, "schematic", None),
-                    strategy=strategy,
-                    pad_index=pad_index,
-                )
-                self.wire.a = a_ref
-                self.wire.b = b_ref
-                if a_created is not None:
-                    self._created_joints.append(a_created)
-                if b_created is not None:
-                    self._created_joints.append(b_created)
-            self._knots_resolved = True
-        else:
-            for jk in self._created_joints:
-                state.layout.knots.setdefault(jk.id, jk)
-        if self.wire.id not in state.layout.wires:
-            state.layout.add_wire(self.wire)
-        # Interior-vertex split + endpoint-merge — see AddWireCommand.apply
-        # for the full rationale.  Same ordering matters: split first so
-        # the hub exists at degree-3 before merge looks for degree-2
-        # endpoint joints to collapse.
-        new_splits = split_existing_wires_at_endpoints(
-            self.wire,
-            layout=state.layout,
-            board=state.board,
-            schematic=getattr(state, "schematic", None),
-            instances=state.instances,
-            components=state.components,
+        self.wire, self._knots_resolved, new_splits, new_collapses = (
+            _prepare_wire_for_add(
+                state,
+                self.wire,
+                knots_resolved=self._knots_resolved,
+                created_joints=self._created_joints,
+                endpoint_schematic=getattr(state, "schematic", None),
+                endpoint_side=None,
+                endpoint_net_id=None,
+                resolve_endpoint_net=False,
+            )
         )
         if new_splits and not self._splits:
             self._splits = new_splits
-        new_collapses = collapse_endpoint_joints(
-            self.wire,
-            layout=state.layout,
-            board=state.board,
-        )
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
         if self._first_apply:
