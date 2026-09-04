@@ -65,7 +65,8 @@ def flatten_fragments(fragments: list[Fragment]) -> list[Point]:
     via point on a plated-through pad), so each fragment after the first
     contributes its path minus that shared leading vertex. The single home for
     this operation — ``wire_utils`` and ``layout`` import it as
-    ``flatten_fragments``.
+    ``flatten_fragments`` and retain the historical ``_flatten_fragments``
+    alias for compatibility.
     """
     if not fragments:
         return []

@@ -32,6 +32,9 @@ if TYPE_CHECKING:
     from protoboard.domain.components.footprints import Footprint
 
 PinResolver = Callable[[PinRef], Point]
+
+# Compatibility name kept for integrations that inspect the shared helper.
+_flatten_fragments = flatten_fragments
 # Resolves a component's footprint for the compose-on-read seam's group-FLIP
 # branch (det<0), which needs the flip axis + pin-1 position.  Injected by the
 # session (mirrors ``PinResolver``) so ``Layout`` need not import definitions.

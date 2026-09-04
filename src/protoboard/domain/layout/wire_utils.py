@@ -35,6 +35,9 @@ from protoboard.instrumentation.logging import is_debug_enabled
 
 _log = structlog.get_logger(__name__)
 
+# Compatibility name kept for integrations that inspect the shared helper.
+_flatten_fragments = flatten_fragments
+
 if TYPE_CHECKING:
     import uuid
 
