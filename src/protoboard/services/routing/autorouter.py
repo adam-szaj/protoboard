@@ -60,7 +60,7 @@ from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point, Vector, round_coord
+from protoboard.geometry import Point, Vector, round_coord, rounded_point
 from protoboard.services.drc.engine import DRCEngine
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
@@ -867,7 +867,7 @@ def autoroute(
                     w.id,
                     w.side,
                     w.insulated,
-                    tuple((round(p.x, 6), round(p.y, 6)) for p in w.path),
+                    tuple(rounded_point(p) for p in w.path),
                 )
                 for w in ws
             )
@@ -885,8 +885,7 @@ def autoroute(
                 # "anything changed").  Keyed by wire.id to survive any
                 # reordering the optimizer might apply.
                 _before_paths = {
-                    w.id: tuple((round(p.x, 6), round(p.y, 6)) for p in w.path)
-                    for w in current_wires
+                    w.id: tuple(rounded_point(p) for p in w.path) for w in current_wires
                 }
                 _intermediate = AutorouteResult(
                     wires=current_wires,
@@ -900,7 +899,7 @@ def autoroute(
                     1
                     for w in current_wires
                     if _before_paths.get(w.id)
-                    != tuple((round(p.x, 6), round(p.y, 6)) for p in w.path)
+                    != tuple(rounded_point(p) for p in w.path)
                 )
                 if _sink.simplify_progress is not None:
                     try:

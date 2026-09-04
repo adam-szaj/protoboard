@@ -84,6 +84,11 @@ class Point:
         return Point3D(self.x, self.y, z)
 
 
+def rounded_point(point: Point, digits: int = 6) -> tuple[float, float]:
+    """Return a hashable ``(x, y)`` key rounded to *digits* decimals."""
+    return round(point.x, digits), round(point.y, digits)
+
+
 @dataclass(frozen=True, slots=True)
 class Vector:
     """A 2D displacement [dx, dy]. A vector is not a point — there are

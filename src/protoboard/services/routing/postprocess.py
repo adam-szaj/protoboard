@@ -42,6 +42,7 @@ from protoboard.geometry import (  # noqa: E402
     Point,
     Vector,
     point_on_segment_interior,
+    rounded_point,
     segments_cross_strict,
 )
 from protoboard.services.routing.astar import build_bare_seg_index  # noqa: E402
@@ -998,7 +999,7 @@ def _candidate_pins_alien(
     """
     if not pin_net_map:
         return False
-    own_pts = {(round(p.x, 6), round(p.y, 6)) for p in original_path}
+    own_pts = {rounded_point(p) for p in original_path}
     for pad, net_id in pin_net_map.items():
         if wire_net_id is not None and net_id == wire_net_id:
             continue  # same net — OK
@@ -1147,7 +1148,7 @@ def _candidate_no_new_pin_contact(
         )
     except ImportError:
         return True
-    orig_keys = {(round(p.x, 6), round(p.y, 6)) for p in original_path}
+    orig_keys = {rounded_point(p) for p in original_path}
     wire_type = "insulated" if wire_is_insulated else "bare"
 
     def _is_hard_blocker(pad: Pad) -> bool:

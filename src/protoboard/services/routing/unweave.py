@@ -54,7 +54,7 @@ from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.layout.wire_utils import board_pads_union
 from protoboard.domain.schematic.net import PinRef
-from protoboard.geometry import Point, Vector, segments_cross_strict
+from protoboard.geometry import Point, Vector, rounded_point, segments_cross_strict
 from protoboard.services.routing.postprocess import canonical_subpath
 from protoboard.types import NodeKey, Side
 
@@ -636,9 +636,7 @@ def unweave_wires(
         cycles even when no single pair shows a self-recurring loop.
         """
         return tuple(
-            tuple(
-                tuple((round(p.x, 6), round(p.y, 6)) for p in seg.path) for seg in chain
-            )
+            tuple(tuple(rounded_point(p) for p in seg.path) for seg in chain)
             for chain in state
         )
 
@@ -1701,7 +1699,7 @@ def _find_overlap_runs(
         return []
 
     def _key(p: Point) -> tuple[float, float]:
-        return (round(p.x, 6), round(p.y, 6))
+        return rounded_point(p)
 
     # Map every interior pad on lp2 to its index(es).  A vertex appearing
     # multiple times yields multiple candidates — try each.

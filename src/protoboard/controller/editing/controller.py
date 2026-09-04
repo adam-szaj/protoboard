@@ -86,6 +86,7 @@ from protoboard.domain.layout.wire_utils import (
     insert_pad_nodes,
 )
 from protoboard.domain.schematic.net import PinRef
+from protoboard.geometry import rounded_point
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -147,7 +148,7 @@ def _wire_signature(wire: object) -> tuple[object, ...]:
     path = getattr(wire, "path", None) or []
     if not path:
         return ("path", side, insulated, ())
-    rounded = tuple((round(p.x, 6), round(p.y, 6)) for p in path)
+    rounded = tuple(rounded_point(p) for p in path)
     reversed_rounded = tuple(reversed(rounded))
     canonical = rounded if rounded <= reversed_rounded else reversed_rounded
     return ("path", side, insulated, canonical)

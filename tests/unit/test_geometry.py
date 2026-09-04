@@ -14,6 +14,7 @@ from protoboard.geometry import (
     Vector3D,
     orientation,
     point_on_segment_interior,
+    rounded_point,
     segment_intersection_point,
     segments_cross_strict,
 )
@@ -66,6 +67,12 @@ class TestPoint:
     def test_equality(self) -> None:
         assert Point(1.0, 2.0) == Point(1.0, 2.0)
         assert Point(1.0, 2.0) != Point(1.0, 2.1)
+
+    def test_rounded_point(self) -> None:
+        point = Point(1.23456789, 2.34567891)
+
+        assert rounded_point(point) == (1.234568, 2.345679)
+        assert rounded_point(point, digits=3) == (1.235, 2.346)
 
     def test_addition(self) -> None:
         result = Point(1.0, 2.0) + Vector(0.5, 0.5)

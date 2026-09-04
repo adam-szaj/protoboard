@@ -30,7 +30,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
 from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragments
 from protoboard.domain.schematic.net import PinRef
-from protoboard.geometry import Point
+from protoboard.geometry import Point, rounded_point
 from protoboard.instrumentation.call_counters import counted
 from protoboard.instrumentation.logging import is_debug_enabled
 
@@ -2297,7 +2297,7 @@ def update_wires_for_move(
         new_path: list[Point] = []
         pin_map_hits: list[tuple[tuple[float, float], tuple[float, float]]] = []
         for pt in wire.path:
-            key = (round(pt.x, 6), round(pt.y, 6))
+            key = rounded_point(pt)
             mapped = wire_pin_map.get(key)
             if mapped is not None:
                 pin_map_hits.append((key, (mapped.x, mapped.y)))
@@ -2305,7 +2305,7 @@ def update_wires_for_move(
             else:
                 new_path.append(pt)
         # Drop wire if it collapsed (all points identical or < 2 distinct).
-        distinct = {(round(p.x, 6), round(p.y, 6)) for p in new_path}
+        distinct = {rounded_point(p) for p in new_path}
         if len(distinct) < 2:
             if is_debug_enabled(__name__):
                 _log.debug(
@@ -2334,7 +2334,7 @@ def update_wires_for_move(
                 for frag in wire.fragments:
                     translated = [
                         wire_pin_map.get(
-                            (round(p.x, 6), round(p.y, 6)),
+                            rounded_point(p),
                             p,
                         )
                         for p in frag.path
