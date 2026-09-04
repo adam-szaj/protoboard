@@ -23,9 +23,7 @@ from protoboard.domain.layout.wire import (
     KnotRef,
     Wire,
     WireCollection,
-)
-from protoboard.domain.layout.wire import (
-    flatten_fragments as _flatten_fragments,
+    flatten_fragments,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -496,7 +494,7 @@ class Layout:
         _resolve_endpoint(b_knot, wire_id, b_pos, "path[-1]")
         # Mutate in place — Wire is mutable now, identity is by id.
         existing.fragments = frag_list
-        existing.path = _flatten_fragments(frag_list)
+        existing.path = flatten_fragments(frag_list)
         existing.side = frag_list[0].side
         self.invalidate_interior_vertex_index()
         return existing
@@ -603,7 +601,7 @@ class Layout:
         # Build the new wire keeping the lowest UUID (deterministic).
         winning_id = min(w1.id, w2.id)
         assert w1o.a is not None and w2o.b is not None
-        flat = _flatten_fragments(merged_fragments)
+        flat = flatten_fragments(merged_fragments)
         merged = Wire(
             id=winning_id,
             path=flat,

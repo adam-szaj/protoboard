@@ -27,8 +27,7 @@ from protoboard.domain.layout.placement import (
     iter_footprint_pin_positions,
     pin_world_position,
 )
-from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
-from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragments
+from protoboard.domain.layout.wire import Fragment, KnotRef, Wire, flatten_fragments
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, rounded_point
 from protoboard.instrumentation.call_counters import counted
@@ -620,8 +619,8 @@ def split_wire_at_vertex(
         shared_hub = layout.create_joint_knot(split_point)
 
     # Build A (original id) and B (fresh id).
-    flat_a = _flatten_fragments(fragments_a)
-    flat_b = _flatten_fragments(fragments_b)
+    flat_a = flatten_fragments(fragments_a)
+    flat_b = flatten_fragments(fragments_b)
     wire_a = Wire(
         id=wire.id,
         path=flat_a,
