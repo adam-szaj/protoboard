@@ -8,6 +8,7 @@ Pin positions with SingleRow(n=2):
 
 from __future__ import annotations
 
+import threading
 import uuid
 
 import pytest
@@ -31,7 +32,11 @@ from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.services.routing.autorouter import _net_names_by_node, autoroute
+from protoboard.services.routing.autorouter import (
+    AutorouteCancelled,
+    _net_names_by_node,
+    autoroute,
+)
 from tests.instance_utils import bind
 
 
@@ -99,6 +104,51 @@ def _place(
     return ComponentPlacement(
         component_id=cid, position=Point(x, y), rotation=rotation, side="top"
     )
+
+
+def test_cancelled_route_does_not_mutate_input_layout() -> None:
+    board = _perfboard(5, 5)
+    defn = _sil2_def()
+    cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
+    instances = {
+        cid_a: _bind(
+            ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""),
+            defn,
+        ),
+        cid_b: _bind(
+            ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""),
+            defn,
+        ),
+    }
+    layout = Layout(
+        placements=PlacementCollection(
+            {
+                cid_a: _place(cid_a, 0.5, 0.5),
+                cid_b: _place(cid_b, 3.5, 0.5),
+            }
+        )
+    )
+    net = Net(
+        id=uuid.uuid4(),
+        name="N1",
+        pins={PinRef(cid_a, 2), PinRef(cid_b, 1)},
+    )
+    schematic = Schematic(nets={net.id: net})
+    cancel_flag = threading.Event()
+    cancel_flag.set()
+    before_wires = list(layout.wires)
+
+    with pytest.raises(AutorouteCancelled):
+        autoroute(
+            board,
+            layout,
+            schematic,
+            {"COMP": defn},
+            instances,
+            cancel_flag=cancel_flag,
+        )
+
+    assert list(layout.wires) == before_wires
 
 
 class TestFusionQuery:

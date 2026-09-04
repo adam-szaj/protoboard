@@ -49,11 +49,15 @@ def test_edit_journey_is_fully_qt_free(tmp_path: Path) -> None:
     assert (tmp_path / "proj").exists()
 
 
-def test_edit_journey_survives_project_round_trip(tmp_path: Path) -> None:
+def test_edit_journey_survives_project_round_trip(qtbot: QtBot, tmp_path: Path) -> None:
     """The saved result of the public edit journey remains semantically usable."""
+    assert qtbot is not None
     driver = CliDriver.new()
     project = tmp_path / "proj"
+    svg = tmp_path / "board.svg"
     driver.run(_journey(project))
+    assert driver.execute("drc").startswith("drc: ")
+    driver.execute(f"export svg {svg}")
 
     board, layout, schematic, instances, *_ = load_project(project)
 
@@ -64,6 +68,7 @@ def test_edit_journey_survives_project_round_trip(tmp_path: Path) -> None:
     assert board.bounds.ly == 20
     assert len(schematic.nets) == 1
     assert any(net.pins for net in schematic.nets.values())
+    assert svg.read_text(encoding="utf-8").lstrip().startswith("<?xml")
 
 
 def test_cli_selection_is_the_session_selection() -> None:

@@ -103,8 +103,9 @@ def migrate_layout_to_v2(
         could not be resolved to a pin.  The caller (e.g. the GUI) may
         surface this via a status-bar message.
     """
-    if layout.wires or layout.knots:
-        # Already migrated (or freshly v2-saved); idempotent no-op.
+    if layout.knots:
+        # Already migrated (or freshly v2-saved); idempotent no-op.  Legacy
+        # projects intentionally have wires but no knots at this point.
         return MigrationReport(
             legacy_wire_count=0,
             new_wire_count=len(layout.wires),
@@ -138,6 +139,7 @@ def migrate_layout_to_v2(
 
     off_pad: list[Point] = []
     legacy_wires: list[Wire] = list(layout.wires)
+    layout.wires.clear()
 
     # Pass 1: build knots + one Wire per legacy segment.
     joint_at: dict[Point, uuid.UUID] = {}

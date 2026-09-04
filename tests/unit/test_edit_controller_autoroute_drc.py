@@ -159,5 +159,10 @@ def test_autoroute_propagates_drc_precondition_failure() -> None:
     )
     session.schematic.nets = {net.id: net}
     session.invalidate_graph()
+    before_wires = list(session.layout.wires)
+    before_nets = set(session.schematic.nets)
     with pytest.raises(AutoroutePreconditionError):
         session.edit_controller.autoroute({net.id}, settings=RoutingSettings())
+    assert list(session.layout.wires) == before_wires
+    assert set(session.schematic.nets) == before_nets
+    assert session.stack.can_undo() is False
