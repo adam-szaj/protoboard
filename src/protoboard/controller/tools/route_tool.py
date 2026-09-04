@@ -268,7 +268,7 @@ class RouteTool(ControllerTool):
         )
         from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
         from protoboard.domain.layout.wire import Wire
-        from protoboard.geometry import round_coord
+        from protoboard.geometry import rounded_point
         from protoboard.types import Side
 
         if len(self._points) < 2:
@@ -280,8 +280,7 @@ class RouteTool(ControllerTool):
             side=cast("Side", self._side),
         )
         endpoints = {
-            (round_coord(p.x), round_coord(p.y))
-            for p in (self._points[0], self._points[-1])
+            rounded_point(p, digits=4) for p in (self._points[0], self._points[-1])
         }
         hits = find_wires_crossing_pads(
             wires=[candidate],

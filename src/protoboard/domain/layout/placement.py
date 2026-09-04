@@ -17,7 +17,7 @@ from protoboard.domain.components.resolution import (
     resolve_instance_definition,
     resolve_placed_component,
 )
-from protoboard.geometry import Point, Rect, Transform2D, Vector, round_coord
+from protoboard.geometry import Point, Rect, Transform2D, Vector, rounded_point
 from protoboard.instrumentation.call_counters import counted
 from protoboard.types import Side
 
@@ -735,7 +735,7 @@ def _pin_position_set(
     two components share any pad?".
     """
     return {
-        (round_coord(p.x), round_coord(p.y))
+        rounded_point(p, digits=4)
         for _pin_number, p in iter_footprint_pin_positions(footprint, placement)
     }
 

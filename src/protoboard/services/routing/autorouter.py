@@ -60,7 +60,7 @@ from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.routing.simplify_mode import SimplifyMode
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point, Vector, round_coord, rounded_point
+from protoboard.geometry import Point, Vector, rounded_point
 from protoboard.services.drc.engine import DRCEngine
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
@@ -316,7 +316,7 @@ def _drop_orphan_wires(
         return 0
 
     def _round(p: Point) -> tuple[float, float]:
-        return (round_coord(p.x), round_coord(p.y))
+        return rounded_point(p, digits=4)
 
     anchored: set[tuple[float, float]] = set()
     for _atom, pos in board.atoms():

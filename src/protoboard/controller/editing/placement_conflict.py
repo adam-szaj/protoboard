@@ -34,7 +34,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.net import Net, PinRef
-from protoboard.geometry import round_coord as _round
+from protoboard.geometry import rounded_point
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -208,11 +208,9 @@ def check_and_resolve(
         p = session.get_pin_position(ref.component_id, ref.pin_number)
         if p is None:
             continue
-        point_to_net[(_round(p.x), _round(p.y))] = (net.id, net.name)
+        point_to_net[rounded_point(p, digits=4)] = (net.id, net.name)
 
-    already_conflicted = {
-        (_round(c.position.x), _round(c.position.y)) for c in pad_conflicts
-    }
+    already_conflicted = {rounded_point(c.position, digits=4) for c in pad_conflicts}
     wire_conflicts = find_wire_conflicts(
         incoming_placement=placement,
         incoming_defn=defn,

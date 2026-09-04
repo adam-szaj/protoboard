@@ -122,7 +122,7 @@ from protoboard.domain.layout.wire_utils import (
     point_on_pads,
 )
 from protoboard.domain.schematic.net import PinRef
-from protoboard.geometry import Point, Rect, round_coord
+from protoboard.geometry import Point, Rect, rounded_point
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.types import Side
 
@@ -1934,8 +1934,7 @@ class SelectTool(ControllerTool):
         if self._view is None:
             return frozenset()
         return frozenset(
-            (round_coord(p.x), round_coord(p.y))
-            for p in self._view.board_pad_positions()
+            rounded_point(p, digits=4) for p in self._view.board_pad_positions()
         )
 
     def _draw_reach_disc_outline(

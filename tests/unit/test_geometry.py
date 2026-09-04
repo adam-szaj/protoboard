@@ -72,6 +72,7 @@ class TestPoint:
         point = Point(1.23456789, 2.34567891)
 
         assert rounded_point(point) == (1.234568, 2.345679)
+        assert rounded_point(point, digits=4) == (1.2346, 2.3457)
         assert rounded_point(point, digits=3) == (1.235, 2.346)
 
     def test_addition(self) -> None:
