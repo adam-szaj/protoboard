@@ -117,7 +117,7 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
 )
 from protoboard.domain.layout.wire_utils import (
-    board_pads_for_side,
+    board_pads_union,
     insert_pad_nodes,
     point_on_pads,
 )
@@ -2097,9 +2097,7 @@ class SelectTool(ControllerTool):
         wire = self._wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
-        pads = board_pads_for_side(self._session.board, "top") | board_pads_for_side(
-            self._session.board, "bottom"
-        )
+        pads = board_pads_union(self._session.board)
         enriched = insert_pad_nodes(list(wire.path), pads)
         if enriched == list(wire.path):
             return  # already has every pad vertex

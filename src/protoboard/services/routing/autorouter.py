@@ -51,7 +51,9 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.domain.layout.wire_utils import board_pads_for_side
+from protoboard.domain.layout.wire_utils import (
+    board_pads_union,
+)
 from protoboard.domain.layout.wire_utils import (
     plated_through_pads as board_plated_through_pads,
 )
@@ -473,9 +475,7 @@ def autoroute(
     if pad_index is not None:
         _board_pad_set = {pad.position for pad in pad_index.iter_pads()}
     else:
-        _board_pad_set = board_pads_for_side(board, "top") | board_pads_for_side(
-            board, "bottom"
-        )
+        _board_pad_set = board_pads_union(board)
     if net_ids is not None:
         _nets_to_check = [n for n in schematic.nets.values() if n.id in net_ids]
     else:

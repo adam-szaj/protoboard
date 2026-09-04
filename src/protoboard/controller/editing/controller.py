@@ -82,7 +82,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, flip_componen
 from protoboard.domain.layout.snapping import SnapRequest, snap_point
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import (
-    board_pads_for_side,
+    board_pads_union,
     insert_pad_nodes,
 )
 from protoboard.domain.schematic.net import PinRef
@@ -732,9 +732,7 @@ class EditController:
         state = self._state
         # Pads from BOTH sides: a single-side board returns an empty set for the
         # other side (no effect).
-        pads = board_pads_for_side(state.board, "top") | board_pads_for_side(
-            state.board, "bottom"
-        )
+        pads = board_pads_union(state.board)
         enriched_path = insert_pad_nodes(list(path), pads)
 
         wire = Wire(

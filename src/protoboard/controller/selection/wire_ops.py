@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from protoboard.controller.ports.routing import SimplifyInputs
-from protoboard.domain.layout.wire_utils import board_pads_for_side
+from protoboard.domain.layout.wire_utils import board_pads_union
 
 if TYPE_CHECKING:
     import uuid
@@ -48,9 +48,7 @@ def build_simplify_inputs(session: EditingReadContext) -> SimplifyInputs:
             if pad_pos is not None:
                 pad_to_net.setdefault(pad_pos, net_obj.id)
 
-    board_pads = board_pads_for_side(session.board, "top") | board_pads_for_side(
-        session.board, "bottom"
-    )
+    board_pads = board_pads_union(session.board)
 
     # wire id → net id via the session cache (replaces the legacy manual
     # path-intersection loop).  cached_wire_net_map only holds wires with a

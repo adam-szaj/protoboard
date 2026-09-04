@@ -77,7 +77,7 @@ def _build_pad_context(
         pin_world_position,
     )
     from protoboard.domain.layout.wire import WireCollection
-    from protoboard.domain.layout.wire_utils import board_pads_for_side
+    from protoboard.domain.layout.wire_utils import board_pads_union
 
     board = request.board
     worker_layout = request.layout.to_layout()
@@ -133,9 +133,7 @@ def _build_pad_context(
         pos: nid for pos, nid in pad_to_net.items() if nid != _FLOATING
     }
 
-    all_board_pads = board_pads_for_side(board, "top") | board_pads_for_side(
-        board, "bottom"
-    )
+    all_board_pads = board_pads_union(board)
 
     layout_for_pads = Layout(
         placements=dict(worker_layout.placements),  # type: ignore[arg-type]

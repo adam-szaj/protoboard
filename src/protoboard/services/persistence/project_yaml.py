@@ -58,7 +58,7 @@ from protoboard.domain.layout.wire import (
     transform_wire_geometry,
 )
 from protoboard.domain.layout.wire_utils import (
-    board_pads_for_side,
+    board_pads_union,
     insert_pad_nodes,
     merge_endpoint_wires,
     split_wires_at_endpoint_collisions,
@@ -668,7 +668,7 @@ def load_project(
     # those crossings — simplify / unweave / edit tools had nothing to grab
     # there.  ``insert_pad_nodes`` is idempotent so already-enriched wires
     # are returned unchanged.
-    _all_pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
+    _all_pads = board_pads_union(board)
     for _idx, _w in enumerate(layout.wires):
         if not _w.insulated:
             continue

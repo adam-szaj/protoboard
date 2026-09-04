@@ -43,7 +43,7 @@ from protoboard.domain.layout.knot import JointKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
 from protoboard.domain.layout.wire_utils import (
-    board_pads_for_side,
+    board_pads_union,
     plated_through_pads,
     point_on_pads,
 )
@@ -133,9 +133,7 @@ def migrate_layout_to_v2(
 
     # Build pad lookups: all pads (any side) for off-pad detection,
     # plated-through subset for auto-merge via-aware merging.
-    all_pads: set[Point] = board_pads_for_side(board, "top") | board_pads_for_side(
-        board, "bottom"
-    )
+    all_pads: set[Point] = board_pads_union(board)
     plated_pads: frozenset[Point] = frozenset(plated_through_pads(board))
 
     off_pad: list[Point] = []

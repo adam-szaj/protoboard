@@ -45,6 +45,7 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.wire_utils import (
     board_pads_for_side,
+    board_pads_union,
     plated_through_pads,
     point_on_pads,
 )
@@ -870,9 +871,7 @@ def _check_off_pad_joint(
         return []
     all_pads: set[Point] | None = None
     if pad_index is None:
-        all_pads = board_pads_for_side(board, "top") | board_pads_for_side(
-            board, "bottom"
-        )
+        all_pads = board_pads_union(board)
     issues: list[DRCIssue] = []
     for knot in layout.knots.values():
         if not isinstance(knot, JointKnot):

@@ -52,7 +52,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.domain.layout.wire_utils import board_pads_for_side
+from protoboard.domain.layout.wire_utils import board_pads_union
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point, Vector, segments_cross_strict
 from protoboard.services.routing.postprocess import canonical_subpath
@@ -528,9 +528,7 @@ def unweave_wires(
     # Default board pads from graph.board so callers passing only graph still
     # benefit from pad-preservation on bare links.
     if board_pads is None and graph is not None and graph.board is not None:
-        board_pads = board_pads_for_side(graph.board, "top") | board_pads_for_side(
-            graph.board, "bottom"
-        )
+        board_pads = board_pads_union(graph.board)
 
     pad_safe: Callable[[Point, str, str, bool], bool] | None = None
     short_check: Callable[[list[list[Wire]]], bool] | None = None
