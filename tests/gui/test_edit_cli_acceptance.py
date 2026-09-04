@@ -19,6 +19,7 @@ from pathlib import Path
 from pytestqt.qtbot import QtBot
 
 from protoboard.cli import CliDriver
+from protoboard.services.persistence.project_yaml import load_project
 
 
 def _journey(save_dir: Path) -> list[str]:
@@ -46,6 +47,23 @@ def test_edit_journey_is_fully_qt_free(tmp_path: Path) -> None:
     assert any(g.name == "Amp" for g in driver.session.layout.groups.values())
     assert len(driver.session.layout.wires) == 1
     assert (tmp_path / "proj").exists()
+
+
+def test_edit_journey_survives_project_round_trip(tmp_path: Path) -> None:
+    """The saved result of the public edit journey remains semantically usable."""
+    driver = CliDriver.new()
+    project = tmp_path / "proj"
+    driver.run(_journey(project))
+
+    board, layout, schematic, instances, *_ = load_project(project)
+
+    assert len(instances) == 2
+    assert layout.wires
+    assert any(group.name == "Amp" for group in layout.groups.values())
+    assert board.bounds.lx == 30
+    assert board.bounds.ly == 20
+    assert len(schematic.nets) == 1
+    assert any(net.pins for net in schematic.nets.values())
 
 
 def test_cli_selection_is_the_session_selection() -> None:

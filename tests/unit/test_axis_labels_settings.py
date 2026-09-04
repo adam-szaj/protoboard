@@ -50,12 +50,6 @@ class TestFormatIndex:
 
 
 class TestAxisLabelSettings:
-    def test_defaults_columns_numeric_1_rows_alphabetic(self) -> None:
-        s = AxisLabelSettings()
-        assert s.columns == AxisLabelFormat.NUMERIC_1
-        assert s.rows == AxisLabelFormat.ALPHABETIC
-        assert s.any_enabled()
-
     def test_any_enabled_false_when_both_disabled(self) -> None:
         s = AxisLabelSettings(
             columns=AxisLabelFormat.DISABLED,

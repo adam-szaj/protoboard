@@ -56,19 +56,12 @@ def test_is_active_false_before_any_note() -> None:
     assert t.is_active() is False
 
 
-def test_set_interval_updates_timer() -> None:
-    t: ParkLatestThrottle[int] = ParkLatestThrottle(33, lambda _v: None)
-    t.set_interval(80)
-    assert t._timer.interval() == 80
-
-
 # --- TimerWrap -------------------------------------------------------------- #
 
 
 def test_timer_wrap_defaults_single_shot_arm_if_idle() -> None:
     t = TimerWrap(50, lambda: None)
     assert t.is_active() is False
-    assert t.interval() == 50
 
 
 def test_timer_wrap_set_interval_and_stop() -> None:

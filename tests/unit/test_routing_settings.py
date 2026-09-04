@@ -7,7 +7,7 @@ from protoboard.domain.routing.simplify_mode import (
     SimplifyMode,
     simplify_mode_from_value,
 )
-from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
+from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.services.persistence.project_yaml import (
     _routing_settings_from_yaml,
     _routing_settings_to_yaml,
@@ -48,9 +48,6 @@ class TestRoutingSettingsModel:
         assert cm.direction_change == 1.0
         assert cm.layer_change == 2.0
         assert cm.under_component_top == 3.0
-
-    def test_module_constant_equals_defaults(self) -> None:
-        assert ROUTING_DEFAULTS == RoutingSettings()
 
     def test_cost_model_applies_overrides(self) -> None:
         s = RoutingSettings(
@@ -125,15 +122,6 @@ class TestRoutingSettingsPersistence:
 class TestOptimizerChainPersistence:
     """The optimizer plugin chain must round-trip through routing.yaml."""
 
-    def test_default_chain_is_empty_tuple(self) -> None:
-        s = RoutingSettings()
-        assert s.optimizer_chain == ()
-
-    def test_chain_field_is_tuple_not_list(self) -> None:
-        """Tuple keeps the frozen dataclass actually immutable."""
-        s = RoutingSettings(optimizer_chain=("a", "b"))
-        assert isinstance(s.optimizer_chain, tuple)
-
     def test_empty_chain_omitted_from_yaml(self) -> None:
         """Defaults stay clean — no optimizer_chain key for vanilla projects."""
         s = RoutingSettings()
@@ -168,9 +156,6 @@ class TestOptimizerChainPersistence:
 
 class TestRouterNamePersistence:
     """The user's last router selection is persisted per project."""
-
-    def test_router_name_default_is_astar(self) -> None:
-        assert RoutingSettings().router_name == "astar"
 
     def test_router_name_roundtrip(self) -> None:
         s = RoutingSettings(router_name="astar_enhanced")

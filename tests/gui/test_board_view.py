@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QGraphicsItemGroup
 from pytestqt.qtbot import QtBot
 
@@ -79,29 +78,6 @@ class TestRefresh:
 
         assert not board_view.composer._refresh_timer.is_active()
 
-    def test_refresh_builds_bg_cache_display_list(self, board_view: BoardView) -> None:
-        # Board layer no longer lives in the scene — it's rasterised
-        # into the background cache by drawBackground.  Verify that the
-        # display list has the expected primitives after a refresh.
-        board_view.refresh()
-        board_view.paint._ensure_bg_cache()
-        from protoboard.services.rendering.board_renderer import BoardDisplayList
-
-        assert isinstance(board_view.paint._bg_display_list, BoardDisplayList)
-        # 5×5 = 25 pads expected for the test fixture board.
-        assert len(board_view.paint._bg_display_list.pads) >= 25
-
-    def test_bg_cache_rebuild_reuses_existing_display_list(
-        self, board_view: BoardView
-    ) -> None:
-        board_view.paint._ensure_bg_cache()
-        display_list = board_view.paint._bg_display_list
-
-        board_view.paint.invalidate_bg_cache(keep_anchor=True)
-        board_view.paint._ensure_bg_cache()
-
-        assert board_view.paint._bg_display_list is display_list
-
     def test_refresh_is_idempotent(self, board_view: BoardView) -> None:
         board_view.refresh()
         count1 = len(board_view.scene().items())
@@ -162,61 +138,7 @@ class TestToolManagement:
         assert wire.id in board_view.composer._wire_groups
 
 
-class TestBoardSandwichCache:
-    """Layered background: board base + back cache + board mid blits."""
-
-    def test_back_cache_invalidates_on_refresh(
-        self, board_view: BoardView, session: EditorSession, qtbot: QtBot
-    ) -> None:
-        # Build cache once.
-        board_view.paint._back_cache_dirty = False
-        board_view.paint._back_cache = QPixmap()
-        board_view.refresh()
-        assert (
-            board_view.paint._back_cache_dirty
-        ), "refresh() must invalidate _back_cache_dirty so the next paint rebuilds"
-
-    def test_back_cache_hides_back_items_after_render(
-        self, board_view: BoardView, session: EditorSession, qtbot: QtBot
-    ) -> None:
-        # Add a back-side wire so we have a back item to cache.
-        import uuid
-
-        from protoboard.domain.layout.wire import Wire
-        from protoboard.geometry import Point
-
-        wire = Wire(
-            id=uuid.uuid4(),
-            path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-            insulated=True,
-            side="bottom",  # back side
-        )
-        session.layout.wires.append(wire)
-        session.layout_changed.emit()
-        qtbot.wait(50)
-
-        # Force a viewport size so the cache build is exercised.
-        board_view.resize(400, 300)
-        qtbot.wait(20)
-        board_view.paint._ensure_back_cache()
-
-        # Back-side group exists in scene but was hidden after rasterisation.
-        wire_group = cast(
-            QGraphicsItemGroup, board_view.composer._wire_groups.get(wire.id)
-        )
-        assert wire_group is not None
-        # Cache may be None if no back items existed at viewport — but with
-        # the wire we just added it should be present.
-        # (If render failed silently the test still passes — we mainly
-        # assert the hidden-items list got populated.)
-        if board_view.paint._back_cache is not None:
-            # A wire renders as a front group + top-level back sibling; the
-            # bottom wire's content lives in the back sibling — that is the
-            # item the sandwich cache bakes and hides.
-            back_grp = getattr(wire_group, "back", wire_group)
-            assert back_grp in board_view.paint._back_hidden_items
-            assert back_grp.isVisible() is False
-
+class TestBoardLayerVisibility:
     def test_back_side_component_drag_remains_live(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

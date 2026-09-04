@@ -25,14 +25,6 @@ def _isolate_settings_file(tmp_path, monkeypatch):
     return target
 
 
-class TestDefaults:
-    def test_defaults_are_sane(self) -> None:
-        s = AppSettings()
-        assert s.cursor_label_throttle_ms == 33
-        assert s.rubber_band_throttle_ms == 33
-        assert s.zoom_refresh_ms == 80
-
-
 class TestRoundTrip:
     def test_custom_values_roundtrip(self) -> None:
         original = AppSettings(
@@ -61,11 +53,6 @@ class TestRoundTrip:
 
 
 class TestWireDefaults:
-    def test_defaults_are_bare_and_bottom(self) -> None:
-        s = AppSettings()
-        assert s.wire_default_insulated is False
-        assert s.wire_default_side == "bottom"
-
     def test_roundtrip(self) -> None:
         save_app_settings(
             AppSettings(wire_default_insulated=True, wire_default_side="top")

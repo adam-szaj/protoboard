@@ -9,10 +9,6 @@ from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.services.preferences.theme_yaml import load_theme, save_theme
 
 
-def test_body_print_max_height_default() -> None:
-    assert Theme().body_print_max_height == DEFAULT_THEME.body_print_max_height
-
-
 def test_theme_yaml_round_trip_preserves_custom_values(tmp_path: Path) -> None:
     path = tmp_path / "theme.yaml"
     theme = Theme(board_bg="#FF010203", overlay_font_size=19.5)

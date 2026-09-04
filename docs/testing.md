@@ -9,6 +9,15 @@
 - **Snapshot** — YAML renders of test projects compared against a baseline.
 - **Performance** — `pytest-benchmark` in `tests/benchmarks/` — see [benchmarks.md](benchmarks.md).
 
+## Test quality rules
+
+Prefer assertions on results observable at a module boundary: layout,
+schematic, connectivity, DRC issues, persisted files, exported artifacts,
+notifications, and undo/redo outcomes. Avoid pinning private fields, widget
+hierarchies, cache objects, call counts, or tuning constants unless that detail
+is an intentional public contract. The rationale and current migration
+inventory are in [testing-audit.md](testing-audit.md).
+
 ## Coverage targets
 
 80 % for `domain/` and `services/`. GUI is not counted.
