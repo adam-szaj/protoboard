@@ -165,9 +165,9 @@ class RouteTool(
         super().activate(session, view)  # type: ignore[arg-type]
         gui_view = _gui_view(view)
         window = gui_view.window()
-        set_insulated = getattr(window, "_set_wire_insulated", None)
-        set_side = getattr(window, "_set_wire_side", None)
-        update_status = getattr(window, "_update_route_status", None)
+        set_insulated = getattr(window, "set_wire_insulated", None)
+        set_side = getattr(window, "set_wire_side", None)
+        update_status = getattr(window, "update_route_status", None)
         self.bind_route_options(
             set_insulated=set_insulated if callable(set_insulated) else None,
             set_side=set_side if callable(set_side) else None,
@@ -298,8 +298,8 @@ class SelectTool(
     def activate(self, session: object, view: object) -> None:
         gui_view = _gui_view(view)
         window = gui_view.window()
-        assign_pin = getattr(window, "_pin_assign_net_for", None)
-        autoroute_group = getattr(window, "_group_autoroute", None)
+        assign_pin = getattr(window, "pin_assign_net_for", None)
+        autoroute_group = getattr(window, "group_autoroute", None)
         self.bind_menu_actions(
             assign_pin=assign_pin if callable(assign_pin) else None,
             autoroute_group=autoroute_group if callable(autoroute_group) else None,

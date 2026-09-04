@@ -1052,7 +1052,7 @@ class MainWindow(QMainWindow):
             self._board_view.set_tool(
                 RouteTool(insulated=self._wire_insulated, side=self._wire_side)
             )
-        self._update_route_status(self._wire_insulated, self._wire_side)
+        self.update_route_status(self._wire_insulated, self._wire_side)
         self._sync_tool_check(KB.ACTION_TOOL_ROUTE)
 
     def _persist_wire_defaults(self) -> None:
@@ -1061,7 +1061,7 @@ class MainWindow(QMainWindow):
         self._app_settings.wire_default_side = self._wire_side
         save_app_settings(self._app_settings)
 
-    def _set_wire_insulated(self, insulated: bool) -> None:
+    def set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
         # One QAction lives in both menu and toolbar — setChecked updates both.
         self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED].setChecked(insulated)
@@ -1069,9 +1069,9 @@ class MainWindow(QMainWindow):
         tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
             tool.set_options(insulated=insulated)
-            self._update_route_status(insulated, self._wire_side)
+            self.update_route_status(insulated, self._wire_side)
 
-    def _set_wire_side(self, side: str) -> None:
+    def set_wire_side(self, side: str) -> None:
         self._wire_side = side
         self._actions[KB.ACTION_WIRE_SIDE_TOP].setChecked(side == "top")
         self._actions[KB.ACTION_WIRE_SIDE_BOTTOM].setChecked(side == "bottom")
@@ -1079,10 +1079,10 @@ class MainWindow(QMainWindow):
         tool = self._board_view.active_tool
         if isinstance(tool, RouteTool):
             tool.set_options(side=side)
-            self._update_route_status(self._wire_insulated, side)
+            self.update_route_status(self._wire_insulated, side)
 
     def _toggle_wire_insulated(self) -> None:
-        self._set_wire_insulated(not self._wire_insulated)
+        self.set_wire_insulated(not self._wire_insulated)
 
     def _wire_flip_action(self) -> None:
         tool = self._get_select_tool()
@@ -1195,7 +1195,7 @@ class MainWindow(QMainWindow):
                     self._library_panel.setFocus()
                     break
 
-    def _update_route_status(self, insulated: bool, side: str) -> None:
+    def update_route_status(self, insulated: bool, side: str) -> None:
         style = "Insulated" if insulated else "Bare"
         self._mode_label.setText(
             f"Route Wire {style} [{side}]  [I] toggle  [T/B] side  [Enter] commit  [Esc] cancel"  # noqa: E501
@@ -1227,7 +1227,7 @@ class MainWindow(QMainWindow):
         self._board_view.set_camera_side(side)
         self._sync_view_actions()
         # Keep wire side in sync.
-        self._set_wire_side(side)
+        self.set_wire_side(side)
 
     def _sync_view_actions(self) -> None:
         """Synchronise all view-related checkable actions with BoardView state."""
@@ -1670,7 +1670,7 @@ class MainWindow(QMainWindow):
         self._focus_nets_panel()
         self._nets_editor_panel._on_assign_pin()
 
-    def _pin_assign_net_for(self, comp_id: uuid.UUID, pin_num: int) -> None:
+    def pin_assign_net_for(self, comp_id: uuid.UUID, pin_num: int) -> None:
         """Assign a specific pin (clicked on the board) to a net.
 
         Routes the board-click pin into the Nets panel's parameterised assign
@@ -1766,7 +1766,7 @@ class MainWindow(QMainWindow):
     def _group_export_clear(self) -> None:
         self._group_set_exported(frozenset())
 
-    def _group_autoroute(self) -> None:
+    def group_autoroute(self) -> None:
         """Autoroute connections that live inside the active group.
 
         Any net (including externals and globals) is routed when it has
@@ -2120,7 +2120,7 @@ class MainWindow(QMainWindow):
 
         ``net_ids = None`` routes every net in the schematic.  Used by
         ``_autoroute`` (which derives the set from selection / Net
-        Inspector / fallback) and by ``_group_autoroute`` (which passes
+        Inspector / fallback) and by ``group_autoroute`` (which passes
         a per-group schematic projection so external nets get routed
         only between their in-group pins).
         """

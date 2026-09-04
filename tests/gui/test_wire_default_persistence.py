@@ -77,10 +77,10 @@ class TestSeedFromSettings:
 class TestPersistOnChange:
     def test_set_side_saves_to_disk(self, qtbot) -> None:
         mw = _window(qtbot, AppSettings())
-        mw._set_wire_side("top")
+        mw.set_wire_side("top")
         assert load_app_settings().wire_default_side == "top"
 
     def test_set_insulated_saves_to_disk(self, qtbot) -> None:
         mw = _window(qtbot, AppSettings())
-        mw._set_wire_insulated(True)
+        mw.set_wire_insulated(True)
         assert load_app_settings().wire_default_insulated is True

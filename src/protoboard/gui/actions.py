@@ -441,7 +441,7 @@ _ACTION_SPECS: tuple[ActionSpec, ...] = (
     ActionSpec(
         id=KB.ACTION_WIRE_SIDE_TOP,
         label="Side: &Top",
-        slot_name="_set_wire_side",
+        slot_name="set_wire_side",
         menu_path=_EDIT_DESIGN_WIRE,
         checkable=True,
         action_group="wire_side",
@@ -450,7 +450,7 @@ _ACTION_SPECS: tuple[ActionSpec, ...] = (
     ActionSpec(
         id=KB.ACTION_WIRE_SIDE_BOTTOM,
         label="Side: &Bottom",
-        slot_name="_set_wire_side",
+        slot_name="set_wire_side",
         menu_path=_EDIT_DESIGN_WIRE,
         checkable=True,
         action_group="wire_side",
@@ -627,7 +627,7 @@ _ACTION_SPECS: tuple[ActionSpec, ...] = (
     ActionSpec(
         id=KB.ACTION_GROUP_AUTOROUTE,
         label="Group: Autoroute Internal Connections",
-        slot_name="_group_autoroute",
+        slot_name="group_autoroute",
         menu_path=_EDIT_DESIGN_GROUP,
         separator_before=True,
     ),
