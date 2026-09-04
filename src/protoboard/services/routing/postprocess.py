@@ -1003,7 +1003,7 @@ def _candidate_pins_alien(
     for pad, net_id in pin_net_map.items():
         if wire_net_id is not None and net_id == wire_net_id:
             continue  # same net — OK
-        key = (round(pad.x, 6), round(pad.y, 6))
+        key = rounded_point(pad)
         if key in own_pts:
             continue  # pin already on original path — unchanged contact
         # Pass-through check on every candidate segment.
@@ -1248,7 +1248,7 @@ def _candidate_no_new_pin_contact(
         out: list[Pad] = []
         # Vertex pads.
         for v in path:
-            key = (round(v.x, 6), round(v.y, 6))
+            key = rounded_point(v)
             if key in seen:
                 continue
             seen.add(key)
@@ -1269,7 +1269,7 @@ def _candidate_no_new_pin_contact(
             except AttributeError:
                 return out  # caller passed a non-PadIndex object
             for pad in pads_near:
-                key = (round(pad.position.x, 6), round(pad.position.y, 6))
+                key = rounded_point(pad.position)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -1278,7 +1278,7 @@ def _candidate_no_new_pin_contact(
 
     # Hard-block check first: any NEW hard contact on the candidate aborts.
     for pad in _iter_pads_along(candidate_vertices):
-        key = (round(pad.position.x, 6), round(pad.position.y, 6))
+        key = rounded_point(pad.position)
         if key in orig_keys:
             continue  # pre-existing — not "new"
         if _is_hard_blocker(pad):

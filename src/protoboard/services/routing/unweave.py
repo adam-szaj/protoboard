@@ -197,11 +197,11 @@ def _find_shared_pad_crossings(
     # Index W2's interior vertices by position for O(1) lookup.
     interior_w2: dict[tuple[float, float], int] = {}
     for j in range(1, len(p2) - 1):
-        key = (round(p2[j].x, 6), round(p2[j].y, 6))
+        key = rounded_point(p2[j])
         interior_w2.setdefault(key, j)
     for i in range(1, len(p1) - 1):
         v = p1[i]
-        key = (round(v.x, 6), round(v.y, 6))
+        key = rounded_point(v)
         matched_j = interior_w2.get(key)
         if matched_j is None:
             continue
@@ -1266,9 +1266,7 @@ def _try_1step_reroute_at(
         # neighbour pad would shift the via, not just relocate a vertex).
         return None
 
-    other_pts: set[tuple[float, float]] = {
-        (round(lp.point.x, 6), round(lp.point.y, 6)) for lp in lp_other
-    }
+    other_pts: set[tuple[float, float]] = {rounded_point(lp.point) for lp in lp_other}
 
     for dx, dy in _NEIGHBOUR_OFFSETS:
         cand = s + Vector(dx, dy)
@@ -1277,7 +1275,7 @@ def _try_1step_reroute_at(
         if forbidden_pads is not None and cand in forbidden_pads:
             # Alien pin (or any other reserved pad).  Stay on free pads only.
             continue
-        if (round(cand.x, 6), round(cand.y, 6)) in other_pts:
+        if rounded_point(cand) in other_pts:
             # Don't trade one shared vertex for another with the same wire.
             continue
         if _pt_equal(cand, prev_pt) or _pt_equal(cand, next_pt):
@@ -1327,10 +1325,10 @@ def _count_pair_2d_shared_interior(w1: Wire, w2: Wire) -> int:
     the board from above."""
     interior2: set[tuple[float, float]] = set()
     for j in range(1, len(w2.path) - 1):
-        interior2.add((round(w2.path[j].x, 6), round(w2.path[j].y, 6)))
+        interior2.add(rounded_point(w2.path[j]))
     count = 0
     for i in range(1, len(w1.path) - 1):
-        key = (round(w1.path[i].x, 6), round(w1.path[i].y, 6))
+        key = rounded_point(w1.path[i])
         if key in interior2:
             count += 1
     return count
@@ -1641,11 +1639,11 @@ def _find_shared_pad_crossings_logical(
     p2 = [lp.point for lp in lp2]
     interior_p2: dict[tuple[float, float], int] = {}
     for j in range(1, len(p2) - 1):
-        key = (round(p2[j].x, 6), round(p2[j].y, 6))
+        key = rounded_point(p2[j])
         interior_p2.setdefault(key, j)
     for i in range(1, len(p1) - 1):
         v = p1[i]
-        key = (round(v.x, 6), round(v.y, 6))
+        key = rounded_point(v)
         matched_j = interior_p2.get(key)
         if matched_j is None:
             continue
@@ -1797,9 +1795,7 @@ def _try_shift_overlap_run(
     next_pt = lp_self[i_end + 1].point
     orig_pts = [lp_self[k].point for k in range(i_start, i_end + 1)]
 
-    other_pts: set[tuple[float, float]] = {
-        (round(lp.point.x, 6), round(lp.point.y, 6)) for lp in lp_other
-    }
+    other_pts: set[tuple[float, float]] = {rounded_point(lp.point) for lp in lp_other}
 
     for dx, dy in _NEIGHBOUR_OFFSETS:
         cand_pts = [p + Vector(dx, dy) for p in orig_pts]
@@ -1833,7 +1829,7 @@ def _try_shift_overlap_run(
                 # Cross-side foreign wires do NOT block (different layer).
                 pad_ok = False
                 break
-            if (round(cand.x, 6), round(cand.y, 6)) in other_pts:
+            if rounded_point(cand) in other_pts:
                 pad_ok = False
                 break
             if _pt_equal(cand, prev_pt) or _pt_equal(cand, next_pt):

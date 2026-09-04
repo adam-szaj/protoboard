@@ -742,12 +742,7 @@ def merge_colocated_joints(
         if bucket is None:
             continue
         side, net_id = bucket
-        key = (
-            round(knot.position.x, 6),
-            round(knot.position.y, 6),
-            side,
-            net_id,
-        )
+        key = (*rounded_point(knot.position), side, net_id)
         by_bucket[key].append(knot.id)
 
     dropped = 0
@@ -2198,7 +2193,7 @@ def update_wires_for_move(
         old_pos = pin_world_position(fp, old_pl, pin_num)
         new_pos = pin_world_position(fp, new_pl, pin_num)
         if not _pts_equal(old_pos, new_pos):
-            pin_map[(round(old_pos.x, 6), round(old_pos.y, 6))] = new_pos
+            pin_map[rounded_point(old_pos)] = new_pos
 
     if not pin_map:
         return
@@ -2293,7 +2288,7 @@ def update_wires_for_move(
             if _pts_equal(old_pos, new_pos):
                 continue
             if _wire_anchored_at_comp_pin(wire, pin_num, old_pos):
-                wire_pin_map[(round(old_pos.x, 6), round(old_pos.y, 6))] = new_pos
+                wire_pin_map[rounded_point(old_pos)] = new_pos
         new_path: list[Point] = []
         pin_map_hits: list[tuple[tuple[float, float], tuple[float, float]]] = []
         for pt in wire.path:
@@ -2412,7 +2407,7 @@ def merge_colocated_joints_capturing(
             continue
         if len(knot.wire_ids) != 1:
             continue
-        key = (round(knot.position.x, 6), round(knot.position.y, 6))
+        key = rounded_point(knot.position)
         by_pos[key].append(knot.id)
 
     for pos_key, knot_ids in by_pos.items():
