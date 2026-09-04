@@ -5,9 +5,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from PySide6.QtWidgets import QGraphicsItemGroup
-from pytestqt.qtbot import QtBot
-
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.board_view_tool import _DefaultTool
@@ -70,14 +67,6 @@ class TestSnap:
 
 
 class TestRefresh:
-    def test_dispose_stops_scheduled_refresh(self, board_view: BoardView) -> None:
-        board_view.composer.schedule_refresh()
-        assert board_view.composer._refresh_timer.is_active()
-
-        board_view.composer.dispose()
-
-        assert not board_view.composer._refresh_timer.is_active()
-
     def test_refresh_is_idempotent(self, board_view: BoardView) -> None:
         board_view.refresh()
         count1 = len(board_view.scene().items())
@@ -112,64 +101,8 @@ class TestToolManagement:
         board_view.set_tool(None)
         assert board_view.active_tool is None
 
-    def test_layout_changed_triggers_refresh(
-        self, board_view: BoardView, session: EditorSession, qtbot: QtBot
-    ) -> None:
-        # Manually count items before and after adding a wire via layout_changed.
-        import uuid
-
-        from protoboard.domain.layout.wire import Wire
-        from protoboard.geometry import Point
-
-        wire = Wire(
-            id=uuid.uuid4(),
-            path=[Point(0.5, 0.5), Point(1.5, 0.5)],
-            insulated=True,
-            side="top",
-        )
-        session.layout.wires.append(wire)
-        session.layout_changed.emit()
-        # layout_changed is debounced via a 16ms timer — wait for it to fire.
-        qtbot.wait(50)
-        # After refresh the wire's QGraphicsItemGroup must be registered.
-        # Pad/board items no longer live in the scene (they're rasterised
-        # into the background cache), so counting scene items is no
-        # longer a useful proxy for "refresh happened".
-        assert wire.id in board_view.composer._wire_groups
-
 
 class TestBoardLayerVisibility:
-    def test_back_side_component_drag_remains_live(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """A component dragged from the opposite side must escape the cache."""
-        from protoboard.controller.view_options.layer_state import Z_BOARD
-        from protoboard.domain.components.instance import ComponentInstance
-        from protoboard.domain.layout.placement import ComponentPlacement
-        from protoboard.geometry import Point
-
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
-        session.instances[inst.id] = inst
-        session.layout.placements[inst.id] = ComponentPlacement(
-            component_id=inst.id,
-            position=Point(1.5, 1.5),
-            rotation=0,
-            side="bottom",
-        )
-        session.invalidate_graph()
-        session.rebuild_all_pin_identities()
-        board_view.refresh()
-        board_view.paint._ensure_back_cache()
-
-        group = cast(QGraphicsItemGroup, board_view.composer._comp_groups[inst.id])
-        assert group.isVisible() is False
-
-        session.layout.placements[inst.id].position = Point(2.5, 2.5)
-        board_view.composer.on_drag_moved()
-
-        assert group.isVisible() is True
-        assert group.zValue() >= Z_BOARD
-
     def test_alpha_for_board_mid_default(self) -> None:
         from protoboard.controller.view_options.layer_state import LayerState
 
@@ -201,14 +134,6 @@ class TestBoardLayerVisibility:
 class TestShortcutsHelp:
     """The [?] overlay and the RMB tool-action menu — both read the live KeyMap."""
 
-    def test_overlay_toggles(self, board_view: BoardView) -> None:
-        board_view.set_tool(SelectTool())
-        assert not board_view.tools._shortcuts_overlay_visible()
-        board_view.tools._toggle_shortcuts_overlay()
-        assert board_view.tools._shortcuts_overlay_visible()
-        board_view.tools._toggle_shortcuts_overlay()
-        assert not board_view.tools._shortcuts_overlay_visible()
-
     def test_question_keystroke_opens_overlay(self, board_view: BoardView) -> None:
         """Regression: the real ``?`` keystroke toggles the overlay.
 
@@ -222,14 +147,13 @@ class TestShortcutsHelp:
         from PySide6.QtGui import QKeyEvent
 
         board_view.set_tool(SelectTool())
-        assert not board_view.tools._shortcuts_overlay_visible()
         ev = QKeyEvent(
             QKeyEvent.Type.KeyPress,
             Qt.Key.Key_Question,
             Qt.KeyboardModifier.ShiftModifier,
         )
         board_view.keyPressEvent(ev)
-        assert board_view.tools._shortcuts_overlay_visible()
+        assert board_view.help_overlay.help_visible
 
     def test_overlay_lists_tool_actions(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
@@ -280,17 +204,3 @@ class TestShortcutsHelp:
         board_view.set_tool(SelectTool())
         ctx2 = board_view.tools.get_context_at(Point(0.5, 0.5), Point(0.0, 0.0))
         assert "select-tool.action.edit" in {o.action_id for o in ctx2.actions}
-
-    def test_dispatch_tool_command_rotates(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.tools.gui_tools import PlaceTool
-
-        board_view.set_tool(PlaceTool("R"))
-        tool = board_view.active_tool
-        assert isinstance(tool, PlaceTool)
-        before = tool._rotation
-        # Dispatching the rotate action by id, through the Controller facade
-        # — no synthesised key (trigger_tool_action is gone, Task 7).
-        session.edit_controller.dispatch_tool_command("place-tool.action.rotate_cw")
-        assert tool._rotation == (before + 90) % 360

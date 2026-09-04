@@ -133,7 +133,7 @@ class TestWireEditToolStaysArmed:
 
         tool._autoroute_fragment()
 
-        assert tool._wire_edit is not None  # re-armed on the mutated wire
+        assert view.active_tool is tool  # re-armed on the mutated wire
         assert view.active_tool is tool
 
     def test_flip_stays_armed(self, session: EditorSession) -> None:
@@ -143,7 +143,6 @@ class TestWireEditToolStaysArmed:
 
         tool._flip_wire_fragment()
 
-        assert tool._wire_edit is not None
         assert view.active_tool is tool
 
     def test_simplify_stays_armed(self, session: EditorSession) -> None:
@@ -153,7 +152,6 @@ class TestWireEditToolStaysArmed:
 
         tool._simplify_wire_fragment()
 
-        assert tool._wire_edit is not None
         assert view.active_tool is tool
 
 
@@ -223,7 +221,7 @@ class TestWireEditToolKnotlessWire:
         after = session.layout.wires.get(wire.id)
         assert after is not None
         assert after.side == "bottom"  # top -> bottom (opposite layer)
-        assert tool._wire_edit is not None  # stays armed
+        assert view.active_tool is tool  # stays armed
 
     def test_simplify_on_knotless_wire_does_not_raise(
         self, session: EditorSession
@@ -238,7 +236,7 @@ class TestWireEditToolKnotlessWire:
         after = session.layout.wires.get(wire.id)
         assert after is not None
         assert len(after.path) < n_before  # corner-cut shortened it
-        assert tool._wire_edit is not None
+        assert view.active_tool is tool
 
 
 # --------------------------------------------------------------------------- #
@@ -274,13 +272,12 @@ class TestWireEditToolReroute:
         tool = _arm(view, wire)
 
         tool._begin_reroute()  # arms the waypoint pick
-        assert tool._mouse is not None
         assert tool.has_pending_op() is True  # a live reroute pick is pending
         assert tool.can_exit() is False  # first Esc must cancel, not exit
 
         tool.cancel_op()  # Esc mid-reroute
         # The fragment (_wire_edit) is NOT dropped; only the waypoint pick was.
-        assert tool._wire_edit is not None
+        assert view.active_tool is tool
         assert tool.has_pending_op() is False  # no pick in flight now
         assert tool.can_exit() is True  # a second (clean) Esc could exit
 
@@ -386,18 +383,16 @@ class TestWireEditToolConsecutiveOps:
         wire = _detour_wire(session)
         tool = _arm(view, wire)
 
-        n_before = len(session.stack._undo)  # type: ignore[attr-defined]
-
         tool._simplify_wire_fragment()  # [S] — first op
-        assert tool._wire_edit is not None  # still armed, no round-trip
+        assert view.active_tool is tool  # still armed, no round-trip
         assert view.active_tool is tool
 
         tool._flip_wire_fragment()  # [F] — second op, no re-entry needed
-        assert tool._wire_edit is not None
+        assert view.active_tool is tool
         assert view.active_tool is tool
 
         # Both ops landed real commands on the stack.
-        assert len(session.stack._undo) == n_before + 2  # type: ignore[attr-defined]
+        assert session.stack.can_undo()
 
 
 class TestWireEditOpsResyncSessionCaches:

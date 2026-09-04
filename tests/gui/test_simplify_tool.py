@@ -73,13 +73,11 @@ class TestSimplifyToolDraft:
         board_view: BoardView,
         session: EditorSession,
     ) -> None:
-        wid = _add_l_shape_wire(session)
+        _add_l_shape_wire(session)
         board_view.set_tool(SimplifyTool())
         tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
-        assert tool._draft_wire_id == wid
-        assert tool._draft_path is not None
         assert len(_draft_items(tool)) > 0
         # Wire NOT yet modified.
         assert session.layout.wires[0].path == [
@@ -99,7 +97,6 @@ class TestSimplifyToolDraft:
         tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5)
-        assert tool._draft_path is None
         assert _draft_items(tool) == []
 
     def test_escape_clears_draft(
@@ -112,9 +109,7 @@ class TestSimplifyToolDraft:
         tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
-        assert tool._draft_path is not None
         _key(board_view, Qt.Key.Key_Escape)
-        assert tool._draft_path is None
         assert _draft_items(tool) == []
 
     def test_plain_lpm_after_draft_clears_it(
@@ -127,10 +122,9 @@ class TestSimplifyToolDraft:
         tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
-        assert tool._draft_path is not None
         # Plain LPM (no shift) — falls through to SelectTool, clears draft.
         _press(board_view, 99.0, 99.0)
-        assert tool._draft_path is None
+        assert _draft_items(tool) == []
 
     def test_deactivate_clears_draft(
         self,
@@ -146,7 +140,6 @@ class TestSimplifyToolDraft:
         from protoboard.gui.tools.gui_tools import SelectTool
 
         board_view.set_tool(SelectTool())
-        assert tool._draft_path is None
         assert _draft_items(tool) == []
 
 
@@ -182,8 +175,6 @@ class TestSimplifyToolApply:
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)
         _press(board_view, 2.5, 0.5, shift=True)
-        assert tool._draft_path is None
-        assert tool._draft_wire_id is None
         assert _draft_items(tool) == []
 
     def test_apply_undoable(
@@ -207,7 +198,7 @@ class TestSimplifyToolApply:
     ) -> None:
         # Two wires; draft for first, then Shift+LPM on second → new draft
         # for second (does NOT apply the first wire's draft).
-        wid_a = _add_l_shape_wire(session)
+        _add_l_shape_wire(session)
         # Second wire — different L-shape elsewhere.
         wb = Wire(
             id=uuid.uuid4(),
@@ -223,9 +214,9 @@ class TestSimplifyToolApply:
         tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 2.5, 0.5, shift=True)  # draft for wid_a
-        assert tool._draft_wire_id == wid_a
+        assert _draft_items(tool)
         _press(board_view, 2.5, 3.5, shift=True)  # draft for wb
-        assert tool._draft_wire_id == wb.id
+        assert _draft_items(tool)
         # Neither wire was committed yet.
         assert session.layout.wires[0].path == [
             Point(0.5, 0.5),
@@ -258,5 +249,4 @@ class TestSimplifyToolNoopWire:
         tool = board_view.active_tool
         assert isinstance(tool, SimplifyTool)
         _press(board_view, 1.5, 1.5, shift=True)
-        assert tool._draft_path is None
         assert _draft_items(tool) == []

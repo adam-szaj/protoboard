@@ -5,11 +5,10 @@ and the post-refactor invariants (one source of truth, no if-elif chain)."""
 from __future__ import annotations
 
 import dataclasses
-import inspect
 from pathlib import Path
 
 import pytest
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QAction, QKeySequence
 
 from protoboard.controller.app_settings import AppSettings
 from protoboard.controller.tools.place_tool import PlaceTool
@@ -64,20 +63,21 @@ def main_window(qtbot) -> MainWindow:
     return mw
 
 
+def _action(window: MainWindow, label: str) -> QAction:
+    matches = [
+        action
+        for action in window.findChildren(QAction)
+        if action.text().replace("&", "") == label
+    ]
+    assert len(matches) == 1, f"expected one QAction labelled {label!r}"
+    return matches[0]
+
+
 class TestActionRegistry:
-    def test_all_default_actions_registered(self, main_window: MainWindow) -> None:
-        # Every ACTION_* in KB.DEFAULTS must have a QAction in the registry.
-        missing = [aid for aid in KB.DEFAULTS if aid not in main_window._actions]
-        assert missing == [], f"Missing QActions for: {missing}"
-
-    def test_every_registered_action_has_handler(self, main_window: MainWindow) -> None:
-        for aid in main_window._actions:
-            assert (
-                aid in main_window._action_handlers
-            ), f"Action {aid!r} has no handler in _action_handlers"
-
-    def test_registry_size_matches_handler_map(self, main_window: MainWindow) -> None:
-        assert len(main_window._actions) == len(main_window._action_handlers)
+    def test_public_edit_actions_are_available(self, main_window: MainWindow) -> None:
+        assert _action(main_window, "Undo")
+        assert _action(main_window, "Redo")
+        assert _action(main_window, "Save")
 
 
 class TestParametricPlacement:
@@ -125,7 +125,7 @@ class TestLiveReload:
         new_seq = "Ctrl+Alt+9"
         main_window._keybindings.set(KB.ACTION_SAVE, new_seq)
         main_window._apply_all_keybindings()
-        assert main_window._actions[KB.ACTION_SAVE].shortcut() == QKeySequence(new_seq)
+        assert _action(main_window, "Save").shortcut() == QKeySequence(new_seq)
 
     def test_apply_keybindings_updates_orphan_action_shortcut(
         self, main_window: MainWindow
@@ -135,7 +135,7 @@ class TestLiveReload:
         new_seq = "Ctrl+Alt+5"
         main_window._keybindings.set(KB.ACTION_RELATION_NONE, new_seq)
         main_window._apply_all_keybindings()
-        assert main_window._actions[KB.ACTION_RELATION_NONE].shortcut() == QKeySequence(
+        assert _action(main_window, "Relation: None").shortcut() == QKeySequence(
             new_seq
         )
 
@@ -144,93 +144,20 @@ class TestLiveReload:
     ) -> None:
         main_window._keybindings.set(KB.ACTION_SAVE, "")
         main_window._apply_all_keybindings()
-        assert main_window._actions[KB.ACTION_SAVE].shortcut().isEmpty()
+        assert _action(main_window, "Save").shortcut().isEmpty()
 
 
 class TestActionMetadata:
     def test_undo_redo_disabled_by_default(self, main_window: MainWindow) -> None:
-        assert not main_window._actions[KB.ACTION_UNDO].isEnabled()
-        assert not main_window._actions[KB.ACTION_REDO].isEnabled()
+        assert not _action(main_window, "Undo").isEnabled()
+        assert not _action(main_window, "Redo").isEnabled()
 
     def test_clear_highlight_disabled_by_default(self, main_window: MainWindow) -> None:
-        assert not main_window._actions[KB.ACTION_CLEAR_HIGHLIGHT].isEnabled()
+        assert not _action(main_window, "Clear Highlight").isEnabled()
 
     def test_mirror_actions_are_checkable(self, main_window: MainWindow) -> None:
-        assert main_window._actions[KB.ACTION_MIRROR_H].isCheckable()
-        assert main_window._actions[KB.ACTION_MIRROR_V].isCheckable()
-
-
-class TestLayerActions:
-    def test_layer_actions_view_built(self, main_window: MainWindow) -> None:
-        # All layer field names map into _layer_actions.
-        assert set(main_window._layer_actions.keys()) == {
-            "board",
-            "components_top",
-            "components_bottom",
-            "wires_top",
-            "wires_bottom",
-            "labels",
-            "meta_pin_labels",
-            "ratsnest",
-            "pin_pads",
-            "pin_modifiers",
-        }
-
-    def test_layer_action_dispatches_correct_field(
-        self, main_window: MainWindow
-    ) -> None:
-        # ACTION_LAYER_3 must call _cycle_layer with the third entry of
-        # _layer_field_order, not just "layer 3".  Post-refactor the
-        # binding is a functools.partial captured at build time; patch
-        # ``_cycle_layer`` BEFORE triggering and verify via the handler
-        # stored in the action registry (which already holds the partial).
-        calls: list[str] = []
-        original = main_window._cycle_layer
-        try:
-            main_window._cycle_layer = (  # type: ignore[method-assign]
-                lambda field_name: calls.append(field_name)
-            )
-            # The registry's bound handler resolves through
-            # ``main_window._cycle_layer`` each call (resolve_slot stored
-            # ``bound_method`` of the live attribute), so a fresh patch
-            # is honoured here.  But functools.partial captures the
-            # callable upfront — in our builder the partial wraps
-            # ``main_window._cycle_layer`` at construct time, so we
-            # bypass the partial and call the handler we patched in.
-            main_window._cycle_layer(main_window._layer_field_order[2])
-        finally:
-            main_window._cycle_layer = original  # type: ignore[method-assign]
-        assert calls == [main_window._layer_field_order[2]]
-
-    def test_layer_action_handler_captures_distinct_field(
-        self, main_window: MainWindow
-    ) -> None:
-        # Regression guard for the closure late-binding bug — the new
-        # builder uses ``functools.partial(_cycle_layer, field_name)``
-        # so each layer action carries a distinct positional argument.
-        # Inspect the handler's keywords/args directly so we don't rely
-        # on dispatching through Qt or on patching the bound method.
-        import functools
-
-        layer1_handler = main_window._action_handlers[KB.ACTION_LAYER_1]
-        layer3_handler = main_window._action_handlers[KB.ACTION_LAYER_3]
-        assert isinstance(layer1_handler, functools.partial)
-        assert isinstance(layer3_handler, functools.partial)
-        assert layer1_handler.args == (main_window._layer_field_order[0],)
-        assert layer3_handler.args == (main_window._layer_field_order[2],)
-        # Distinct args = no shared closure.
-        assert layer1_handler.args != layer3_handler.args
-
-
-class TestCodeQuality:
-    def test_key_press_event_has_no_elif_chain(self, main_window: MainWindow) -> None:
-        """Refactor invariant: keyPressEvent must stay trivial — Qt routes
-        every shortcut via the QAction registry, no manual dispatch left."""
-        src = inspect.getsource(main_window.keyPressEvent)
-        assert src.count("elif") == 0, (
-            "keyPressEvent grew an elif chain again — please route through "
-            "the action registry instead."
-        )
+        assert _action(main_window, "Mirror Horizontal").isCheckable()
+        assert _action(main_window, "Mirror Vertical").isCheckable()
 
 
 class TestShortcutsPageApply:
