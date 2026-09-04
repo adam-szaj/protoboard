@@ -46,7 +46,7 @@ def split_strip_between(atom: StripAtom, after_pad: int) -> tuple[StripAtom, Str
 
     Valid range: 1 … length-1.
     """
-    n = int(atom.length) if isinstance(atom.length, int) else 1
+    n = atom.resolved_length()
     if not 1 <= after_pad <= n - 1:
         raise ValueError(f"after_pad={after_pad} out of range for strip length={n}")
     return _make_segment(atom, after_pad), _make_segment(atom, n - after_pad)
@@ -59,7 +59,7 @@ def split_strip_on_pad(
 
     Returns (left | None, isolated_pad, right | None).
     """
-    n = int(atom.length) if isinstance(atom.length, int) else 1
+    n = atom.resolved_length()
     if not 1 <= pad_index <= n:
         raise ValueError(f"pad_index={pad_index} out of range for strip length={n}")
     left = _make_segment(atom, pad_index - 1) if pad_index > 1 else None

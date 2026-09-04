@@ -810,7 +810,7 @@ class _DeferredSplitStrip(Command[Any]):
         for atom, _center in board.atoms():
             if not isinstance(atom, StripAtom):
                 continue
-            atom_len = int(atom.length) if isinstance(atom.length, int) else 1
+            atom_len = atom.resolved_length()
             if atom_len != wanted_len:
                 continue
             if wanted_orient is not None and atom.orientation != wanted_orient:

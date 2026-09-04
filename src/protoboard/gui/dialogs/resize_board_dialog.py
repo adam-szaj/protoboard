@@ -61,7 +61,7 @@ def _detect_dimensions(board: Board) -> tuple[int, int]:
             if isinstance(child, HBox):
                 for atom in child.children:
                     if isinstance(atom, StripAtom):
-                        cols = int(atom.length) if isinstance(atom.length, int) else 1
+                        cols = atom.resolved_length()
                         break
                 break
         if strip_rows > 0:

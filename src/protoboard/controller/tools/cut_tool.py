@@ -77,7 +77,7 @@ def _find_cut_target(
             continue
         if not atom.cuttable:
             continue
-        n = int(atom.length) if isinstance(atom.length, int) else 1
+        n = atom.resolved_length()
         if n < 2:
             # A single-hole segment can't be split further.
             continue

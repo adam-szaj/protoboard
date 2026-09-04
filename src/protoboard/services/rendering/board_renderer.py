@@ -224,7 +224,7 @@ def _build_strip(
     pad_net_map: PadNetMap | None = None,
     board_alpha: float = 1.0,
 ) -> None:
-    length = atom.length if isinstance(atom.length, int) else 1
+    length = atom.resolved_length()
 
     if atom.isolated:
         cx, cy = center.x, center.y

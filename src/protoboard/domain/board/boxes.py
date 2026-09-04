@@ -104,7 +104,7 @@ class StripAtom(Box):
         ``fill_length`` makes callers explicit about how an unresolved
         ``"fill"`` strip is represented in their context.
         """
-        length = self.length if isinstance(self.length, int) else fill_length
+        length = self.resolved_length(fill_length)
         if self.orientation == "horizontal":
             start = center.x - length / 2.0 + 0.5
             for index in range(length):
@@ -113,6 +113,10 @@ class StripAtom(Box):
             start = center.y - length / 2.0 + 0.5
             for index in range(length):
                 yield Point(center.x, start + index)
+
+    def resolved_length(self, fill_length: int = 1) -> int:
+        """Return the strip length, resolving an unresolved ``"fill"`` value."""
+        return self.length if isinstance(self.length, int) else fill_length
 
 
 @dataclass(frozen=True, slots=True)

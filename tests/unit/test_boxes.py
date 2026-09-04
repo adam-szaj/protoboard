@@ -192,6 +192,19 @@ class TestStripAtom:
             Point(3.5, 4.0),
         ]
 
+    def test_resolved_length(self) -> None:
+        fixed = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=4,
+            layers=PadLayers(),
+        )
+        fill = dataclasses.replace(fixed, length="fill")
+
+        assert fixed.resolved_length() == 4
+        assert fill.resolved_length() == 1
+        assert fill.resolved_length(6) == 6
+
 
 class TestGapAtom:
     def test_no_dimensions(self) -> None:
