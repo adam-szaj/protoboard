@@ -53,7 +53,11 @@ from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme  # noq
 from protoboard.domain.layout.layout import ROOT_GROUP_ID  # noqa: E402
 from protoboard.domain.layout.snapping import SnapRequest, snap_point  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
-from protoboard.gui.board_view_tool import ToolSurface  # noqa: E402
+from protoboard.gui.board_view_tool import (  # noqa: E402
+    ApplicationActionSurface,
+    NullApplicationActions,
+    ToolSurface,
+)
 from protoboard.gui.highlight.renderer import HighlightRenderer  # noqa: E402
 from protoboard.gui.hover_reveal import HoverReveal  # noqa: E402
 from protoboard.gui.layer_state_adapter import layer_state_for_tool  # noqa: E402
@@ -102,9 +106,16 @@ class BoardView(QGraphicsView):
     help_overlay: HelpOverlayPort
     executor: ExecutorPort
 
-    def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        session: EditorSession,
+        parent: QWidget | None = None,
+        *,
+        application_actions: ApplicationActionSurface | None = None,
+    ) -> None:
         super().__init__(parent)
         self._session = session
+        self.application_actions = application_actions or NullApplicationActions()
         self._scene = QGraphicsScene(self)
         # Disable BSP tree index — at 14k+ items a BSP rebuild every time
         # setOpacity / setVisible runs (which happens on every click via

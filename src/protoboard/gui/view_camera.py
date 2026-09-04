@@ -166,10 +166,7 @@ class ViewCamera:
         tool = self._view.active_tool
         if isinstance(tool, RouteTool):
             tool.set_options(side=side)
-        win = self._view.window()
-        updater = getattr(win, "set_wire_side", None)
-        if updater is not None:
-            updater(side)
+        self._view.application_actions.set_wire_side(side)
 
     # Convenience toggles (used by menu/keyboard).  Each axis flips
     # independently so combining H + V produces ``mirror_hv``.

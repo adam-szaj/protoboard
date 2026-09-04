@@ -164,7 +164,7 @@ class MainWindow(QMainWindow):
         self._pre_fullscreen_maximized: bool = False
 
         # Central widget — board view.
-        self._board_view = BoardView(session, self)
+        self._board_view = BoardView(session, self, application_actions=self)
         # Load the namespaced keybinding defaults, then the user's overrides
         # (Stage 1) into the view's KeyMap so tool shortcut customisation
         # persists.  Defaults first so an override always wins.  The legacy

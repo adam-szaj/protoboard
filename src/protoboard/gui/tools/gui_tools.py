@@ -164,14 +164,10 @@ class RouteTool(
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
         gui_view = _gui_view(view)
-        window = gui_view.window()
-        set_insulated = getattr(window, "set_wire_insulated", None)
-        set_side = getattr(window, "set_wire_side", None)
-        update_status = getattr(window, "update_route_status", None)
         self.bind_route_options(
-            set_insulated=set_insulated if callable(set_insulated) else None,
-            set_side=set_side if callable(set_side) else None,
-            update_status=update_status if callable(update_status) else None,
+            set_insulated=gui_view.application_actions.set_wire_insulated,
+            set_side=gui_view.application_actions.set_wire_side,
+            update_status=gui_view.application_actions.update_route_status,
         )
         if not self._preview_injected:
             from protoboard.gui.tools.route_preview import QtRoutePreview
@@ -297,12 +293,9 @@ class SelectTool(
 
     def activate(self, session: object, view: object) -> None:
         gui_view = _gui_view(view)
-        window = gui_view.window()
-        assign_pin = getattr(window, "pin_assign_net_for", None)
-        autoroute_group = getattr(window, "group_autoroute", None)
         self.bind_menu_actions(
-            assign_pin=assign_pin if callable(assign_pin) else None,
-            autoroute_group=autoroute_group if callable(autoroute_group) else None,
+            assign_pin=gui_view.application_actions.pin_assign_net_for,
+            autoroute_group=gui_view.application_actions.group_autoroute,
         )
         if not self._preview_injected:
             self._preview = QtSelectPreview(gui_view.scene)

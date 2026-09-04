@@ -28,6 +28,10 @@ from protoboard.controller.view_options.layer_state import LayerState
 from protoboard.controller.view_options.layers import LayerOverrides
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.geometry import Point, Rect, Size, Transform2D, Vector
+from protoboard.gui.board_view_tool import (
+    ApplicationActionSurface,
+    NullApplicationActions,
+)
 from protoboard.gui.tool_host import ToolHost
 
 if TYPE_CHECKING:
@@ -201,6 +205,7 @@ class HeadlessBoardView:
         self.viewport_port: ViewportPort = FakeViewport()
         self.help_overlay: HelpOverlayPort = FakeHelpOverlay()
         self.executor: ExecutorPort = FakeExecutor()
+        self.application_actions: ApplicationActionSurface = NullApplicationActions()
         self.highlight = cast("HighlightRenderer", _HighlightRecorder())
         self.paint = cast("PaintPipeline", _HighlightRecorder())
         self.composer = cast("SceneComposer", _HighlightRecorder())

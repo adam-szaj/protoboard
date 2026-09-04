@@ -52,6 +52,39 @@ if TYPE_CHECKING:
     from protoboard.gui.view_camera import ViewCamera
 
 
+class ApplicationActionSurface(Protocol):
+    """Application-level actions exposed to canvas tools through the view."""
+
+    def set_wire_insulated(self, insulated: bool) -> None: ...
+
+    def set_wire_side(self, side: str) -> None: ...
+
+    def update_route_status(self, insulated: bool, side: str) -> None: ...
+
+    def pin_assign_net_for(self, comp_id: uuid.UUID, pin_num: int) -> None: ...
+
+    def group_autoroute(self) -> None: ...
+
+
+class NullApplicationActions:
+    """No-op action surface used by standalone and headless board views."""
+
+    def set_wire_insulated(self, insulated: bool) -> None:
+        del insulated
+
+    def set_wire_side(self, side: str) -> None:
+        del side
+
+    def update_route_status(self, insulated: bool, side: str) -> None:
+        del insulated, side
+
+    def pin_assign_net_for(self, comp_id: uuid.UUID, pin_num: int) -> None:
+        del comp_id, pin_num
+
+    def group_autoroute(self) -> None:
+        pass
+
+
 class AbstractBoardView(Protocol):
     """The board-canvas surface tools and extracted services may call.
 
@@ -61,7 +94,7 @@ class AbstractBoardView(Protocol):
     protocol simply does not have ``horizontalScrollBar()``.  The two
     deliberate Qt touchpoints are ``scene()`` (D1: tools' transient items
     draw into a real ``QGraphicsScene``; a headless double may hold one with
-    no widget) and ``window()`` (dialog parenting only — D4 tracked debt).
+    no widget) and ``window()`` (dialog parenting only).
     """
 
     # Composed services — the extracted BoardView collaborators (declared as
@@ -78,6 +111,7 @@ class AbstractBoardView(Protocol):
     help_overlay: HelpOverlayPort
     # Blocking background jobs (worker + modal progress) behind the seam.
     executor: ExecutorPort
+    application_actions: ApplicationActionSurface
 
     # -- view state ----------------------------------------------------------
 
@@ -265,7 +299,7 @@ class AbstractBoardView(Protocol):
         ...
 
     def window(self) -> object | None:
-        """Top-level widget for *dialog parenting only* (D4 tracked debt)."""
+        """Top-level widget used for dialog parenting only."""
         ...
 
 
