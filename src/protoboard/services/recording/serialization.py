@@ -761,7 +761,7 @@ def _split_strip_to(cmd: SplitStripCommand) -> dict[str, Any]:
         "cut_index": int(cmd.cut_index),
         "cut_between": bool(cmd.cut_between),
         "target": {
-            "length": int(target.length) if isinstance(target.length, int) else 1,
+            "length": target.resolved_length(),
             "orientation": target.orientation,
             "layers": target.layers,
             "isolated": bool(target.isolated),
