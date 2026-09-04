@@ -27,6 +27,11 @@ from protoboard.geometry import Point, Transform2D, Vector, rotation_about
 FlipAxis = Literal["v", "h"]
 
 
+def _schematic_from_state(state: ComponentState) -> Schematic | None:
+    schematic = getattr(state, "schematic", None)
+    return schematic if isinstance(schematic, Schematic) else None
+
+
 def _reflection_about(pivot: Point, axis: FlipAxis) -> Transform2D:
     """Reflection across the *axis* line through *pivot* as one matrix.
 
@@ -430,10 +435,7 @@ class RotateGroupCommand(Command[ComponentState]):
         # wire_net_map); both-PinKnots-in-group covers the practical cases,
         # and the geometric sanity check (placements/instances/definitions)
         # filters stale paths.
-        schematic_obj = getattr(state, "schematic", None)
-        sch: Schematic | None = (
-            schematic_obj if isinstance(schematic_obj, Schematic) else None
-        )
+        sch = _schematic_from_state(state)
         internal_wire_ids = find_owned_wires(
             list(state.layout.wires),
             group,
@@ -586,10 +588,7 @@ class FlipGroupCommand(Command[ComponentState]):
         # Identify internal wires the same way rotate does — BEFORE the transform
         # changes, so the seam still reports the pre-flip world positions that
         # match the pre-flip wire paths.
-        schematic_obj = getattr(state, "schematic", None)
-        sch: Schematic | None = (
-            schematic_obj if isinstance(schematic_obj, Schematic) else None
-        )
+        sch = _schematic_from_state(state)
         self._wire_ids = frozenset(
             find_owned_wires(
                 list(state.layout.wires),
@@ -698,10 +697,7 @@ class RotateAroundPointCommand(Command[ComponentState]):
         # ComponentGroup whose member set IS the selection — ownership is
         # decided purely by ``group_comp_ids`` (the ``group`` argument is
         # only carried for diagnostics by find_owned_wires).
-        schematic_obj = getattr(state, "schematic", None)
-        sch: Schematic | None = (
-            schematic_obj if isinstance(schematic_obj, Schematic) else None
-        )
+        sch = _schematic_from_state(state)
         synthetic_group = ComponentGroup(
             id=uuid.uuid4(),
             name="<rotate-around-point>",
