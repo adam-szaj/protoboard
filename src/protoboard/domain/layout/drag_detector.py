@@ -40,8 +40,7 @@ from protoboard.domain.layout.placement import (
     resolve_pin_world_position,
 )
 from protoboard.domain.layout.wire_utils import find_skewed_wires
-from protoboard.geometry import Point
-from protoboard.geometry import round_coord as _round
+from protoboard.geometry import Point, rounded_point
 from protoboard.instrumentation.logging import is_debug_enabled
 
 if TYPE_CHECKING:
@@ -226,7 +225,7 @@ class DragDetector:
 
             # --- Pin-on-wire (rule 6 strict via strategy) ---
             already_conflicted = {
-                (_round(c.position.x), _round(c.position.y)) for c in pad_conflicts
+                rounded_point(c.position, digits=4) for c in pad_conflicts
             }
             wire_conflicts = self._wire_conflicts_via_strategy(
                 snapshot=snapshot,
@@ -583,7 +582,7 @@ class DragDetector:
             )
             if pos is None:
                 continue
-            point_to_net[(_round(pos.x), _round(pos.y))] = (net.id, net.name)
+            point_to_net[rounded_point(pos, digits=4)] = (net.id, net.name)
 
         # Every returned conflict is a pin landing on a wire. Under rule 6,
         # the strategy rejects that pad; the conflict kind carries the fact
