@@ -275,9 +275,7 @@ def update_component_groups(
     ``dim_components`` for the rest) and runs after every refresh.
     """
     pin_net: dict[PinRef, uuid.UUID] = (
-        {ref: net.id for ref, net in schematic.pin_net_map().items()}
-        if schematic is not None
-        else {}
+        schematic.pin_net_ids() if schematic is not None else {}
     )
 
     alpha_map: dict[uuid.UUID, float] = {}
@@ -448,9 +446,7 @@ def render_components(
     in *label_groups*.
     """
     pin_net: dict[PinRef, uuid.UUID] = (
-        {ref: net.id for ref, net in schematic.pin_net_map().items()}
-        if schematic is not None
-        else {}
+        schematic.pin_net_ids() if schematic is not None else {}
     )
 
     # Build group alpha map when root-level group context is given.

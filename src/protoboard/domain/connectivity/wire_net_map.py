@@ -28,10 +28,10 @@ def project_wire_net_map(
 
     # canonical_key → net.id  (one net per electric set that has named pins)
     canonical_to_net: dict[object, uuid.UUID] = {}
-    for ref, net in schematic.pin_net_map().items():
+    for ref, net_id in schematic.pin_net_ids().items():
         ck = graph.node_for_pin(ref)
         if ck is not None:
-            canonical_to_net[ck] = net.id
+            canonical_to_net[ck] = net_id
 
     result: dict[uuid.UUID, uuid.UUID] = {}
     for wire in layout.wires:
@@ -45,9 +45,9 @@ def project_wire_net_map(
         for pt in contact_pts:
             ck = graph.node_for_pad(pt, wire.side)
             if ck is not None:
-                net_id = canonical_to_net.get(ck)
-                if net_id is not None:
-                    result[wire.id] = net_id
+                resolved_net_id = canonical_to_net.get(ck)
+                if resolved_net_id is not None:
+                    result[wire.id] = resolved_net_id
                     break
     return result
 

@@ -143,6 +143,16 @@ class TestSchematic:
         assert pin_net[PinRef(comp1, 4)].name == "GND"
         assert pin_net[PinRef(comp2, 2)].name == "SIG"
 
+    def test_pin_net_ids_indexes_all_declared_pins(self) -> None:
+        sch, comp1, comp2 = self._make_schematic()
+
+        pin_net_ids = sch.pin_net_ids()
+
+        assert len(pin_net_ids) == 5
+        assert pin_net_ids[PinRef(comp1, 8)] in sch.nets
+        assert pin_net_ids[PinRef(comp1, 4)] in sch.nets
+        assert pin_net_ids[PinRef(comp2, 2)] in sch.nets
+
     def test_duplicate_net_names_allowed(self) -> None:
         # Two nets with the same display name is unusual but not forbidden
         # at the schematic level (different UUIDs).

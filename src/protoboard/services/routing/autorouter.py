@@ -515,12 +515,12 @@ def autoroute(
     # Build a map: (world_position, side) → net_id for every placed pin that
     # belongs to a net, registered on BOTH layers (plated-through hole).
     point_side_to_net: dict[tuple[Point, str], uuid.UUID] = {}
-    for ref, net in schematic.pin_net_map().items():
+    for ref, net_id in schematic.pin_net_ids().items():
         ps = pin_positions.get(ref)
         if ps is not None:
             pt, _s = ps
-            point_side_to_net[(pt, "top")] = net.id
-            point_side_to_net[(pt, "bottom")] = net.id
+            point_side_to_net[(pt, "top")] = net_id
+            point_side_to_net[(pt, "bottom")] = net_id
 
     # Collect ALL placed pin positions — including floating pins — on BOTH layers.
     # A component pin occupies a physical hole; routing through that hole on
