@@ -12,6 +12,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import pytest
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
@@ -143,10 +145,27 @@ def test_autoroute_runs_synchronously_and_returns_result() -> None:
     assert len(session.layout.wires) == 0
 
 
+def test_autoroute_propagates_router_failure_without_edit(
+    monkeypatch,
+) -> None:
+    session = _session()
+
+    class FailingRouter:
+        def route(self, *_args, **_kwargs):
+            raise RuntimeError("router failed")
+
+    from protoboard.services.routing import protocol
+
+    monkeypatch.setattr(protocol.registry, "default", lambda: FailingRouter())
+
+    with pytest.raises(RuntimeError, match="router failed"):
+        session.edit_controller.autoroute(None, settings=RoutingSettings())
+    assert session.layout.wires == []
+    assert session.stack.can_undo() is False
+
+
 def test_autoroute_propagates_drc_precondition_failure() -> None:
     """Off-board pins block autoroute — the precondition error propagates."""
-    import pytest
-
     from protoboard.services.routing.autorouter import AutoroutePreconditionError
 
     session = _session()

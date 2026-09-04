@@ -56,3 +56,26 @@ def test_undo_and_redo_actions_change_session_state(
     redo.trigger()
     assert len(session.layout.wires) == 1
     session.mark_clean()
+
+
+def test_autoroute_gate_disables_mutating_actions(
+    main_window_with_session: tuple[MainWindow, EditorSession],
+    qtbot: QtBot,
+) -> None:
+    window, session = main_window_with_session
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+        side="top",
+    )
+    assert session.edit_controller.execute_command(AddWireCommand(wire=wire))
+    undo = _action(window, "Undo")
+    qtbot.waitUntil(undo.isEnabled)
+
+    session.set_autoroute_active(True)
+    qtbot.waitUntil(lambda: not undo.isEnabled())
+    assert _action(window, "Save").isEnabled()
+
+    session.set_autoroute_active(False)
+    qtbot.waitUntil(undo.isEnabled)
+    session.mark_clean()
