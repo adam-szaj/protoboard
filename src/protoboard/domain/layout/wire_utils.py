@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.package.pin_mapping import (
     meta_pin_for_package_pin,
@@ -91,27 +90,9 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
       are plated-through.
 
     Result cached per (board, side) — board topology is immutable across
-    a session so the full walk only runs once.  Cache key uses Board's
-    ``_`` private dict (initialised by the dataclass) to avoid a new
-    field; entry name prefix ``_pads_side_`` distinguishes from other
-    caches.
+    a session so the full walk only runs once.
     """
-    cache_key = "_pads_side_" + side
-    cached = board._.get(cache_key)
-    if isinstance(cached, frozenset):
-        return set(cached)
-    pts: set[Point] = set()
-    for atom, center in board.atoms():
-        if isinstance(atom, PadAtom):
-            layers = atom.layers
-            if layers.plated_through or layers.has_layer(side):
-                pts.add(center)
-        elif isinstance(atom, StripAtom):
-            layers = atom.layers
-            if layers.plated_through or layers.has_layer(side):
-                pts.update(atom.hole_positions(center))
-    board._[cache_key] = frozenset(pts)
-    return pts
+    return board.pad_positions_for_side(side)
 
 
 def point_on_pads(
@@ -134,12 +115,7 @@ def board_pads_union(board: Board) -> set[Point]:
     set is mutable (callers must not modify it) but the contents stay
     stable for the board's lifetime.
     """
-    cached = board._.get("_pads_union")
-    if isinstance(cached, set):
-        return cached
-    union = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
-    board._["_pads_union"] = union
-    return union
+    return board.pad_positions_union()
 
 
 def plated_through_pads(board: Board) -> set[Point]:
@@ -147,17 +123,7 @@ def plated_through_pads(board: Board) -> set[Point]:
 
     Cached on the board (see :func:`board_pads_for_side`).
     """
-    cached = board._.get("_plated_through_pads")
-    if isinstance(cached, frozenset):
-        return set(cached)
-    pts: set[Point] = set()
-    for atom, center in board.atoms():
-        if isinstance(atom, PadAtom) and atom.layers.plated_through:
-            pts.add(center)
-        elif isinstance(atom, StripAtom) and atom.layers.plated_through:
-            pts.update(atom.hole_positions(center))
-    board._["_plated_through_pads"] = frozenset(pts)
-    return pts
+    return board.plated_through_positions()
 
 
 _PAD_BUCKET_CACHE: dict[

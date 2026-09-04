@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
@@ -93,6 +93,53 @@ class Board:
             elif not isinstance(atom, GapAtom):
                 positions.append(center)
         return positions
+
+    def pad_positions_for_side(self, side: str) -> set[Point]:
+        """Return pad positions accessible on *side*, including plated pads."""
+        cache_key = "_pads_side_" + side
+        cached = self._.get(cache_key)
+        if isinstance(cached, frozenset):
+            return set(cached)
+
+        positions = set(
+            self._iter_pad_positions(
+                lambda layers: layers.plated_through or layers.has_layer(side)
+            )
+        )
+        self._[cache_key] = frozenset(positions)
+        return positions
+
+    def pad_positions_union(self) -> set[Point]:
+        """Return the cached union of pad positions on both copper sides."""
+        cached = self._.get("_pads_union")
+        if isinstance(cached, set):
+            return cached
+
+        positions = self.pad_positions_for_side("top") | self.pad_positions_for_side(
+            "bottom"
+        )
+        self._["_pads_union"] = positions
+        return positions
+
+    def plated_through_positions(self) -> set[Point]:
+        """Return positions of every plated-through pad and strip hole."""
+        cached = self._.get("_plated_through_pads")
+        if isinstance(cached, frozenset):
+            return set(cached)
+
+        positions = set(self._iter_pad_positions(lambda layers: layers.plated_through))
+        self._["_plated_through_pads"] = frozenset(positions)
+        return positions
+
+    def _iter_pad_positions(
+        self, include: Callable[[PadLayers], bool]
+    ) -> Iterator[Point]:
+        for atom, center in self.atoms():
+            if isinstance(atom, PadAtom):
+                if include(atom.layers):
+                    yield center
+            elif isinstance(atom, StripAtom) and include(atom.layers):
+                yield from atom.hole_positions(center)
 
     @counted("Board._build_atoms_list")
     def _build_atoms_list(self) -> tuple[tuple[Box, Point], ...]:
