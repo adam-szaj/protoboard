@@ -41,7 +41,6 @@ import structlog
 
 from protoboard.controller.ports.drc import DRCIssue
 from protoboard.domain.board.board import Board
-from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.pin_mapping import package_pins_for_meta_pin
@@ -49,7 +48,7 @@ from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
-from protoboard.domain.layout.placement import component_bbox, pin_world_position
+from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.layout.wire_utils import (
     board_pads_union,
@@ -67,6 +66,7 @@ from protoboard.services.routing.astar import PathStep, find_paths, split_path_b
 from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.inline_executor import InlineExecutor
 from protoboard.services.routing.results import AutorouteResult, NetStats, PassStats
+from protoboard.services.routing.under_component import iter_under_component_pads
 from protoboard.types import NodeKey, Side
 
 if TYPE_CHECKING:
@@ -2399,23 +2399,12 @@ def _build_under_component_penalty(
         return {}
 
     result: dict[tuple[Point, str], float] = {}
-    for component in iter_placed_components(layout.placements, instances, components):
-        if component.placement.side != "top":
-            # Bottom-mounted components penalise bottom pads instead.
-            # (Rare case — skip for now, extend if needed.)
-            continue
-        bbox = component_bbox(
-            footprint_of(component.definition, component.instance),
-            component.placement,
-        )
-        # Iterate board atoms and mark those inside the bbox on the top layer.
-        for atom, pos in board.atoms():
-            if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):
-                key = (pos, "top")
-                # Take the maximum penalty if multiple components overlap.
-                existing = result.get(key, 0.0)
-                if penalty > existing:
-                    result[key] = penalty
+    for pos in iter_under_component_pads(board, layout, components, instances):
+        key = (pos, "top")
+        # Take the maximum penalty if multiple components overlap.
+        existing = result.get(key, 0.0)
+        if penalty > existing:
+            result[key] = penalty
     return result
 
 

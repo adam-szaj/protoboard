@@ -29,7 +29,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.pad_state import (
     BareWireCrossing,
     BareWireItem,
@@ -40,10 +39,7 @@ from protoboard.domain.board.pad_state import (
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import footprint_of
-from protoboard.domain.layout.placement import component_bbox
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import (
     plated_through_pads as board_plated_through_pads,
@@ -59,6 +55,7 @@ from protoboard.services.routing.astar import (
     is_at_pad,
     is_perpendicular_diagonal_crossing,
 )
+from protoboard.services.routing.under_component import iter_under_component_pads
 
 
 @dataclass
@@ -190,18 +187,7 @@ def compute_under_component_pads(
     routing through these cells on the top layer.  Bottom-mounted components
     are skipped (mirror of the autorouter's behaviour).
     """
-    out: set[Point] = set()
-    for component in iter_placed_components(layout.placements, instances, components):
-        if component.placement.side != "top":
-            continue
-        bbox = component_bbox(
-            footprint_of(component.definition, component.instance),
-            component.placement,
-        )
-        for atom, pos in board.atoms():
-            if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):
-                out.add(pos)
-    return out
+    return set(iter_under_component_pads(board, layout, components, instances))
 
 
 # ---------------------------------------------------------------------------
