@@ -40,9 +40,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from protoboard.domain.layout.group_ownership import (
-    endpoint_pin_component as _endpoint_pin_component,
-)
-from protoboard.domain.layout.group_ownership import (
+    endpoint_pin_component,
     net_is_internal_to_group,
 )
 from protoboard.domain.layout.knot import JointKnot
@@ -151,8 +149,8 @@ def classify_wires_for_drag(
             external.add(wire.id)
             continue
 
-        a_comp = _endpoint_pin_component(ka)
-        b_comp = _endpoint_pin_component(kb)
+        a_comp = endpoint_pin_component(ka)
+        b_comp = endpoint_pin_component(kb)
 
         a_in = a_comp is not None and a_comp in drag_set_members
         b_in = b_comp is not None and b_comp in drag_set_members

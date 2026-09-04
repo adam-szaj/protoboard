@@ -24,9 +24,7 @@ from protoboard.domain.layout.pad_conflict import (
     PadConflict,
     find_conflicts,
     find_wire_conflicts,
-)
-from protoboard.domain.layout.pad_conflict import (
-    footprint_of as _footprint_of,
+    footprint_of,
 )
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -147,7 +145,7 @@ def check_and_resolve(
     # and pin cloud use the wrong pin spacing and the overlap/coincidence test is
     # wrong (e.g. an SMD-0805 part checked against axial 3.2-hole pitch).
     incoming_instance = instance or session.instances.get(instance_id)
-    in_footprint = _footprint_of(defn, incoming_instance)
+    in_footprint = footprint_of(defn, incoming_instance)
     incoming_bbox = component_bbox(in_footprint, placement, defn.component_class)
     _EPS = 1e-4
     for other in iter_placed_components(
@@ -157,7 +155,7 @@ def check_and_resolve(
     ):
         if other.placement.component_id == instance_id:
             continue
-        other_footprint = _footprint_of(other.definition, other.instance)
+        other_footprint = footprint_of(other.definition, other.instance)
         other_bbox = component_bbox(
             other_footprint,
             other.placement,
