@@ -5,13 +5,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 
+from protoboard.controller.app_settings import AppSettings
 from protoboard.domain.commands.base import ComponentState
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
+from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
-from protoboard.gui.tools.gui_tools import PlaceTool
+from protoboard.gui.tools.gui_tools import PlaceTool, SelectTool
 from protoboard.gui.tools.place_preview import QtPlacePreview
 from tests.gui.input_helpers import key_inp, pointer
 
@@ -33,6 +36,32 @@ def _key_r(tool: PlaceTool) -> None:
 
 
 class TestPlaceToolPlacement:
+    def test_cancel_action_is_handled_before_first_placement(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(PlaceTool("R"))
+        tool = board_view.active_tool
+        assert isinstance(tool, PlaceTool)
+
+        assert tool.on_key(key_inp(Qt.Key.Key_Escape)) is True
+        assert len(session.layout.placements) == 0
+
+    def test_escape_before_first_placement_returns_to_select(
+        self, session: EditorSession, qtbot
+    ) -> None:
+        window = MainWindow(session, AppSettings())
+        qtbot.addWidget(window)
+        window._board_view.set_tool(PlaceTool("R"))
+
+        event = QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Escape,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        window._board_view.keyPressEvent(event)
+
+        assert isinstance(window._board_view.active_tool, SelectTool)
+
     def test_place_adds_to_layout(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

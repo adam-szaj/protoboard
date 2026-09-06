@@ -650,8 +650,7 @@ class TestPlaceConfirm:
 
 
 class TestPlaceCancelBeforeFirstElement:
-    """Cancel before anything is placed — the behaviour that lives in the
-    tool host (Esc always escapes to Select) rather than in PlaceTool."""
+    """Cancel before anything is placed is handled without mutating layout."""
 
     def test_escape_before_placing_escapes_to_select_and_places_nothing(
         self, session: EditorSession
@@ -667,19 +666,15 @@ class TestPlaceCancelBeforeFirstElement:
         assert len(session.layout.placements) == 0
         assert not session.stack.can_undo()
 
-    def test_place_tool_escape_in_anchor_is_a_noop_returning_false(
+    def test_place_tool_escape_in_anchor_is_handled_without_mutation(
         self, session: EditorSession
     ) -> None:
-        # PlaceTool itself does not own the Esc-in-ANCHOR cancel: on_key
-        # returns False (unconsumed) and mutates nothing.  The host is what
-        # turns that into escape-to-Select (asserted above).
         view = _headless(session)
         view.tools.set_tool(PlaceTool("R"))
         tool = view.active_tool
         assert isinstance(tool, PlaceTool)
         consumed = tool.on_key(key_inp(Qt.Key.Key_Escape))
-        assert consumed is False
-        assert tool._phase == "ancor"  # unchanged (note: enum value spelling)
+        assert consumed is True
         assert len(session.layout.placements) == 0
 
     def test_escape_with_no_active_tool_still_escapes(

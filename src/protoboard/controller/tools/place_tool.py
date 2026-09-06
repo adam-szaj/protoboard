@@ -372,7 +372,7 @@ class PlaceTool(ControllerTool):
 
     @traced()
     def _cancel_cmd(self) -> bool:
-        """``[Esc]``: cancel the floating placement, or back out of a pin drag."""
+        """``[Esc]``: cancel the pending placement or leave the tool."""
         if self._is_phase(PhaseEnum.FLOATING):
             self._cancel_floating_place()
             self._rebuild_ghost()
@@ -382,7 +382,10 @@ class PlaceTool(ControllerTool):
             self._reset_phase()
             self._rebuild_ghost()
             return True
-        return False
+        # In ANCHOR there is no pending placement to revert, but the cancel
+        # action is still handled so action dispatchers can leave PlaceTool
+        # before the first component is placed.
+        return True
 
     @traced()
     def _key_flip_pin_pair(self) -> bool:
