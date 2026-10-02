@@ -38,6 +38,7 @@ from protoboard.domain.commands.net_cmds import (
     UnassignPinCommand,
 )
 from protoboard.domain.schematic.net import PinRef
+from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.rendering.net_color import build_net_color_map
 
 if TYPE_CHECKING:
@@ -151,6 +152,7 @@ class NetsEditorPanel(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
+    @traced()
     def sync_selection(
         self,
         comp_ids: object,
@@ -197,6 +199,7 @@ class NetsEditorPanel(QWidget):
         finally:
             self._syncing = False
 
+    @traced()
     def _on_net_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         if self._syncing:
             return
@@ -209,6 +212,7 @@ class NetsEditorPanel(QWidget):
             except ValueError:
                 pass
 
+    @traced()
     def _on_pin_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         """Panel -> board: a Component-Pin row click selects the pin on the board.
 
@@ -249,12 +253,14 @@ class NetsEditorPanel(QWidget):
         self._on_autoroute_active(session.autoroute_active)
         self._rebuild()
 
+    @traced()
     def _on_session_selection(
         self, comp_ids: object, wire_ids: object, net_id: object
     ) -> None:
         """Board -> panel feed (this panel is not a TreePanelMixin)."""
         self.sync_selection(comp_ids, wire_ids, net_id)
 
+    @traced()
     def _on_autoroute_active(self, active: bool) -> None:
         """Disable structural net edits while autoroute is running.
 
@@ -272,6 +278,7 @@ class NetsEditorPanel(QWidget):
     # Rebuild helpers
     # ------------------------------------------------------------------
 
+    @traced()
     def _rebuild(self) -> None:
         selected_net_id = self._current_net_id()
         self._rebuild_nets()
@@ -280,6 +287,7 @@ class NetsEditorPanel(QWidget):
         if selected_net_id is not None:
             self._select_net_row(selected_net_id)
 
+    @traced()
     def _rebuild_nets(self) -> None:
         self._net_tree.clear()
         if self._session is None:
@@ -294,6 +302,7 @@ class NetsEditorPanel(QWidget):
             item = self._make_net_tree_item(net, eff_hex)
             self._net_tree.addTopLevelItem(item)
 
+    @traced()
     def _make_net_tree_item(self, net: Net, eff_hex: str | None) -> QTreeWidgetItem:
         """Build the styled net row from its effective colour.
 
@@ -353,6 +362,7 @@ class NetsEditorPanel(QWidget):
                 parent_item.addChild(pin_item)
             parent_item.setExpanded(True)
 
+    @traced()
     def _select_net_row(self, net_id: uuid.UUID) -> None:
         for i in range(self._net_tree.topLevelItemCount()):
             item = self._net_tree.topLevelItem(i)
@@ -364,6 +374,7 @@ class NetsEditorPanel(QWidget):
     # Current selection helpers
     # ------------------------------------------------------------------
 
+    @traced()
     def _current_net_id(self) -> uuid.UUID | None:
         item = self._net_tree.currentItem()
         if item is None:
@@ -376,6 +387,7 @@ class NetsEditorPanel(QWidget):
         except ValueError:
             return None
 
+    @traced()
     def _current_pin_ref(self) -> tuple[uuid.UUID, int] | None:
         item = self._pin_tree.currentItem()
         if item is None:
@@ -402,6 +414,7 @@ class NetsEditorPanel(QWidget):
     # Net actions
     # ------------------------------------------------------------------
 
+    @traced()
     def _on_add_net(self) -> None:
         if self._session is None:
             return
@@ -507,6 +520,7 @@ class NetsEditorPanel(QWidget):
         self._rebuild()
         self.nets_changed.emit()
 
+    @traced()
     def _on_toggle_global(self) -> None:
         net_id = self._current_net_id()
         if net_id is None or self._session is None:
@@ -519,6 +533,7 @@ class NetsEditorPanel(QWidget):
         self._rebuild()
         self.nets_changed.emit()
 
+    @traced()
     def _on_net_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         if column == _NET_COL_COLOR:
             self._net_tree.setCurrentItem(item)
@@ -527,6 +542,7 @@ class NetsEditorPanel(QWidget):
             self._net_tree.setCurrentItem(item)
             self._on_toggle_global()
 
+    @traced()
     def _on_net_context_menu(self, pos: object) -> None:
         from PySide6.QtCore import QPoint
 
@@ -715,6 +731,7 @@ class _AssignNetDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+    @traced()
     def _on_accept(self) -> None:
         idx = self._combo.currentIndex()
         if 0 <= idx < len(self._nets):
