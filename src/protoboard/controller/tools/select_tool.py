@@ -3546,7 +3546,9 @@ class SelectTool(ControllerTool):
             mode = session.routing_settings.simplify_mode
 
         wid_list = list(wire_ids)
-        simplify_worker = prepare_simplify_worker(session, wid_list, mode)
+        simplify_worker = prepare_simplify_worker(
+            session, wid_list, mode, simplify_wire=session.edit_controller.simplify_wire
+        )
 
         worker_out = cast(
             "list[SimplifyChange] | None",
