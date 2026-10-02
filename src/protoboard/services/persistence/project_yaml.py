@@ -588,54 +588,10 @@ def _migrate_groups_v2_to_v3(
     )
 
 
-def load_project(
-    directory: Path,
-) -> tuple[
-    Board,
-    Layout,
-    Schematic,
-    dict[uuid.UUID, ComponentInstance],
-    RoutingSettings,
-    LayerOverrides,
-    AxisLabelSettings,
-]:
-    _log.info("project.loading", path=str(directory))
-    try:
-        board = board_from_yaml((directory / "board.yaml").read_text())
-        layout, legacy_baked_groups = _layout_from_yaml(
-            (directory / "layout.yaml").read_text()
-        )
-        schematic = _schematic_from_yaml((directory / "schematic.yaml").read_text())
-        instances_path = directory / "instances.yaml"
-        if instances_path.exists():
-            instances = _instances_from_yaml(instances_path.read_text())
-        else:
-            instances = {}
-        routing_path = directory / "routing.yaml"
-        if routing_path.exists():
-            routing_settings = _routing_settings_from_yaml(routing_path.read_text())
-        else:
-            routing_settings = RoutingSettings()
-        layers_path = directory / "layers.yaml"
-        if layers_path.exists():
-            layer_overrides = _layer_overrides_from_yaml(layers_path.read_text())
-        else:
-            layer_overrides = LayerOverrides()
-        axis_path = directory / "axis_labels.yaml"
-        if axis_path.exists():
-            axis_label_settings = _axis_labels_from_yaml(axis_path.read_text())
-        else:
-            axis_label_settings = AxisLabelSettings()
-    except FileNotFoundError as exc:
-        _log.warning("project.load_failed", path=str(directory), error=str(exc))
-        raise SerializationError(f"Missing project file: {exc}") from exc
-
-    # Drop components whose definition is unavailable (e.g. its parametric
-    # package failed to build and the library skipped it). The project still
-    # loads; the user re-places the part with a fresh definition. Done BEFORE
-    # the migration passes so they never operate on dangling instances.
-    _drop_dangling_instances(instances, layout, _library_for_migration)
-
+def _bind_loaded_instances(
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> None:
+    """Bind definitions and package families before footprint-dependent repairs."""
     # Bind each loaded instance to its definition + the package catalogue, so
     # every downstream migration pass (v1→v2 pin index, stale-path snap) and
     # the returned instances can resolve their chosen-variant footprint via the
@@ -655,13 +611,12 @@ def load_project(
                     _mig_families.update(_contributed)
                 instances[_cid] = _inst.bind(_defn, _mig_families)
 
-    # Convert v2 groups (baked rotation flattened into member placements) to the
-    # v3 scene-graph frame (group carries a transform, members are group-local).
-    # Runs BEFORE every wire/normalize pass below, which resolve pin world
-    # positions and must see the composed (world) placements the seam now
-    # reconstructs.  No-op for v3 files and for groups that were never rotated.
-    _migrate_groups_v2_to_v3(layout, legacy_baked_groups)
 
+def _enrich_loaded_wire_pad_nodes(
+    board: Board,
+    layout: Layout,
+) -> None:
+    """Add pad-position vertices missing from legacy insulated wires."""
     # Enrich every insulated wire with pad-position vertices wherever its
     # path geometrically crosses a board pad.  Legacy projects saved before
     # this invariant got pad-node enrichment had wires without "handles" at
@@ -682,6 +637,13 @@ def load_project(
                 color=_w.color,
             )
 
+
+def _backfill_loaded_wire_knots(
+    board: Board,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> None:
+    """Resolve legacy wire endpoints to pins, or free joints without a library."""
     # Legacy projects (no `knots:` / no `a_knot_id` per wire) get their
     # endpoint knots backfilled now using the standard wire migration.  The
     # session will re-wire its own pin resolver later; this one is enough
@@ -734,6 +696,12 @@ def load_project(
             for w in list(layout.wires):
                 layout.ensure_wire_knots(w)
 
+
+def _normalize_loaded_layout(
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> NormalizeReport:
+    """Snap legacy fractional offsets and log the normalization report."""
     # Snap legacy fractional offsets (e.g. y=3.503 → 3.5) to the half-grid so
     # the connectivity graph indexes pins and matching board pads as the same
     # node.  Corrections > ±0.5 from the nearest grid intersection are left
@@ -764,6 +732,16 @@ def load_project(
             placements=len(report.placements),
             wires=len(report.wires),
         )
+    return report
+
+
+def _canonicalize_loaded_wires(
+    board: Board,
+    layout: Layout,
+    schematic: Schematic,
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> None:
+    """Split and merge wire endpoints until stable, tolerating stale layouts."""
     # Canonicalise wires: legacy projects (and projects saved before the
     # AddWireCommand endpoint-merge fix) may contain pairs of separate
     # ``Wire`` instances meeting end-to-end on an off-pin pad — the
@@ -839,6 +817,11 @@ def load_project(
             ),
         )
 
+
+def _prune_duplicate_loaded_wires(
+    layout: Layout,
+) -> None:
+    """Keep the first conductor for each connection and detach dropped wires."""
     # Prune duplicate-connection wires.  Two wires sharing the same
     # unordered ``{a_knot_id, b_knot_id}`` + side + insulated represent
     # the same physical conductor — legacy projects accumulated these
@@ -908,6 +891,12 @@ def load_project(
                 first_examples=[{"dropped_id": d[0][:8]} for d in dropped[:10]],
             )
 
+
+def _snap_stale_loaded_wire_paths(
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> None:
+    """Realign stale pin-anchored wire paths using the chosen footprint variant."""
     # Snap stale PinKnot-anchored wire endpoints back to their pin's
     # resolved world position.  A previous session's partial macro
     # commit (Move applied but ReplaceWireFragments failed in the same
@@ -981,6 +970,76 @@ def load_project(
                 n_snapped=len(snapped_endpoints),
                 examples=snapped_endpoints[:10],
             )
+
+
+def load_project(
+    directory: Path,
+) -> tuple[
+    Board,
+    Layout,
+    Schematic,
+    dict[uuid.UUID, ComponentInstance],
+    RoutingSettings,
+    LayerOverrides,
+    AxisLabelSettings,
+]:
+    _log.info("project.loading", path=str(directory))
+    try:
+        board = board_from_yaml((directory / "board.yaml").read_text())
+        layout, legacy_baked_groups = _layout_from_yaml(
+            (directory / "layout.yaml").read_text()
+        )
+        schematic = _schematic_from_yaml((directory / "schematic.yaml").read_text())
+        instances_path = directory / "instances.yaml"
+        if instances_path.exists():
+            instances = _instances_from_yaml(instances_path.read_text())
+        else:
+            instances = {}
+        routing_path = directory / "routing.yaml"
+        if routing_path.exists():
+            routing_settings = _routing_settings_from_yaml(routing_path.read_text())
+        else:
+            routing_settings = RoutingSettings()
+        layers_path = directory / "layers.yaml"
+        if layers_path.exists():
+            layer_overrides = _layer_overrides_from_yaml(layers_path.read_text())
+        else:
+            layer_overrides = LayerOverrides()
+        axis_path = directory / "axis_labels.yaml"
+        if axis_path.exists():
+            axis_label_settings = _axis_labels_from_yaml(axis_path.read_text())
+        else:
+            axis_label_settings = AxisLabelSettings()
+    except FileNotFoundError as exc:
+        _log.warning("project.load_failed", path=str(directory), error=str(exc))
+        raise SerializationError(f"Missing project file: {exc}") from exc
+
+    # Drop components whose definition is unavailable (e.g. its parametric
+    # package failed to build and the library skipped it). The project still
+    # loads; the user re-places the part with a fresh definition. Done BEFORE
+    # the migration passes so they never operate on dangling instances.
+    _drop_dangling_instances(instances, layout, _library_for_migration)
+
+    _bind_loaded_instances(instances)
+
+    # Convert v2 groups (baked rotation flattened into member placements) to the
+    # v3 scene-graph frame (group carries a transform, members are group-local).
+    # Runs BEFORE every wire/normalize pass below, which resolve pin world
+    # positions and must see the composed (world) placements the seam now
+    # reconstructs.  No-op for v3 files and for groups that were never rotated.
+    _migrate_groups_v2_to_v3(layout, legacy_baked_groups)
+
+    _enrich_loaded_wire_pad_nodes(board, layout)
+
+    _backfill_loaded_wire_knots(board, layout, instances)
+
+    report = _normalize_loaded_layout(layout, instances)
+
+    _canonicalize_loaded_wires(board, layout, schematic, instances)
+
+    _prune_duplicate_loaded_wires(layout)
+
+    _snap_stale_loaded_wire_paths(layout, instances)
 
     _log.info(
         "project.loaded",
