@@ -18,13 +18,13 @@ from protoboard.services.routing.optimizer import (
     WireOptimizer,
     registry,
 )
-from protoboard.services.routing.postprocess import (
-    _candidate_pins_alien,
-    _candidate_safe_against_others,
-    _candidate_safe_via_pad_index,
-    _parity_ok_for_bare,
-    simplify_wires_generic,
+from protoboard.services.routing.path_safety import (
+    candidate_pins_alien,
+    candidate_safe_against_others,
+    candidate_safe_via_pad_index,
+    parity_ok_for_bare,
 )
+from protoboard.services.routing.postprocess import simplify_wires_generic
 from protoboard.services.routing.results import AutorouteResult
 
 if TYPE_CHECKING:
@@ -128,7 +128,7 @@ def _build_pad_context(
         pad_to_net.setdefault(pos, nid)
 
     # pin_net_map: only pads from named (non-floating) nets — used by
-    # ``_candidate_pins_alien``.
+    # ``candidate_pins_alien``.
     pin_net_map: dict[Point, uuid.UUID] = {
         pos: nid for pos, nid in pad_to_net.items() if nid != _FLOATING
     }
@@ -245,13 +245,13 @@ class InsulatedToBareOptimizer:
 
     * Per-vertex authorisation via ``PadIndex.can_route_through(...,
       wire_type="bare")``.
-    * Mid-segment pad scan via ``_candidate_safe_via_pad_index`` with
+    * Mid-segment pad scan via ``candidate_safe_via_pad_index`` with
       ``wire_is_insulated=False`` — covers the case where the path
       skips a pad that the bare conductor would physically rest on.
     * Bare×bare crossings against every other wire in the result via
-      ``_candidate_safe_against_others``.
+      ``candidate_safe_against_others``.
     * (When the project routes in bare-diagonal mode) the parity rule
-      via ``_parity_ok_for_bare``.
+      via ``parity_ok_for_bare``.
 
     Strategy: single greedy pass.  Wires are sorted by ascending path
     length; short wires usually flip safely first, which can unlock
@@ -283,7 +283,7 @@ class InsulatedToBareOptimizer:
         ctx = _build_pad_context(request, result.wires)
 
         # Build the wire-id → net-id map needed by
-        # ``_candidate_safe_against_others``.  A wire's net is the net of
+        # ``candidate_safe_against_others``.  A wire's net is the net of
         # the pin sitting on either of its endpoints; lookup via
         # ``pin_net_map`` (keyed by Point).
         wire_to_net: dict[uuid.UUID, uuid.UUID | None] = {}
@@ -331,13 +331,13 @@ class InsulatedToBareOptimizer:
             # 1. Bare-diagonal parity rule.
             if bare_diagonal_mode:
                 src_parity = (int(cur.path[0].x // 1) + int(cur.path[0].y // 1)) % 2
-                if not _parity_ok_for_bare(candidate_segs, src_parity):
+                if not parity_ok_for_bare(candidate_segs, src_parity):
                     continue
 
             # 2. Alien-pin pass-through check (bare wires can't run over
             #    a pin of another net even if the path doesn't terminate
             #    there).
-            if _candidate_pins_alien(
+            if candidate_pins_alien(
                 candidate_segs,
                 candidate_vertices,
                 ctx.pin_net_map,
@@ -347,7 +347,7 @@ class InsulatedToBareOptimizer:
                 continue
 
             # 3. PadIndex-authorised vertex + mid-segment pad scan.
-            if not _candidate_safe_via_pad_index(
+            if not candidate_safe_via_pad_index(
                 candidate_vertices,
                 original_endpoints,
                 ctx.pad_index,
@@ -361,7 +361,7 @@ class InsulatedToBareOptimizer:
             #    flipped in this pass).
             other_wires = [w for w in working if w.id != cur.id]
             other_nets = {w.id: wire_to_net.get(w.id) for w in other_wires}
-            if not _candidate_safe_against_others(
+            if not candidate_safe_against_others(
                 candidate_segs,
                 other_wires,
                 cur.id,
