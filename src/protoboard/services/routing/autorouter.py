@@ -30,7 +30,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     as_completed,
 )
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -683,144 +683,39 @@ def autoroute(
     # explores different net orderings. Run them in parallel using processes
     # (bypasses GIL) and keep the result with fewest unrouted nets.
     if max_optimize_iterations > 0:
-        _pass_args = (
-            sorted_nets,
-            pin_positions,
-            all_pin_positions,
-            schematic,
-            board,
-            layout,
-            user_wires,
-            cost_model,
-            max_rip_up_passes,
-            side,
-            insulated,
-            wire_mode,
-            max_detour_factor,
-            plated_through_pads,
-            under_component_penalty,
-            failed_net_ids,
-            components,
-            instances,
-            preferred_side,
-            simplify_after_each_wire,
-            simplify_mode,
+        optimization_pass = _OptimizationPass(
+            sorted_nets=sorted_nets,
+            pin_positions=pin_positions,
+            all_pin_positions=all_pin_positions,
+            schematic=schematic,
+            board=board,
+            layout=layout,
+            user_wires=user_wires,
+            cost_model=cost_model,
+            max_rip_up_passes=max_rip_up_passes,
+            side=side,
+            insulated=insulated,
+            wire_mode=wire_mode,
+            max_detour_factor=max_detour_factor,
+            plated_through_pads=plated_through_pads,
+            under_component_penalty=under_component_penalty,
+            failed_net_ids=failed_net_ids,
+            components=components,
+            instances=instances,
+            preferred_side=preferred_side,
+            simplify_after_each_wire=simplify_after_each_wire,
+            simplify_mode=simplify_mode,
         )
-        n_parallel = min(max_optimize_iterations, _CPU_COUNT)
-        _log.info(
-            "autoroute.optimize.parallel",
-            passes=max_optimize_iterations,
-            workers=n_parallel,
+        current_wires, unrouted_names = _run_optimization_passes(
+            optimization_pass,
+            current_wires,
+            unrouted_names,
+            result.pass_stats,
+            max_optimize_iterations,
+            progress_callback=progress_callback,
+            optimize_progress_callback=optimize_progress_callback,
+            cancel_flag=cancel_flag,
         )
-
-        best_wires = current_wires
-        best_unrouted_count = len(unrouted_names)
-
-        try:
-            _log.info(
-                "autoroute.optimize.pool_start",
-                n_parallel=n_parallel,
-                iterations=max_optimize_iterations,
-            )
-            pool = ProcessPoolExecutor(max_workers=n_parallel)
-            try:
-                _log.info("autoroute.optimize.pool_created")
-                futures = [
-                    pool.submit(_run_opt_pass_in_process, _pass_args + (seed,))
-                    for seed in range(max_optimize_iterations)
-                ]
-                _log.info("autoroute.optimize.futures_submitted", count=len(futures))
-                n_futures = len(futures)
-                if optimize_progress_callback is not None:
-                    optimize_progress_callback(0, n_futures)
-                for done_count, fut in enumerate(as_completed(futures), start=1):
-                    if cancel_flag is not None and cancel_flag.is_set():
-                        raise AutorouteCancelled
-                    if optimize_progress_callback is not None:
-                        optimize_progress_callback(done_count, n_futures)
-                    try:
-                        opt_wires, opt_unrouted, opt_ps = fut.result()
-                        result.pass_stats.append(opt_ps)
-                        _log.info(
-                            "autoroute.optimize.future_done",
-                            wires=len(opt_wires),
-                            unrouted=len(opt_unrouted),
-                        )
-                    except Exception as _fe:
-                        _log.warning("autoroute.optimize.future_error", error=str(_fe))
-                        continue
-                    if len(opt_unrouted) < best_unrouted_count or (
-                        len(opt_unrouted) == best_unrouted_count
-                        and len(opt_wires) >= len(best_wires)
-                    ):
-                        best_wires = opt_wires
-                        best_unrouted_count = len(opt_unrouted)
-                        unrouted_names = opt_unrouted
-                _log.info(
-                    "autoroute.optimize.pool_done",
-                    best_wires=len(best_wires),
-                    best_unrouted=best_unrouted_count,
-                )
-            finally:
-                # Always tear the pool down without blocking on running tasks.
-                # On cancel we additionally SIGTERM the worker processes so
-                # they don't keep burning CPU after the user clicked Cancel.
-                _shutdown_pool_fast(pool, cancel_flag)
-        except AutorouteCancelled:
-            # User cancellation is intentional — propagate without falling back.
-            raise
-        except Exception as e:
-            # ProcessPoolExecutor may fail in some environments (e.g. no fork,
-            # pickle error). Catch ALL exceptions and fall back to sequential.
-            _log.warning(
-                "autoroute.optimize.fallback_sequential",
-                exc_type=type(e).__name__,
-                reason=str(e),
-            )
-            prev_fp = _wire_fingerprint(current_wires)
-            for opt_iter in range(max_optimize_iterations):
-                if cancel_flag is not None and cancel_flag.is_set():
-                    raise AutorouteCancelled
-                next_wires, next_unrouted, _opt_ps = _run_one_pass(
-                    sorted_nets=sorted_nets,
-                    pin_positions=pin_positions,
-                    all_pin_positions=all_pin_positions,
-                    schematic=schematic,
-                    board=board,
-                    layout=layout,
-                    user_wires=user_wires,
-                    cost_model=cost_model,
-                    max_rip_up_passes=max_rip_up_passes,
-                    side=side,
-                    insulated=insulated,
-                    wire_mode=wire_mode,
-                    max_detour_factor=max_detour_factor,
-                    plated_through_pads=plated_through_pads,
-                    under_component_penalty=under_component_penalty,
-                    skip_net_ids=failed_net_ids,
-                    components=components,
-                    instances=instances,
-                    preferred_side=preferred_side,
-                    progress_callback=progress_callback,
-                    cancel_flag=cancel_flag,
-                    pass_num=opt_iter + 1,
-                    n_nets=n_nets,
-                    simplify_after_each_wire=simplify_after_each_wire,
-                    simplify_mode=simplify_mode,
-                )
-                result.pass_stats.append(_opt_ps)
-                new_fp = _wire_fingerprint(next_wires)
-                if len(next_unrouted) < best_unrouted_count or (
-                    len(next_unrouted) == best_unrouted_count and new_fp != prev_fp
-                ):
-                    best_wires = next_wires
-                    best_unrouted_count = len(next_unrouted)
-                    unrouted_names = next_unrouted
-                if new_fp == prev_fp:
-                    break
-                prev_fp = new_fp
-
-        current_wires = best_wires
 
     # Post-process: shorten wires via the SimplifyOptimizer.  Two modes:
     # 1. Legacy bare-diagonal single pass (kept for backward compat).
@@ -951,6 +846,186 @@ def autoroute(
     return result
 
 
+@dataclass(frozen=True)
+class _OptimizationPass:
+    """Shared trial inputs, without GUI callbacks or an unpicklable cancel flag."""
+
+    sorted_nets: list[Net]
+    pin_positions: dict[PinRef, tuple[Point, str]]
+    all_pin_positions: dict[tuple[Point, str], uuid.UUID]
+    schematic: Schematic
+    board: Board
+    layout: Layout
+    user_wires: list[Wire]
+    cost_model: RoutingCostModel
+    max_rip_up_passes: int
+    side: Side
+    insulated: bool
+    wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"]
+    max_detour_factor: float
+    plated_through_pads: set[Point]
+    under_component_penalty: dict[tuple[Point, str], float]
+    failed_net_ids: set[uuid.UUID]
+    components: dict[str, ComponentDefinition]
+    instances: dict[uuid.UUID, ComponentInstance]
+    preferred_side: Side
+    simplify_after_each_wire: bool
+    simplify_mode: SimplifyMode | None
+
+    def run(
+        self,
+        *,
+        seed_offset: int | None = None,
+        progress_callback: Callable[[int, str, int], None] | None = None,
+        cancel_flag: threading.Event | None = None,
+        pass_num: int = 0,
+        n_nets: int = 0,
+    ) -> tuple[list[Wire], list[str], PassStats]:
+        nets = self.sorted_nets
+        if seed_offset is not None:
+            import random
+
+            # Process trials explore other orderings without modifying inputs.
+            nets = list(nets)
+            if seed_offset > 0:
+                random.Random(seed_offset).shuffle(nets)
+        return _run_one_pass(
+            sorted_nets=nets,
+            pin_positions=self.pin_positions,
+            all_pin_positions=self.all_pin_positions,
+            schematic=self.schematic,
+            board=self.board,
+            layout=self.layout,
+            user_wires=self.user_wires,
+            cost_model=self.cost_model,
+            max_rip_up_passes=self.max_rip_up_passes,
+            side=self.side,
+            insulated=self.insulated,
+            wire_mode=self.wire_mode,
+            max_detour_factor=self.max_detour_factor,
+            plated_through_pads=self.plated_through_pads,
+            under_component_penalty=self.under_component_penalty,
+            skip_net_ids=self.failed_net_ids,
+            components=self.components,
+            instances=self.instances,
+            preferred_side=self.preferred_side,
+            progress_callback=progress_callback,
+            cancel_flag=cancel_flag,
+            pass_num=pass_num,
+            n_nets=n_nets,
+            simplify_after_each_wire=self.simplify_after_each_wire,
+            simplify_mode=self.simplify_mode,
+        )
+
+
+def _run_optimization_passes(
+    inputs: _OptimizationPass,
+    current_wires: list[Wire],
+    unrouted_names: list[str],
+    pass_stats: list[PassStats],
+    max_iterations: int,
+    *,
+    progress_callback: Callable[[int, str, int], None] | None,
+    optimize_progress_callback: Callable[[int, int], None] | None,
+    cancel_flag: threading.Event | None,
+) -> tuple[list[Wire], list[str]]:
+    """Choose among independent trials, falling back if the pool is unavailable."""
+    n_parallel = min(max_iterations, _CPU_COUNT)
+    _log.info(
+        "autoroute.optimize.parallel",
+        passes=max_iterations,
+        workers=n_parallel,
+    )
+
+    best_wires = current_wires
+    best_unrouted_count = len(unrouted_names)
+
+    try:
+        _log.info(
+            "autoroute.optimize.pool_start",
+            n_parallel=n_parallel,
+            iterations=max_iterations,
+        )
+        pool = ProcessPoolExecutor(max_workers=n_parallel)
+        try:
+            _log.info("autoroute.optimize.pool_created")
+            futures = [
+                pool.submit(_run_opt_pass_in_process, (inputs, seed))
+                for seed in range(max_iterations)
+            ]
+            _log.info("autoroute.optimize.futures_submitted", count=len(futures))
+            n_futures = len(futures)
+            if optimize_progress_callback is not None:
+                optimize_progress_callback(0, n_futures)
+            for done_count, fut in enumerate(as_completed(futures), start=1):
+                if cancel_flag is not None and cancel_flag.is_set():
+                    raise AutorouteCancelled
+                if optimize_progress_callback is not None:
+                    optimize_progress_callback(done_count, n_futures)
+                try:
+                    opt_wires, opt_unrouted, opt_ps = fut.result()
+                    pass_stats.append(opt_ps)
+                    _log.info(
+                        "autoroute.optimize.future_done",
+                        wires=len(opt_wires),
+                        unrouted=len(opt_unrouted),
+                    )
+                except Exception as _fe:
+                    _log.warning("autoroute.optimize.future_error", error=str(_fe))
+                    continue
+                if len(opt_unrouted) < best_unrouted_count or (
+                    len(opt_unrouted) == best_unrouted_count
+                    and len(opt_wires) >= len(best_wires)
+                ):
+                    best_wires = opt_wires
+                    best_unrouted_count = len(opt_unrouted)
+                    unrouted_names = opt_unrouted
+            _log.info(
+                "autoroute.optimize.pool_done",
+                best_wires=len(best_wires),
+                best_unrouted=best_unrouted_count,
+            )
+        finally:
+            # Always tear the pool down without blocking on running tasks.
+            # On cancel we additionally SIGTERM the worker processes so
+            # they don't keep burning CPU after the user clicked Cancel.
+            _shutdown_pool_fast(pool, cancel_flag)
+    except AutorouteCancelled:
+        # User cancellation is intentional — propagate without falling back.
+        raise
+    except Exception as e:
+        # ProcessPoolExecutor may fail in some environments (e.g. no fork,
+        # pickle error). Catch ALL exceptions and fall back to sequential.
+        _log.warning(
+            "autoroute.optimize.fallback_sequential",
+            exc_type=type(e).__name__,
+            reason=str(e),
+        )
+        prev_fp = _wire_fingerprint(current_wires)
+        for opt_iter in range(max_iterations):
+            if cancel_flag is not None and cancel_flag.is_set():
+                raise AutorouteCancelled
+            next_wires, next_unrouted, _opt_ps = inputs.run(
+                progress_callback=progress_callback,
+                cancel_flag=cancel_flag,
+                pass_num=opt_iter + 1,
+                n_nets=len(inputs.sorted_nets),
+            )
+            pass_stats.append(_opt_ps)
+            new_fp = _wire_fingerprint(next_wires)
+            if len(next_unrouted) < best_unrouted_count or (
+                len(next_unrouted) == best_unrouted_count and new_fp != prev_fp
+            ):
+                best_wires = next_wires
+                best_unrouted_count = len(next_unrouted)
+                unrouted_names = next_unrouted
+            if new_fp == prev_fp:
+                break
+            prev_fp = new_fp
+
+    return best_wires, unrouted_names
+
+
 # ---------------------------------------------------------------------------
 # Process-pool helpers (module-level so pickle works)
 # ---------------------------------------------------------------------------
@@ -995,7 +1070,9 @@ def _shutdown_pool_fast(
     _log.info("autoroute.optimize.workers_terminated", count=len(workers))
 
 
-def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str], PassStats]:  # type: ignore[type-arg]
+def _run_opt_pass_in_process(
+    args: tuple[_OptimizationPass, int],
+) -> tuple[list[Wire], list[str], PassStats]:
     """Top-level wrapper for ProcessPoolExecutor — one optimization pass."""
     import os as _os2
     import threading as _th
@@ -1007,61 +1084,8 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str], PassSt
         is_main=_th.current_thread() is _th.main_thread(),
     )
 
-    (
-        sorted_nets,
-        pin_positions,
-        all_pin_positions,
-        schematic,
-        board,
-        layout,
-        user_wires,
-        cost_model,
-        max_rip_up_passes,
-        side,
-        insulated,
-        wire_mode,
-        max_detour_factor,
-        plated_through_pads,
-        under_component_penalty,
-        failed_net_ids,
-        components,
-        instances,
-        preferred_side,
-        simplify_after_each_wire,
-        simplify_mode,
-        seed_offset,
-    ) = args
-
-    # Shuffle net order by seed_offset to explore different routing strategies.
-    import random as _rnd
-
-    nets = list(sorted_nets)
-    if seed_offset > 0:
-        _rnd.Random(seed_offset).shuffle(nets)
-
-    return _run_one_pass(
-        sorted_nets=nets,
-        pin_positions=pin_positions,
-        all_pin_positions=all_pin_positions,
-        schematic=schematic,
-        board=board,
-        layout=layout,
-        user_wires=user_wires,
-        cost_model=cost_model,
-        max_rip_up_passes=max_rip_up_passes,
-        side=side,
-        insulated=insulated,
-        wire_mode=wire_mode,
-        max_detour_factor=max_detour_factor,
-        plated_through_pads=plated_through_pads,
-        under_component_penalty=under_component_penalty,
-        skip_net_ids=failed_net_ids,
-        components=components,
-        instances=instances,
-        preferred_side=preferred_side,
-        simplify_after_each_wire=simplify_after_each_wire,
-        simplify_mode=simplify_mode,
-    )
+    inputs, seed_offset = args
+    return inputs.run(seed_offset=seed_offset)
 
 
 # ---------------------------------------------------------------------------
