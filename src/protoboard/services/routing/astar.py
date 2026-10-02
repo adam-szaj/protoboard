@@ -101,6 +101,94 @@ def _open_trace() -> IO[str] | None:
     return fname.open("w", buffering=1)
 
 
+def _write_universe_trace_init(
+    trace: IO[str],
+    insulated: bool,
+    source_parity: int,
+    cost_model: RoutingCostModel,
+    grid: _UniverseGrid,
+    pad_costs: _UniversePadCosts,
+    bare_idx: BareSegIndex,
+) -> None:
+    """Write the trace's input summary using the prepared universe maps."""
+    trace.write(
+        _json.dumps(
+            {
+                "e": "init",
+                "insulated": insulated,
+                "source_parity": source_parity,
+                "bare_diagonal_mode": cost_model.bare_diagonal_mode,
+                "n_targets": len(grid.targets),
+                "n_valid_top": len(grid.nodes[0]),
+                "n_valid_bottom": len(grid.nodes[1]),
+                "n_occupied": len(pad_costs.occupied),
+                "n_same_net": len(pad_costs.same_net),
+                "n_bare_segs": sum(len(v) for v in bare_idx.values()),
+                "first_target": next(iter(grid.targets), None),
+            }
+        )
+        + "\n"
+    )
+
+
+def _write_universe_trace_goal(
+    trace: IO[str],
+    position: tuple[float, float, str],
+    cost: float,
+    path: list[PathStep],
+    nodes_expanded: int,
+) -> None:
+    """Encode the reached goal and the unfolded path as a JSONL event."""
+    trace.write(
+        _json.dumps(
+            {
+                "e": "goal",
+                "pos": position,
+                "g": cost,
+                "path": [[p.x, p.y, side] for p, side in path],
+                "nodes_expanded": nodes_expanded,
+            }
+        )
+        + "\n"
+    )
+
+
+def _write_universe_trace_step(
+    trace: IO[str],
+    position: tuple[float, float, str],
+    cost: float,
+    direction: tuple[float, float],
+    queued: int,
+    neighbours: list[list[object]] | None,
+    via: bool,
+    nodes_expanded: int,
+) -> None:
+    """Encode one expansion and its neighbor decisions as a JSONL event."""
+    trace.write(
+        _json.dumps(
+            {
+                "e": "step",
+                "pos": position,
+                "g": cost,
+                "from_dir": direction,
+                "queued": queued,
+                "neighbours": neighbours,
+                "via": via,
+                "nodes_expanded": nodes_expanded,
+            }
+        )
+        + "\n"
+    )
+
+
+def _write_universe_trace_end(trace: IO[str], reason: str, nodes_expanded: int) -> None:
+    """Encode an exhausted or over-budget universe as a JSONL event."""
+    trace.write(
+        _json.dumps({"e": "end", "reason": reason, "nodes_expanded": nodes_expanded})
+        + "\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Rust extension (optional — true parallelism without GIL)
 # ---------------------------------------------------------------------------
@@ -413,6 +501,82 @@ _HE = tuple[
 ]
 
 
+@dataclass(frozen=True)
+class _UniverseGrid:
+    """Float-keyed topology shared by one universe's neighbor lookups."""
+
+    nodes: tuple[set[tuple[float, float]], set[tuple[float, float]]]
+    targets: set[tuple[float, float]]
+    vias: set[tuple[float, float]]
+    forbidden_edges: set[tuple[float, float, str, float, float, str]]
+
+
+@dataclass(frozen=True)
+class _UniversePadCosts:
+    """Float-keyed pad occupancy and costs used by one universe."""
+
+    occupied: dict[tuple[float, float, str], float]
+    same_net: dict[tuple[float, float, str], float]
+    near_pins: set[tuple[float, float, str]]
+    penalised: dict[tuple[float, float, str], float]
+
+
+def _prepare_universe_grid(
+    valid_nodes: dict[str, set[Point]],
+    target_set: set[Point],
+    vias: set[Point],
+    forbidden_edges: set[tuple[Point, str, Point, str]],
+) -> _UniverseGrid:
+    """Convert topology to float keys without Point allocation in neighbor lookups."""
+    return _UniverseGrid(
+        nodes=(
+            {(p.x, p.y) for p in valid_nodes.get("top", set())},
+            {(p.x, p.y) for p in valid_nodes.get("bottom", set())},
+        ),
+        targets={(p.x, p.y) for p in target_set},
+        vias={(p.x, p.y) for p in vias},
+        forbidden_edges={
+            (pa.x, pa.y, sa, pb.x, pb.y, sb) for (pa, sa, pb, sb) in forbidden_edges
+        },
+    )
+
+
+def _prepare_universe_pad_costs(
+    cost_model: RoutingCostModel,
+    occupied: dict[tuple[Point, str], uuid.UUID],
+    same_net: dict[tuple[Point, str], uuid.UUID],
+    near_pins: set[tuple[Point, str]],
+    penalised: dict[tuple[Point, str], float],
+) -> _UniversePadCosts:
+    """Resolve pad keys and occupancy costs before entering the search loop."""
+    return _UniversePadCosts(
+        occupied={
+            (p.x, p.y, side): cost_model.occupied_by_other_net for (p, side) in occupied
+        },
+        same_net={(p.x, p.y, side): cost_model.same_net_pad for (p, side) in same_net},
+        near_pins={(p.x, p.y, side) for (p, side) in near_pins},
+        penalised={(p.x, p.y, side): value for (p, side), value in penalised.items()},
+    )
+
+
+def _bucket_universe_segments(
+    all_segments: list[tuple[Point, Point, str, bool, int]] | None,
+) -> tuple[
+    list[tuple[float, float, float, float, bool, int]],
+    list[tuple[float, float, float, float, bool, int]],
+]:
+    """Convert segments to float coordinates and preserve their per-side order."""
+    top: list[tuple[float, float, float, float, bool, int]] = []
+    bottom: list[tuple[float, float, float, float, bool, int]] = []
+    for p1, p2, side, insulated, net_idx in all_segments or ():
+        entry = (p1.x, p1.y, p2.x, p2.y, insulated, net_idx)
+        if side == "top":
+            top.append(entry)
+        else:
+            bottom.append(entry)
+    return top, bottom
+
+
 def _universe_worker(
     heap: list[_HE],
     visited: dict[
@@ -464,30 +628,19 @@ def _universe_worker(
                 best = d2
         return math.sqrt(best)
 
-    # Convert Point-based structures to float-tuple keys — avoids Point.__init__
-    # and Point.__hash__ on every neighbour lookup in the hot loop.
-    _vn_top: set[tuple[float, float]] = {
-        (p.x, p.y) for p in valid_nodes.get("top", set())
-    }
-    _vn_bottom: set[tuple[float, float]] = {
-        (p.x, p.y) for p in valid_nodes.get("bottom", set())
-    }
-    _vn = (_vn_top, _vn_bottom)  # indexed by cs_idx (0=top, 1=bottom)
-    _tgt: set[tuple[float, float]] = {(p.x, p.y) for p in target_set}
-    _via: set[tuple[float, float]] = {(p.x, p.y) for p in vias}
-    _occ: dict[tuple[float, float, str], float] = {
-        (p.x, p.y, s): cost_model.occupied_by_other_net for (p, s) in occupied
-    }
-    _same: dict[tuple[float, float, str], float] = {
-        (p.x, p.y, s): cost_model.same_net_pad for (p, s) in same_net
-    }
-    _near: set[tuple[float, float, str]] = {(p.x, p.y, s) for (p, s) in near_pins}
-    _pen: dict[tuple[float, float, str], float] = {
-        (p.x, p.y, s): v for (p, s), v in penalised.items()
-    }
-    _fe: set[tuple[float, float, str, float, float, str]] = {
-        (pa.x, pa.y, sa, pb.x, pb.y, sb) for (pa, sa, pb, sb) in forbidden_edges
-    }
+    grid = _prepare_universe_grid(valid_nodes, target_set, vias, forbidden_edges)
+    pad_costs = _prepare_universe_pad_costs(
+        cost_model, occupied, same_net, near_pins, penalised
+    )
+    # Bind prepared maps once; the hot loop keeps its existing local lookups.
+    _vn = grid.nodes  # indexed by cs_idx (0=top, 1=bottom)
+    _tgt = grid.targets
+    _via = grid.vias
+    _fe = grid.forbidden_edges
+    _occ = pad_costs.occupied
+    _same = pad_costs.same_net
+    _near = pad_costs.near_pins
+    _pen = pad_costs.penalised
     _free = cost_model.free_pad
     _inf = float("inf")
     _dc = cost_model.direction_change
@@ -580,16 +733,9 @@ def _universe_worker(
     # * ``_segs_on_top``  — segments living on the TOP layer; consulted by
     #   workers stepping on BOTTOM (i.e. opposite to TOP).
     # * ``_segs_on_bot``  — segments on BOTTOM; consulted by TOP workers.
-    _segs_on_top: list[tuple[float, float, float, float, bool, int]] = []
-    _segs_on_bot: list[tuple[float, float, float, float, bool, int]] = []
-    if _pos_active and all_segments is not None:
-        for _seg in all_segments:
-            _p1, _p2, _osd, _oins, _onet = _seg
-            segment_entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins, _onet)
-            if _osd == "top":
-                _segs_on_top.append(segment_entry)
-            else:
-                _segs_on_bot.append(segment_entry)
+    _segs_on_top, _segs_on_bot = _bucket_universe_segments(
+        all_segments if _pos_active else None
+    )
     # Same-net wire reuse setup.
     _reuse_cost = cost_model.same_net_wire_reuse_cost
     _has_reuse = active_net_idx >= 0
@@ -623,39 +769,15 @@ def _universe_worker(
     _seq = seq_counter
     _trace = _open_trace()
     if _trace is not None:
-        _trace.write(
-            _json.dumps(
-                {
-                    "e": "init",
-                    "insulated": insulated,
-                    "source_parity": source_parity,
-                    "bare_diagonal_mode": cost_model.bare_diagonal_mode,
-                    "n_targets": len(_tgt),
-                    "n_valid_top": len(_vn_top),
-                    "n_valid_bottom": len(_vn_bottom),
-                    "n_occupied": len(_occ),
-                    "n_same_net": len(_same),
-                    "n_bare_segs": sum(len(v) for v in bare_idx.values()),
-                    "first_target": next(iter(_tgt), None),
-                }
-            )
-            + "\n"
+        _write_universe_trace_init(
+            _trace, insulated, source_parity, cost_model, grid, pad_costs, bare_idx
         )
 
     try:
         while heap:
             if shared.over_budget(nodes_expanded):
                 if _trace is not None:
-                    _trace.write(
-                        _json.dumps(
-                            {
-                                "e": "end",
-                                "reason": "over_budget",
-                                "nodes_expanded": nodes_expanded,
-                            }
-                        )
-                        + "\n"
-                    )
+                    _write_universe_trace_end(_trace, "over_budget", nodes_expanded)
                 return
 
             (
@@ -711,17 +833,8 @@ def _universe_worker(
                     )
                 )
                 if _trace is not None:
-                    _trace.write(
-                        _json.dumps(
-                            {
-                                "e": "goal",
-                                "pos": [cx, cy, cur_side],
-                                "g": g,
-                                "path": [[p.x, p.y, s] for p, s in goal_path],
-                                "nodes_expanded": nodes_expanded,
-                            }
-                        )
-                        + "\n"
+                    _write_universe_trace_goal(
+                        _trace, (cx, cy, cur_side), g, goal_path, nodes_expanded
                     )
                     _trace.close()
                 return
@@ -1394,20 +1507,15 @@ def _universe_worker(
                         )
 
             if _trace is not None:
-                _trace.write(
-                    _json.dumps(
-                        {
-                            "e": "step",
-                            "pos": [cx, cy, cur_side],
-                            "g": g,
-                            "from_dir": [dx, dy],
-                            "queued": len(neighbor_entries),
-                            "neighbours": _trace_neighbours,
-                            "via": via_entry is not None,
-                            "nodes_expanded": nodes_expanded,
-                        }
-                    )
-                    + "\n"
+                _write_universe_trace_step(
+                    _trace,
+                    (cx, cy, cur_side),
+                    g,
+                    (dx, dy),
+                    len(neighbor_entries),
+                    _trace_neighbours,
+                    via_entry is not None,
+                    nodes_expanded,
                 )
 
             if not neighbor_entries:
@@ -1416,16 +1524,7 @@ def _universe_worker(
             for entry in neighbor_entries:
                 heapq.heappush(heap, entry)
         if _trace is not None:
-            _trace.write(
-                _json.dumps(
-                    {
-                        "e": "end",
-                        "reason": "heap_empty",
-                        "nodes_expanded": nodes_expanded,
-                    }
-                )
-                + "\n"
-            )
+            _write_universe_trace_end(_trace, "heap_empty", nodes_expanded)
             _trace.close()
     finally:
         shared.record_nodes(nodes_expanded)
