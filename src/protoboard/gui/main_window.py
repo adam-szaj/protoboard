@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from protoboard.controller.ports import InteractionContext, StatusEvent
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.layout.group import ComponentGroup
-    from protoboard.gui.workers.drc_worker import DRCWorker
 
 from PySide6.QtCore import QFileSystemWatcher, Qt, Signal
 from PySide6.QtGui import (
@@ -73,6 +72,7 @@ from protoboard.gui import recent_projects
 from protoboard.gui.action_builder import build_actions, ensure_toolbar
 from protoboard.gui.actions import ALL_ACTIONS
 from protoboard.gui.board_view import BoardView
+from protoboard.gui.drc_tasks import DRCTasks
 from protoboard.gui.highlight_state import HighlightEntry
 from protoboard.gui.panels.components_panel import ComponentsPanel
 from protoboard.gui.panels.groups_panel import GroupsPanel
@@ -315,15 +315,9 @@ class MainWindow(QMainWindow):
             self._run_drc_silent,
             restart_on_arm=True,
         )
-        # In-flight DRC worker (if any).  Set when ``_dispatch_drc``
-        # kicks off a background run; cleared in ``_on_drc_finished``.
-        # Subsequent layout edits cancel the previous worker so its
-        # result is dropped before it can overwrite the panel.
-        self._drc_worker: DRCWorker | None = None
-        # Cancelled DRC workers we still need to keep alive until their
-        # QThread.run() returns naturally — otherwise Python may GC them
-        # mid-flight and Qt aborts with "QThread destroyed while running".
-        self._drc_workers_draining: list[DRCWorker] = []
+        self._drc_tasks = DRCTasks(self)
+        self._drc_tasks.finished.connect(self._on_drc_finished)
+        self._drc_tasks.error.connect(self._on_drc_error)
 
         # Panel-refresh timer — debounces sidebar rebuilds to avoid blocking UI
         # on every drag-commit.  100 ms is fast enough to feel instant after a
@@ -2313,60 +2307,11 @@ class MainWindow(QMainWindow):
         self._dispatch_drc(status_msg=None)
 
     def _dispatch_drc(self, status_msg: str | None) -> None:
-        """Kick off (or supersede) a background DRC run.
-
-        If a previous worker is still alive, its cancel flag is set
-        so it bails out at the next checkpoint and its ``finished``
-        signal is suppressed.  We do *not* ``wait()`` on it — that
-        would block the GUI and defeat the whole purpose; Python
-        keeps the QThread alive until ``run()`` returns naturally.
-        """
-        from protoboard.gui.workers.drc_worker import DRCWorker
-        from protoboard.services.routing.snapshot import (
-            LayoutSnapshot,
-            SchematicSnapshot,
-        )
-
-        prev = self._drc_worker
-        if prev is not None and prev.isRunning():
-            prev.cancel()
-            # Keep a strong ref to the cancelled worker until its QThread
-            # run() returns naturally — otherwise Python may GC it while
-            # the C++ QThread is still finishing, and Qt aborts.  Worker
-            # emits ``exited`` from run()'s finally block.
-            self._park_for_drain(prev)
-
-        worker = DRCWorker(
-            board=self._session.board,
-            layout_snap=LayoutSnapshot.freeze(self._session.layout),
-            schematic_snap=SchematicSnapshot.freeze(self._session.schematic),
-            components=dict(self._session.components),
-            instances=dict(self._session.instances),
-            axis_labels=self._session.axis_label_settings,
-        )
-        worker.finished.connect(self._on_drc_finished)
-        worker.error.connect(self._on_drc_error)
-        self._drc_worker = worker
         if status_msg:
             self._status.showMessage(status_msg)
-        worker.start()
+        self._drc_tasks.run(self._session)
 
     def _on_drc_finished(self, issues: list[DRCIssue]) -> None:
-        """Apply a DRC result to the session — but only if the worker
-        that emitted it is still the active one.  Superseded workers
-        whose cancel flag is set typically don't fire this signal, but
-        guard defensively in case the cancel arrived too late."""
-        sender = self.sender()
-        worker = self._drc_worker
-        if sender is not worker or worker is None:
-            return
-        # Don't drop the ref yet — finished is emitted from run() BEFORE
-        # the QThread has fully unwound.  Releasing here would let Python
-        # GC the QThread mid-flight and Qt aborts.  Hand the worker over
-        # to the draining list; ``exited`` (from run()'s finally) calls
-        # _drain_drc_worker, which releases the strong ref safely.
-        self._park_for_drain(worker)
-        self._drc_worker = None
         self._session.set_drc_issues(issues)
         n = len(issues)
         self._status.showMessage(
@@ -2376,39 +2321,8 @@ class MainWindow(QMainWindow):
         self._update_stats()
 
     def _on_drc_error(self, msg: str) -> None:
-        sender = self.sender()
-        worker = self._drc_worker
-        if sender is not worker or worker is None:
-            return
-        self._park_for_drain(worker)
-        self._drc_worker = None
         _log.error("drc.worker_error", msg=msg)
         self._status.showMessage(f"DRC failed: {msg}", 4000)
-
-    def _park_for_drain(self, worker: DRCWorker) -> None:
-        """Move *worker* to the draining list and wire ``exited`` cleanup.
-
-        Used both by the cancel path and the normal finished/error
-        callbacks — in both cases the QThread.run() is still about to
-        return naturally, and we must hold a strong ref until ``exited``
-        fires from run()'s finally block.
-        """
-        if worker is None or worker in self._drc_workers_draining:
-            return
-        self._drc_workers_draining.append(worker)
-        worker.exited.connect(lambda *_a, w=worker: self._drain_drc_worker(w))
-
-    def _drain_drc_worker(self, worker: DRCWorker) -> None:
-        """Release the strong ref on a cancelled DRC worker.
-
-        Connected to ``DRCWorker.exited`` — fires once the QThread's
-        ``run()`` has provably returned.  Removing the worker from
-        ``_drc_workers_draining`` lets Python GC it safely.
-        """
-        try:
-            self._drc_workers_draining.remove(worker)
-        except ValueError:
-            pass  # already removed
 
     # ------------------------------------------------------------------
     # DRC interactivity — translate panel clicks into highlight + viewport.
@@ -3052,7 +2966,7 @@ class MainWindow(QMainWindow):
         shutdown_steps: tuple[tuple[str, Callable[[], object]], ...] = (
             ("save_window_state", lambda: save_window_state(self)),
             ("stop_recording", self._session.stop_recording),
-            ("wait_for_drc_workers", self._wait_for_drc_workers),
+            ("wait_for_drc_workers", self._drc_tasks.shutdown),
         )
         for label, step in shutdown_steps:
             try:
@@ -3078,32 +2992,6 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QApplication
 
         QApplication.quit()
-
-    def _wait_for_drc_workers(self) -> None:
-        """Block until every DRC worker's QThread.run() has returned.
-
-        Called from closeEvent before super() — otherwise Qt may deallocate
-        the QThread instances while ``run()`` is mid-flight ("QThread
-        destroyed while thread is still running").  We cancel each worker
-        first so the wait is quick.
-        """
-        workers = [self._drc_worker] + list(self._drc_workers_draining)
-        for w in workers:
-            if w is None:
-                continue
-            try:
-                w.cancel()
-            except Exception:
-                pass
-        for w in workers:
-            if w is None:
-                continue
-            try:
-                # 2 s ceiling — DRC is fast; if it hangs we'd rather drop
-                # the wait than freeze the app on exit.
-                w.wait(2000)
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # Keyboard shortcuts
