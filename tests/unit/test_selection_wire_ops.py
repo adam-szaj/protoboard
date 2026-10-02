@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import uuid
 from copy import deepcopy
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
+from protoboard.controller.editing.contexts import EditingReadContext
 from protoboard.controller.ports.routing import SimplifyRequest
 from protoboard.controller.selection.wire_ops import (
     build_merge_commands,
@@ -39,7 +42,7 @@ def _wire(*points: tuple[float, float]) -> Wire:
 
 
 def test_simplify_worker_captures_inputs_and_reports_missing_wire_progress(
-    session: EditorSession, monkeypatch: pytest.MonkeyPatch
+    session: EditorSession,
 ) -> None:
     target = _wire((0.5, 0.5), (0.5, 2.5), (2.5, 2.5))
     other = _wire((3.5, 0.5), (3.5, 1.5))
@@ -50,9 +53,21 @@ def test_simplify_worker_captures_inputs_and_reports_missing_wire_progress(
         requests.append(request)
         return Wire(id=request.wire.id, path=[target.path[0], target.path[-1]])
 
-    monkeypatch.setattr(session.edit_controller, "simplify_wire", simplify)
+    reads = SimpleNamespace(
+        board=session.board,
+        layout=session.layout,
+        schematic=session.schematic,
+        iter_pin_positions=session.iter_pin_positions,
+        get_pin_position=session.get_pin_position,
+        cached_wire_net_map=session.cached_wire_net_map,
+        pad_index=session.pad_index,
+    )
+    assert not hasattr(reads, "edit_controller")
     worker = prepare_simplify_worker(
-        session, [target.id, uuid.uuid4()], SimplifyMode.CHEBYSHEV
+        cast(EditingReadContext, reads),
+        [target.id, uuid.uuid4()],
+        SimplifyMode.CHEBYSHEV,
+        simplify_wire=simplify,
     )
     session.layout.wires.append(_wire((4.5, 0.5), (4.5, 1.5)))
     progress: list[tuple[int, int]] = []

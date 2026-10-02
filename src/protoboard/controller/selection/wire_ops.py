@@ -24,10 +24,8 @@ from protoboard.geometry import Point
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
-    from protoboard.controller.editing.contexts import (
-        EditingContext,
-        EditingReadContext,
-    )
+    from protoboard.controller.editing.contexts import EditingReadContext
+    from protoboard.controller.ports.routing import SimplifyWire
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Wire
@@ -79,13 +77,13 @@ def build_simplify_inputs(session: EditingReadContext) -> SimplifyInputs:
 
 
 def prepare_simplify_worker(
-    session: EditingContext,
+    session: EditingReadContext,
     wire_ids: Iterable[uuid.UUID],
     mode: SimplifyMode,
+    simplify_wire: SimplifyWire,
 ) -> Callable[[Callable[[int, int], None]], list[SimplifyChange]]:
     """Capture inputs before launch and return the read-only simplify computation."""
     inputs = build_simplify_inputs(session)
-    simplify_wire = session.edit_controller.simplify_wire
     all_wires = list(session.layout.wires)
     wires_by_id = {wire.id: wire for wire in all_wires}
     wid_list = list(wire_ids)
