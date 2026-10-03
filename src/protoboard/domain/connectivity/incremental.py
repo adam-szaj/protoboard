@@ -17,9 +17,10 @@ reversed in O(K) where K is the size of the evicted set.
 
 When a wire is removed the merge records for that wire are replayed in reverse
 order (LIFO).  If the wire is not the most-recent merger of the two sets
-(i.e. another wire created a loop before removal), a local BFS rebuild of the
-affected set is performed instead — still much cheaper than a full graph
-rebuild.
+(i.e. another wire created a loop before removal), the surviving topology is
+replayed from recorded node paths, including
+built-in board and pin connections. This fallback refreshes merge histories
+so later removals remain correct.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from dataclasses import dataclass, field
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
+from protoboard.domain.board.layer import PHYSICAL_LAYERS
 
 # Quantisation helpers live in pad_geometry — shared with PadIndex so both
 # indexes agree on "is this the same pad" tolerance.
@@ -110,6 +112,7 @@ class WireRecord:
     merges: list[MergeRecord]  # in order of execution
     is_loop: bool = False  # True when wire connected already-same set
     intermediate_keys: list[_NodeKey] = field(default_factory=list)  # wire-only nodes
+    node_paths: list[list[_NodeKey]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +295,11 @@ class ConnectivityGraph:
         self._valid_nodes_cache = None
         merges_all: list[MergeRecord] = []
         intermediate_all: list[_NodeKey] = []
+        node_paths: list[list[_NodeKey]] = []
         is_loop_any = False
         for frag in wire.fragments:
             entries, intermediate = self._resolve_fragment_nodes(frag, wire)
+            node_paths.append([entry.key for entry in entries])
             intermediate_all.extend(intermediate)
             merges, frag_is_loop = self._merge_along_path(entries)
             merges_all.extend(merges)
@@ -304,6 +309,7 @@ class ConnectivityGraph:
             merges=merges_all,
             is_loop=is_loop_any,
             intermediate_keys=intermediate_all,
+            node_paths=node_paths,
         )
 
     def _resolve_fragment_nodes(
@@ -373,38 +379,30 @@ class ConnectivityGraph:
     def remove_wire(self, wire: Wire) -> None:
         """Remove a Wire from the graph, replaying merges across all fragments."""
         self._valid_nodes_cache = None
+        was_last = wire.id == next(reversed(self._wire_records), None)
         record = self._wire_records.pop(wire.id, None)
         if record is None:
+            return
+        if not was_last:
+            self._rebuild_after_remove(record)
             return
         if record.is_loop and not record.merges:
             self._remove_intermediate_nodes(record)
             return
         for mr in reversed(record.merges):
             if mr.merged not in self._all_sets:
-                self._local_rebuild_after_remove_v2(wire, record)
+                self._rebuild_after_remove(record)
                 return
             self._split(mr)
         self._remove_intermediate_nodes(record)
 
-    def _local_rebuild_after_remove_v2(self, wire: Wire, record: WireRecord) -> None:
-        """Wire-level fallback rebuild — collects touched keys across fragments."""
-        touched: set[_NodeKey] = set()
-        for frag in wire.fragments:
-            side = frag.side
-            for pt in frag.path:
-                touched.add(_qkey(pt, side))
-        affected_entries: list[NodeEntry] = [
-            self._pad_index[k] for k in touched if k in self._pad_index
-        ]
-        if not affected_entries:
-            self._remove_intermediate_nodes(record)
-            return
-        affected_sets: set[int] = {e.electric_set.id for e in affected_entries}
-        for eset_id in affected_sets:
-            eset_entries = [
-                e for e in self._pad_index.values() if e.electric_set.id == eset_id
-            ]
-            self._rebuild_set(eset_entries)
+    def _rebuild_after_remove(self, record: WireRecord) -> None:
+        """Replay surviving topology when merge history is no longer LIFO.
+
+        Replaying every record also refreshes its undo history: a former
+        redundant bridge may now be the only link between two strips.
+        """
+        self._rebuild_set(list(self._pad_index.values()))
         self._remove_intermediate_nodes(record)
 
     def are_connected(
@@ -523,10 +521,7 @@ class ConnectivityGraph:
     def _rebuild_set(self, entries: list[NodeEntry]) -> None:
         """BFS re-cluster a list of entries using surviving wire records."""
         # Reset: each entry gets its own singleton set.
-        old_set = entries[0].electric_set if entries else None
-
-        # Remove old set from live sets.
-        if old_set is not None:
+        for old_set in {entry.electric_set for entry in entries}:
             self._all_sets.discard(old_set)
 
         # Give each node its own fresh set.
@@ -549,27 +544,20 @@ class ConnectivityGraph:
         # Re-wire using surviving WireRecords: for each record, find the
         # endpoints still in our key set and merge their sets.
         # This is the simplest correct approach.
+        self._build_board_nodes(self._board)
+        self._build_component_internal_nets(self._layout)
         self._rewire_from_records(keys_in_rebuild)
 
     def _rewire_from_records(self, key_set: set[_NodeKey]) -> None:
         """Re-apply surviving wire records for nodes in key_set."""
-        # For each wire record, we stored the intermediate keys.
-        # Walk them and reconnect adjacent nodes if both are in key_set.
         for wr in self._wire_records.values():
-            # Re-merge intermediate keys of this wire that are in key_set.
-            prev_entry: NodeEntry | None = None
-            for key in wr.intermediate_keys:
-                if key not in key_set:
-                    continue
-                entry = self._pad_index.get(key)
-                if entry is None:
-                    continue
-                if (
-                    prev_entry is not None
-                    and prev_entry.electric_set is not entry.electric_set
-                ):
-                    self._merge(prev_entry.electric_set, entry.electric_set)
-                prev_entry = entry
+            wr.merges = []
+            wr.is_loop = False
+            for path in wr.node_paths:
+                entries = [self._pad_index[key] for key in path if key in key_set]
+                merges, is_loop = self._merge_along_path(entries)
+                wr.merges.extend(merges)
+                wr.is_loop |= is_loop
 
     def _remove_intermediate_nodes(self, record: WireRecord) -> None:
         """Remove wire-only (transient) nodes created during add_wire."""
@@ -589,8 +577,8 @@ class ConnectivityGraph:
 
     def _build(self, board: Board, layout: Layout) -> None:
         self._build_board_nodes(board)
-        self._build_wire_edges(layout)
         self._build_component_internal_nets(layout)
+        self._build_wire_edges(layout)
         self._build_component_pin_map(layout)
 
     def _build_component_internal_nets(self, layout: Layout) -> None:
@@ -614,6 +602,14 @@ class ConnectivityGraph:
                     if entry is None:
                         entry = self._make_node(key)
                         self._board_pad_keys.add(key)
+                    # A metal component lead bonds the physical sides even
+                    # when the board has copper on only one of them.
+                    for side in PHYSICAL_LAYERS:
+                        other_key = _qkey(world_pos, side)
+                        other = self._ensure_node(other_key)
+                        self._board_pad_keys.add(other_key)
+                        if entry.electric_set is not other.electric_set:
+                            self._merge(entry.electric_set, other.electric_set)
                     if anchor is None:
                         anchor = entry
                     elif anchor.electric_set is not entry.electric_set:
@@ -645,20 +641,21 @@ class ConnectivityGraph:
         return entry
 
     def _build_strip_nodes(self, atom: StripAtom, center: Point) -> None:
-        layers = atom.layers
-        side: str = "top" if (layers.plated_through or layers.top) else "bottom"
-
-        prev_entry: NodeEntry | None = None
+        anchors: dict[str, NodeEntry] = {}
         for pt in atom.hole_positions(center):
-            key: _NodeKey = _qkey(pt, side)
-            self._board_pad_keys.add(key)
-            entry = self._ensure_node(key)
-            if (
-                prev_entry is not None
-                and prev_entry.electric_set is not entry.electric_set
-            ):
-                self._merge(prev_entry.electric_set, entry.electric_set)
-            prev_entry = entry
+            entries: list[NodeEntry] = []
+            for side in atom.layers.layer_ids():
+                key = _qkey(pt, side)
+                self._board_pad_keys.add(key)
+                entry = self._ensure_node(key)
+                entries.append(entry)
+                anchor = anchors.setdefault(side, entry)
+                if anchor.electric_set is not entry.electric_set:
+                    self._merge(anchor.electric_set, entry.electric_set)
+            if atom.layers.plated_through:
+                for entry in entries[1:]:
+                    if entries[0].electric_set is not entry.electric_set:
+                        self._merge(entries[0].electric_set, entry.electric_set)
 
     def _build_wire_edges(self, layout: Layout) -> None:
         for wire in layout.wires:

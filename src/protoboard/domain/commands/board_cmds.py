@@ -26,6 +26,7 @@ def _make_isolated(atom: StripAtom) -> StripAtom:
         layers=atom.layers,
         cuttable=atom.cuttable,
         isolated=True,
+        label=atom.label,
     )
 
 
@@ -38,6 +39,7 @@ def _make_segment(atom: StripAtom, length: int) -> StripAtom:
         layers=atom.layers,
         cuttable=atom.cuttable,
         isolated=False,
+        label=atom.label,
     )
 
 
@@ -67,35 +69,41 @@ def split_strip_on_pad(
     return left, _make_isolated(atom), right
 
 
-def _replace_in_hbox(hbox: HBox, old_atom: StripAtom, new_children: list[Box]) -> HBox:
-    result: list[Box] = []
-    for child in hbox.children:
-        if child is old_atom:
-            result.extend(new_children)
-        else:
-            result.append(child)
-    return HBox(
-        width_policy=hbox.width_policy,
-        height_policy=hbox.height_policy,
-        children=result,
-        gap=hbox.gap,
-    )
-
-
 def replace_strip_in_board(
     board: Board, target: StripAtom, replacements: list[Box]
 ) -> Board:
-    """Return a new Board with *target* replaced by *replacements* in-place."""
-    root = board.root
-    if isinstance(root, HBox):
-        new_root: Box = _replace_in_hbox(root, target, replacements)
-    elif isinstance(root, VBox):
-        new_children: list[Box] = [
-            _replace_in_hbox(c, target, replacements) if isinstance(c, HBox) else c
-            for c in root.children
-        ]
-        new_root = replace(root, children=new_children)
+    """Replace a strip in a nested row/column tree without moving its holes."""
+
+    def replace_in_box(box: Box) -> Box:
+        if not isinstance(box, (HBox, VBox)):
+            return box
+        children: list[Box] = []
+        changed = False
+        for child in box.children:
+            if child is target:
+                children.append(segment)
+                changed = True
+            else:
+                new_child = replace_in_box(child)
+                children.append(new_child)
+                changed |= new_child is not child
+        return replace(box, children=children) if changed else box
+
+    # The original cell retains its dimensions even when the parent stacks
+    # along the other axis or has gaps between children.
+    container = HBox if target.orientation == "horizontal" else VBox
+    segment = container(
+        width_policy=_HUG,
+        height_policy=_HUG,
+        children=replacements,
+        gap=0,
+        margin=target.margin,
+    )
+    if board.root is target:
+        new_root: Box = segment
     else:
+        new_root = replace_in_box(board.root)
+    if new_root is board.root:
         return board
     return Board(root=new_root, raster_pitch_mm=board.raster_pitch_mm)
 

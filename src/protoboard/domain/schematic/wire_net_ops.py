@@ -18,6 +18,7 @@ from protoboard.domain.schematic.net import PinRef
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.net import Net
@@ -108,6 +109,8 @@ class WireNetClassification:
 def classify_wire_nets(
     wire: Wire,
     session: _SessionLike,
+    *,
+    graph: ConnectivityGraph | None = None,
 ) -> WireNetClassification:
     """Classify the schematic relationship of *wire*'s two endpoints.
 
@@ -147,10 +150,31 @@ def classify_wire_nets(
     # without a net), let any existing wire passing through that point
     # contribute its net.  This handles the "endpoint lands on another
     # wire's interior / endpoint" auto-net case.
-    if net_a is None:
-        net_a = find_wire_net_at(pt_a, session, exclude_wire_id=wire.id)
-    if net_b is None:
-        net_b = find_wire_net_at(pt_b, session, exclude_wire_id=wire.id)
+    if graph is None:
+        if net_a is None:
+            net_a = find_wire_net_at(pt_a, session, exclude_wire_id=wire.id)
+        if net_b is None:
+            net_b = find_wire_net_at(pt_b, session, exclude_wire_id=wire.id)
+
+    # The graph also reaches sources through built-in strips, wire chains,
+    # and plated holes. Direct pin assignments retain priority so a wire
+    # between different schematic nets still asks for a merge.
+    if graph is not None:
+        node_nets = {
+            node: session.schematic.nets[net_id]
+            for ref, net_id in session.schematic.pin_net_ids().items()
+            if (node := graph.node_for_pin(ref)) is not None
+        }
+        if (
+            net_a is None
+            and (node_a := graph.node_for_pad(pt_a, wire.side)) is not None
+        ):
+            net_a = node_nets.get(node_a)
+        if (
+            net_b is None
+            and (node_b := graph.node_for_pad(pt_b, wire.side)) is not None
+        ):
+            net_b = node_nets.get(node_b)
 
     # Without any pin AND any wire net at both endpoints, there's
     # nothing schematic to do — leave the wire pure-geometric.

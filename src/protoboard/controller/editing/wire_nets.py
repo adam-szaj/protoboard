@@ -26,7 +26,10 @@ from protoboard.domain.schematic.wire_net_ops import (
 )
 
 if TYPE_CHECKING:
-    from protoboard.controller.editing.contexts import ProjectModel
+    from protoboard.controller.editing.contexts import (
+        ProjectConnectivityContext,
+        ProjectModel,
+    )
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.wire_net_ops import (
@@ -42,7 +45,7 @@ _log = structlog.get_logger(__name__)
 
 
 def resolve_wire_nets(
-    session: ProjectModel,
+    session: ProjectConnectivityContext,
     wire: Wire,
     cmd: AddWireWithNetsCommand,
     merge_prompt: NetMergePrompt | None = None,
@@ -59,7 +62,9 @@ def resolve_wire_nets(
     two-net merge — the library default is to surface the ambiguity loudly, not
     to silently pick a survivor; every real caller (GUI, CLI) injects a policy.
     """
-    cl = classify_wire_nets(wire, cast("_SessionLike", session))
+    cl = classify_wire_nets(
+        wire, cast("_SessionLike", session), graph=session.connectivity_graph()
+    )
 
     if cl.kind == WireNetKind.NO_PINS:
         return True

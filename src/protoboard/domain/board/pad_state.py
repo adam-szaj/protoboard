@@ -71,7 +71,6 @@ from protoboard.types import NetId
 # layers will use ids like ``"tape:top+1"`` — the same APIs accept them
 # without changes.
 Side: TypeAlias = LayerId
-_SIDES: tuple[LayerId, LayerId] = PHYSICAL_LAYERS
 
 # Sentinel returned by ``Pad.electrical_net_on`` when more than one distinct
 # non-None net touches the same side at the same time.  Algorithms (DRC
@@ -275,6 +274,9 @@ class Pad:
         default_factory=dict
     )
 
+    # Nets contributed by other pads on the same built-in copper strip.
+    _strip_nets: dict[LayerId, set[NetId]] = field(default_factory=dict)
+
     # ------------------------------------------------------------------
     # Side-propagation hook
     # ------------------------------------------------------------------
@@ -344,9 +346,9 @@ class Pad:
 
     def is_free(self, side: LayerId) -> bool:
         """No electrical net AND no physical blockers on *side*."""
-        return self.electrical_net.get(
+        return self.electrical_net_on(side) is None and not self.physically_blocked.get(
             side
-        ) is None and not self.physically_blocked.get(side)
+        )
 
     # ------------------------------------------------------------------
     # Internal mutation API (called by PadIndex)
@@ -384,8 +386,10 @@ class Pad:
         # Drop stale layer entries (e.g. all sources removed) and
         # rebuild from the current ``_net_sources`` map.
         self.electrical_net = {}
-        for side, sources in self._net_sources.items():
+        for side in self._net_sources.keys() | self._strip_nets.keys():
+            sources = self._net_sources.get(side, {})
             nets = {n for n in sources.values() if n is not None}
+            nets |= self._strip_nets.get(side, set())
             if len(nets) == 1:
                 self.electrical_net[side] = next(iter(nets))
             elif len(nets) > 1:
@@ -563,20 +567,6 @@ class PadIndex:
                 positions = list(atom.hole_positions(center))
                 for pt in positions:
                     self._add_pad(pt, atom.layers, strip_group_id=strip_id)
-                # Strip's holes are galvanically connected — represent that
-                # as a synthetic "strip bare wire" item shared across all
-                # holes.  Use a sentinel id and None net (the strip carries
-                # no net until a pin or user wire lands on it).
-                strip_item_id = uuid.UUID(int=0x5731_0000_0000_0000 | strip_id)
-                strip_item = BareWireItem(id=strip_item_id, net=None)
-                # All armed sides of every hole receive the item.
-                for pt in positions:
-                    key = qpair(pt)
-                    pad = self._pads[key]
-                    # Strip's copper is on whatever sides PadLayers indicate.
-                    for s in _SIDES:
-                        if atom.layers.has_layer(s):
-                            pad._add_item(strip_item, s)
 
     def _add_pad(
         self,
@@ -755,6 +745,32 @@ class PadIndex:
     def pads_for_strip(self, strip_group_id: int) -> list[Pad]:
         return [self._pads[k] for k in self._strips.get(strip_group_id, [])]
 
+    def _refresh_strip_nets(self, keys: Iterator[_PadKey]) -> None:
+        strip_ids = {
+            pad.strip_group_id
+            for key in keys
+            if (pad := self._pads.get(key)) is not None
+            and pad.strip_group_id is not None
+        }
+        for strip_id in strip_ids:
+            pads = self.pads_for_strip(strip_id)
+            nets_by_side: dict[LayerId, set[NetId]] = {}
+            for pad in pads:
+                for side in pad.layers.layer_ids():
+                    nets_by_side.setdefault(side, set()).update(
+                        net
+                        for net in pad._net_sources.get(side, {}).values()
+                        if net is not None
+                    )
+            if any(
+                _item_is_through_hole(item) for pad in pads for item in pad.iter_items()
+            ):
+                bonded_nets = set().union(*nets_by_side.values())
+                nets_by_side = {side: bonded_nets for side in nets_by_side}
+            for pad in pads:
+                pad._strip_nets = nets_by_side
+                pad._recompute_electrical()
+
     def pads_near_segment(
         self,
         ax: float,
@@ -845,6 +861,7 @@ class PadIndex:
                     pad._add_item(item_xing, side)
                     footprint.append((key, side, item_xing))
         self._wire_records[wire.id] = _WireFootprint(items=footprint)
+        self._refresh_strip_nets(iter(key for key, _, _ in footprint))
 
     def remove_wire(self, wire: Wire) -> None:
         """Undo every contribution of *wire* recorded in the footprint."""
@@ -860,6 +877,7 @@ class PadIndex:
                 continue  # _remove_item removes ALL records of this id
             pad._remove_item(item.id)
             seen.add((key, side))
+        self._refresh_strip_nets(iter(key for key, _, _ in rec.items))
 
     def add_component(
         self,
@@ -945,6 +963,7 @@ class PadIndex:
             pad._add_item(body, side)
             footprint.append((key, side, body))
         self._component_records[comp_id] = _ComponentFootprint(items=footprint)
+        self._refresh_strip_nets(iter(key for key, _, _ in footprint))
 
     def remove_component(self, comp_id: uuid.UUID) -> None:
         rec = self._component_records.pop(comp_id, None)
@@ -960,6 +979,7 @@ class PadIndex:
                 continue
             pad._remove_item(item.id)
             seen.add(marker)
+        self._refresh_strip_nets(iter(key for key, _, _ in rec.items))
 
     def update_component_pin_nets(
         self,
@@ -997,6 +1017,7 @@ class PadIndex:
                     continue
             new_items.append((key, side, item))
         self._component_records[comp_id] = _ComponentFootprint(items=new_items)
+        self._refresh_strip_nets(iter(key for key, _, _ in new_items))
 
     def _package_body_pads(
         self,

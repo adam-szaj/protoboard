@@ -76,10 +76,21 @@ class GapAtom(Box):
     """Empty space — no pads."""
 ```
 
-A **stripboard cut** is modelled by splitting the original `StripAtom` into
-two atoms (the post-cut and the pre-cut segment) and rendering a small gap
-between them. There is no separate `cuts: list[StripCut]` field on `Layout`
-— cuts are part of the board tree.
+A strip is built-in board copper, electrically equivalent to a bare wire
+joining its pads. It is not a `Layout` wire: ordinary Delete cannot remove it
+and routing does not add new strips. The intended interaction also allows
+selecting a strip; ordinary selection currently supports components, wires
+and groups only, so strip selection remains an implementation gap.
+
+A **stripboard cut between pads** splits the original `StripAtom` into two
+conductive segments. A cut **on a pad** produces up to three segments: the
+two remaining conductive lengths and one `isolated=True` hole where copper
+has been removed. Cutting near an end shortens the connected copper length
+without moving any holes or changing the board dimensions. Separate segments
+can carry different nets; a wire bridging the cut reconnects them.
+There is no separate `cuts: list[StripCut]` field on `Layout` — cuts are part
+of the board tree and are persisted in `board.yaml`. Undo restores the
+original board tree.
 
 **Layout engine (pure function):**
 

@@ -65,7 +65,7 @@ Commands are parameterised over the state they mutate:
 
 | Command | Notes |
 |---|---|
-| `SplitStripCommand` | Cut a `StripAtom` in two by inserting an `isolated=True` boundary atom. |
+| `SplitStripCommand` | Cut a `StripAtom` between pads into two segments, or remove copper at one pad with an `isolated=True` hole between the remaining segments. |
 | `ResizeBoardCommand` | Resize the board grid (warns if components fall off the new edge). |
 
 ### Groups (`group_cmds.py`)
