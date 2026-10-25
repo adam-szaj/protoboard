@@ -36,7 +36,6 @@ from protoboard.domain.components.package import (
     PackageVariant,
     Prism,
     build_package,
-    package_to_footprint,
     resolve_extends,
     resolve_variant,
 )
@@ -61,21 +60,6 @@ def _component_pin_count(data: dict[str, Any]) -> int | None:
     """
     meta_pins = data.get("meta_pins")
     return len(meta_pins) if isinstance(meta_pins, list) else None
-
-
-def _geometry_from_option(
-    option: PackageOption,
-    families: dict[str, PackageFamily],
-) -> tuple[Package | None, Footprint | None]:
-    """Resolve a footprint option to ``(package, footprint)``.
-
-    Every option resolves through the family catalogue. Returns ``(None, None)``
-    when a reference does not resolve.
-    """
-    variant = resolve_variant(families, option.ref)
-    if variant is not None:
-        return variant.package, package_to_footprint(variant.package)
-    return None, None
 
 
 def _register_component_package(
@@ -750,9 +734,8 @@ def _component_from_dict(
     # A malformed package raises PackageDefError, which the caller turns into a
     # skipped component (the user re-places it with a fresh definition) rather
     # than failing the whole load.
-    # A component may declare its pin count directly (``pins: {count: N}`` or
-    # ``pins: N``) — the logical-identity-first authoring. A ``kind:`` package
-    # is parameterized by it.
+    # MetaPins provide the default count for a ``kind:`` package. Its own
+    # ``pins:`` parameter may declare a different physical pin count.
     comp_pin_count = _component_pin_count(data)
 
     package_obj: Package | None = None
@@ -760,7 +743,7 @@ def _component_from_dict(
     # can be built at load time — the placeholder synthesized below carries the
     # pending kind so the place-tool picker collects the rest.
     pending_kind: ResidualKind | None = None
-    # Variable-pin-count entry: a kind package with no ``pins:`` anywhere —
+    # Variable-pin-count entry: a kind package with no MetaPins or package count —
     # the count is the user's placement-time choice; the load builds only a
     # preview body (see services/library/parametric.py).
     parametric_pins = False
@@ -825,35 +808,18 @@ def _component_from_dict(
             contributed_families=contributed,
         )
         options.insert(0, PackageOption(name=f"{data['name']}-package", ref=ref))
-    elif not options and comp_pin_count:
-        from protoboard.domain.components.package.kind import synth_generic_package
-
-        fallback = synth_generic_package(SIL(n=comp_pin_count))
-        if fallback is None:
-            raise SerializationError(
-                f"{source}: cannot build fallback package for {data['name']!r}"
-            )
-        ref = _register_component_package(
-            fallback,
-            family_id=f"{data['name']}-package",
-            label=f"{data['name']}-package",
-            families=family_catalogue,
-            contributed_families=contributed,
-        )
-        options.append(PackageOption(name=f"{data['name']}-package", ref=ref))
-
     if not options:
         raise SerializationError(
             f"{source}: component {data.get('name')!r} requires 'package' "
             "or 'package_options'"
         )
-    default_package, _ = _geometry_from_option(options[0], family_catalogue)
-    if default_package is None:
+    default_variant = resolve_variant(family_catalogue, options[0].ref)
+    if default_variant is None:
         raise PackageDefError(
             f"{source}: component {data['name']!r} default package "
             f"{options[0].ref!r} did not resolve"
         )
-    pin_count = comp_pin_count or default_package.pin_count()
+    pin_count = comp_pin_count or default_variant.package.pin_count()
 
     if "meta_pins" not in data and not parametric_pins:
         raise SerializationError(
@@ -871,15 +837,13 @@ def _component_from_dict(
                 data.get("pin_map"), source, component_name=data["name"]
             ),
         )
-    for index, option in enumerate(options):
-        option_package, _ = _geometry_from_option(option, family_catalogue)
-        if option_package is None:
+    for option in options:
+        variant = resolve_variant(family_catalogue, option.ref)
+        if variant is None:
             raise SerializationError(
                 f"{source}: package option {option.ref!r} did not resolve"
             )
-        _validate_pin_map(
-            options[index], len(meta_pins), option_package.pin_count(), source
-        )
+        _validate_pin_map(option, len(meta_pins), variant.package.pin_count(), source)
 
     metadata_raw = data.get("metadata") or {}
     if not isinstance(metadata_raw, dict):

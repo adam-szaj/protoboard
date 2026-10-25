@@ -44,7 +44,6 @@ from protoboard.domain.components.package.pin_mapping import package_pins_for_me
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.layout.wire_utils import (
@@ -1284,7 +1283,7 @@ def _build_pin_positions(
     pos: dict[PinRef, tuple[Point, str]] = {}
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
-        fp = footprint_of(component.definition, component.instance)
+        fp = component.instance.resolved_footprint()
         for meta_pin_index in range(1, len(component.definition.meta_pins) + 1):
             package_pins = package_pins_for_meta_pin(
                 component.definition,

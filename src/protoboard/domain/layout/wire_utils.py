@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.package.pin_mapping import (
     meta_pin_for_package_pin,
 )
@@ -648,11 +647,7 @@ def _pin_at(
         comp_id = component.placement.component_id
         if not cross_side_ok and component.placement.side != side:
             continue
-        fp = resolved_footprint(
-            component.definition,
-            component.instance,
-            component.instance.families,
-        )
+        fp = component.instance.resolved_footprint()
         for pin_num, wp in iter_footprint_pin_positions(fp, component.placement):
             if abs(wp.x - position.x) < tol and abs(wp.y - position.y) < tol:
                 meta_pin_index = meta_pin_for_package_pin(
@@ -1642,11 +1637,7 @@ def find_pin_at(
     """
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
-        fp = resolved_footprint(
-            component.definition,
-            component.instance,
-            component.instance.families,
-        )
+        fp = component.instance.resolved_footprint()
         for pin_num, pos in iter_footprint_pin_positions(fp, component.placement):
             if not (abs(pos.x - point.x) < tol and abs(pos.y - point.y) < tol):
                 continue
@@ -1930,7 +1921,7 @@ def update_wires_for_move(
         return
     inst, defn = resolved
 
-    fp = resolved_footprint(defn, inst, inst.families)
+    fp = inst.resolved_footprint()
     n_pins = fp.pin_count()
     # Build map: old_pin_pos → new_pin_pos
     pin_map: dict[tuple[float, float], Point] = {}

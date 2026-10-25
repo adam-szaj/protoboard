@@ -532,7 +532,7 @@ class PlaceTool(ControllerTool):
                 [
                     pt
                     for pt in self._view.board_pad_positions()
-                    if spec.is_reachable_from_origin(origin, pt)
+                    if spec.is_reachable_from_pin_default(origin, pt)
                 ]
             )
             return
@@ -608,7 +608,7 @@ class PlaceTool(ControllerTool):
         if spec.is_free():
             # Snap to nearest board pad; reject if outside reach from origin.
             snapped = self._view.snap(cursor)
-            if not spec.is_reachable_from_origin(self._anchor_pos, snapped):
+            if not spec.is_reachable_from_pin_default(self._anchor_pos, snapped):
                 return None
             # Convert world position of snapped pad to local offset for pin.
             world_delta = snapped - baseline

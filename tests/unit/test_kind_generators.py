@@ -56,14 +56,15 @@ class TestRegistration:
         for kind in ("dip_ic", "wdip_ic", "dip_switch", "sil", "pin_header", "jst"):
             assert is_kind(kind), kind
 
-    def test_declaring_generates_registers(self, scratch_registry) -> None:
+    def test_undecorated_class_does_not_register(self, scratch_registry) -> None:
         class G(PackageGenerator):
             generates = "_t_reg"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise NotImplementedError
 
-        assert scratch_registry["_t_reg"] is G
+        assert "_t_reg" not in scratch_registry
+        assert G not in scratch_registry.values()
 
     def test_register_generator_decorator(self, scratch_registry) -> None:
         # The decorator spelling — the counterpart of @register_renderer.
@@ -87,30 +88,29 @@ class TestRegistration:
         with pytest.raises(ValueError):
             register_generator(kind=())
 
-    def test_subclass_without_generates_keeps_parent_slot(
-        self, scratch_registry
-    ) -> None:
+    def test_undecorated_subclass_keeps_parent_slot(self, scratch_registry) -> None:
+        @register_generator(kind="_t_parent")
         class Parent(PackageGenerator):
-            generates = "_t_parent"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
-                raise NotImplementedError
+                return ctx
 
-        class Child(Parent):  # no ``generates`` of its own
+        class Child(Parent):
             pass
 
         assert scratch_registry["_t_parent"] is Parent
-        assert Child  # silence unused-name
+        ctx = GeneratorContext(pin_count=2)
+        assert Child().generate(ctx) is ctx
 
     def test_later_registration_wins(self, scratch_registry) -> None:
+        @register_generator(kind="_t_dup")
         class First(PackageGenerator):
-            generates = "_t_dup"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise NotImplementedError
 
+        @register_generator(kind="_t_dup")
         class Second(PackageGenerator):
-            generates = "_t_dup"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise NotImplementedError
@@ -168,8 +168,8 @@ class TestBuiltinDispatch:
 class TestResiduals:
 
     def test_missing_required_returns_residual(self, scratch_registry) -> None:
+        @register_generator(kind="_t_needs")
         class Needs(PackageGenerator):
-            generates = "_t_needs"
             code_params = parse_schema({"width": {"type": "float", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -184,8 +184,8 @@ class TestResiduals:
     ) -> None:
         seen: dict[str, object] = {}
 
+        @register_generator(kind="_t_hole")
         class Holey(PackageGenerator):
-            generates = "_t_hole"
             code_params = parse_schema({"rows": {"type": "int", "default": 1}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -204,8 +204,8 @@ class TestResiduals:
         assert out.package.raw_values == {"rows": None}  # hole preserved
 
     def test_redirect_to_other_kind_builds(self, scratch_registry) -> None:
+        @register_generator(kind="_t_redir")
         class Redirect(PackageGenerator):
-            generates = "_t_redir"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 return ctx.with_residual(ResidualKind("sil", {}))
@@ -218,15 +218,15 @@ class TestResiduals:
     def test_redirect_to_incomplete_kind_surfaces_residual(
         self, scratch_registry
     ) -> None:
+        @register_generator(kind="_t_target")
         class Target(PackageGenerator):
-            generates = "_t_target"
             code_params = parse_schema({"depth": {"type": "float", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("incomplete target must not run")
 
+        @register_generator(kind="_t_redir2")
         class Redirect(PackageGenerator):
-            generates = "_t_redir2"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 return ctx.with_residual(ResidualKind("_t_target", {}))
@@ -236,8 +236,8 @@ class TestResiduals:
         assert out.residual is not None and out.residual.kind == "_t_target"
 
     def test_redirect_cycle_raises(self, scratch_registry) -> None:
+        @register_generator(kind="_t_loop")
         class Loop(PackageGenerator):
-            generates = "_t_loop"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 return ctx.with_residual(ResidualKind("_t_loop", {}))
@@ -254,10 +254,10 @@ class TestPluginDiscovery:
         (plug_dir / "mykind.py").write_text(
             "from protoboard.domain.components.footprints import SIL\n"
             "from protoboard.domain.components.package.generators import (\n"
-            "    PackageGenerator, prism_from_footprint,\n"
+            "    PackageGenerator, prism_from_footprint, register_generator,\n"
             ")\n"
+            "@register_generator(kind='_t_plugin_kind')\n"
             "class MyKind(PackageGenerator):\n"
-            "    generates = '_t_plugin_kind'\n"
             "    def generate(self, ctx):\n"
             "        return ctx.with_package(\n"
             "            prism_from_footprint(SIL(n=ctx.pin_count)))\n"
@@ -312,8 +312,8 @@ class TestLoaderIntegration:
     def test_partial_params_yield_pending_placeholder(
         self, tmp_path: Path, scratch_registry
     ) -> None:
+        @register_generator(kind="_t_pending")
         class NeedsRows(PackageGenerator):
-            generates = "_t_pending"
             code_params = parse_schema({"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -357,8 +357,8 @@ class TestChainDriver:
         ``auto`` hole); ``_t_body`` requires that value and builds a prism."""
         from protoboard.domain.components.package.schema import AUTO
 
+        @register_generator(kind="_t_dims")
         class Dims(PackageGenerator):
-            generates = "_t_dims"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 record["dims_schema"] = ctx.schema
@@ -369,8 +369,8 @@ class TestChainDriver:
                 values["dims"] = dims
                 return ctx.with_values(values)
 
+        @register_generator(kind="_t_body")
         class Body(PackageGenerator):
-            generates = "_t_body"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 from protoboard.domain.components.footprints import SIL
@@ -415,8 +415,8 @@ class TestChainDriver:
         assert isinstance(out.package, Prism) and out.package.kind == "sil"
 
     def test_compute_step_must_not_build_a_package(self, scratch_registry) -> None:
+        @register_generator(kind="_t_builds")
         class Builds(PackageGenerator):
-            generates = "_t_builds"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 from protoboard.domain.components.footprints import SIL
@@ -431,8 +431,8 @@ class TestChainDriver:
     def test_compute_step_missing_required_is_an_error_not_a_residual(
         self, scratch_registry
     ) -> None:
+        @register_generator(kind="_t_needsx")
         class NeedsX(PackageGenerator):
-            generates = "_t_needsx"
             code_params = parse_schema({"x": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -449,8 +449,8 @@ class TestChainDriver:
         record: dict = {}
         self._register_chain(record)
 
+        @register_generator(kind="_t_finalneeds")
         class FinalNeeds(PackageGenerator):
-            generates = "_t_finalneeds"
             code_params = parse_schema({"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
@@ -500,8 +500,8 @@ class TestPartialKindFootprintOption:
     """
 
     def _register_needs_rows(self) -> None:
+        @register_generator(kind="_t_optpending")
         class NeedsRows(PackageGenerator):
-            generates = "_t_optpending"
             code_params = parse_schema({"rows": {"type": "int", "required": True}})
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:

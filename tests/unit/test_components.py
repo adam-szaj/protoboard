@@ -211,8 +211,7 @@ class TestComponentDefinition:
             package_options=(PackageOption(name="d-tht/DO/35", ref="d-tht/DO/35"),),
         )
         assert defn.default_package_ref() == "d-tht/DO/35"
-        assert defn.default_package_option() is not None
-        assert defn.default_package_option().ref == "d-tht/DO/35"  # type: ignore[union-attr]
+        assert defn.default_package_option().ref == "d-tht/DO/35"
 
     def test_first_package_is_the_default_package_option(self) -> None:
         defn = ComponentDefinition(

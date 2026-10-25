@@ -24,10 +24,7 @@ from protoboard.controller.view_options.layer_state import (
 from protoboard.controller.view_options.theme import DEFAULT_THEME, Theme
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import (
-    package_pins_for_meta_pin,
-    resolved_footprint,
-)
+from protoboard.domain.components.package import package_pins_for_meta_pin
 from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -898,7 +895,7 @@ def _physical_positions_for_ref(
     definition: ComponentDefinition,
 ) -> list[Point]:
     """Expand one logical PinRef to positions of its mapped package pins."""
-    footprint = resolved_footprint(definition, instance, instance.families)
+    footprint = instance.resolved_footprint()
     return [
         pin_world_position(footprint, placement, package_pin_number)
         for package_pin_number in package_pins_for_meta_pin(

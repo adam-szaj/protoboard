@@ -48,7 +48,7 @@ _DIP_WIDE_ROWS = 6
 # with the two-pin catalogue (``"family/variant"``).
 STD = "std"
 
-# Pin-count ranges the picker offers.  DIP runs in even steps; SIL from 3 up
+# Pin-count ranges the catalogue generates. DIP runs in even steps; SIL from 3 up
 # (two-pin parts own n=2 via the TwoPin catalogue).
 _DIP_COUNTS = range(4, 65, 2)
 _SIL_COUNTS = range(3, 41)
@@ -135,23 +135,6 @@ def generate_inline_families() -> dict[str, PackageFamily]:
     return out
 
 
-def inline_family_ids_for_pins(pin_count: int, *, dual_row: bool) -> list[str]:
-    """The generated family ids that fit a footprint of *pin_count* pins.
-
-    ``dual_row`` selects the DIP families (``dip-N`` / ``wdip-N``); otherwise the
-    SIL family (``sil-N``).  Used by the picker to offer only the bodies whose
-    pin count matches the part — a DIP-16 sees ``dip-16`` / ``wdip-16``, never
-    ``dip-8`` or a resistor body.
-    """
-    if dual_row:
-        if pin_count < 4 or pin_count % 2 != 0:
-            return []
-        return [f"dip-{pin_count}", f"wdip-{pin_count}"]
-    if pin_count < 2:
-        return []
-    return [f"sil-{pin_count}"]
-
-
 def offered_package_options(
     defn: ComponentDefinition,
     families: dict[str, PackageFamily],
@@ -186,7 +169,6 @@ __all__ = [
     "STD",
     "dip_family",
     "generate_inline_families",
-    "inline_family_ids_for_pins",
     "offered_package_options",
     "sil_family",
 ]

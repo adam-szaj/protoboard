@@ -166,21 +166,24 @@ budget from ~700–900 ms to ~85 ms (see [performance.md](performance.md),
 ## 4. Choosing a component body — `body_shape_for` + the renderer registry
 
 The decision "how do I draw this component?" is `body_shape_for(defn, placement,
-instance, package_families)` (`gui/renderers/body_shapes.py`). It is
-deliberately a **two-branch** dispatch:
+instance, package_families)` (`services/rendering/body_shapes.py`). The package
+comes from the instance selection when one is supplied, or from the definition's
+declared default option for a preview:
 
 ```
 body_shape_for:
   pkg = resolve_component_package(defn, instance, package_families)
-        # precedence: instance.package_variant → defn.package_options[0]
-        #             → defn.package (default body — always set)
-  if pkg is not None:  return PackageBody(pkg, component_class, vertical_flipped, appearance)
-  else:                return GenericBody()          # unreachable for loaded parts (package required)
+        # instance.package_variant, otherwise defn.default_package_ref()
+  return PackageBody(pkg, component_class=..., appearance=..., ...)
+        # PackageBody aliases PackageRenderer, whose constructor dispatches
+        # through renderer_for(pkg.lineage)
 ```
 
 A footprint alone is only a pin cloud (a SIL-3 fits a TO-92, a header, a
-trimmer…), so without a resolved package the body is a plain bbox. A part that
-wants a specific silhouette declares it via `package` / `footprints` / `kind`.
+trimmer…), so every component must declare its package choices. A part that
+wants a plain bbox declares `package: {kind: generic}`; other silhouettes follow
+the selected package's shape and lineage. Inline authored `package:` blocks
+become catalogue entries, with `package_options` as the sole runtime link.
 See [data-model.md](data-model.md) §4.1 for the resolution precedence and
 the source-of-truth rule.
 
@@ -253,9 +256,9 @@ overrides builtins). The legacy spelling — a subclass that sets
 (`__init_subclass__`) into the same lineage registry. A subclass *without*
 a registration inherits behaviour but never steals its parent's slot. The
 same interface exists for package-kind **generators**:
-`@register_generator(kind=...)` in `domain/components/package/generators`
-(legacy `generates = "<kind>"`), so a plugin registers both halves of a kind
-through one consistent decorator idiom.
+`@register_generator(kind=...)` in `domain/components/package/generators`,
+so a plugin registers both halves of a kind through one consistent decorator
+idiom. Generator subclasses require the decorator to register.
 
 ### 4.2 Renderer plugins (`renderers/` in a library dir)
 

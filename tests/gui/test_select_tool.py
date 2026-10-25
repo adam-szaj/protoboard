@@ -726,7 +726,7 @@ def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
 
     inst = session.instances[comp_id]
     defn = session.components[inst.definition_ref]
-    option = resolve_package_option(defn, inst)
+    option = resolve_package_option(defn, inst.package_variant, inst.families)
     family_id, variant_id = option.ref.rsplit("/", 1)
     family = session.package_families[family_id]
     variant = family.get_variant(variant_id)

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -25,6 +27,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, PlacementColl
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
+from protoboard.errors import UnboundInstanceError
 from protoboard.geometry import Point
 from protoboard.services.drc.engine import DRCEngine
 
@@ -87,6 +90,42 @@ def _placement(
         side="top",
         shared_pins=shared_pins or frozenset(),
     )
+
+
+@pytest.mark.parametrize("missing_instance", [False, True])
+def test_pad_conflicts_require_a_bound_incoming_instance(
+    missing_instance: bool,
+) -> None:
+    inst = ComponentInstance.new("R", "R1", "10k")
+    with pytest.raises(UnboundInstanceError):
+        find_conflicts(
+            incoming_placement=_placement(inst, 0.5, 0.5),
+            incoming_defn=_r_defn(),
+            incoming_instance_id=inst.id,
+            layout_placements={},
+            instances={},
+            components={"R": _r_defn()},
+            schematic=Schematic(nets={}),
+            incoming_instance=None if missing_instance else inst,
+        )
+
+
+@pytest.mark.parametrize("missing_instance", [False, True])
+def test_wire_conflicts_require_a_bound_incoming_instance(
+    missing_instance: bool,
+) -> None:
+    inst = ComponentInstance.new("R", "R1", "10k")
+    with pytest.raises(UnboundInstanceError):
+        find_wire_conflicts(
+            incoming_placement=_placement(inst, 0.5, 0.5),
+            incoming_defn=_r_defn(),
+            incoming_instance_id=inst.id,
+            wires=[],
+            schematic=Schematic(nets={}),
+            point_to_net={},
+            already_conflicted=set(),
+            incoming_instance=None if missing_instance else inst,
+        )
 
 
 # ---------------------------------------------------------------------------

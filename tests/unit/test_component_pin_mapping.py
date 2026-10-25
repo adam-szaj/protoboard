@@ -79,7 +79,7 @@ def test_unknown_instance_variant_does_not_use_default_mapping() -> None:
     )
 
     with pytest.raises(ValueError, match="package option"):
-        resolve_package_option(definition, instance)
+        resolve_package_option(definition, instance.package_variant, instance.families)
 
 
 def test_family_variant_uses_mapping_declared_on_family_option() -> None:
@@ -116,5 +116,10 @@ def test_family_variant_uses_mapping_declared_on_family_option() -> None:
         package_variant="to92/b",
     ).bind(definition, {"to92": family})
 
-    assert resolve_package_option(definition, instance).ref == "to92"
+    assert (
+        resolve_package_option(
+            definition, instance.package_variant, instance.families
+        ).ref
+        == "to92"
+    )
     assert package_pins_for_meta_pin(definition, instance, 1) == (2,)

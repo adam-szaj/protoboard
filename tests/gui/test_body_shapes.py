@@ -1164,16 +1164,40 @@ class TestFootprintOptionStyle:
         assert isinstance(shape, PackageBody)
         assert shape._appearance.color == "#ff0000"
 
-    def test_unmatched_variant_gets_no_option_style(self) -> None:
-        # An address not present in the options list (e.g. a picker-built kind
-        # variant) applies no per-option style.
+    def test_unmatched_variant_is_rejected(self) -> None:
+        from dataclasses import replace
+
+        families = self._families()
+        families["unrelated"] = replace(families["din-0207"], family_id="unrelated")
+        with pytest.raises(ValueError, match="package option"):
+            body_shape_for(
+                self._defn(),
+                instance=self._instance("unrelated/typ"),
+                package_families=families,
+            )
+
+    @pytest.mark.parametrize("bound_instance", [False, True])
+    def test_family_variant_inherits_declaring_option_style(
+        self, bound_instance: bool
+    ) -> None:
+        from dataclasses import replace
+
+        definition = self._defn()
+        option = replace(definition.package_options[1], ref="smd-0805")
+        definition = replace(definition, package_options=(option,))
+        families = self._families()
+        instance = self._instance("smd-0805/typ")
+        if bound_instance:
+            instance = instance.bind(definition, families)
+
         shape = body_shape_for(
-            self._defn(),
-            instance=self._instance("din-0207/typ"),
-            package_families=self._families(),
+            definition,
+            instance=instance,
+            package_families=None if bound_instance else families,
         )
+
         assert isinstance(shape, PackageBody)
-        assert shape._appearance.color is None
+        assert shape._appearance.color == "#222222"
 
 
 class TestBodyShapeFor:
@@ -1264,13 +1288,12 @@ class TestBodyShapeFor:
             },
             "TEST_DEVBOARD",
         )
-        from protoboard.domain.components.package import package_to_footprint
         from protoboard.domain.components.package.family import (
             PackageFamily,
             PackageVariant,
         )
 
-        pin_count = package_to_footprint(pkg).pin_count()
+        pin_count = pkg.pin_count()
         family = PackageFamily(
             family_id="test-devboard",
             label="test-devboard",

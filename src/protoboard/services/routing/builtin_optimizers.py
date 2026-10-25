@@ -71,7 +71,6 @@ def _build_pad_context(
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.resolution import resolve_placed_component
     from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.layout.pad_conflict import footprint_of
     from protoboard.domain.layout.placement import (
         iter_footprint_pin_positions,
         pin_world_position,
@@ -99,7 +98,7 @@ def _build_pad_context(
             )
             if component is None:
                 continue
-            fp = footprint_of(component.definition, component.instance)
+            fp = component.instance.resolved_footprint()
             for package_pin_number in package_pins_for_meta_pin(
                 component.definition,
                 component.instance,
@@ -114,7 +113,7 @@ def _build_pad_context(
         )
         if component is None:
             continue
-        fp = footprint_of(component.definition, component.instance)
+        fp = component.instance.resolved_footprint()
         for _pin_num, pt in iter_footprint_pin_positions(fp, component.placement):
             ps_top = (pt, "top")
             ps_bot = (pt, "bottom")

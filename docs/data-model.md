@@ -217,9 +217,11 @@ session catalogue. So the instance can resolve its own variant geometry:
 - `instance.resolved_footprint()` — the single source of truth for "the footprint
   this placed component actually uses". Requires `bind()`; an **unbound** instance
   raises `UnboundInstanceError` (falling back to the definition default in a
-  placement context is the exact silent-wrong-body bug this removes). When the
-  instance *is* bound but no variant/family resolves, the definition's `package`
-  is its genuine default geometry — not a fallback — so it is returned.
+  placement context is the exact silent-wrong-body bug this removes).
+  `instance.resolved_package()` returns the selected catalogue `Package`, which
+  directly implements `Footprint`; no geometry adapter is needed. Without an
+  instance override, resolution uses the first declared `PackageOption`.
+  An unresolved selected or default address raises `ValueError`.
 
 **Resolution precedence** (`resolve_component_package`):
 
@@ -227,8 +229,18 @@ session catalogue. So the instance can resolve its own variant geometry:
 instance.package_variant  →  first declared PackageOption
 ```
 
-Both addresses must resolve through the package-family catalogue and the
-selected address must have been explicitly offered by the definition.
+Both addresses must resolve through the package-family catalogue and belong to
+a declared option. `resolve_package_option(definition, package_variant, families)`
+is the shared selector for geometry, MetaPin mapping, rendering and pre-placement
+mechanics. A concrete option permits its exact address; a family option permits
+that family's existing variants. The selector returns the declaring option, so
+its `pin_map` and style remain the same after expanding a family variant.
+Every runtime definition has at least one package option, so
+`default_package_option()` and `default_package_ref()` always return a choice.
+The definition stores no inline `Package`: authored `package:` blocks are
+registered in the catalogue and normalized to an option. A missing package
+declaration is an error; an explicit `package: {kind: generic}` and previews for
+partially applied or variable-count generators remain supported.
 
 ## 5. Schematic — the logical graph (netlist)
 

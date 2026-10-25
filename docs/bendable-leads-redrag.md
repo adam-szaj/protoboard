@@ -22,6 +22,11 @@ refuses such parts with a hint; the place tool's second-pad pick (already
 pin-1-relative) is unchanged. This section's re-drag model remains canonical
 for through-hole bendable leads only.
 
+**Current API:** `PinBendSpec.is_reachable_from_pin_default` checks the annulus
+around the supplied pin default. The old `is_reachable_from_origin` and
+`is_reachable_from_pin1` aliases have been removed; the origin-centred methods
+in §0 describe the pre-migration implementation, not the current API.
+
 The gap this closes: the reach model and the re-drag UI both effectively assume
 **one movable lead per part**. They work for axial 2-pin parts and the SMD 2-pin
 free-neighbour case, but a part with N > 2 bendable leads (e.g. TO-92) cannot
@@ -37,7 +42,7 @@ Related: [docs/footprints/package-model.md](footprints/package-model.md),
 
 ---
 
-## 0. Today's model (what changes)
+## 0. Historical model before the migration
 
 **Reach is a single ring from the fixed origin, shared by all pins.**
 
@@ -84,7 +89,7 @@ practice, so a filled disc). Each pin carries its own centre and its own range.
 
 This is the substantive change. Concretely:
 
-- `PinReach.is_reachable` / `PinBendSpec.is_reachable_from_origin` must measure
+- `PinReach.is_reachable` / `PinBendSpec.is_reachable_from_pin_default` measure
   from the **pin's default world position**, not `placement.position`. The
   pin's default world position is `pin_world_position(footprint, pl, pin)`
   computed with that pin's offset removed (the "baseline" already derived in
@@ -92,10 +97,9 @@ This is the substantive change. Concretely:
 - `pin_reaches` must be free to hand each pin a *different* range. (It may still
   resolve to the same numbers for a symmetric package, but the type stops
   implying "one shared ring".)
-- `is_reachable_from_origin` is misnamed under the new model (it is now
-  "reachable from the pin's default"). Keep the old method as a thin alias if
-  any caller still needs origin-relative semantics during migration, but the
-  re-drag path moves to pin-default-relative.
+- The method name `is_reachable_from_pin_default` identifies the measurement
+  centre. Both placement and re-drag call it directly; no origin-named
+  compatibility method remains.
 
 **Note for a future enhancement (out of scope, see §5):** a bendable grab that
 wants to also translate the body needs the package definition to declare an
@@ -170,9 +174,8 @@ While the target is being chosen, show **both**:
 
 1. **Model (the real change).** `reach.py` / `PinReach` / `PinBendSpec` /
    `effective_bend_specs`: per-pin disc centred on the pin default, reachability
-   measured from the pin default. `is_reachable_from_origin` is renamed /
-   re-centred (keep an alias during migration). Solver still supplies the
-   numbers.
+   measured from the pin default with `is_reachable_from_pin_default`.
+   Solver still supplies the numbers.
 2. **Carry the clicked pin into selection state.** Hit-test already finds the
    nearest pin within `HIT_RADIUS` (`hit_test.py`); selection must remember it
    so re-drag can default the grab to it. (Today selection keeps only the

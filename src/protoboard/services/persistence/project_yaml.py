@@ -37,7 +37,6 @@ from protoboard.domain.axis_labels_settings import (
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
@@ -664,7 +663,7 @@ def _backfill_loaded_wire_knots(
                 defn = library.get(inst.definition_ref)
                 if defn is None:
                     continue
-                fp = resolved_footprint(defn, inst, _families_for_migration)
+                fp = inst.resolved_footprint()
                 n_pins = fp.pin_count()
                 for pin_num in range(1, n_pins + 1):
                     try:
@@ -684,7 +683,7 @@ def _backfill_loaded_wire_knots(
                 if defn is None:
                     return None
                 try:
-                    fp = resolved_footprint(defn, inst, _families_for_migration)
+                    fp = inst.resolved_footprint()
                     return pin_world_position(fp, pl, pin_num)
                 except (IndexError, ValueError):
                     return None
@@ -932,7 +931,7 @@ def _snap_stale_loaded_wire_paths(
                     # pin pitch) is measured against its default axial body
                     # (3.2-hole pitch) and every pin "moves", snapping the whole
                     # wire and dragging neighbours.
-                    fp = resolved_footprint(defn, inst, _families_for_migration)
+                    fp = inst.resolved_footprint()
                     pin_pos = pin_world_position(
                         fp, endpoint_placement, k.pin.pin_number
                     )

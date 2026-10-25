@@ -753,8 +753,8 @@ back to the shape-root renderer's guess.
 
 **The generator contract** (`package/generators/base.py`) mirrors the renderer
 registry: a `PackageGenerator` subclass decorated with
-`@register_generator(kind="<kind>")` (or declaring the legacy
-`generates = "<kind>"`) registers itself at class-creation time; later
+`@register_generator(kind="<kind>")` registers itself when the module executes;
+an undecorated subclass inherits behaviour without registering. Later
 registrations win (a plugin in a library's `generators/` directory overrides
 a builtin — `services/library/plugin_discovery.py`). The subclass declares its parameter
 set as a `ParamSchema` (`params`, one source of truth for build validation,

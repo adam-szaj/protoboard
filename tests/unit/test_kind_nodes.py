@@ -12,6 +12,7 @@ from protoboard.domain.components.package.generators import (
     KIND_GENERATORS,
     GeneratorContext,
     PackageGenerator,
+    register_generator,
 )
 from protoboard.domain.components.package.kind import build_kind_package
 from protoboard.domain.components.package.kind_nodes import (
@@ -115,8 +116,9 @@ class TestRegistration:
     def test_own_schema_binds_into_declared_schemas_and_params(
         self, scratch_registries
     ) -> None:
+        @register_generator(kind="_t_schemakind")
         class Gen(_NodeGen):
-            generates = "_t_schemakind"
+            pass
 
         registry = _base_registry()
         registry["_t_schemakind"] = {
@@ -160,8 +162,9 @@ class TestNodeBuild:
     def test_resolve_auto_fills_and_build_package_validates(
         self, scratch_registries
     ) -> None:
+        @register_generator(kind="_t_nodekind")
         class Gen(_NodeGen):
-            generates = "_t_nodekind"
+            pass
 
         register_kind_node("_t_nodekind", _base_registry())
         out = build_kind_package("_t_nodekind", GeneratorContext(pin_count=3))
@@ -179,8 +182,8 @@ class TestNodeBuild:
         assert pkg.raw_values["dims"]["ly"] == "auto"
 
     def test_generator_color_is_only_a_fallback(self, scratch_registries) -> None:
+        @register_generator(kind="_t_nodekind")
         class Gen(_NodeGen):
-            generates = "_t_nodekind"
             color = "#abcdef"
 
         registry = _base_registry()
@@ -190,8 +193,8 @@ class TestNodeBuild:
         assert isinstance(pkg, Prism) and pkg.color == "#abcdef"
 
     def test_unresolved_auto_is_a_loud_error(self, scratch_registries) -> None:
+        @register_generator(kind="_t_nodekind")
         class Identity(PackageGenerator):
-            generates = "_t_nodekind"
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
                 raise AssertionError("must not fall back to generate()")
@@ -201,8 +204,9 @@ class TestNodeBuild:
             build_kind_package("_t_nodekind", GeneratorContext(pin_count=2))
 
     def test_explicit_value_beats_auto(self, scratch_registries) -> None:
+        @register_generator(kind="_t_nodekind")
         class Gen(_NodeGen):
-            generates = "_t_nodekind"
+            pass
 
         register_kind_node("_t_nodekind", _base_registry())
         pkg = build_kind_package(
@@ -220,8 +224,9 @@ class TestLibraryPackagesSection:
     def test_library_file_can_ship_a_kind_node(
         self, tmp_path: Path, scratch_registries
     ) -> None:
+        @register_generator(kind="_t_libnode")
         class Gen(_NodeGen):
-            generates = "_t_libnode"
+            pass
 
         from protoboard.services.library.loader import load_library
 

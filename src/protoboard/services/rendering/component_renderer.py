@@ -27,7 +27,6 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
     meta_pin_for_package_pin,
     resolve_component_package,
-    resolved_footprint,
 )
 from protoboard.domain.components.resolution import (
     iter_placed_components,
@@ -541,9 +540,8 @@ def _render_one(
 
     # The placed part's pins follow its CHOSEN variant, not the definition
     # default — an R placed as SMD-0805 has a 1-hole pitch, not the default
-    # axial 3.2-hole pitch. Resolve the variant footprint (falls back to
-    # the definition's default package when none resolves).
-    fp = resolved_footprint(defn, inst, theme.package_families)
+    # axial 3.2-hole pitch. Without an override, use the default package option.
+    fp = inst.resolved_footprint()
     positions = [
         position
         for _pin_number, position in iter_footprint_pin_positions(fp, placement)

@@ -349,6 +349,11 @@ class TestVariantFootprintOnLoad:
                     ref=f"{family_id}/{default_vid}",
                     pin_map={1: (1,), 2: (2,)},
                 ),
+                PackageOption(
+                    name=f"{family_id}/{other_vid}",
+                    ref=f"{family_id}/{other_vid}",
+                    pin_map={1: (1,), 2: (2,)},
+                ),
             ),
         )
         lib = _MiniLibrary(package_families=fam)
@@ -392,10 +397,9 @@ class TestVariantFootprintOnLoad:
 
         # The chosen variant resolves to the SAME footprint on both loads, so
         # the placement is stable — pin positions don't drift to the default.
-        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import pin_world_position
 
-        fp = resolved_footprint(defn, inst, fam)
+        fp = inst.resolved_footprint()
         pos2 = pin_world_position(fp, l2.placements[inst.id], 2)
         # The variant's pin-2 world position must match what resolved_footprint
         # gives — i.e. load used the variant, not defn.default_footprint() (SIL spacing).  # noqa: E501
@@ -426,7 +430,6 @@ class TestPadIndexUsesVariantFootprint:
 
     def test_pin_item_lands_on_variant_pad(self) -> None:
         from protoboard.domain.board.pad_state import PadIndex, PinItem
-        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.components.package.family import resolve_variant
         from protoboard.domain.layout.placement import pin_world_position
 
@@ -487,7 +490,4 @@ class TestPadIndexUsesVariantFootprint:
 
         # Sanity: the bound instance resolves to the same footprint the index
         # used.
-        assert (
-            inst.resolved_footprint().pin_positions()
-            == resolved_footprint(defn, inst, families).pin_positions()
-        )
+        assert inst.resolved_footprint().pin_positions() == variant_fp.pin_positions()

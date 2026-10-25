@@ -24,10 +24,8 @@ from protoboard.domain.components.package.body import (
     MountStyle,
 )
 from protoboard.domain.components.package.component_package import (
-    package_to_footprint,
     resolve_component_package,
     resolve_package_variant_footprint,
-    resolved_footprint,
 )
 from protoboard.domain.components.package.family import (
     PackageFamily,
@@ -96,7 +94,6 @@ __all__ = [
     "PackageDefError",
     "PackageFamily",
     "PackageVariant",
-    "package_to_footprint",
     "PadCell",
     "PinReach",
     "PinBendSpec",
@@ -105,7 +102,6 @@ __all__ = [
     "body_holes",
     "resolve_component_package",
     "resolve_package_variant_footprint",
-    "resolved_footprint",
     "resolve_variant",
     "build_package",
     "build_pad_mask",

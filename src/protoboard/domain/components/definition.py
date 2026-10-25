@@ -165,7 +165,8 @@ class ComponentDefinition:
     # See docs/footprints/authoring.md.
     package_options: tuple[PackageOption, ...] = ()
     # Parametric (variable-pin-count) entry: the library YAML declared a
-    # ``package: {kind: …}`` with NO ``pins:``, so the pin count (and any open
+    # ``package: {kind: …}`` without ``meta_pins`` or a package ``pins:`` count,
+    # so the pin count (and any open
     # generator parameters, e.g. a pin header's ``rows``) are chosen by the
     # user at placement time. The default option then points at a PREVIEW body.
     parametric_pins: bool = False
@@ -182,7 +183,7 @@ class ComponentDefinition:
         """Resolve the default package option into footprint geometry.
 
         For anything *placed*, use the instance-resolved geometry
-        (``footprint_of`` / ``ComponentInstance.resolved_footprint``); reading
+        (``ComponentInstance.resolved_footprint``); reading
         the definition default for a placed component is the silent-wrong-body
         bug this method's name exists to make visible. Legitimate callers are
         instance-less contexts only: library preview, pre-placement ghost,
@@ -194,14 +195,13 @@ class ComponentDefinition:
 
         return resolve_component_package(self, None, families)
 
-    def default_package_option(self) -> PackageOption | None:
-        """The definition's default package choice, if it declares one."""
-        return self.package_options[0] if self.package_options else None
+    def default_package_option(self) -> PackageOption:
+        """The first package choice, required by the definition invariant."""
+        return self.package_options[0]
 
-    def default_package_ref(self) -> str | None:
-        """The catalogue ref of the default package choice, if any."""
-        option = self.default_package_option()
-        return None if option is None else option.ref
+    def default_package_ref(self) -> str:
+        """The catalogue ref of the required default package choice."""
+        return self.default_package_option().ref
 
     def meta_pin(self, index: int) -> MetaPin:
         """Return the MetaPin at the given 1-based ordinal."""

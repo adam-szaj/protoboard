@@ -12,7 +12,6 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox
 from protoboard.geometry import Point
 
@@ -28,7 +27,7 @@ def iter_under_component_pads(
         if component.placement.side != "top":
             continue
         bbox = component_bbox(
-            footprint_of(component.definition, component.instance),
+            component.instance.resolved_footprint(),
             component.placement,
         )
         for atom, pos in board.atoms():

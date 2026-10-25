@@ -45,14 +45,15 @@ if the ports-only refactor proceeds, these pieces are deliberately deferred:
 ## Connector pin-name presets → generator config (added 2026-07-06)
 
 The parametric-connector rewrite (variable pin count chosen at placement;
-`library/Connectors/headers.yaml`) deliberately DROPPED the authored
-`variants:` pin-name presets the fixed-count headers carried (UART/I2C/SPI/SWD
-labellings on `PinHeader_1x03` / `_1x04` — recover the data from this file's
-git history at the rewrite commit). Decision: presets belong to the
-**generator** — equip `PackageGenerator` (pin_header first) with a per-pin-count
-preset configuration the concretization copies into the synthesized
-definition's `variants`, so the pin-variant picker works again. Related: the
-planned `idc` kind should join `pin_header`/`jst` when added.
+`library/Connectors/headers.yaml`) dropped the authored UART/I2C/SPI/SWD label
+presets for fixed-count headers. Recover the preset data from this file's git
+history if needed. Presets belong to the generator's per-pin-count
+configuration: concretization should populate the synthesized definition's
+`meta_pins` with the chosen labels and retain the package option's `pin_map`.
+There is no `PinVariant`, definition `variants`, or pin-variant picker in the
+current model. Labels describe each MetaPin; repeating a label on different
+MetaPins must not implicitly connect them. Related: the planned `idc` kind
+should join `pin_header`/`jst` when added.
 
 ## Kind generators — declarative-node follow-ups (updated 2026-07-06)
 
@@ -92,30 +93,23 @@ not as an auto-pick.
 
 ## Generic-package invariant — follow-ups (added 2026-06-25)
 
-`ComponentDefinition.package` is an invariant: the loader synthesizes a
-NON-rigid generic bbox package (`kind="_generic"`, `synth_generic_package` in
-`domain/components/package/kind.py`) for parts that declare none. Bend-spec
-(`reach.effective_bend_specs`), DRC (`drc/engine.py` ×3) and the footprint
-picker (`gui/footprint_choice.py`, `generated_families._explicit_body`) exclude
-the `_generic` tag so their behaviour is frozen. Two follow-ups remain:
+The runtime invariant is a non-empty `ComponentDefinition.package_options`
+collection. Each option stores a catalogue reference and `pin_map`; geometry
+belongs to the resolved `Package`, which also implements `Footprint`. The
+loader rejects components without an explicit package declaration. The implicit
+generic fallback and its old exclusion/consolidation follow-up are retired.
+An explicit `package: {kind: generic}` remains valid, as do preview packages for
+partially applied or variable-count generators. The production picker offers
+only declared options and variants expanded from their referenced families.
 
-1. **Body-mask bent-span difference.** `pad_state.add_component` always uses
-   `_package_body_pads(defn.package, …)` → `body_holes`, computed from the
-   package's **default** (unbent) pin positions. The removed legacy path used
-   `component_bbox(defn.footprint, placement, …)`, whose `pin_world_position`
-   includes `placement.pin_offsets` (the bent-lead span). For a part placed at
-   default pitch the two match exactly; for a **bent** lead the synth marks
-   fewer body holes (only the default span + 0.5 margin). Routing impact is nil
-   (these flexible parts have `body_blocks_routing=False`, so their `ComponentBody`
-   is non-blocking) — but anything that *counts* `ComponentBody` items under a
-   bent lead sees a difference. Revisit if a consumer needs the bent-span body.
-
-2. **Consolidate the `_generic` exclusion.** `is_generic_package(pkg)` now
-   appears in ~6 sites (reach ×2, DRC ×3, picker). Once authored
-   `bendable_pins` are migrated into real non-rigid packages (a data
-   migration), the whole generic fallback + `bendable_pins` field can retire;
-   until then, the shared `is_generic_package` predicate stays the single
-   source of the check.
+**Body-mask bent-span difference remains a review item for explicit generic
+bodies.** `PadIndex.add_component` uses the instance's selected package and
+`body_holes`, whose geometry follows the package's default pin positions.
+`component_bbox` can instead include `placement.pin_offsets` and thus a bent
+lead's span. Generic bodies do not normally block routing
+(`body_blocks_routing=False`), but a consumer counting `ComponentBody` items
+under bent leads may observe the difference. Revisit if a consumer needs the
+bent-span body mask.
 
 ## Footprint→body cleanup — remaining parity (added 2026-06-25)
 
@@ -188,16 +182,15 @@ Keep the existing 3-arg slots working (default the pin arg to None).
 Any definition-default geometry used for a component that is *placed on the
 board* is a **critical bug**: a placed component always has a bound instance,
 and its real package/footprint is the chosen variant
-(`inst.resolved_footprint()` / `pad_conflict.footprint_of(defn, inst)` —
-strict; or `resolved_footprint_or_default(defn, inst)` where unbound is
-legitimate). Pin *count* is variant-invariant (verified across all builtin
-definitions); only pin *world positions* diverge, so geometry reads are the
-danger. The 2026-06-30 audit repointed every placed-component site.
-**2026-07-04: the `defn.footprint` field was removed entirely** — the default
-geometry is `defn.package` (required), and the few legitimate instance-less
-consumers call `defn.default_footprint()`, whose name makes the intent
-auditable. New code must never call `default_footprint()` with an instance in
-scope.
+(`inst.resolved_footprint()` / `inst.resolved_package()`). Unbound instances
+raise `UnboundInstanceError`; explicitly selected unresolved addresses raise
+`ValueError`. Logical MetaPin count and physical package pin count are distinct,
+joined by the active option's `pin_map`. Geometry reads must follow that option.
+Definitions store only `package_options`, never `package` or `footprint` geometry.
+The few legitimate instance-less consumers call
+`defn.default_footprint(families)` or resolve their explicit pre-placement
+selection through `resolve_package_variant_footprint`. New code must never
+substitute definition-default geometry for a placed instance's selected package.
 
 ## Group flip — armed FlipMode UX (added 2026-07-04)
 

@@ -7,7 +7,6 @@ import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
@@ -33,11 +32,7 @@ def build_component_spatial_index(
     ):
         component_id = component.placement.component_id
         placement = component.placement
-        footprint = resolved_footprint(
-            component.definition,
-            component.instance,
-            families,
-        )
+        footprint = component.instance.resolved_footprint()
         seen_cells: set[tuple[int, int]] = set()
         for _pin_number, position in iter_footprint_pin_positions(footprint, placement):
             cell = (round(position.x), round(position.y))

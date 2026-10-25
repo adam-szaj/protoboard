@@ -14,19 +14,29 @@ uv run python tools/render_footprints.py
 
 ## How footprints map to body shapes
 
-`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher — a **two-branch** decision (see [../rendering.md](../rendering.md) §4 for the full chain). A component's body comes from its **parametric package** (`docs/footprints/package-model.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's default `PackageOption`, or an inline `defn.package` (DIP / SIL parts get a *generated* `dip-N` / `sil-N` family variant). When a package resolves it renders through `PackageBody`; otherwise a bare footprint is only a pin cloud and draws a `GenericBody` plain bbox.
+`body_shape_for(defn, placement, instance, package_families)` in
+`services/rendering/body_shapes.py` resolves the selected catalogue package
+(see [../rendering.md](../rendering.md) §4 for the render chain).
+`resolve_component_package` uses the instance's `package_variant` or the
+first declared `PackageOption`. The loader registers authored inline `package:`
+blocks as catalogue entries; runtime definitions and options contain references
+rather than inline geometry. The `Package` itself implements `Footprint`.
 
-| Source | Body shape |
-|---|---|
-| any resolved `Package` (cylinder / prism / disc) — incl. TO-92, TO-220, DIP, SIL | `PackageBody` — geometry + colour from the package |
-| no package resolves (bare footprint / pin cloud) | `GenericBody` (plain bbox) |
+`PackageBody` is the `PackageRenderer` entry point. It selects a renderer from
+`services/rendering/packages/`: a component-class registration takes priority,
+then the package lineage is searched from the most specific node towards its
+base shape. TO-92 uses the cylinder renderer and TO-220 uses its renderer
+plugin; there are no dedicated `TO92Body` / `TO220Body` dispatch targets.
 
-> There are **no** dedicated `TO92Body` / `TO220Body` / `Svg*Body` dispatch
-> targets: TO-92 (flat-sided cylinder), TO-220 (prism), DIP and SIL all render
-> through `PackageBody`. The `TO92Body` / `TO220Body` classes survive only in
-> unit tests; the `Svg*Body` renderers were removed.
+Components must declare a package choice. An explicit
+`package: {kind: generic}` provides a generic bbox body; partially applied and
+variable-count generators may use preview packages until their parameters are
+filled. Missing package declarations or unresolved references do not silently
+produce a generic body. The production picker offers only declared package
+options and their family variants.
 
-`PackageBody` dispatches on the package's `arrangement` × shape:
+Within the selected renderer, the package's `arrangement` and shape determine
+the body view:
 
 - **AXIAL cylinder, horizontal** (pads farther apart than the body length): a side-view capsule lying *between* the two pads, leads to each end.
 - **AXIAL cylinder, vertical / upright** (pads closer than the body length — a part stood on end, one lead bent down): the body is a top-view disc sitting **directly over ONE pad**, with a single lead stub reaching the other. *Which* pad it stands on is the **Flip** (`vertical_flipped`): unflipped → over pin 1, flipped → over pin 2. The orientation is chosen automatically by the placed pad spacing — there is no separate toggle. (This is **not** the radial centroid silhouette below; an axial part mounts over a single pad.)

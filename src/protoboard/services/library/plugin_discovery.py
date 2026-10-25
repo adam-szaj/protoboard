@@ -8,9 +8,9 @@ The shared loader behind the two plugin surfaces:
 * ``generators/`` — ``PackageGenerator`` subclasses (pure domain; loadable
   headless; see :mod:`protoboard.domain.components.package.generators`).
 
-A module registers its classes simply by *defining* them — registration
-happens in ``__init_subclass__``, so no explicit call is needed. A failing
-plugin is logged and skipped — one broken file never blocks the rest of the
+A module registers its classes with ``@register_renderer`` or
+``@register_generator`` when imported. A failing plugin is logged and
+skipped — one broken file never blocks the rest of the
 library. Plugins are ordinary Python executed in the application process (the
 same trust level as the application itself).
 """
@@ -86,8 +86,7 @@ def load_generator_plugins(library_dirs: Iterable[Path]) -> list[Path]:
     """Import every ``generators/*.py`` under *library_dirs*.
 
     A plugin defines a ``PackageGenerator`` subclass decorated with
-    ``@register_generator`` (or carrying the legacy ``generates`` attribute);
-    the class body registers it in ``KIND_GENERATORS``::
+    ``@register_generator``; the decorator registers it in ``KIND_GENERATORS``::
 
         from protoboard.domain.components.package.generators import (
             PackageGenerator, prism_from_footprint, register_generator,

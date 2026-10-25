@@ -41,7 +41,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.package.pin_mapping import (
     package_pins_for_meta_pin,
 )
@@ -250,7 +249,7 @@ def _pin_endpoint_matches_path(
             return False
         inst, defn = resolved
         try:
-            fp = resolved_footprint(defn, inst, inst.families)
+            fp = inst.resolved_footprint()
             physical_positions = tuple(
                 pin_world_position(fp, pl, package_pin_number)
                 for package_pin_number in package_pins_for_meta_pin(

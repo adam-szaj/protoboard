@@ -45,7 +45,6 @@ from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.commands.base import CommandStack, ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.pin_mapping import meta_pin_for_package_pin
 from protoboard.domain.components.resolution import resolve_placed_component
@@ -287,11 +286,7 @@ class HeadlessSession:
         if definition is None:
             return None
         try:
-            return resolved_footprint(
-                definition,
-                instance,
-                self.package_families,
-            )
+            return instance.resolved_footprint()
         except (IndexError, ValueError):
             return None
 
@@ -629,11 +624,7 @@ class HeadlessSession:
         if component is None:
             return None
         try:
-            fp = resolved_footprint(
-                component.definition,
-                component.instance,
-                self.package_families,
-            )
+            fp = component.instance.resolved_footprint()
             return component_bbox(
                 fp,
                 component.placement,

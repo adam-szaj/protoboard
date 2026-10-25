@@ -10,7 +10,7 @@ renderer class per package lineage node (``CylinderRenderer`` /
 - :func:`body_shape_for` — the production dispatch (unchanged signature);
 - :func:`PackageBody` — constructor-compatible factory returning the
   lineage-dispatched renderer (tests build bodies directly through it);
-- ``GenericBody`` — the bare-bbox fallback for a component with no package.
+- ``GenericBody`` — a plain bbox renderer for direct rendering clients.
 
 The legacy hand-coded ``TO92Body`` / ``TO220Body`` are gone: TO-92 renders
 through the flat-sided radial :class:`CylinderRenderer` and TO-220 through the
@@ -34,6 +34,7 @@ from protoboard.domain.components.package.component_package import (
     resolve_component_package,
 )
 from protoboard.domain.components.package.family import PackageFamily
+from protoboard.domain.components.package.pin_mapping import resolve_package_option
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.services.rendering.packages import (
     BodyShape,
@@ -57,27 +58,6 @@ __all__ = [
 PackageBody = PackageRenderer
 
 
-def _active_option_style(
-    defn: ComponentDefinition,
-    instance: ComponentInstance | None,
-) -> Appearance | None:
-    """The ``style:`` of the footprint option the placed part uses, or None.
-
-    With an explicit ``instance.package_variant`` the option is matched by
-    catalogue address. Without one, the first package option is the
-    part's default geometry source, so its style applies.
-    """
-    if not defn.package_options:
-        return None
-    address = instance.package_variant if instance is not None else None
-    if not address:
-        return defn.package_options[0].style
-    for opt in defn.package_options:
-        if opt.ref == address:
-            return opt.style
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -94,12 +74,19 @@ def body_shape_for(
     A parametric package (resolved from the instance/definition/catalogue via
     :func:`resolve_component_package`) is the source of truth for the body and
     renders through the lineage-dispatched :class:`PackageRenderer` subclass
-    (see :func:`protoboard.services.rendering.packages.renderer_for`); a part
-    without a package draws a generic bbox.
+    (see :func:`protoboard.services.rendering.packages.renderer_for`). Missing
+    package references raise; plain pin-cloud bodies use ``kind: generic``.
     """
     cls = defn.component_class
     vf = placement.vertical_flipped if placement is not None else False
     side = placement.side if placement is not None else "top"
+    catalogue = package_families
+    if catalogue is None:
+        catalogue = instance.families if instance is not None else None
+    catalogue = catalogue if catalogue is not None else {}
+    option = resolve_package_option(
+        defn, instance.package_variant if instance is not None else None, catalogue
+    )
     # Visual-only override (fill colour, corner radius) layered over the
     # package/theme defaults, per field: an explicit instance override wins,
     # then the placed footprint option's own ``style:`` (an SMD chip may be
@@ -107,33 +94,21 @@ def body_shape_for(
     # component-wide definition style.
     eff_appearance = Appearance.resolve(
         instance.appearance if instance is not None else None,
-        _active_option_style(defn, instance),
+        option.style,
         defn.appearance,
     )
 
-    # A parametric package (new spec model) is the source of truth for the
-    # body geometry when one resolves: the instance's package_variant, the
-    # definition's default PackageOption reference (both against the
-    # package-family catalogue), or an inline defn.package — see
-    # resolve_component_package.
+    # Package geometry comes from the selected catalogue address or the
+    # definition's default PackageOption reference.
     # Polarity / anchor come from the class and placement, not the
     # (class-agnostic) package.
-    pkg = resolve_component_package(defn, instance, package_families or {})
-    if pkg is not None:
-        return PackageBody(
-            pkg,
-            component_class=cls,
-            vertical_flipped=vf,
-            appearance=eff_appearance,
-            side=side,
-            placement=placement,
-            instance=instance,
-        )
-
-    # No explicit package resolved: a footprint is only a pin cloud (pin count
-    # + spacing) and does not determine a body — the same footprint fits many
-    # bodies (a SIL-3 is a TO-92, a header, a trimmer…). A part that wants a
-    # specific silhouette declares it via ``package`` / ``PackageOption``
-    # (resolved above). Without one, draw the generic bbox body (which still
-    # honours the visual style override).
-    return GenericBody(appearance=eff_appearance)
+    pkg = resolve_component_package(defn, instance, catalogue)
+    return PackageBody(
+        pkg,
+        component_class=cls,
+        vertical_flipped=vf,
+        appearance=eff_appearance,
+        side=side,
+        placement=placement,
+        instance=instance,
+    )

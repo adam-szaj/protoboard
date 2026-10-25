@@ -1,8 +1,18 @@
 # SPDX-License-Identifier: MIT
 """Tests for reach.py — the Package-derived replacement for bendable_pins."""
 
+import pytest
+
+from protoboard.domain.components.definition import (
+    ComponentDefinition,
+    MetaPin,
+    PackageOption,
+)
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import load_packages
+from protoboard.domain.components.package.family import PackageFamily, PackageVariant
 from protoboard.domain.components.package.reach import (
+    effective_bend_specs,
     is_pin_bendable,
     package_to_bend_specs,
     pin_reaches,
@@ -125,12 +135,11 @@ class TestPinReaches:
         assert 1 in reaches
         assert 2 in reaches
 
-    def test_default_is_pin_home_origin_is_zero(self) -> None:
+    def test_default_is_each_pins_home(self) -> None:
         c = _builtin()["CP_Elec_6.3x11"]
         reaches = pin_reaches(c)
         assert reaches[2].default == c.pin_positions()[1]
-        assert reaches[2].origin == Point(0.0, 0.0)  # fixed origin
-        assert reaches[1].origin == Point(0.0, 0.0)
+        assert reaches[1].default == c.pin_positions()[0]
 
     def test_electrolytic_reachable_within_bend(self) -> None:
         c = _builtin()["CP_Elec_6.3x11"]  # ring 1..5 holes from the pin's default
@@ -201,7 +210,7 @@ class TestIsPinBendable:
 
 
 class TestPackageToBendSpecs:
-    """Adapter feeding place_tool: Package → legacy dict[int, PinBendSpec]."""
+    """Package-derived per-pin mechanics used by placement tools."""
 
     def test_rigid_dip_yields_no_specs(self) -> None:
         # bend=0 → no movable pins → empty dict (place_tool: not bendable).
@@ -246,15 +255,80 @@ class TestPackageToBendSpecs:
         for spec in specs.values():
             assert spec.is_free()
 
-    def test_is_reachable_from_pin_default_alias_matches_origin(self) -> None:
-        # The new canonical check and the back-compat alias are pure renames:
-        # both measure the euclidean radius from whatever centre is passed.
+    @pytest.mark.parametrize(
+        "target, reachable",
+        [
+            (Point(3.0, 1.0), False),
+            (Point(3.0, 2.0), True),
+            (Point(3.0, 6.0), True),
+            (Point(9.0, 1.0), False),
+        ],
+    )
+    def test_reach_is_measured_from_pin_default(
+        self, target: Point, reachable: bool
+    ) -> None:
         spec = package_to_bend_specs(_builtin()["CP_Elec_6.3x11"])[2]
         centre = Point(3.0, 1.0)
-        for target in (Point(3.0, 4.0), Point(9.0, 1.0), Point(3.0, 1.0)):
-            assert spec.is_reachable_from_pin_default(
-                centre, target
-            ) == spec.is_reachable_from_origin(centre, target)
+        assert spec.is_reachable_from_pin_default(centre, target) is reachable
+
+
+def test_unresolved_preplacement_variant_does_not_use_default_bend_specs() -> None:
+    definition = ComponentDefinition(
+        name="X",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(PackageOption(name="DIP", ref="dip/std"),),
+    )
+    families = {
+        "dip": PackageFamily(
+            family_id="dip",
+            variants=(PackageVariant("std", "DIP", _builtin()["DIP-8"]),),
+        )
+    }
+
+    with pytest.raises(ValueError, match="missing/std"):
+        effective_bend_specs(
+            definition, families=families, package_variant="missing/std"
+        )
+
+
+def test_preplacement_bend_specs_reject_existing_undeclared_package() -> None:
+    packages = _builtin()
+    definition = ComponentDefinition(
+        name="X",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(PackageOption(name="DIP", ref="dip/std"),),
+    )
+    families = {
+        "dip": PackageFamily(
+            family_id="dip",
+            variants=(PackageVariant("std", "DIP", packages["DIP-8"]),),
+        ),
+        "other": PackageFamily(
+            family_id="other",
+            variants=(PackageVariant("std", "Other", packages["BEND_OVERRIDE"]),),
+        ),
+    }
+
+    with pytest.raises(ValueError, match="package option"):
+        effective_bend_specs(definition, families=families, package_variant="other/std")
+
+
+def test_explicit_empty_catalogue_does_not_use_instance_catalogue() -> None:
+    definition = ComponentDefinition(
+        name="X",
+        meta_pins=(MetaPin(("A",)), MetaPin(("B",))),
+        package_options=(PackageOption(name="DIP", ref="dip/std"),),
+    )
+    families = {
+        "dip": PackageFamily(
+            family_id="dip",
+            variants=(PackageVariant("std", "DIP", _builtin()["DIP-8"]),),
+        )
+    }
+    instance = ComponentInstance.new("X", "X1", "").bind(definition, families)
+
+    with pytest.raises(ValueError, match="unresolved package variant"):
+        effective_bend_specs(definition, instance, families={})
 
 
 class TestReachOffsetRange:

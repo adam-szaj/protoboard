@@ -124,14 +124,12 @@ def _synth_generic_by_pins(
 
 
 def synth_generic_package(fp: Footprint, *, bend_holes: float = 0.0) -> Prism | None:
-    """A NON-rigid generic bbox package whose pins follow *fp*.
+    """A generic bbox package whose pins follow *fp*.
 
-    The fallback body for a library part that declares no real package, so
-    component package choices can remain non-empty. Geometry is
-    the pin-cloud bbox + 0.5-hole margin (matching the legacy ``component_bbox``
-    body footprint). It is rigid by default: bendability must be declared by
-    the package rather than inferred from a missing component package. Tagged
-    ``kind="_generic"`` so body-mask consumers can identify the fallback.
+    Used by an explicit ``kind: generic`` and by partially-applied kind previews.
+    Geometry is the pin-cloud bbox + 0.5-hole margin. It is rigid by default:
+    bendability must be declared by the package. Tagged ``kind="_generic"`` so
+    body-mask consumers can identify the plain pin-cloud body.
     Returns ``None`` for a footprint with no pins. Cached by pin-cloud (the ~187
     library parts collapse to a handful of distinct clouds)."""
     pins = tuple((p.x, p.y) for p in fp.pin_positions())

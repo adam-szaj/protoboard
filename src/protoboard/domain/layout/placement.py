@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, overload
 import structlog
 
 from protoboard.domain.components.footprints import Footprint
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.resolution import (
     iter_placed_components,
     resolve_instance_definition,
@@ -616,11 +615,7 @@ def resolve_pin_world_position(
     if component is None:
         return None
     try:
-        fp = resolved_footprint(
-            component.definition,
-            component.instance,
-            families,
-        )
+        fp = component.instance.resolved_footprint()
         return pin_world_position(fp, component.placement, pin_number)
     except (IndexError, ValueError):
         return None
@@ -657,11 +652,7 @@ def iter_pin_world_positions(
     if component is None:
         return
     try:
-        footprint = resolved_footprint(
-            component.definition,
-            component.instance,
-            families,
-        )
+        footprint = component.instance.resolved_footprint()
     except (IndexError, ValueError):
         return
     yield from iter_footprint_pin_positions(footprint, component.placement)
@@ -700,7 +691,7 @@ def warn_pins_off_pads(
     resolved = resolve_instance_definition(comp_id, instances, components)
     if resolved is None:
         return
-    inst, defn = resolved
+    inst, _ = resolved
     from protoboard.domain.board.boxes import GapAtom
 
     pad_set: frozenset[tuple[float, float]] = frozenset(
@@ -708,7 +699,7 @@ def warn_pins_off_pads(
         for atom, center in board.atoms()
         if not isinstance(atom, GapAtom)
     )
-    fp = resolved_footprint(defn, inst, inst.families)
+    fp = inst.resolved_footprint()
     misses = validate_pins_on_pads(fp, placement, pad_set)
     if misses:
         _log.warning(
@@ -761,7 +752,7 @@ def move_blocked(
 
     # Geometry resolves the moved/other components' chosen variant footprints,
     # not the definition default (pin_count stays on defn — variant-invariant).
-    fp = resolved_footprint(defn, inst, inst.families)
+    fp = inst.resolved_footprint()
     new_bbox = component_bbox(fp, new_pl, defn.component_class)
     new_pin_positions = _pin_position_set(fp, new_pl)
 
@@ -773,11 +764,7 @@ def move_blocked(
         if other.placement.component_id == comp_id:
             continue
 
-        other_fp = resolved_footprint(
-            other.definition,
-            other.instance,
-            other.instance.families,
-        )
+        other_fp = other.instance.resolved_footprint()
         other_bbox = component_bbox(
             other_fp,
             other.placement,

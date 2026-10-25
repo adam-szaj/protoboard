@@ -33,11 +33,11 @@ from protoboard.domain.components.package import meta_pin_for_package_pin
 from protoboard.domain.components.package.bend import PinBendSpec
 from protoboard.domain.components.package.component_package import (
     resolve_component_package,
-    resolved_footprint,
 )
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.errors import UnboundInstanceError
 from protoboard.geometry import Vector
 from protoboard.instrumentation.debug_trace import traced
 
@@ -534,7 +534,11 @@ class PropertiesPanel(QWidget):
 
         # Per-pin geometry — resolved against the instance's chosen variant.
         if defn is not None:
-            fp = resolved_footprint(defn, inst, package_families)
+            if inst is None:
+                raise UnboundInstanceError(
+                    f"geometry table called for {defn.name!r} without an instance"
+                )
+            fp = inst.resolved_footprint()
             fp_positions = fp.pin_positions()
             for i, fp_pos in enumerate(fp_positions):
                 pin_num = i + 1

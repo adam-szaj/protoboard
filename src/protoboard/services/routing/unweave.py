@@ -49,7 +49,6 @@ import structlog
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.layout.wire_utils import board_pads_union
@@ -580,7 +579,7 @@ def unweave_wires(
             graph.instances,
             graph.components,
         ):
-            comp_fp = footprint_of(component.definition, component.instance)
+            comp_fp = component.instance.resolved_footprint()
             forbidden_pads.update(
                 position
                 for _pin_number, position in iter_footprint_pin_positions(

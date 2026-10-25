@@ -30,7 +30,6 @@ from protoboard.domain.layout.pad_conflict import (
     find_conflicts,
     find_wire_conflicts,
     find_wires_crossing_pads,
-    footprint_of,
 )
 from protoboard.domain.layout.pad_strategy import PadStrategy
 from protoboard.domain.layout.placement import (
@@ -180,7 +179,7 @@ class DragDetector:
                 moved_comp_ids=moved_comp_ids,
             )
             if body_overlap_refdes is not None:
-                hard_pads.append(pin_world_position(footprint_of(defn, inst), pl, 1))
+                hard_pads.append(pin_world_position(inst.resolved_footprint(), pl, 1))
                 reasons.append(
                     DragReason(
                         DragReasonCode.BODY_OVERLAP,
@@ -502,7 +501,7 @@ class DragDetector:
         """Return the refdes of the first non-moved component whose bbox
         overlaps *pl*'s without any pin coincidence, else None.
         """
-        incoming_fp = footprint_of(defn, inst)
+        incoming_fp = inst.resolved_footprint()
         incoming_bbox = component_bbox(
             incoming_fp,
             pl,
@@ -517,7 +516,7 @@ class DragDetector:
             other_id = other.placement.component_id
             if other_id == cid or other_id in moved_comp_ids:
                 continue
-            other_fp = footprint_of(other.definition, other.instance)
+            other_fp = other.instance.resolved_footprint()
             other_bbox = component_bbox(
                 other_fp,
                 other.placement,

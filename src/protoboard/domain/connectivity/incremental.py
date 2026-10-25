@@ -50,7 +50,6 @@ from protoboard.domain.components.package.pin_mapping import (
 )
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.layout.wire_utils import board_pads_for_side, insert_pad_nodes
@@ -586,7 +585,7 @@ class ConnectivityGraph:
         for component in iter_placed_components(
             layout.placements, self._instances, self._components
         ):
-            fp = resolved_footprint_or_default(component.definition, component.instance)
+            fp = component.instance.resolved_footprint()
             for meta_pin_index in range(1, len(component.definition.meta_pins) + 1):
                 anchor: NodeEntry | None = None
                 for pin_num in package_pins_for_meta_pin(
@@ -666,7 +665,7 @@ class ConnectivityGraph:
             layout.placements, self._instances, self._components
         ):
             comp_id = component.placement.component_id
-            fp = resolved_footprint_or_default(component.definition, component.instance)
+            fp = component.instance.resolved_footprint()
             for meta_pin_index in range(1, len(component.definition.meta_pins) + 1):
                 package_pins = package_pins_for_meta_pin(
                     component.definition,

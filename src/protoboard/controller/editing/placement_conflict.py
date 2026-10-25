@@ -24,7 +24,6 @@ from protoboard.domain.layout.pad_conflict import (
     PadConflict,
     find_conflicts,
     find_wire_conflicts,
-    footprint_of,
 )
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -34,6 +33,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.errors import UnboundInstanceError
 from protoboard.geometry import rounded_point
 
 if TYPE_CHECKING:
@@ -130,11 +130,10 @@ def check_and_resolve(
     *prompts* carries the two user decisions (qt-ports D4). The GUI wrapper
     defaults it to the parentless Qt dialogs; this Qt-free function requires it.
 
-    *instance* is the (preferably bound) incoming instance. At placement time it
-    is not yet in ``session.instances``, so the caller must pass it — otherwise
-    the incoming geometry falls back to the definition default footprint (wrong
-    pin spacing for a chosen variant). When omitted, it is looked up by id (the
-    move/re-check path, where the instance is already registered).
+    *instance* is the bound incoming instance. At placement time it is not yet
+    in ``session.instances``, so the caller must pass it. When omitted, it is
+    looked up by id (the move/re-check path). A missing or unbound instance
+    raises ``UnboundInstanceError``.
     """
     # Body-overlap check: block if the incoming bbox intersects a placed component
     # AND no pin of the incoming component actually coincides with a pin of that
@@ -145,7 +144,11 @@ def check_and_resolve(
     # and pin cloud use the wrong pin spacing and the overlap/coincidence test is
     # wrong (e.g. an SMD-0805 part checked against axial 3.2-hole pitch).
     incoming_instance = instance or session.instances.get(instance_id)
-    in_footprint = footprint_of(defn, incoming_instance)
+    if incoming_instance is None:
+        raise UnboundInstanceError(
+            f"placement conflicts require an instance for {defn.name!r}"
+        )
+    in_footprint = incoming_instance.resolved_footprint()
     incoming_bbox = component_bbox(in_footprint, placement, defn.component_class)
     _EPS = 1e-4
     for other in iter_placed_components(
@@ -155,7 +158,7 @@ def check_and_resolve(
     ):
         if other.placement.component_id == instance_id:
             continue
-        other_footprint = footprint_of(other.definition, other.instance)
+        other_footprint = other.instance.resolved_footprint()
         other_bbox = component_bbox(
             other_footprint,
             other.placement,

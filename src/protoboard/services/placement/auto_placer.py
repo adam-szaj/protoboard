@@ -38,10 +38,6 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import (
-    footprint_of,
-    resolved_footprint_or_default,
-)
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
@@ -137,7 +133,7 @@ def auto_place(
             )
             result.skipped.append(inst.id)
             continue
-        if resolved_footprint_or_default(defn, inst).pin_count() == 0:
+        if inst.resolved_footprint().pin_count() == 0:
             _log.warning(
                 "auto_place.skip_zero_pins",
                 refdes=inst.refdes,
@@ -150,7 +146,7 @@ def auto_place(
         center = _centroid(grav_pts)
         sorted_pads = _sort_candidates(all_pads, center)
 
-        rotations = _preferred_rotations(defn, inst, board_bounds)
+        rotations = _preferred_rotations(inst, board_bounds)
         pl = find_free_slot(inst.id, defn, inst, sorted_pads, rotations, side, existing)
         on_board = True
 
@@ -186,7 +182,6 @@ def auto_place(
 
 
 def _preferred_rotations(
-    defn: ComponentDefinition,
     inst: ComponentInstance,
     board_bounds: Rect,
 ) -> list[int]:
@@ -197,7 +192,7 @@ def _preferred_rotations(
     (horizontal) on a wider-than-tall board, which compacts rows nicely.
     DIP footprints are symmetric and default to 0.
     """
-    pin_positions = footprint_of(defn, inst).pin_positions()
+    pin_positions = inst.resolved_footprint().pin_positions()
     if len(pin_positions) < 2:
         return [0, 90, 180, 270]
 
@@ -251,10 +246,10 @@ def _gravity_points(
             entry = current_placements.get(pr.component_id)
             if entry is None:
                 continue
-            pl, defn, other_inst = entry
+            pl, _, other_inst = entry
             try:
                 pt = pin_world_position(
-                    footprint_of(defn, other_inst), pl, pr.pin_number
+                    other_inst.resolved_footprint(), pl, pr.pin_number
                 )
                 pts.append(pt)
             except (IndexError, ValueError):

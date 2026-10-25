@@ -27,6 +27,3 @@ class SilGenerator(PackageGenerator):
         if pkg is None:
             raise PackageDefError(f"kind 'sil' cannot build a body for {n} pins")
         return ctx.with_package(pkg)
-
-    def offered_family_ids(self, pin_count: int) -> list[str]:
-        return [f"sil-{pin_count}"] if pin_count >= 2 else []

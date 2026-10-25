@@ -73,7 +73,6 @@ from protoboard.domain.commands.group_cmds import (
     SetExportedPinsCommand,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.resolution import resolve_placed_component
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
@@ -656,7 +655,6 @@ class EditController:
         path drops none (matching the legacy per-component flip).
         """
         state = self._state
-        families = state.package_families
 
         cmds: list[Command[ComponentState]] = [
             cast("Command[ComponentState]", FlipGroupCommand(group_id=gid, axis="v"))
@@ -672,7 +670,7 @@ class EditController:
             )
             if component is None:
                 continue
-            fp = resolved_footprint(component.definition, component.instance, families)
+            fp = component.instance.resolved_footprint()
             if fp.pin_count() != 2:
                 continue
             cmds.append(

@@ -22,7 +22,6 @@ from protoboard.domain.board.templates import (
     make_perfboard,
     make_stripboard,
 )
-from protoboard.domain.components.package.component_package import resolved_footprint
 from protoboard.domain.components.resolution import iter_placed_components
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 
@@ -87,7 +86,7 @@ def components_outside_bounds(
         components,
     ):
         inst = component.instance
-        fp = resolved_footprint(component.definition, inst, inst.families)
+        fp = inst.resolved_footprint()
         for _pin_num, pt in iter_footprint_pin_positions(fp, component.placement):
             if not (
                 bounds.x <= pt.x <= bounds.x + bounds.lx

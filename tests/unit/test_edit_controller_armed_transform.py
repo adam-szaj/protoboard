@@ -284,12 +284,10 @@ def _place_smd(session: HeadlessSession, x: float, y: float) -> uuid.UUID:
 
 
 def _pin_dir(session: HeadlessSession, cid: uuid.UUID) -> tuple[int, int]:
-    from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
     from protoboard.domain.layout.placement import pin_world_position
 
     inst = session.instances[cid]
-    defn = session.components[inst.definition_ref]
-    fp = resolved_footprint_or_default(defn, inst)
+    fp = inst.resolved_footprint()
     pl = _pose(session, cid)
     p1 = pin_world_position(fp, pl, 1)
     p2 = pin_world_position(fp, pl, 2)

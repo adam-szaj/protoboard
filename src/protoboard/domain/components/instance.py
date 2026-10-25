@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.package.component_package import (
-    package_to_footprint,
     resolve_component_package,
 )
 from protoboard.domain.schematic.net import PinIdentity, PinRef
@@ -31,11 +30,11 @@ if TYPE_CHECKING:
 class ComponentInstance:
     """A placed-or-placeable copy of a definition.
 
-    The instance is the factory for this component's pin electrical identity:
-    pins that share a name (several ``GND``) get one shared :class:`PinIdentity`
-    via :meth:`build_pin_identities`, and :meth:`pin_ref` hands out
-    :class:`PinRef`\\ s carrying it. ``PinIdentity`` is internal to the
-    component and never escapes except via the refs the instance produces.
+    The instance creates one electrical :class:`PinIdentity` per logical
+    MetaPin via :meth:`build_pin_identities`. :meth:`pin_ref` hands out
+    :class:`PinRef`\\ s carrying that identity. Physical pins share it only
+    when the active package option maps them to the same MetaPin; repeated
+    labels on different MetaPins do not merge their identities.
 
     The instance itself stays immutable (``frozen``): ``pin_identities`` is a
     mutable container, but only the ``net_id`` *inside* each identity is ever
@@ -49,7 +48,7 @@ class ComponentInstance:
     type: str = ""  # optional per-instance category override
     # Per-instance override of the package-family variant as
     # ``"{family}/{variant_id}"``; None → use the definition's
-    # default ``PackageOption`` (or inline ``package``).
+    # default ``PackageOption``.
     package_variant: str | None = None
     # Manufacturing tolerance of ``value`` (e.g. "5%", "1%") — free text like
     # ``value`` itself; renderers decode it (the resistor tolerance band).
@@ -59,7 +58,7 @@ class ComponentInstance:
     # over the definition's appearance and the package/theme defaults. None =
     # inherit. Geometry/mask/DRC/routing are unaffected.
     appearance: Appearance | None = None
-    # pin_number → shared PinIdentity for same-name pin groups. Excluded from
+    # MetaPin ordinal → electrical PinIdentity. Excluded from
     # eq/hash (compare=False): two instances are equal by their value fields,
     # not by transient electrical state. Populated by build_pin_identities.
     pin_identities: dict[int, PinIdentity] = field(
@@ -71,9 +70,8 @@ class ComponentInstance:
     # serialized — the loader reconstructs them from ``definition_ref`` + the
     # session catalogue. compare/hash excluded: identity is the value fields,
     # not these context handles. A placed instance is always bound; an unbound
-    # instance (freshly deserialized, or a bare test stub) falls back to its
-    # definition's default footprint, which is correct only when no variant was
-    # chosen — so callers in a placement context must work on bound instances.
+    # instance (freshly deserialized, or a bare test stub) cannot resolve its
+    # geometry until it is bound.
     definition: ComponentDefinition | None = field(
         default=None, compare=False, hash=False
     )
@@ -107,14 +105,11 @@ class ComponentInstance:
     def resolved_package(self) -> Package:
         """The resolved package of this placed instance.
 
-        The single source of truth for "the body this placed component
-        actually carries": the instance's ``package_variant``, then the
-        definition's family ref, then its inline package (see
-        ``resolve_component_package``). Requires :meth:`bind`; an unbound
-        instance raises :class:`~protoboard.errors.UnboundInstanceError` —
-        falling back to ``defn.package`` in a placement context is the exact
-        silent-wrong-body bug this accessor removes. ``None`` means the part
-        genuinely declares no package.
+        The instance's ``package_variant`` overrides the definition's default
+        ``PackageOption`` (see ``resolve_component_package``). Requires
+        :meth:`bind`; an unbound instance raises
+        :class:`~protoboard.errors.UnboundInstanceError`. An unresolved selected
+        or default package address raises ``ValueError``.
         """
         if self.definition is None:
             raise UnboundInstanceError(
@@ -135,12 +130,10 @@ class ComponentInstance:
         to the definition default in a placement context is the exact
         silent-wrong-body bug this model removes.
 
-        When the instance *is* bound but no variant/family resolves, the
-        definition's ``package`` (always set) is its genuine default geometry
-        — not a fallback. The distinction is deliberate: unbound = programming
-        error (raise); no variant = correct default.
+        Without an instance override, the definition's default package option
+        supplies the geometry. An unresolved package address raises ``ValueError``.
         """
-        return package_to_footprint(self.resolved_package())
+        return self.resolved_package()
 
     @staticmethod
     def new(

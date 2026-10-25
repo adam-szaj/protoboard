@@ -42,7 +42,3 @@ class GenericGenerator(PackageGenerator):
         if pkg is None:
             raise PackageDefError(f"kind 'generic' cannot build a body for {n} pins")
         return ctx.with_package(pkg)
-
-    def offered_family_ids(self, pin_count: int) -> list[str]:
-        # A generic body is deliberately absent from the body picker.
-        return []

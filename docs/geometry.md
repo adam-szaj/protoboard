@@ -256,19 +256,24 @@ Pin 5 lands at world position (6.5, 1.5), which is the centre of the hole at col
 - Colours pads by net (each net gets a deterministic colour from its UUID hash).
 - Draws the component body via
   `body_shape_for(defn, placement, instance, package_families)`
-  (`gui/renderers/body_shapes.py`) — see the dispatch below.
+  (`services/rendering/body_shapes.py`) — see the dispatch below.
 - Draws the refdes label at `component_bbox().center + placement.label_offset`.
 - For ghost items (during placement): dashed border, 50 % opacity pins.
 - `render_groups()` draws a dotted rectangle around the union bbox of all components in a group visible at the current navigation level.
 
-**Body-shape dispatch.** A component's body comes first from its **parametric
-package** (see [footprints/package-model.md](footprints/package-model.md)):
-`resolve_component_package` picks the package from the instance's
-`package_variant`, the definition's default `PackageOption` (both against the
-`package_families` catalogue), or an inline `defn.package`. When a package
-resolves it renders through `PackageBody`; otherwise the dispatch falls back to
-the **footprint type** (generic bbox, or the dedicated `TO92Body` / `TO220Body`
-for those packages).
+**Body-shape dispatch.** `body_shape_for` in
+`services/rendering/body_shapes.py` resolves the instance's `package_variant`
+or the definition's first declared `PackageOption` through the
+`package_families` catalogue (see
+[footprints/package-model.md](footprints/package-model.md)). Authored inline
+`package:` blocks are registered in that catalogue at load time; runtime
+definitions do not store package geometry. The resolved `Package` directly
+implements `Footprint` and renders through `PackageBody` (`PackageRenderer`).
+Renderer selection in `services/rendering/packages/` prefers a registered
+component class, then searches the package lineage from its most specific node
+towards the base shape. Missing declarations and unresolved addresses are
+errors. Explicit generic packages and pending parametric previews remain valid
+catalogue geometry.
 
 **Prism silhouette — declared `kind` first.** A multi-row prism body picks its
 silhouette from `silhouette_for_prism` (`gui/renderers/prism_silhouette.py`):

@@ -12,7 +12,6 @@ from PySide6.QtWidgets import QGraphicsSimpleTextItem
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import resolved_footprint
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
@@ -112,7 +111,7 @@ def _draw_rotated(library, families, rotation: int):
         refdes="Q1",
         value="2N2222",
     ).bind(defn, families)
-    fp = resolved_footprint(defn, inst, families)
+    fp = inst.resolved_footprint()
     placement = ComponentPlacement(
         component_id=uuid.uuid4(),
         position=Point(20.0, 20.0),
@@ -151,7 +150,7 @@ def test_dip_label_fit_budget_uses_pin_row_axes(qtbot, library, families) -> Non
         refdes="U1",
         value="NE555",
     ).bind(defn, families)
-    fp = resolved_footprint(defn, inst, families)
+    fp = inst.resolved_footprint()
     pkg = inst.resolved_package()
     assert pkg is not None
     s = local_size_holes(pkg)

@@ -53,11 +53,22 @@ MetaPins are unmapped.
 | `$` | registered kind generator | `$sil` |
 
 Quote these references in YAML. Prefixes are removed after resolution.
+A concrete option permits only its own variant. A family option permits that
+family's existing variants. Geometry, pin mapping, rendering and pre-placement
+mechanics use the same option selector; an unrelated catalogue address is
+rejected even when its geometry exists or its pin count matches.
 
 ## Inline and parametric packages
 
 Use `package:` for one body. It normalizes to
 `<component-name>-package/std` and cannot coexist with `package_options:`.
+Every component must declare one of these forms. A missing package is an
+error; the loader does not infer physical geometry from the number of MetaPins.
+For an intentionally plain pin-cloud body, declare `package: {kind: generic}`
+and its `pin_map` explicitly.
+
+C/C_POL radial packages remain rigid. Old component-level `bendable_pins` entries
+do not supply mechanics; reach comes from the selected package.
 
 ```yaml
 components:

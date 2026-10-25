@@ -108,7 +108,6 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.package import (
     effective_bend_specs,
     redrag_feasibility,
-    resolved_footprint,
 )
 from protoboard.domain.components.package.reach import is_two_pin_smd
 from protoboard.domain.components.resolution import resolve_placed_component
@@ -1921,11 +1920,7 @@ class SelectTool(ControllerTool):
         specs = effective_bend_specs(component.definition, component.instance, families)
         snapped = self._snap(target, frozenset())
         return redrag_feasibility(
-            footprint=resolved_footprint(
-                component.definition,
-                component.instance,
-                families,
-            ),
+            footprint=component.instance.resolved_footprint(),
             placement=component.placement,
             specs=specs,
             grabbed_pin=pin,
@@ -1959,7 +1954,7 @@ class SelectTool(ControllerTool):
             return
         temp = pl.copy()
         temp.pin_offsets = {k: v for k, v in pl.pin_offsets.items() if k != pin}
-        centre = pin_world_position(resolved_footprint(defn, inst, families), temp, pin)
+        centre = pin_world_position(inst.resolved_footprint(), temp, pin)
         self.preview.show_reach_disc(centre, spec.max_reach)
 
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
@@ -2513,7 +2508,6 @@ class SelectTool(ControllerTool):
 
     @traced()
     def flip_selected(self) -> None:
-        families = getattr(self._session, "package_families", None)
         cmds: list[object] = []
         for cid in self._selected_comp_ids():
             component = resolve_placed_component(
@@ -2524,7 +2518,7 @@ class SelectTool(ControllerTool):
             )
             if component is None:
                 continue
-            fp = resolved_footprint(component.definition, component.instance, families)
+            fp = component.instance.resolved_footprint()
             if fp.pin_count() != 2:
                 continue
             cmds.append(
@@ -3214,8 +3208,7 @@ class SelectTool(ControllerTool):
         )
         if component is None:
             return
-        families = getattr(self._session, "package_families", None)
-        fp = resolved_footprint(component.definition, component.instance, families)
+        fp = component.instance.resolved_footprint()
         self._execute(
             MoveComponentCommand(
                 component_id=comp_id,

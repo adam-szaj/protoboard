@@ -16,7 +16,6 @@ from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.generated_families import (
     dip_family,
     generate_inline_families,
-    inline_family_ids_for_pins,
     offered_package_options,
     sil_family,
 )
@@ -115,17 +114,6 @@ class TestGenerateInlineFamilies:
         assert all(isinstance(f, PackageFamily) for f in fams.values())
 
 
-class TestInlineFamilyIdsForPins:
-    def test_dual_row_even(self) -> None:
-        assert inline_family_ids_for_pins(16, dual_row=True) == ["dip-16", "wdip-16"]
-
-    def test_dual_row_odd_empty(self) -> None:
-        assert inline_family_ids_for_pins(15, dual_row=True) == []
-
-    def test_single_row(self) -> None:
-        assert inline_family_ids_for_pins(6, dual_row=False) == ["sil-6"]
-
-
 class TestOfferedPackageOptions:
     @staticmethod
     def _definition(*options: PackageOption) -> ComponentDefinition:
@@ -138,7 +126,7 @@ class TestOfferedPackageOptions:
     @staticmethod
     def _catalogue() -> dict[str, PackageFamily]:
         declared = sil_family(2)
-        unrelated = sil_family(3)
+        unrelated = sil_family(2)
         assert declared is not None and unrelated is not None
         return {
             "declared": PackageFamily(
@@ -152,7 +140,9 @@ class TestOfferedPackageOptions:
                     ),
                 ),
             ),
-            "unrelated": unrelated,
+            "unrelated": PackageFamily(
+                family_id="unrelated", variants=unrelated.variants
+            ),
         }
 
     def test_unrelated_family_is_not_offered_even_with_matching_pin_count(

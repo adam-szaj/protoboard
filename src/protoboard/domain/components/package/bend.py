@@ -37,11 +37,3 @@ class PinBendSpec:
             target_world.y - pin_default_world.y,
         )
         return self.min_reach <= distance <= self.max_reach
-
-    def is_reachable_from_origin(
-        self, origin_world: Point, target_world: Point
-    ) -> bool:
-        return self.is_reachable_from_pin_default(origin_world, target_world)
-
-    def is_reachable_from_pin1(self, pin1_world: Point, target_world: Point) -> bool:
-        return self.is_reachable_from_pin_default(pin1_world, target_world)

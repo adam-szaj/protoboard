@@ -115,13 +115,6 @@ class DipGenerator(PackageGenerator):
             raise PackageDefError(f"a DIP kind cannot build a body for {n} pins")
         return ctx.with_package(pkg)
 
-    def offered_family_ids(self, pin_count: int) -> list[str]:
-        # Both DIP widths of the matching pin count (narrow ↔ wide swap);
-        # inherited by WideDipGenerator so either width offers the pair.
-        if pin_count < 4 or pin_count % 2 != 0:
-            return []
-        return [f"dip-{pin_count}", f"wdip-{pin_count}"]
-
 
 @register_generator(kind="wdip_ic")
 class WideDipGenerator(DipGenerator):

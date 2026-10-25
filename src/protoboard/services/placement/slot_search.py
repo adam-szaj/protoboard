@@ -7,7 +7,6 @@ import uuid
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import ComponentPlacement, component_bbox
 from protoboard.geometry import Point, Rect
 
@@ -30,7 +29,7 @@ def has_collision(
     a minimum clearance independently of each component's body margin.
     """
     raw_new = component_bbox(
-        footprint_of(new_defn, new_inst), new_pl, new_defn.component_class
+        new_inst.resolved_footprint(), new_pl, new_defn.component_class
     )
     new_bbox = Rect.of(
         x=raw_new.x - extra_gap,
@@ -40,7 +39,7 @@ def has_collision(
     )
     for other_pl, other_defn, other_inst in existing.values():
         other_bbox = component_bbox(
-            footprint_of(other_defn, other_inst),
+            other_inst.resolved_footprint(),
             other_pl,
             other_defn.component_class,
         )

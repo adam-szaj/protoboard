@@ -141,6 +141,33 @@ class TestTypedPackageReferences:
         with pytest.raises(SerializationError):
             _component_from_dict(raw, Path("typed.yaml"), {}, {})
 
+    def test_component_without_declared_package_is_rejected(self) -> None:
+        raw = {"name": "X", "meta_pins": ["A", "B"]}
+        families: dict = {}
+
+        with pytest.raises(SerializationError, match="requires 'package'"):
+            _component_from_dict(raw, Path("typed.yaml"), families, families)
+
+        assert families == {}
+
+    def test_explicit_generic_package_keeps_pin_cloud_geometry(self) -> None:
+        families: dict = {}
+        definition = _component_from_dict(
+            {
+                "name": "X",
+                "meta_pins": ["A", "B"],
+                "package": {"kind": "generic"},
+                "pin_map": {1: [1], 2: [2]},
+            },
+            Path("typed.yaml"),
+            families,
+            families,
+        )
+
+        footprint = definition.default_footprint(families)
+        assert [(p.x, p.y) for p in footprint.pin_positions()] == [(0, 0), (0, 1)]
+        assert definition.package_options[0].pin_map == {1: (1,), 2: (2,)}
+
     def test_kind_ref_materializes_internal_family(self) -> None:
         families: dict = {}
         contributed: dict = {}
@@ -758,6 +785,24 @@ class TestConsolidatedPassives:
         )  # polarity kept
         assert "Disc-D5" in [o.name for o in c.package_options]
         assert "Radial-D5" in [o.name for o in cp.package_options]
+
+    @pytest.mark.parametrize("name", ["C", "C_POL"])
+    def test_radial_capacitor_packages_remain_rigid(self, name: str) -> None:
+        from protoboard.domain.components.package.family import resolve_variant
+        from protoboard.domain.components.package.reach import package_to_bend_specs
+
+        library = self._lib()
+        families = _families(library)
+        options = [
+            option
+            for option in library.get(name).package_options
+            if option.ref.startswith("c-tht/")
+        ]
+        assert options
+        for option in options:
+            variant = resolve_variant(families, option.ref)
+            assert variant is not None
+            assert package_to_bend_specs(variant.package) == {}
 
     def test_consolidated_names_dropped_aliases_kept(self) -> None:
         lib = self._lib()

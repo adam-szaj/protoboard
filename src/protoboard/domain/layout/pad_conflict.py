@@ -49,9 +49,7 @@ from protoboard.instrumentation.logging import is_debug_enabled  # noqa: E402
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.components.package.shapes import Package
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
@@ -64,65 +62,6 @@ class _DragSetLike(Protocol):
     def all_component_ids(
         self, groups_map: dict[uuid.UUID, ComponentGroup]
     ) -> frozenset[uuid.UUID]: ...
-
-
-def footprint_of(
-    defn: ComponentDefinition,
-    inst: ComponentInstance | None,
-) -> Footprint:
-    """The variant-aware footprint of a placed component.
-
-    Delegates to :meth:`ComponentInstance.resolved_footprint`. It does NOT
-    fall back to the definition default for a missing instance: a placed component
-    in a conflict/geometry path must have a bound instance, so ``None`` raises
-    :class:`~protoboard.errors.UnboundInstanceError` (surfacing the bug instead
-    of silently using the wrong default body). ``defn`` is kept in the
-    signature only for the error message and source-compatibility.
-    """
-    if inst is None:
-        raise UnboundInstanceError(
-            f"footprint_of called for {defn.name!r} with no instance; a placed "
-            "component's geometry must come from its bound instance"
-        )
-    return inst.resolved_footprint()
-
-
-def package_of(
-    defn: ComponentDefinition,
-    inst: ComponentInstance | None,
-) -> Package | None:
-    """The variant-aware package (body) of a placed component, or ``None``.
-
-    The body-side twin of :func:`footprint_of`: delegates to
-    :meth:`ComponentInstance.resolved_package` and does NOT fall back to
-    ``defn.package`` for a missing instance — reading the definition's default
-    body for a placed part is the exact silent-wrong-body defect (a resistor
-    placed as SMD-0805 colliding via its phantom axial body). ``None`` from a
-    bound instance means the part genuinely declares no package.
-    """
-    if inst is None:
-        raise UnboundInstanceError(
-            f"package_of called for {defn.name!r} with no instance; a placed "
-            "component's body must come from its bound instance"
-        )
-    return inst.resolved_package()
-
-
-def resolved_footprint_or_default(
-    defn: ComponentDefinition,
-    inst: ComponentInstance | None,
-) -> Footprint:
-    """The variant-aware footprint of a placed component, tolerating unbound.
-
-    A bound instance returns its resolved variant footprint. Geometry cannot be
-    recovered from a definition alone because definitions contain references,
-    not packages.
-    """
-    if inst is None or inst.definition is None:
-        raise UnboundInstanceError(
-            f"component {defn.name!r} is not bound to package families"
-        )
-    return inst.resolved_footprint()
 
 
 class ConflictKind(Enum):
@@ -181,7 +120,11 @@ def find_conflicts(
     pin position map from the supplied layout/instances dictionaries.
     """
     incoming_inst = incoming_instance or instances.get(incoming_instance_id)
-    incoming_fp = footprint_of(incoming_defn, incoming_inst)
+    if incoming_inst is None:
+        raise UnboundInstanceError(
+            f"pad conflicts require an instance for {incoming_defn.name!r}"
+        )
+    incoming_fp = incoming_inst.resolved_footprint()
     existing: dict[tuple[float, float], tuple[uuid.UUID, int]]
     if pad_index is None:
         # Pre-build: world pos -> (comp_id, pin_num) for all existing placements.
@@ -192,7 +135,7 @@ def find_conflicts(
             comp_id = component.placement.component_id
             if comp_id == incoming_instance_id:
                 continue
-            fp = footprint_of(component.definition, component.instance)
+            fp = component.instance.resolved_footprint()
             for pin_num, p in iter_footprint_pin_positions(fp, component.placement):
                 key = rounded_point(p, digits=4)
                 existing[key] = (comp_id, pin_num)
@@ -344,7 +287,11 @@ def find_wire_conflicts(
     }
 
     conflicts: list[PadConflict] = []
-    incoming_fp = footprint_of(incoming_defn, incoming_instance)
+    if incoming_instance is None:
+        raise UnboundInstanceError(
+            f"wire conflicts require an instance for {incoming_defn.name!r}"
+        )
+    incoming_fp = incoming_instance.resolved_footprint()
     _sentinel = uuid.UUID(int=0)
 
     for pin_num, p in iter_footprint_pin_positions(incoming_fp, incoming_placement):
@@ -586,7 +533,7 @@ def find_wires_crossing_pads(
             layout_placements, instances, components
         ):
             comp_id = component.placement.component_id
-            fp = footprint_of(component.definition, component.instance)
+            fp = component.instance.resolved_footprint()
             for pin_num, p in iter_footprint_pin_positions(fp, component.placement):
                 meta_pin_index = meta_pin_for_package_pin(
                     component.definition,
@@ -773,7 +720,7 @@ def check_group_move_conflicts(
         pl = component.placement
         inst = component.instance
         defn = component.definition
-        fp = footprint_of(defn, inst)
+        fp = inst.resolved_footprint()
         # Bbox overlap with external (non-moved) components — same logic as
         # _move_blocked() in component_cmds.py.
         new_bbox = component_bbox(fp, pl, defn.component_class)
@@ -789,7 +736,7 @@ def check_group_move_conflicts(
             other_id = other.placement.component_id
             if other_id in moved_ids:
                 continue  # skip fellow group members
-            other_fp = footprint_of(other.definition, other.instance)
+            other_fp = other.instance.resolved_footprint()
             other_bbox = component_bbox(
                 other_fp,
                 other.placement,
@@ -1060,7 +1007,7 @@ def _compute_bbox(
         )
         if component is None:
             continue
-        fp = footprint_of(component.definition, component.instance)
+        fp = component.instance.resolved_footprint()
         for _pin_number, p in iter_footprint_pin_positions(fp, component.placement):
             xs.append(p.x)
             ys.append(p.y)

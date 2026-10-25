@@ -7,12 +7,11 @@ turns the parameter set *{K}* into a concrete :class:`Package`. This module
 defines the generator contract; :func:`~..kind.build_kind_package` is the
 driver that dispatches through the registry and enforces the contract.
 
-Registration is declarative and mirrors the renderer registry
-(:mod:`protoboard.services.rendering.packages.base`), with the same two spellings:
-the :func:`register_generator` decorator (``@register_generator(
-kind="dip_ic")``, the preferred one — the counterpart of
-``@register_renderer``) or a subclass that sets ``generates = "<kind>"``;
-either enters ``KIND_GENERATORS`` the moment the class body executes —
+Registration uses the :func:`register_generator` decorator
+(``@register_generator(kind="dip_ic")``), the counterpart of
+``@register_renderer`` in the renderer registry
+(:mod:`protoboard.services.rendering.packages.base`). The decorator enters
+the class in ``KIND_GENERATORS`` when the module executes —
 dropping a plugin file into a library's ``generators/`` directory is all it
 takes (see :mod:`protoboard.services.library.plugin_discovery`).
 Later registrations win, so a user plugin overrides a builtin. A generator is
@@ -135,9 +134,8 @@ class GeneratorContext:
         )
 
 
-# kind name → generator class. Populated declaratively — by the
-# ``register_generator`` decorator or by ``PackageGenerator.__init_subclass__``
-# (``generates``); later registrations win (a user plugin overrides a builtin,
+# kind name → generator class. Populated by the ``register_generator``
+# decorator; later registrations win (a user plugin overrides a builtin,
 # mirroring the renderer registry).
 KIND_GENERATORS: dict[str, type[PackageGenerator]] = {}
 
@@ -151,13 +149,12 @@ KIND_GENERATORS: dict[str, type[PackageGenerator]] = {}
 KIND_DECLARED_SCHEMAS: dict[str, ParamSchema] = {}
 
 
-def _register(key: str, cls: type[PackageGenerator], axis: str) -> None:
+def _register(key: str, cls: type[PackageGenerator]) -> None:
     """Enter *cls* under *key*; later registrations win, collisions are loud."""
     prev = KIND_GENERATORS.get(key)
     if prev is not None and prev is not cls:
         _log.warning(
             "kind generator overridden",
-            axis=axis,
             kind=key,
             old=f"{prev.__module__}.{prev.__qualname__}",
             new=f"{cls.__module__}.{cls.__qualname__}",
@@ -174,15 +171,14 @@ def register_generator(
 ) -> Callable[[_GeneratorT], _GeneratorT]:
     """Register a :class:`PackageGenerator` subclass for one or more kinds.
 
-    The preferred registration spelling — the domain-side counterpart of the
+    The domain-side counterpart of the
     renderer registry's ``@register_renderer`` decorator, so plugins register
     both halves of a kind through one consistent interface::
 
         @register_generator(kind="dip_ic")
         class DipGenerator(PackageGenerator): ...
 
-    Same registry and semantics as the legacy ``generates = "<kind>"``
-    attribute: one name or a tuple, later registrations win (a plugin
+    Accepts one name or a tuple; later registrations win (a plugin
     overrides a builtin), a collision on the same kind logs a warning.
     """
     keys = (kind,) if isinstance(kind, str) else tuple(kind)
@@ -191,7 +187,7 @@ def register_generator(
 
     def _decorate(cls: _GeneratorT) -> _GeneratorT:
         for key in keys:
-            _register(key, cls, "kind")
+            _register(key, cls)
         return cls
 
     return _decorate
@@ -200,20 +196,13 @@ def register_generator(
 class PackageGenerator(ABC):
     """Turn a package *kind* + parameter set into a concrete :class:`Package`.
 
-    Subclasses declare which kind(s) they generate (``generates``), which
+    Subclasses register their kind(s) with ``@register_generator``, declare which
     parameters *{K}* they accept (``params`` — one source of truth for build
     validation, the place-tool picker rows, and documentation), and implement
     :meth:`generate`. The driver (``build_kind_package``) owns everything
     around the call: default fill, required/type checks, totality, and the
     ``kind`` / ``lineage`` stamp on the built body.
     """
-
-    #: Kind name(s) this class generates. Declaring it on a subclass registers
-    #: the class in ``KIND_GENERATORS`` at class-creation time. The attribute
-    #: is intentionally looked up on ``cls.__dict__`` only — a subclass that
-    #: does NOT declare its own ``generates`` inherits its parent's *behaviour*
-    #: without stealing its registry slot.
-    generates: ClassVar[str | tuple[str, ...] | None] = None
 
     #: Code-side declaration of the parameter set {K}: names, types, defaults,
     #: required. The fallback behind :attr:`params` — a kind whose YAML node
@@ -251,15 +240,6 @@ class PackageGenerator(ABC):
                 return declared
         return self.code_params
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
-        super().__init_subclass__(**kwargs)
-        declared = cls.__dict__.get("generates")
-        if declared is None:
-            return
-        keys = (declared,) if isinstance(declared, str) else tuple(declared)
-        for key in keys:
-            _register(key, cls, "generates")
-
     @abstractmethod
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         """Build the concrete body for *ctx* (see the module-level contract)."""
@@ -280,18 +260,6 @@ class PackageGenerator(ABC):
         loudly in the loader's no-auto-left check.
         """
         return ctx
-
-    def offered_family_ids(self, pin_count: int) -> list[str]:
-        """Generated family ids the body-variant picker should offer as
-        alternatives for a part whose explicit body is this kind.
-
-        The naming convention is the generated-family one (``dip-N`` /
-        ``wdip-N`` / ``sil-N``, see
-        :mod:`~protoboard.domain.components.package.generated_families`).
-        Default: no alternatives — a kind opts in by overriding.
-        """
-        del pin_count
-        return []
 
     def variant_label(self, kind: str, ctx: GeneratorContext) -> str:
         """Human label for a variant built from *ctx* (picker / catalogue).

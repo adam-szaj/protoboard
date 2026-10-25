@@ -34,7 +34,9 @@ one, or many pins; a physical pin may occur in only one mapping.
 ```
 
 Only declared options appear in the picker. Equal pin counts do not make an
-unrelated package eligible.
+unrelated package eligible. The shared option selector also enforces this for
+geometry, pin mapping, rendering and pre-placement mechanics. Expanded family
+variants retain their declaring option's mapping and style.
 
 ## Authoring references
 
@@ -62,6 +64,10 @@ components:
 The two forms are mutually exclusive. A generator-backed `package:` without
 authored `meta_pins` is a variable-count component; concretization creates
 `P1`…`Pn` MetaPins and an identity mapping.
+
+A fixed component without either package form is rejected. The logical
+MetaPin count never implies a physical package. Use an explicit
+`package: {kind: generic}` with a `pin_map` when a plain pin-cloud body is wanted.
 
 ## Namespaced families
 

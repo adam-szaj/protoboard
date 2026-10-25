@@ -9,7 +9,7 @@ onto a grid of holes on the board.
 Three conceptual groups:
 
 - **Schematic** (logical) — `Schematic → Net → PinRef`. No geometry.
-- **Layout** (physical) — `Placement → Instance → Definition → Footprint`,
+- **Layout** (physical) — `Placement → Instance → Definition → PackageOption → Package`,
   wires, knots, groups.
 - **Board** (substrate) — a tree of boxes resolving to pad positions.
 - **Connectivity** (projection) — union-find over pad points; `wire → net` map.
@@ -42,7 +42,7 @@ classDiagram
     }
     Schematic "1" *-- "many" Net : nets
     Net "1" o-- "many" PinRef : pins
-    PinRef "many" --> "0..1" PinIdentity : shared same-name
+    PinRef "many" --> "0..1" PinIdentity : instance MetaPin identity
 
     %% ===== COMPONENTS =====
     class ComponentInstance {
@@ -51,13 +51,34 @@ classDiagram
       +str refdes
       +str value
       +str package_variant
+      +resolved_package() Package
+      +resolved_footprint() Footprint
     }
     class ComponentDefinition {
       +str name
-      +Package package
-      +dict pin_names
+      +tuple~MetaPin~ meta_pins
+      +tuple~PackageOption~ package_options
       +str component_class
-      +tuple footprints
+    }
+    class MetaPin {
+      +tuple~str~ labels
+    }
+    class PackageOption {
+      +str name
+      +str ref
+      +dict~int,tuple~ pin_map
+    }
+    class PackageFamily {
+      +str family_id
+      +tuple~PackageVariant~ variants
+    }
+    class PackageVariant {
+      +str variant_id
+      +Package package
+    }
+    class Package {
+      +pin_positions() list~Point~
+      +pin_count() int
     }
     class Footprint {
       +pin_positions() list~Point~
@@ -65,7 +86,14 @@ classDiagram
       +flip_transform() Transform2D
     }
     ComponentInstance --> ComponentDefinition : definition_ref (by name)
-    ComponentDefinition --> Footprint : default_footprint()
+    ComponentDefinition "1" *-- "many" MetaPin : ordered logical terminals
+    ComponentDefinition "1" *-- "1..n" PackageOption : declared choices
+    PackageOption ..> PackageFamily : catalogue ref (family or variant)
+    PackageFamily "1" *-- "many" PackageVariant : variants
+    PackageVariant --> Package : geometry
+    Footprint <|.. Package
+    ComponentInstance --> Package : resolved_package()
+    ComponentDefinition ..> Package : default_footprint(families)
     PinRef --> ComponentInstance : component_id (by id)
 
     %% ===== LAYOUT (physical) =====
@@ -214,12 +242,26 @@ classDiagram
 
 ## Fidelity notes
 
-- **`ComponentDefinition` has no `footprint` field** — the only stored geometry
-  is `package: Package`; a `Footprint` is obtained via `default_footprint()` /
-  `ComponentInstance.resolved_footprint()`. (Historical `defn.footprint` was
-  removed 2026-07-04.)
+- **`ComponentDefinition` stores electrical intent and package choices**:
+  `meta_pins` contains ordered logical terminals; `package_options` contains
+  catalogue references and per-option `pin_map` mappings. It stores no
+  `Package`, `pin_names`, `variants`, or `footprints`. Inline authored packages
+  become catalogue entries at load time.
+- **`Package` directly implements `Footprint`**. Geometry comes from the
+  selected catalogue package, without an adapter. A bound instance supplies
+  placed geometry through `resolved_package()` / `resolved_footprint()`;
+  `default_footprint(families)` resolves the definition's first declared option
+  for previews. Missing package declarations are rejected; an explicit
+  `package: {kind: generic}` and pending parametric previews remain supported.
+- **`PinRef.pin_number` is a 1-based MetaPin ordinal**, also exposed as
+  `meta_pin_index`; it is not a physical package pin number. The active
+  `PackageOption.pin_map` maps each MetaPin to zero, one, or many physical pins.
+  Each instance MetaPin has its own `PinIdentity`; equal labels on different
+  MetaPins do not connect them. Several physical pins mapped to one MetaPin
+  share that logical terminal's identity.
 - **`ComponentInstance.definition_ref` is a `str`** (the definition *name*), not
-  a UUID — bound through a `dict[str, ComponentDefinition]` catalogue.
+  a UUID. `bind(definition, families)` attaches the live definition and catalogue
+  required by placed geometry; these handles are not serialized.
 - **`Knot` is a `Protocol`** with three frozen implementers (`PinKnot` /
   `JointKnot` / `WirePinKnot`). `Wire.a`/`b` are `KnotRef` (id-only), resolved
   against `Layout.knots` — deliberately indirect.

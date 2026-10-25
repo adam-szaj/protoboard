@@ -47,10 +47,6 @@ from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.layer import PHYSICAL_LAYERS, LayerId
 from protoboard.domain.board.pad_geometry import qpair
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.package.component_package import (
-    resolve_component_package,
-    resolved_footprint,
-)
 from protoboard.domain.components.package.mask import body_holes
 from protoboard.domain.components.package.pin_mapping import (
     meta_pin_for_package_pin,
@@ -890,23 +886,13 @@ class PadIndex:
         """Place pin items on each pad the component's pins land on, plus
         component-body blockers on every pad covered by the component bbox.
 
-        Geometry (pin cloud + body mask) comes from the *instance's resolved
-        variant* — a placed R as SMD-0805 must put its pins on the 1-hole
-        pitch, not the definition default axial pitch. When *instance* is given
-        (the normal placed case) it is the source of truth; when omitted (a bare
-        topology-only call) the definition default applies.
+        Geometry (pin cloud + body mask) comes from the bound instance's resolved
+        variant. A missing or unbound instance raises ``UnboundInstanceError``.
         """
         if comp_id in self._component_records:
             return
-        # Variant-aware footprint/package: a bound instance resolves the body
-        # the user actually chose; without one (or an unbound stub) the
-        # definition default applies. The free ``resolved_footprint`` degrades
-        # gracefully — it never raises on an unbound instance, unlike the
-        # instance method — which keeps this hot rebuild path crash-free.
         if instance is not None:
-            families = instance.families or {}
-            footprint_geom = resolved_footprint(defn, instance, families)
-            package = resolve_component_package(defn, instance, families)
+            package = instance.resolved_package()
         else:
             raise UnboundInstanceError(
                 f"add_component called for {defn.name!r} without an instance"
@@ -920,7 +906,7 @@ class PadIndex:
                 for ref in net.pins:
                     if ref.component_id == comp_id:
                         pin_net_map[ref.pin_number] = net.id
-        for pin_num, pin_pos in iter_footprint_pin_positions(footprint_geom, placement):
+        for pin_num, pin_pos in iter_footprint_pin_positions(package, placement):
             key = qpair(pin_pos)
             pad = self._pads.get(key)
             if pad is None:
@@ -949,13 +935,8 @@ class PadIndex:
         pin_keys = {f[0] for f in footprint}
         # The package is the single source of truth for the body footprint: its
         # mask knows exactly which holes the body covers (side-aware), so we mark
-        # those holes directly. The resolved variant's package is used when an
-        # instance is bound; the empty-list branch only guards a degenerate
-        # definition with no package at all.
-        if package is not None:
-            body_pads = self._package_body_pads(package, placement)
-        else:
-            body_pads = []
+        # those holes directly. The same resolved package supplies the pins.
+        body_pads = self._package_body_pads(package, placement)
         for pad in body_pads:
             key = qpair(pad.position)
             if key in pin_keys:

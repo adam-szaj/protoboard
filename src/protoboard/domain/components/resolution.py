@@ -96,7 +96,11 @@ def resolve_component(
     placed = resolve_placed_component(component_id, placements, instances, definitions)
     if placed is None:
         return None
-    package_option = resolve_package_option(placed.definition, placed.instance)
+    package_option = resolve_package_option(
+        placed.definition,
+        placed.instance.package_variant,
+        placed.instance.families,
+    )
     package = (
         placed.instance.resolved_package()
         if placed.instance.definition is not None

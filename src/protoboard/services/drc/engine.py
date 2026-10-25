@@ -37,7 +37,6 @@ from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
-from protoboard.domain.layout.pad_conflict import footprint_of, package_of
 from protoboard.domain.layout.placement import (
     iter_footprint_pin_positions,
     placement_transform,
@@ -286,7 +285,7 @@ def _check_overlap(
     pad_occupancy: dict[tuple[float, float, str], list[tuple[uuid.UUID, int]]] = {}
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
-        footprint = footprint_of(component.definition, component.instance)
+        footprint = component.instance.resolved_footprint()
         for pin_num, wp in iter_footprint_pin_positions(footprint, component.placement):
             key = (wp.x, wp.y, component.placement.side)
             pad_occupancy.setdefault(key, []).append((comp_id, pin_num))
@@ -311,7 +310,7 @@ def _check_overlap(
             continue
 
         # Skip when every conflicting pin is declared bendable in its
-        # component definition — the user has marked those leads as
+        # resolved package — the user has marked those leads as
         # legitimately shareable.
         def _is_bendable(cid: uuid.UUID, pin_num: int) -> bool:
             component = resolve_placed_component(
@@ -319,8 +318,8 @@ def _check_overlap(
             )
             if component is None:
                 return False
-            pkg = package_of(component.definition, component.instance)
-            return pkg is not None and is_pin_bendable(pkg, pin_num)
+            pkg = component.instance.resolved_package()
+            return is_pin_bendable(pkg, pin_num)
 
         if all(_is_bendable(cid, p) for cid, p in unshared):
             continue
@@ -363,10 +362,10 @@ def _placed_pad_mask(
 ) -> dict[Point, PadCell]:
     """World-space side-aware pad mask for a placed packaged component.
 
-    *package* is the component's **instance-resolved** body (``package_of`` —
-    never ``defn.package``, whose default-footprint body may differ from the
-    variant actually placed). ``build_pad_mask`` works in the package's local
-    frame (pin 1 at the origin, no rotation); we transform each hole into
+    *package* comes from ``instance.resolved_package()`` and follows the placed
+    variant rather than the definition's default option. ``build_pad_mask``
+    works in the package's local frame (pin 1 at the origin, no rotation);
+    we transform each hole into
     world coordinates with the same ``placement_transform`` as
     ``pin_world_position`` — the bottom-side flip reflection about the package
     axis, rotation, translation. ``mount_side`` is the placement side so the
@@ -406,7 +405,7 @@ def _check_body_overlap(
     only shared bits are pin bits, and whose pins are all bendable or shared,
     is intentional and is not re-reported. Bodies (BODY_/blocking) always flag.
     """
-    # The mask geometry comes from the INSTANCE-resolved package (package_of):
+    # The mask geometry comes from instance.resolved_package():
     # the definition's default body may be a different footprint option than
     # the variant actually placed (an SMD chip must not collide via the
     # phantom axial body of its part's default option).
@@ -415,8 +414,8 @@ def _check_body_overlap(
     )
     for component in iter_placed_components(layout.placements, instances, components):
         cid = component.placement.component_id
-        pkg = package_of(component.definition, component.instance)
-        if pkg is None or is_generic_package(pkg):
+        pkg = component.instance.resolved_package()
+        if is_generic_package(pkg):
             continue
         placed.append((cid, component.placement, component.definition, pkg))
     if len(placed) < 2:
@@ -430,9 +429,8 @@ def _check_body_overlap(
 
     def _pin_at(cid: uuid.UUID, hole: Point) -> int | None:
         inst = instances[cid]
-        defn = components[inst.definition_ref]
         pl = layout.placements[cid]
-        footprint = footprint_of(defn, inst)
+        footprint = inst.resolved_footprint()
         for pin_num, wp in iter_footprint_pin_positions(footprint, pl):
             if wp.x == hole.x and wp.y == hole.y:
                 return pin_num
@@ -446,9 +444,8 @@ def _check_body_overlap(
         pl = layout.placements[cid]
         if pin_num in pl.shared_pins:
             return True
-        defn = components[instances[cid].definition_ref]
-        pkg = package_of(defn, instances[cid])
-        return pkg is not None and is_pin_bendable(pkg, pin_num)
+        pkg = instances[cid].resolved_package()
+        return is_pin_bendable(pkg, pin_num)
 
     issues: list[DRCIssue] = []
     ids = [cid for cid, _, _, _ in placed]
@@ -938,7 +935,7 @@ def _check_off_board_pins(
     for component in iter_placed_components(layout.placements, instances, components):
         comp_id = component.placement.component_id
         side = component.placement.side
-        fp = footprint_of(component.definition, component.instance)
+        fp = component.instance.resolved_footprint()
         for pin_num, wp in iter_footprint_pin_positions(fp, component.placement):
             on_pad = False
             if pad_index is not None:

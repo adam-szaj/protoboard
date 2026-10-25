@@ -18,11 +18,7 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
-    package_to_footprint,
     resolve_component_package,
-)
-from protoboard.domain.components.package.component_package import (
-    resolved_footprint,
 )
 from protoboard.domain.components.package.generated_families import (
     generate_inline_families,
@@ -176,28 +172,18 @@ def test_instance_package_variant_overrides_definition_default(tmp_path: Path) -
     assert fp.pin_positions()[8].x == 6.0
 
 
-def test_placed_component_geometry_requires_an_instance(tmp_path: Path) -> None:
-    (tmp_path / "r.yaml").write_text(
-        "components:\n"
-        "  - name: R\n"
-        "    component_class: resistor\n"
-        "    symbol: R\n"
-        "    package: {kind: sil}\n"
-        "    meta_pins: [A, B]\n"
-        "    pin_map: {1: [1], 2: [2]}\n"
-    )
+def test_placed_component_geometry_requires_a_bound_instance() -> None:
+    instance = ComponentInstance.new("R", "R1", "10k")
 
-    defn = load_library([tmp_path]).get("R")
-
-    with pytest.raises(UnboundInstanceError):
-        resolved_footprint(defn, None, None)
+    with pytest.raises(UnboundInstanceError, match="bind"):
+        instance.resolved_footprint()
 
 
 def test_package_is_its_own_footprint() -> None:
     package = generate_inline_families()["dip-8"].variants[0].package
 
     assert isinstance(package, Footprint)
-    assert package_to_footprint(package) is package
+    assert package.pin_count() == 8
 
 
 def test_component_instance_has_no_pin_variant_state() -> None:

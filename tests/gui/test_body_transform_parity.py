@@ -33,7 +33,6 @@ from pytestqt.qtbot import QtBot
 
 from protoboard.controller.view_options.theme import DEFAULT_THEME
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package import resolved_footprint
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
@@ -97,7 +96,7 @@ def _body_and_pins(
         package_variant=variant,
     )
     inst = inst.bind(defn, fams)
-    fp = resolved_footprint(defn, inst, fams)
+    fp = inst.resolved_footprint()
     pl = ComponentPlacement(
         component_id=uuid.uuid4(),
         position=Point(20.0, 20.0),
@@ -141,7 +140,7 @@ def _pin_span(
         package_variant=variant,
     )
     inst = inst.bind(defn, fams)
-    fp = resolved_footprint(defn, inst, fams)
+    fp = inst.resolved_footprint()
     pl = ComponentPlacement(
         component_id=uuid.uuid4(),
         position=Point(20.0, 20.0),

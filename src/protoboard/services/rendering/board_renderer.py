@@ -48,7 +48,6 @@ from protoboard.domain.board.boxes import BoardGrid, HBox, PadAtom, StripAtom, V
 from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.domain.components.package import meta_pin_for_package_pin
 from protoboard.domain.components.resolution import iter_placed_components
-from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import iter_footprint_pin_positions
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -556,7 +555,7 @@ def build_pad_net_map(
         placement = component.placement
         inst = component.instance
         defn = component.definition
-        fp = resolved_footprint_or_default(defn, inst)
+        fp = inst.resolved_footprint()
         for pin_number, pos in iter_footprint_pin_positions(fp, placement):
             meta_pin_index = meta_pin_for_package_pin(defn, inst, pin_number)
             if meta_pin_index is None:

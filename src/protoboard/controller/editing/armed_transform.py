@@ -417,9 +417,6 @@ class ArmedTransform:
             is_two_pin_smd,
             smd_orientation_step,
         )
-        from protoboard.domain.layout.pad_conflict import (
-            resolved_footprint_or_default,
-        )
 
         if len(self._comp_ids) != 1:
             return None
@@ -432,7 +429,7 @@ class ArmedTransform:
         families = getattr(self._ctx, "package_families", None)
         if not is_two_pin_smd(component.definition, component.instance, families):
             return None
-        fp = resolved_footprint_or_default(component.definition, component.instance)
+        fp = component.instance.resolved_footprint()
         return smd_orientation_step(fp, pl, 1 if delta > 0 else -1)
 
     def _move(self, dx: float, dy: float) -> None:

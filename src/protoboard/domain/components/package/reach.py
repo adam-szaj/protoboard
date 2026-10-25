@@ -1,17 +1,14 @@
 # SPDX-License-Identifier: MIT
-"""Reach info derived from a Package — the budulec that replaces bendable_pins.
+"""Per-pin reach and placement bend specifications derived from a Package.
 
-Consumers (place_tool ring overlay, DRC overlap-skip) historically read
-``PinBendSpec``; this computes the same information from a ``Package`` instead.
+Placement overlays and DRC share the package's physical pin mechanics.
 Each pin's reach is a **disc centred on that pin's OWN default hole** — a
 euclidean ``[r_min, r_max]`` measured from ``default`` (per-pin model, 2026-06-26;
 previously one ring shared by all pins, measured from the fixed component
-origin). The ``origin`` field is retained as the rotation point ``[0, 0]`` but is
-no longer the measurement centre.
+origin).
 
-``package_to_bend_specs`` adapts a Package into the legacy ``dict[int,
-PinBendSpec]`` so existing consumers work unchanged; our model is always the
-free-2D mode (no discrete), so ``discrete`` is always empty.
+``package_to_bend_specs`` expresses the package's movable pins as free-2D
+``PinBendSpec`` ranges in board-hole units for the placement tools.
 
 Pure domain. The ``ring`` magnitude is per package (one ``OffsetRange`` today),
 but each pin carries its own ``default`` so its disc is centred independently.
@@ -28,6 +25,7 @@ from protoboard.domain.components.package.component_package import (
     resolve_component_package,
 )
 from protoboard.domain.components.package.family import resolve_variant
+from protoboard.domain.components.package.pin_mapping import resolve_package_option
 from protoboard.domain.components.package.shapes import Package
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
@@ -54,13 +52,10 @@ class PinReach:
     ``default`` is the pin's home hole and the **centre of the reach disc**;
     distance is measured from it (see :meth:`is_reachable`). ``ring`` is the
     allowed spacing (mm) — for bend ``[body_offset, body_offset+bend]``, for
-    axial the solver's ``[r_min, r_max]``. ``origin`` is the fixed component
-    reference ``[0, 0]`` (the rotation point); it is retained for callers that
-    need it but is no longer the reach centre. ``is_movable`` is False when the
+    axial the solver's ``[r_min, r_max]``. ``is_movable`` is False when the
     ring is a single point (rigid — DIP, bend=0).
     """
 
-    origin: Point
     default: Point
     ring: OffsetRange
 
@@ -93,17 +88,15 @@ def pin_reaches(
     ``ring`` magnitude is per package (``bend``/solver yield one ``OffsetRange``
     today), but every pin carries its own ``default`` so the discs are centred
     independently — pin 3 of a TO-92 bends around pin 3's home, not the origin.
-    ``origin`` stays the fixed rotation point ``[0, 0]``.
     """
     positions = package.pin_positions(orientation=orientation)
     # The reach ring is where a movable terminal MAY land — the union over mount
     # orientations (axial parts can lie flat or stand upright). pin_positions
     # still uses the per-orientation layout for the default (ghost) spacing.
     ring = package.reach_offset_range()
-    origin = Point(0.0, 0.0)
     out: dict[int, PinReach] = {}
     for idx, pos in enumerate(positions, start=1):
-        out[idx] = PinReach(origin=origin, default=pos, ring=ring)
+        out[idx] = PinReach(default=pos, ring=ring)
     return out
 
 
@@ -135,10 +128,7 @@ def package_to_bend_specs(
     *,
     orientation: MountOrientation = MountOrientation.HORIZONTAL,
 ) -> dict[int, PinBendSpec]:
-    """Adapt a Package into the legacy ``dict[int, PinBendSpec]``.
-
-    Lets existing consumers (place_tool) keep their ``PinBendSpec`` logic while
-    geometry is driven by the package.
+    """Compute per-pin placement bend specifications from a Package.
 
     A **surface-mount** package (an SMD chip) is the special case: the body is
     rigid (no lead bend), but the part rests on pads, so its second terminal may
@@ -150,7 +140,7 @@ def package_to_bend_specs(
 
     Every other package keeps the free-ring behaviour: only movable pins (ring
     wider than a point) are included; ``min_reach``/``max_reach`` are the ring in
-    HOLE units (ring mm ÷ RASTER_MM); ``discrete`` is empty (free-2D).
+    HOLE units (ring mm ÷ RASTER_MM).
     """
     if package.bendable_pins:
         return dict(package.bendable_pins)
@@ -198,13 +188,17 @@ def effective_bend_specs(
     resolve through the catalogue by the same precedence
     (``variant`` → ``defn.default_package_ref()``).
     """
-    catalogue = families or (instance.families if instance is not None else None)
+    catalogue = families
+    if catalogue is None:
+        catalogue = instance.families if instance is not None else None
     if catalogue is None:
         raise ValueError("package families are required to resolve bend specs")
-    if package_variant:
+    if package_variant is not None:
+        resolve_package_option(defn, package_variant, catalogue)
         variant = resolve_variant(catalogue, package_variant)
-        if variant is not None:
-            return package_to_bend_specs(variant.package)
+        if variant is None:
+            raise ValueError(f"unresolved package variant {package_variant!r}")
+        return package_to_bend_specs(variant.package)
     return package_to_bend_specs(resolve_component_package(defn, instance, catalogue))
 
 

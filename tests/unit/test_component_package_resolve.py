@@ -65,6 +65,38 @@ def _defn(**kw: object) -> ComponentDefinition:
 
 
 class TestResolvePrecedence:
+    @pytest.mark.parametrize("address", ["test/axial/compact", "unrelated/std"])
+    def test_existing_but_undeclared_variant_is_rejected(self, address: str) -> None:
+        families = _families()
+        families["unrelated"] = PackageFamily(
+            family_id="unrelated",
+            variants=(PackageVariant("std", "Unrelated", _cyl(2.0, 4.0)),),  # type: ignore[arg-type]
+        )
+        definition = _defn(package_ref="test/axial/nominal")
+        instance = ComponentInstance.new("X", "X1", "", package_variant=address)
+
+        with pytest.raises(ValueError, match="package option"):
+            resolve_component_package(definition, instance, families)
+
+        with pytest.raises(ValueError, match="package option"):
+            resolve_package_variant_footprint(definition, address, families)
+
+    def test_declared_family_allows_its_concrete_variants_without_binding(self) -> None:
+        definition = _defn(package_ref="test/axial")
+        instance = ComponentInstance.new(
+            "X", "X1", "", package_variant="test/axial/compact"
+        )
+        family = _families()["test/axial"]
+        families = {family.family_id: family}
+
+        package = resolve_component_package(definition, instance, families)
+        preview = resolve_package_variant_footprint(
+            definition, "test/axial/compact", families
+        )
+
+        assert package is family.get_variant("compact").package  # type: ignore[union-attr]
+        assert preview is package
+
     def test_family_ref_resolves(self) -> None:
         d = _defn(package_ref="test/axial/compact")
         pkg = resolve_component_package(d, None, _families())
@@ -72,12 +104,12 @@ class TestResolvePrecedence:
         assert pkg.length_mm == 3.0
 
     def test_bare_family_ref_uses_default(self) -> None:
-        d = _defn(package_ref="test/axial/nominal")
+        d = _defn(package_ref="test/axial")
         pkg = resolve_component_package(d, None, _families())
         assert pkg.length_mm == 3.7  # type: ignore[union-attr]
 
     def test_instance_override_beats_family_ref(self) -> None:
-        d = _defn(package_ref="test/axial/nominal")
+        d = _defn(package_ref="test/axial")
         inst = ComponentInstance.new(
             definition_ref="X",
             refdes="X1",
@@ -103,6 +135,13 @@ class TestResolvePrecedence:
         with pytest.raises(ValueError, match="NOPE/x"):
             resolve_component_package(d, inst, _families())
 
+    def test_empty_instance_override_does_not_use_default(self) -> None:
+        definition = _defn(package_ref="test/axial/nominal")
+        instance = ComponentInstance.new("X", "X1", "", package_variant="")
+
+        with pytest.raises(ValueError, match="package option"):
+            resolve_component_package(definition, instance, _families())
+
     def test_definition_without_package_option_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="package option"):
             ComponentDefinition(name="X", meta_pins=(MetaPin(("A",)),))
@@ -118,25 +157,22 @@ class TestFieldValidation:
 
 
 class TestResolvedFootprint:
-    """resolved_footprint gives the chosen variant's pin geometry."""
+    """Bound instances expose their chosen package as footprint geometry."""
 
     def test_variant_footprint_is_resolved_package(self) -> None:
-        from protoboard.domain.components.package import resolved_footprint
-
         d = _defn(package_ref="test/axial/compact")
         inst = ComponentInstance.new(
             definition_ref="X",
             refdes="X1",
             value="",
         ).bind(d, _families())
-        fp = resolved_footprint(d, inst, _families())
+        fp = inst.resolved_footprint()
         assert isinstance(fp, Cylinder)
+        assert fp is inst.resolved_package()
 
     def test_variant_differs_from_default_footprint(self) -> None:
         # test/axial/compact vs test/axial/nominal have different lengths → different pin spacing.  # noqa: E501
-        from protoboard.domain.components.package import resolved_footprint
-
-        d = _defn(package_ref="test/axial/nominal")
+        d = _defn(package_ref="test/axial")
         # Instance overrides to test/axial/compact; both bound to the same catalogue.
         inst = ComponentInstance.new(
             definition_ref="X",
@@ -150,22 +186,19 @@ class TestResolvedFootprint:
             refdes="X2",
             value="",
         ).bind(d, _families())
-        fp_inst = resolved_footprint(d, inst, _families())
-        fp_default = resolved_footprint(d, inst_default, _families())
+        fp_inst = inst.resolved_footprint()
+        fp_default = inst_default.resolved_footprint()
         assert fp_inst.pin_positions() != fp_default.pin_positions()
 
-    def test_none_instance_raises(self) -> None:
-        from protoboard.domain.components.package import resolved_footprint
+    def test_unbound_instance_raises(self) -> None:
         from protoboard.errors import UnboundInstanceError
 
-        d = _defn(package_ref="test/axial/compact")
-        # No instance reaching a geometry path is the silent-wrong-body bug this
-        # model removes: it must raise rather than fall back to defn.default_footprint().  # noqa: E501
-        with pytest.raises(UnboundInstanceError):
-            resolved_footprint(d, None, None)
+        inst = ComponentInstance.new("X", "X1", "")
+        with pytest.raises(UnboundInstanceError, match="bind"):
+            inst.resolved_footprint()
 
     def test_preplacement_variant_footprint_uses_selected_variant(self) -> None:
-        d = _defn(package_ref="test/axial/nominal")
+        d = _defn(package_ref="test/axial")
         chosen = resolve_package_variant_footprint(
             d,
             "test/axial/compact",
@@ -178,6 +211,12 @@ class TestResolvedFootprint:
         d = _defn(package_ref="test/axial/nominal")
         with pytest.raises(ValueError, match="NOPE/x"):
             resolve_package_variant_footprint(d, "NOPE/x", _families())
+
+    def test_preplacement_empty_variant_does_not_use_default(self) -> None:
+        definition = _defn(package_ref="test/axial/nominal")
+
+        with pytest.raises(ValueError, match="package option"):
+            resolve_package_variant_footprint(definition, "", _families())
 
 
 class TestResolvePinWorldPositionVariant:
@@ -194,7 +233,7 @@ class TestResolvePinWorldPositionVariant:
         )
         from protoboard.geometry import Point
 
-        d = _defn(package_ref="test/axial/nominal")
+        d = _defn(package_ref="test/axial")
         # Bound WITH the catalogue → the instance resolves its test/axial/compact variant.  # noqa: E501
         inst_with = ComponentInstance.new(
             definition_ref="X",
