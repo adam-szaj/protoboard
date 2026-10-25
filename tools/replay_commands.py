@@ -40,7 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         nargs="?",
         default=None,
-        help="Path to session_commands.yaml (defaults to <project_dir>/session_commands.yaml)",
+        help="Path to session_commands.yaml "
+        "(defaults to <project_dir>/session_commands.yaml)",
     )
     parser.add_argument(
         "--stop-on-error",

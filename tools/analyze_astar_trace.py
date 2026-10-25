@@ -34,13 +34,14 @@ import argparse
 import json
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, Iterable, Iterator
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Trace I/O
 # ---------------------------------------------------------------------------
+
 
 def _iter_events(path: Path) -> Iterator[dict[str, Any]]:
     """Yield every JSON event from a trace file, skipping malformed lines."""
@@ -116,6 +117,7 @@ def _load_summary(path: Path) -> dict[str, Any]:
 # Commands
 # ---------------------------------------------------------------------------
 
+
 def cmd_summary(trace_dir: Path, args: argparse.Namespace) -> int:
     traces = _list_traces(trace_dir)
     if not traces:
@@ -123,8 +125,10 @@ def cmd_summary(trace_dir: Path, args: argparse.Namespace) -> int:
         return 1
 
     print(f"{len(traces)} trace file(s) in {trace_dir}\n")
-    print(f"{'file':40s} {'src→tgt':30s} {'res':5s} {'cost':>8s} "
-          f"{'plen':>5s} {'steps':>7s} {'nodes':>7s} reason")
+    print(
+        f"{'file':40s} {'src→tgt':30s} {'res':5s} {'cost':>8s} "
+        f"{'plen':>5s} {'steps':>7s} {'nodes':>7s} reason"
+    )
     print("-" * 110)
 
     found_count = 0
@@ -145,14 +149,18 @@ def cmd_summary(trace_dir: Path, args: argparse.Namespace) -> int:
         tgt_s = f"{tgt[0]:g},{tgt[1]:g}" if tgt else "?"
         cost_s = f"{s['cost']:.2f}" if s["cost"] is not None else "-"
         plen_s = str(s["path_len"]) if s["path_len"] is not None else "-"
-        print(f"{s['file']:40s} {src_s:>13s}→{tgt_s:<15s} "
-              f"{'OK' if s['found'] else 'FAIL':5s} "
-              f"{cost_s:>8s} {plen_s:>5s} {s['steps']:>7d} "
-              f"{s['nodes_expanded']:>7d} {s['end_reason'] or '-'}")
+        print(
+            f"{s['file']:40s} {src_s:>13s}→{tgt_s:<15s} "
+            f"{'OK' if s['found'] else 'FAIL':5s} "
+            f"{cost_s:>8s} {plen_s:>5s} {s['steps']:>7d} "
+            f"{s['nodes_expanded']:>7d} {s['end_reason'] or '-'}"
+        )
 
     print("-" * 110)
-    print(f"Found: {found_count}  Failed: {fail_count}  "
-          f"Total steps: {total_steps:,}  Total nodes: {total_nodes:,}")
+    print(
+        f"Found: {found_count}  Failed: {fail_count}  "
+        f"Total steps: {total_steps:,}  Total nodes: {total_nodes:,}"
+    )
     return 0
 
 
@@ -178,15 +186,19 @@ def cmd_find_path(trace_dir: Path, args: argparse.Namespace) -> int:
         print(f"No final paths contain pad ({pad[0]}, {pad[1]}, {pad[2]})")
         return 1
 
-    print(f"{len(hits)} universe(s) produced a path through "
-          f"({pad[0]}, {pad[1]}, {pad[2]}):\n")
+    print(
+        f"{len(hits)} universe(s) produced a path through "
+        f"({pad[0]}, {pad[1]}, {pad[2]}):\n"
+    )
     for s in hits:
         src = s["source"]
         tgt = s["target"]
         src_s = f"{src[0]:g},{src[1]:g},{src[2]}" if src else "?"
         tgt_s = f"{tgt[0]:g},{tgt[1]:g}" if tgt else "?"
-        print(f"  {s['file']:40s}  {src_s} → {tgt_s}  "
-              f"cost={s['cost']}  steps={s['steps']}")
+        print(
+            f"  {s['file']:40s}  {src_s} → {tgt_s}  "
+            f"cost={s['cost']}  steps={s['steps']}"
+        )
         # Show ±2 steps around the pad for context.
         path = s["path"]
         for i, entry in enumerate(path):
@@ -208,12 +220,10 @@ def cmd_replay(trace_dir: Path, args: argparse.Namespace) -> int:
         print(f"File not found: {path}", file=sys.stderr)
         return 1
 
-    init: dict[str, Any] = {}
     step_num = 0
     for event in _iter_events(path):
         kind = event.get("e")
         if kind == "init":
-            init = event
             print("INIT")
             for k, v in event.items():
                 if k != "e":
@@ -222,8 +232,9 @@ def cmd_replay(trace_dir: Path, args: argparse.Namespace) -> int:
         elif kind == "step":
             step_num += 1
             if args.limit and step_num > args.limit:
-                print(f"...(truncated at {args.limit} steps; "
-                      f"pass --limit 0 for full)")
+                print(
+                    f"...(truncated at {args.limit} steps; " f"pass --limit 0 for full)"
+                )
                 break
             pos = event["pos"]
             g = event["g"]
@@ -231,8 +242,10 @@ def cmd_replay(trace_dir: Path, args: argparse.Namespace) -> int:
             neighbours = event.get("neighbours", [])
             via = event.get("via", False)
             via_s = " +via" if via else ""
-            print(f"[{step_num:5d}] pop ({pos[0]},{pos[1]},{pos[2]}) "
-                  f"g={g:.2f} queued={queued}{via_s}")
+            print(
+                f"[{step_num:5d}] pop ({pos[0]},{pos[1]},{pos[2]}) "
+                f"g={g:.2f} queued={queued}{via_s}"
+            )
             if args.verbose and neighbours:
                 for n in neighbours:
                     ndx, ndy, status, *extra = n
@@ -240,15 +253,18 @@ def cmd_replay(trace_dir: Path, args: argparse.Namespace) -> int:
                     print(f"        nb ({ndx:+g},{ndy:+g}) → {status} {extra_s}")
         elif kind == "goal":
             cost_val = event.get("g", event.get("cost"))
-            print(f"\nGOAL at ({event['pos'][0]},{event['pos'][1]},"
-                  f"{event['pos'][2]})  cost={cost_val}  "
-                  f"nodes={event['nodes_expanded']}")
+            print(
+                f"\nGOAL at ({event['pos'][0]},{event['pos'][1]},"
+                f"{event['pos'][2]})  cost={cost_val}  "
+                f"nodes={event['nodes_expanded']}"
+            )
             print(f"Path ({len(event['path'])} points):")
             for i, e in enumerate(event["path"]):
                 print(f"  [{i:3d}] ({e[0]},{e[1]},{e[2]})")
         elif kind == "end":
-            print(f"\nEND  reason={event['reason']}  "
-                  f"nodes={event['nodes_expanded']}")
+            print(
+                f"\nEND  reason={event['reason']}  " f"nodes={event['nodes_expanded']}"
+            )
     return 0
 
 
@@ -285,8 +301,10 @@ def cmd_why_blocked(trace_dir: Path, args: argparse.Namespace) -> int:
         print(f"No A* step ever even considered ({px},{py},{ps}).")
         return 1
 
-    print(f"Across {len(traces)} universe(s), pad ({px},{py},{ps}) was "
-          f"a candidate {sum(reason_counts.values())} time(s):")
+    print(
+        f"Across {len(traces)} universe(s), pad ({px},{py},{ps}) was "
+        f"a candidate {sum(reason_counts.values())} time(s):"
+    )
     for status, n in reason_counts.most_common():
         print(f"  {n:6d}  {status}")
     print()
@@ -298,18 +316,23 @@ def cmd_why_blocked(trace_dir: Path, args: argparse.Namespace) -> int:
         if len(expansion_files) > 20:
             print(f"  ...and {len(expansion_files) - 20} more")
         print()
-        print("→ Suspect: A* didn't see this pad as occupied.  Compare the "
-              "init.n_occupied count against the parent autoroute call.")
+        print(
+            "→ Suspect: A* didn't see this pad as occupied.  Compare the "
+            "init.n_occupied count against the parent autoroute call."
+        )
     else:
-        print("→ Every candidate step was rejected. The fusion did NOT come "
-              "from this pad being walked; check find-path on the wire's "
-              "other endpoints.")
+        print(
+            "→ Every candidate step was rejected. The fusion did NOT come "
+            "from this pad being walked; check find-path on the wire's "
+            "other endpoints."
+        )
     return 0
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_pad(spec: str) -> tuple[float, float, str]:
     """Parse "x,y,side" into a (x, y, side) tuple."""
@@ -328,37 +351,39 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("trace_dir", type=Path,
-                        help="directory containing astar_*.jsonl files")
+    parser.add_argument(
+        "trace_dir", type=Path, help="directory containing astar_*.jsonl files"
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("summary",
-                   help="one line per trace: src→tgt, found/failed, cost, steps")
+    sub.add_parser(
+        "summary", help="one line per trace: src→tgt, found/failed, cost, steps"
+    )
 
     p_find = sub.add_parser(
-        "find-path",
-        help="list universes whose final path contains a given pad"
+        "find-path", help="list universes whose final path contains a given pad"
     )
-    p_find.add_argument("--pad", required=True,
-                        help="pad spec: x,y,side  (e.g. 24.5,34.5,bottom)")
+    p_find.add_argument(
+        "--pad", required=True, help="pad spec: x,y,side  (e.g. 24.5,34.5,bottom)"
+    )
 
-    p_replay = sub.add_parser(
-        "replay",
-        help="print every step of one trace file"
+    p_replay = sub.add_parser("replay", help="print every step of one trace file")
+    p_replay.add_argument("file", help="trace file name (relative to trace_dir)")
+    p_replay.add_argument(
+        "--limit", type=int, default=200, help="max steps to print (0 = unlimited)"
     )
-    p_replay.add_argument("file",
-                          help="trace file name (relative to trace_dir)")
-    p_replay.add_argument("--limit", type=int, default=200,
-                          help="max steps to print (0 = unlimited)")
-    p_replay.add_argument("--verbose", "-v", action="store_true",
-                          help="also dump per-step neighbour decisions")
+    p_replay.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="also dump per-step neighbour decisions",
+    )
 
     p_why = sub.add_parser(
         "why-blocked",
-        help="across every universe, classify decisions that touched a pad"
+        help="across every universe, classify decisions that touched a pad",
     )
-    p_why.add_argument("--pad", required=True,
-                       help="pad spec: x,y,side")
+    p_why.add_argument("--pad", required=True, help="pad spec: x,y,side")
 
     args = parser.parse_args()
     if not args.trace_dir.exists():

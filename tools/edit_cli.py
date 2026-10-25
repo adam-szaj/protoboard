@@ -33,7 +33,9 @@ from protoboard.cli import CliDriver, CliError  # noqa: E402
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Headless board edit CLI.")
     parser.add_argument(
-        "script", nargs="?", type=Path,
+        "script",
+        nargs="?",
+        type=Path,
         help="batch script of grammar lines; omit for interactive mode",
     )
     args = parser.parse_args(argv)

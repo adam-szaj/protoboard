@@ -74,10 +74,10 @@ class PadCell(IntFlag):
     Piny THT istnieją po OBU stronach (plated-through), stąd bity stron.
     """
 
-    PIN        = 1 << 0   # jest pad/pin (kolizja pin-pin: potem sprawdź sieć)
-    PIN_TOP    = 1 << 1   # pin jest / chce być montowany od strony top
-    PIN_BOTTOM = 1 << 2   # pin jest / chce być montowany od strony bottom
-    BODY_TOP   = 1 << 3   # korpus montowany od strony top
+    PIN = 1 << 0  # jest pad/pin (kolizja pin-pin: potem sprawdź sieć)
+    PIN_TOP = 1 << 1  # pin jest / chce być montowany od strony top
+    PIN_BOTTOM = 1 << 2  # pin jest / chce być montowany od strony bottom
+    BODY_TOP = 1 << 3  # korpus montowany od strony top
     BODY_BOTTOM = 1 << 4  # korpus od strony bottom
 
     # UWAGA: nie ma bitu „solderable under”. Body z wysokim standoffem (da się
@@ -119,14 +119,15 @@ class CollisionShape:
     nie osobny bit (generic_package → maskę liczy kod).
     """
 
-    body_polygon: list[Point]            # obrys korpusu (mm)
-    pad_mask: dict[Point, PadCell]       # otwór → bity (rzadka mapa)
-    rounded_mm: float = 0.0              # zaokrąglenie obrysu (cylinder/corner)
+    body_polygon: list[Point]  # obrys korpusu (mm)
+    pad_mask: dict[Point, PadCell]  # otwór → bity (rzadka mapa)
+    rounded_mm: float = 0.0  # zaokrąglenie obrysu (cylinder/corner)
 
 
 # --------------------------------------------------------------------------- #
 # Interfejs
 # --------------------------------------------------------------------------- #
+
 
 @runtime_checkable
 class Package(Protocol):
@@ -186,21 +187,24 @@ class Package(Protocol):
 # Implementacje (szkic ciał — nie pełne)
 # --------------------------------------------------------------------------- #
 
+
 @dataclass(frozen=True, slots=True)
 class Leads:
     """Rozpakowana geometria wyprowadzeń (po normalizacji z YAML)."""
 
-    direction: list[tuple[float, float, float]]   # per pin (3 formy → lista)
-    body_offset_mm: list[Vector]                   # N-1 wektorów, już ×unit→mm
-    board_offset: list[Vector] | str               # listy LUB "default"/"solve"
+    direction: list[tuple[float, float, float]]  # per pin (3 formy → lista)
+    body_offset_mm: list[Vector]  # N-1 wektorów, już ×unit→mm
+    board_offset: list[Vector] | str  # listy LUB "default"/"solve"
     lead_length_mm: float | None
     lead_r_mm: float | None
     body_eccentricity_mm: float = 0.0
+
 
 @dataclass(slots=True)
 class Body(ABC):
     position: Point = Point()
     pass
+
 
 @dataclass(frozen=True, slots=True)
 class Cylinder:
@@ -219,7 +223,7 @@ class Cylinder:
     def board_offset_range(
         self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> OffsetRange:
-        if self.leads.board_offset == "solve":          # axial body=0
+        if self.leads.board_offset == "solve":  # axial body=0
             lead = self.leads.lead_length_mm or 0.0
             lr = self.leads.lead_r_mm or 0.0
             if orientation is MountOrientation.HORIZONTAL:
@@ -228,7 +232,9 @@ class Cylinder:
                 r_min = self.r_body_mm - self.leads.body_eccentricity_mm + 3.0 * lr
             return OffsetRange(r_min, r_min + 2.0 * lead)
         # radial / bend → dolny clamp na body_offset (szkic, 1-para)
-        base = abs(self.leads.body_offset_mm[0].dx) if self.leads.body_offset_mm else 0.0
+        base = (
+            abs(self.leads.body_offset_mm[0].dx) if self.leads.body_offset_mm else 0.0
+        )
         return OffsetRange(base, base + self.bend_holes * RASTER_MM)
 
     def pin_positions(
@@ -251,18 +257,18 @@ class Cylinder:
 class Prism:
     """shape: prism. DIP, TO-92, devboard (z opcjonalnym margin)."""
 
-    width_mm: float | None      # None → liczone z bbox(piny) + margin
+    width_mm: float | None  # None → liczone z bbox(piny) + margin
     length_mm: float | None
     height_mm: float | None
     leads: Leads
     bend_holes: float = 0.0
     corner_radius_mm: float = 0.0
-    margin_mm: Insets | None = None   # devboard: dims z pinów + margin
+    margin_mm: Insets | None = None  # devboard: dims z pinów + margin
 
     def bbox(self) -> Rect:
         if self.margin_mm is not None and self.width_mm is None:
             return self._bbox_from_pins(self.margin_mm)
-        raise NotImplementedError   # z jawnych dims
+        raise NotImplementedError  # z jawnych dims
 
     def _bbox_from_pins(self, margin: Insets) -> Rect:
         # bbox(pin_positions) [otwory→mm] rozszerzony o margin (mm)

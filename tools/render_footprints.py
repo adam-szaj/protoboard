@@ -57,10 +57,10 @@ from protoboard.domain.components.package.kind import (  # noqa: E402
 )
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point, Vector  # noqa: E402
-from protoboard.services.rendering.body_shapes import body_shape_for  # noqa: E402
 from protoboard.services.library.package_family_loader import (  # noqa: E402
     load_full_package_catalogue,
 )
+from protoboard.services.rendering.body_shapes import body_shape_for  # noqa: E402
 
 OUT_DIR = REPO_ROOT / "docs" / "footprints"
 
@@ -92,7 +92,9 @@ def TO220Footprint(n: int = 3) -> Footprint:
     return SIL(n)
 
 
-def QuadRow(n_per_col: int, col_spacings: tuple[float, float, float] = (1.0, 8.0, 1.0)) -> Footprint:
+def QuadRow(
+    n_per_col: int, col_spacings: tuple[float, float, float] = (1.0, 8.0, 1.0)
+) -> Footprint:
     """Four parallel pin columns (dev-module layout).
 
     Pins run bottom-to-top up column 1, jump ``col_spacings[0]`` to column 2,
@@ -134,7 +136,7 @@ class Spec:
     pin_names: dict[int, str]
     # When non-empty, render N panels in one PNG, each with these pin
     # positions overrides (None = use the footprint's default).
-    panels: tuple[tuple[str, dict[int, Vector] | None], ...] = (("",  None),)
+    panels: tuple[tuple[str, dict[int, Vector] | None], ...] = (("", None),)
     # Layout hint for pin number labels:
     # - "auto": radial outward from panel centre (default)
     # - "below": always below the pad (good for grids)
@@ -230,7 +232,6 @@ INVENTORY: list[Spec] = [
         pin_names={},
         panels=_axial_panels(5.0),
     ),
-
     # ---- 3-pin SIL components (TO-92, TO-220) -----------------------
     Spec(
         slug="transistor_to92",
@@ -249,7 +250,6 @@ INVENTORY: list[Spec] = [
         component_class=ComponentClass.TRANSISTOR_NMOS,
         pin_names={1: "G", 2: "D", 3: "S"},
     ),
-
     # ---- SIL — generic single in-line ------------------------------
     Spec(
         slug="sil_pin_header_4",
@@ -277,7 +277,6 @@ INVENTORY: list[Spec] = [
         component_class=ComponentClass.RESISTOR,
         pin_names={1: "COM", 2: "R1", 3: "R2", 4: "R3", 5: "R4"},
     ),
-
     # ---- DIP packages ----------------------------------------------
     Spec(
         slug="dip8",
@@ -286,8 +285,16 @@ INVENTORY: list[Spec] = [
         "Pin 1 marker is drawn by `SvgDIPBody`.",
         footprint=DIP(8),
         component_class=ComponentClass.IC,
-        pin_names={1: "1OUT", 2: "1IN-", 3: "1IN+", 4: "GND",
-                   5: "2IN+", 6: "2IN-", 7: "2OUT", 8: "VCC"},
+        pin_names={
+            1: "1OUT",
+            2: "1IN-",
+            3: "1IN+",
+            4: "GND",
+            5: "2IN+",
+            6: "2IN-",
+            7: "2OUT",
+            8: "VCC",
+        },
     ),
     Spec(
         slug="dip14",
@@ -314,7 +321,6 @@ INVENTORY: list[Spec] = [
         component_class=ComponentClass.IC,
         pin_names={},
     ),
-
     # ---- Quad-row (dev modules) ------------------------------------
     Spec(
         slug="quad_row_module",
@@ -331,7 +337,6 @@ INVENTORY: list[Spec] = [
         pin_names={},
         label_layout="outer_columns_only",
     ),
-
     # ---- Grid / mechanical -----------------------------------------
     Spec(
         slug="grid_3x4",
@@ -424,8 +429,7 @@ def _add_pad_marker(
     """
     # Board hole — light grey ring.
     hole_r = pad_radius * 0.85
-    hole = QGraphicsEllipseItem(pt.x - hole_r, pt.y - hole_r,
-                                2 * hole_r, 2 * hole_r)
+    hole = QGraphicsEllipseItem(pt.x - hole_r, pt.y - hole_r, 2 * hole_r, 2 * hole_r)
     hole.setPen(QPen(QColor("#7f7f7f"), 0.04))
     hole.setBrush(QBrush(QColor(theme.board_bg)))
     hole.setZValue(0.5)
@@ -436,8 +440,7 @@ def _add_pad_marker(
     else:
         dot_r = pad_radius * 0.45
 
-    dot = QGraphicsEllipseItem(pt.x - dot_r, pt.y - dot_r,
-                               2 * dot_r, 2 * dot_r)
+    dot = QGraphicsEllipseItem(pt.x - dot_r, pt.y - dot_r, 2 * dot_r, 2 * dot_r)
     dot.setBrush(QBrush(QColor("#2a8")))
     dot.setPen(QPen(Qt.PenStyle.NoPen))
     dot.setZValue(20.0)
@@ -460,6 +463,7 @@ def _add_pad_marker(
     label.setBrush(QBrush(QColor("#202020")))
     br = label.boundingRect()
     import math as _m
+
     dx = pt.x - label_anchor.x
     dy = pt.y - label_anchor.y
     out_dist = pad_radius + 0.7
@@ -594,8 +598,10 @@ def _render_panel(
     # Title
     if title:
         _add_panel_title(
-            scene, title,
-            x=x0_local + dx, y=y0_local,
+            scene,
+            title,
+            x=x0_local + dx,
+            y=y0_local,
             width=panel_w,
         )
 
@@ -611,7 +617,9 @@ def _render_panel(
 
     # Body shape (must take the shifted absolute positions).
     shape = body_shape_for(
-        defn, shifted_placement, inst,
+        defn,
+        shifted_placement,
+        inst,
         package_families=theme.package_families,
     )
     fill = QColor(theme.comp_fill_color)
@@ -644,7 +652,9 @@ def _render_panel(
         pin_num = i + 1
         on_outer_ring = (p.x in outer_xs) or (p.y in outer_ys)
         _add_pad_marker(
-            scene, p, pin_num,
+            scene,
+            p,
+            pin_num,
             pad_radius=pad_r,
             is_pin1=(pin_num == 1),
             theme=theme,
@@ -676,7 +686,10 @@ def _render_spec_to_png(spec: Spec, theme: Theme, out_path: Path) -> None:
     bboxes: list[tuple[float, float, float, float]] = []
     for title, override in spec.panels:
         bbox = _render_panel(
-            scene, spec, title, override,
+            scene,
+            spec,
+            title,
+            override,
             offset_x=cursor_x,
             width_hint=8.0,
             theme=theme,
@@ -714,6 +727,7 @@ def main() -> int:
 
     families = load_full_package_catalogue()
     from dataclasses import replace as _replace
+
     theme = _replace(DEFAULT_THEME, package_families=families)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -739,10 +753,13 @@ def main() -> int:
         "| Footprint | Component class | Body shape |",
         "|---|---|---|",
         "| `TO220Footprint` | any | `TO220Body` (metal-tab body) |",
-        "| `TwoPin` | resistor / inductor / fuse / cap / diode / LED / … | `TwoPinParametricBody` reads the `TwoPinBodySpec` resolved from the family default or the explicit `instance.body_variant` |",
+        "| `TwoPin` | resistor / inductor / fuse / cap / diode / LED / … | "
+        "`TwoPinParametricBody` reads the `TwoPinBodySpec` resolved from "
+        "the family default or the explicit `instance.body_variant` |",
         "| `SingleRow(n=3)` | any transistor class | `TO92Body` (half-circle) |",
         "| `SingleRow(n>=3)` (other classes) | — | `SvgSILBody` (filled strip) |",
-        "| `DualRow(n_per_row, rows_spacing)` | any | `SvgDIPBody` (DIP with notch + pin-1 marker) |",
+        "| `DualRow(n_per_row, rows_spacing)` | any | "
+        "`SvgDIPBody` (DIP with notch + pin-1 marker) |",
         "| `QuadRow(n_per_col, col_spacings)` | any | `SvgQuadDIPBody` |",
         "| `GridFootprint` / anything else | — | `GenericBody` (plain rectangle) |",
         "",

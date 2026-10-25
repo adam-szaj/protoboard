@@ -39,30 +39,30 @@ Use ``--filter`` to restrict counting to specific path prefixes; the
 syntax matches :func:`call_counters.set_path_filter` —
 ``"a.b.*;g.h.*"`` etc.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 # Make `protoboard` importable when run as a script.
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
-from protoboard.instrumentation.call_counters import (
+from protoboard.instrumentation.call_counters import (  # noqa: E402
     counted,
     fresh_counters,
     snapshot,
 )
-from protoboard.paths import BUILTIN_LIBRARY_DIR
-from protoboard.services.library.loader import load_library
-from protoboard.services.persistence.project_yaml import (
+from protoboard.paths import BUILTIN_LIBRARY_DIR  # noqa: E402
+from protoboard.services.library.loader import load_library  # noqa: E402
+from protoboard.services.persistence.project_yaml import (  # noqa: E402
     load_project,
     set_migration_library,
 )
-
 
 # ---------------------------------------------------------------------------
 # Cache toggling
@@ -84,6 +84,7 @@ def _disable_caches() -> None:
             pads_by_x.setdefault(round(pad.x), []).append(pad)
             pads_by_y.setdefault(round(pad.y), []).append(pad)
         return (pads_by_x, pads_by_y)
+
     # Preserve the @counted wrapper so the call still shows up in
     # snapshots even when uncached.
     wu._get_pad_bucket_index = counted("_get_pad_bucket_index")(uncached_bucket)  # type: ignore[assignment]
@@ -93,6 +94,7 @@ def _disable_caches() -> None:
 
     def uncached_atoms(self):  # type: ignore[no-untyped-def]
         yield from _orig_walk(self.layout)
+
     board_mod.Board.atoms = counted("Board.atoms")(uncached_atoms)  # type: ignore[assignment,method-assign]
 
     import protoboard.domain.layout.group_ownership as go
@@ -103,6 +105,7 @@ def _disable_caches() -> None:
         from protoboard.domain.layout.group_ownership import (
             wire_is_owned_by_group,
         )
+
         wires = args[0] if args else kwargs["wires"]
         group = args[1] if len(args) > 1 else kwargs["group"]
         wire_net_map = kwargs.get("wire_net_map", {})
@@ -115,7 +118,8 @@ def _disable_caches() -> None:
         result: set = set()
         for w in wires:
             if wire_is_owned_by_group(
-                w, group,
+                w,
+                group,
                 wire_net_map=wire_net_map,
                 knots=knots,
                 group_comp_ids=group_comp_ids,
@@ -127,6 +131,7 @@ def _disable_caches() -> None:
             ):
                 result.add(w.id)
         return result
+
     go.find_owned_wires = counted("find_owned_wires")(uncached_find)  # type: ignore[assignment]
 
 
@@ -153,18 +158,20 @@ def _build_actions(board, layout, schematic, instances, components):
     """Return a dict of action callables, plus stats about the
     workload (so the caller can attach the n_wires / n_pads context
     to the JSON output)."""
-    from protoboard.geometry import Point
     from protoboard.domain.layout.group_ownership import find_owned_wires
     from protoboard.domain.layout.wire_utils import (
         board_pads_union,
         insert_pad_nodes,
     )
+    from protoboard.geometry import Point
 
     pads = board_pads_union(board)
     bounds = board.bounds
     paths = [
-        [Point(0.5, float(int(bounds.height * (i + 1) / 51)) + 0.5),
-         Point(bounds.width - 0.5, float(int(bounds.height * (i + 1) / 51)) + 0.5)]
+        [
+            Point(0.5, float(int(bounds.height * (i + 1) / 51)) + 0.5),
+            Point(bounds.width - 0.5, float(int(bounds.height * (i + 1) / 51)) + 0.5),
+        ]
         for i in range(50)
     ]
 
@@ -184,6 +191,7 @@ def _build_actions(board, layout, schematic, instances, components):
     wire_net_map: dict = {}
     from protoboard.domain.layout.knot import PinKnot
     from protoboard.domain.schematic.net import PinRef
+
     for net in schematic.nets.values():
         for wire in layout.wires:
             for ref in (wire.a, wire.b):
@@ -197,8 +205,10 @@ def _build_actions(board, layout, schematic, instances, components):
                     break
 
     all_comp_ids = frozenset(layout.placements.keys())
-    from protoboard.domain.layout.group import ComponentGroup
     import uuid as _uuid
+
+    from protoboard.domain.layout.group import ComponentGroup
+
     universal_group = ComponentGroup(
         id=_uuid.uuid4(),
         name="_bench_universe",
@@ -209,7 +219,8 @@ def _build_actions(board, layout, schematic, instances, components):
     @counted("ownership_all")
     def ownership_all() -> None:
         find_owned_wires(
-            wires_list, universal_group,
+            wires_list,
+            universal_group,
             wire_net_map=wire_net_map,
             knots=layout.knots,
             group_comp_ids=all_comp_ids,
@@ -219,16 +230,16 @@ def _build_actions(board, layout, schematic, instances, components):
             definitions=components,
         )
 
-    real_groups = [
-        g for gid, g in layout.groups.items()
-        if g.name != "_root"
-    ] or [universal_group]
+    real_groups = [g for gid, g in layout.groups.items() if g.name != "_root"] or [
+        universal_group
+    ]
 
     @counted("ownership_groups")
     def ownership_groups() -> None:
         for g in real_groups:
             find_owned_wires(
-                wires_list, g,
+                wires_list,
+                g,
                 wire_net_map=wire_net_map,
                 knots=layout.knots,
                 group_comp_ids=g.component_ids,
@@ -260,8 +271,10 @@ def _build_actions(board, layout, schematic, instances, components):
 
 
 def _run_action(
-    fn: Callable[[], None], iters: int,
-    max_depth: int | None, path_filter: str | None,
+    fn: Callable[[], None],
+    iters: int,
+    max_depth: int | None,
+    path_filter: str | None,
 ) -> dict[str, int]:
     """Run *fn* ``iters`` times under counter capture; return snapshot."""
     with fresh_counters(max_depth=max_depth, path_filter=path_filter):
@@ -271,7 +284,9 @@ def _run_action(
 
 
 def _print_action_report(
-    label: str, iters: int, counts: dict[str, int],
+    label: str,
+    iters: int,
+    counts: dict[str, int],
 ) -> None:
     print(f"\n=== {label}  ({iters} iterations) ===")
     if not counts:
@@ -289,24 +304,32 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixture", type=Path)
     parser.add_argument(
-        "--iters", type=int, default=20,
+        "--iters",
+        type=int,
+        default=20,
         help="iterations per action (default: 20)",
     )
     parser.add_argument(
-        "--no-cache", action="store_true",
+        "--no-cache",
+        action="store_true",
         help="monkey-patch caches off → simulates pre-fix call counts",
     )
     parser.add_argument(
-        "--max-depth", type=int, default=None,
+        "--max-depth",
+        type=int,
+        default=None,
         help="cap recorded stack depth (passed to call_counters)",
     )
     parser.add_argument(
-        "--filter", type=str, default=None,
+        "--filter",
+        type=str,
+        default=None,
         help='path filter, e.g. "ownership_all.**;ownership_groups.**"',
     )
     parser.add_argument("--json", type=Path, help="write JSON results")
     parser.add_argument(
-        "--compare", type=Path,
+        "--compare",
+        type=Path,
         help="JSON of a previous run to diff against",
     )
     args = parser.parse_args()
@@ -324,13 +347,18 @@ def main() -> int:
     print(f"Loading {args.fixture}…", file=sys.stderr)
     board, layout, schematic, instances, components = _load_fixture(args.fixture)
     actions, workload = _build_actions(
-        board, layout, schematic, instances, components,
+        board,
+        layout,
+        schematic,
+        instances,
+        components,
     )
 
     print(f"Mode: {mode_label}")
-    print(f"Fixture: {args.fixture.name}  " + "  ".join(
-        f"{k}={v}" for k, v in workload.items()
-    ))
+    print(
+        f"Fixture: {args.fixture.name}  "
+        + "  ".join(f"{k}={v}" for k, v in workload.items())
+    )
     print(f"max_depth={args.max_depth}  filter={args.filter!r}")
 
     per_action: dict[str, dict[str, int]] = {}

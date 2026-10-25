@@ -17,6 +17,7 @@ Usage:
 Point it at a vendored mermaid with --mermaid PATH, or let it try common spots
 (node_modules, npm global). Re-run after editing any .md.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -86,18 +87,21 @@ def md_to_html(md: str) -> str:
         # fenced code block (mermaid or other)
         m = re.match(r"^```(\w*)\s*$", line)
         if m:
-            flush_para(); flush_list()
+            flush_para()
+            flush_list()
             lang = m.group(1)
             i += 1
             buf: list[str] = []
             while i < n and not lines[i].startswith("```"):
-                buf.append(lines[i]); i += 1
+                buf.append(lines[i])
+                i += 1
             i += 1  # closing fence
             body = "\n".join(buf)
             if lang == "mermaid":
                 parts.append(
                     '<div class="stage"><pre class="mermaid">'
-                    + html.escape(body) + "</pre></div>"
+                    + html.escape(body)
+                    + "</pre></div>"
                 )
             else:
                 parts.append(
@@ -106,19 +110,27 @@ def md_to_html(md: str) -> str:
             continue
 
         # table (a line with | and a following |---| separator)
-        if "|" in line and i + 1 < n and re.match(r"^\s*\|?[\s:|-]+\|?\s*$", lines[i + 1]) and "-" in lines[i + 1]:
-            flush_para(); flush_list()
+        if (
+            "|" in line
+            and i + 1 < n
+            and re.match(r"^\s*\|?[\s:|-]+\|?\s*$", lines[i + 1])
+            and "-" in lines[i + 1]
+        ):
+            flush_para()
+            flush_list()
             tb = [line]
             i += 1
             while i < n and "|" in lines[i]:
-                tb.append(lines[i]); i += 1
+                tb.append(lines[i])
+                i += 1
             parts.append(_table(tb))
             continue
 
         # heading
         hm = re.match(r"^(#{1,6})\s+(.*)$", line)
         if hm:
-            flush_para(); flush_list()
+            flush_para()
+            flush_list()
             lvl = len(hm.group(1))
             parts.append(f"<h{lvl}>{_inline(hm.group(2).strip())}</h{lvl}>")
             i += 1
@@ -126,10 +138,12 @@ def md_to_html(md: str) -> str:
 
         # blockquote
         if line.startswith(">"):
-            flush_para(); flush_list()
+            flush_para()
+            flush_list()
             qb = []
             while i < n and lines[i].startswith(">"):
-                qb.append(lines[i][1:].strip()); i += 1
+                qb.append(lines[i][1:].strip())
+                i += 1
             parts.append("<blockquote>" + _inline(" ".join(qb)) + "</blockquote>")
             continue
 
@@ -145,14 +159,16 @@ def md_to_html(md: str) -> str:
 
         # hr
         if re.match(r"^---+\s*$", line):
-            flush_para(); flush_list()
+            flush_para()
+            flush_list()
             parts.append("<hr>")
             i += 1
             continue
 
         # blank → paragraph break
         if not line.strip():
-            flush_para(); flush_list()
+            flush_para()
+            flush_list()
             i += 1
             continue
 
@@ -164,59 +180,80 @@ def md_to_html(md: str) -> str:
         para.append(line.strip())
         i += 1
 
-    flush_para(); flush_list()
+    flush_para()
+    flush_list()
     return "\n".join(parts)
 
 
 # --------------------------------------------------------------------------- #
 # Page shell (PCB palette, light/dark with live mermaid re-render).
 # --------------------------------------------------------------------------- #
-def page_html(title: str, body_html: str, nav_html: str,
-              style_rel: str, mermaid_rel: str, viewer_rel: str) -> str:
-    return PAGE.replace("__TITLE__", html.escape(title)) \
-               .replace("__BODY__", body_html) \
-               .replace("__NAV__", nav_html) \
-               .replace("__STYLE__", style_rel) \
-               .replace("__MERMAID__", mermaid_rel) \
-               .replace("__VIEWER__", viewer_rel)
+def page_html(
+    title: str,
+    body_html: str,
+    nav_html: str,
+    style_rel: str,
+    mermaid_rel: str,
+    viewer_rel: str,
+) -> str:
+    return (
+        PAGE.replace("__TITLE__", html.escape(title))
+        .replace("__BODY__", body_html)
+        .replace("__NAV__", nav_html)
+        .replace("__STYLE__", style_rel)
+        .replace("__MERMAID__", mermaid_rel)
+        .replace("__VIEWER__", viewer_rel)
+    )
 
 
 # The page is a thin shell: all styling lives in docs/shared/style.css and all
 # behaviour in docs/shared/viewer.js, with mermaid.min.js vendored beside them.
 # Only the per-page content (title, nav, body) is templated here.
-PAGE = r'''<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITLE__ · Protoboard Designer docs</title>
-<link rel="stylesheet" href="__STYLE__">
-</head>
-<body>
-<div class="wrap">
-  <aside class="rail">
-    <div class="brand"><div class="chip" aria-hidden="true"></div>
-      <div><strong>Protoboard&nbsp;Designer</strong><span>docs · live diagrams</span></div></div>
-    <nav class="nav">__NAV__</nav>
-    <div class="rail-foot">
-      <button id="themeBtn" type="button" aria-label="Toggle light / dark"><span class="dot"></span><span>Theme</span></button>
-      <p class="note">Diagrams drawn live by mermaid.js. Regenerate with <code>python docs/build_html.py</code>.</p>
-    </div>
-  </aside>
-  <main class="main">__BODY__</main>
-</div>
-<script src="__MERMAID__"></script>
-<script src="__VIEWER__"></script>
-</body>
-</html>
-'''
+PAGE = (
+    "<!doctype html>\n"
+    '<html lang="en">\n'
+    "<head>\n"
+    '<meta charset="utf-8">\n'
+    '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    "<title>__TITLE__ · Protoboard Designer docs</title>\n"
+    '<link rel="stylesheet" href="__STYLE__">\n'
+    "</head>\n"
+    "<body>\n"
+    '<div class="wrap">\n'
+    '  <aside class="rail">\n'
+    '    <div class="brand"><div class="chip" aria-hidden="true"></div>\n'
+    "      <div><strong>Protoboard&nbsp;Designer</strong><span>docs · live "
+    "diagrams</span></div></div>\n"
+    '    <nav class="nav">__NAV__</nav>\n'
+    '    <div class="rail-foot">\n'
+    '      <button id="themeBtn" type="button" aria-label="Toggle light / '
+    'dark"><span class="dot"></span><span>Theme</span></button>\n'
+    '      <p class="note">Diagrams drawn live by mermaid.js. Regenerate '
+    "with <code>python docs/build_html.py</code>.</p>\n"
+    "    </div>\n"
+    "  </aside>\n"
+    '  <main class="main">__BODY__</main>\n'
+    "</div>\n"
+    '<script src="__MERMAID__"></script>\n'
+    '<script src="__VIEWER__"></script>\n'
+    "</body>\n"
+    "</html>\n"
+)
 
-INDEX_BODY = '''<div class="hero-eyebrow" style="font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--accent);margin-bottom:12px;">connectivity-aware · PySide6 · Qt-free domain</div>
-<h1>Documentation with live diagrams</h1>
-<p>Every Markdown doc under <code>docs/</code> that contains a Mermaid diagram,
-rendered live in the browser. Pick a page from the list. Regenerate after
-editing any <code>.md</code> with <code>python docs/build_html.py</code>.</p>
-__LIST__'''
+INDEX_BODY = (
+    '<div class="hero-eyebrow" '
+    'style="font-size:11px;text-transform:uppercase;letter-spacing:.16em;'
+    'color:var(--accent);margin-bottom:12px;">connectivity-aware · PySide6 · '
+    "Qt-free domain</div>\n"
+    "<h1>Documentation with live diagrams</h1>\n"
+    "<p>Every Markdown doc under <code>docs/</code> that contains a "
+    "Mermaid diagram,\n"
+    "rendered live in the browser. Pick a page from the list. Regenerate "
+    "after\n"
+    "editing any <code>.md</code> with <code>python "
+    "docs/build_html.py</code>.</p>\n"
+    "__LIST__"
+)
 
 
 def find_mermaid_docs() -> list[Path]:
@@ -235,7 +272,8 @@ def locate_mermaid(explicit: str | None) -> Path | None:
         return p if p.is_file() else None
     candidates = [
         REPO / "node_modules/mermaid/dist/mermaid.min.js",
-        Path.home() / ".claude/jobs/aa830040/tmp/node_modules/mermaid/dist/mermaid.min.js",
+        Path.home()
+        / ".claude/jobs/aa830040/tmp/node_modules/mermaid/dist/mermaid.min.js",
     ]
     for c in candidates:
         if c.is_file():
@@ -243,7 +281,10 @@ def locate_mermaid(explicit: str | None) -> Path | None:
     # npm global
     found = shutil.which("mmdc")
     if found:
-        guess = Path(found).resolve().parent.parent / "lib/node_modules/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/mermaid.min.js"
+        guess = Path(found).resolve().parent.parent / (
+            "lib/node_modules/@mermaid-js/mermaid-cli/"
+            "node_modules/mermaid/dist/mermaid.min.js"
+        )
         if guess.is_file():
             return guess
     return None
@@ -259,13 +300,16 @@ def title_of(md: Path) -> str:
 
 def rel_href(from_page: Path, to_page: Path) -> str:
     import os
+
     return os.path.relpath(to_page, from_page.parent).replace("\\", "/")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--mermaid", help="path to mermaid.min.js to vendor")
-    ap.add_argument("--serve", action="store_true", help="serve _html on :8000 after build")
+    ap.add_argument(
+        "--serve", action="store_true", help="serve _html on :8000 after build"
+    )
     args = ap.parse_args()
 
     docs = find_mermaid_docs()
@@ -281,16 +325,21 @@ def main() -> int:
     if not shared_mm.is_file():
         mm = locate_mermaid(args.mermaid)
         if mm is None:
-            print("ERROR: docs/shared/mermaid.min.js is missing and none could be\n"
-                  "found. Pass --mermaid PATH, or run `npm install mermaid` in the\n"
-                  "repo root, then re-run.", file=sys.stderr)
+            print(
+                "ERROR: docs/shared/mermaid.min.js is missing and none could be\n"
+                "found. Pass --mermaid PATH, or run `npm install mermaid` in the\n"
+                "repo root, then re-run.",
+                file=sys.stderr,
+            )
             return 2
         shutil.copyfile(mm, shared_mm)
         print("  ·", "vendored", shared_mm.relative_to(REPO))
     for asset in ("style.css", "viewer.js"):
         if not (SHARED / asset).is_file():
-            print(f"WARNING: docs/shared/{asset} is missing — pages will be unstyled.",
-                  file=sys.stderr)
+            print(
+                f"WARNING: docs/shared/{asset} is missing — pages will be unstyled.",
+                file=sys.stderr,
+            )
 
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -308,13 +357,18 @@ def main() -> int:
         items = [f'<a href="{rel_href(current, OUT / "index.html")}">Index</a>']
         for md, out_path in pages:
             cls = ' class="here"' if out_path == current else ""
-            items.append(f'<a{cls} href="{rel_href(current, out_path)}">{html.escape(title_of(md))}</a>')
+            items.append(
+                f'<a{cls} href="{rel_href(current, out_path)}">'
+                f"{html.escape(title_of(md))}</a>"
+            )
         return "".join(items)
 
     def shared_links(page: Path) -> tuple[str, str, str]:
-        return (rel_href(page, SHARED / "style.css"),
-                rel_href(page, SHARED / "mermaid.min.js"),
-                rel_href(page, SHARED / "viewer.js"))
+        return (
+            rel_href(page, SHARED / "style.css"),
+            rel_href(page, SHARED / "mermaid.min.js"),
+            rel_href(page, SHARED / "viewer.js"),
+        )
 
     for md, out_path in pages:
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -322,28 +376,38 @@ def main() -> int:
         css, mmjs, vjs = shared_links(out_path)
         out_path.write_text(
             page_html(title_of(md), body, nav_for(out_path), css, mmjs, vjs),
-            encoding="utf-8")
+            encoding="utf-8",
+        )
         print("  ✓", out_path.relative_to(REPO))
 
     # index
     lst = ["<ul>"]
     for md, out_path in pages:
-        n = sum(1 for _ in re.finditer(r"```mermaid", md.read_text(encoding='utf-8')))
-        lst.append(f'<li><a href="{rel_href(OUT/"index.html", out_path)}">{html.escape(title_of(md))}</a> '
-                   f'<span style="color:var(--ink-soft)">— {n} diagram{"s" if n!=1 else ""}, '
-                   f'{html.escape(str(md.relative_to(REPO)))}</span></li>')
+        n = sum(1 for _ in re.finditer(r"```mermaid", md.read_text(encoding="utf-8")))
+        lst.append(
+            f'<li><a href="{rel_href(OUT/"index.html", out_path)}">'
+            f"{html.escape(title_of(md))}</a> "
+            f'<span style="color:var(--ink-soft)">— {n} diagram{"s" if n!=1 else ""}, '
+            f"{html.escape(str(md.relative_to(REPO)))}</span></li>"
+        )
     lst.append("</ul>")
     index_body = INDEX_BODY.replace("__LIST__", "".join(lst))
     idx = OUT / "index.html"
     css, mmjs, vjs = shared_links(idx)
-    idx.write_text(page_html("Docs index", index_body, nav_for(idx), css, mmjs, vjs),
-                   encoding="utf-8")
+    idx.write_text(
+        page_html("Docs index", index_body, nav_for(idx), css, mmjs, vjs),
+        encoding="utf-8",
+    )
     print("  ✓", idx.relative_to(REPO))
     print(f"\nBuilt {len(pages)} page(s) + index into {OUT.relative_to(REPO)}/")
     print(f"Open: {OUT / 'index.html'}")
 
     if args.serve:
-        import http.server, socketserver, functools, os
+        import functools
+        import http.server
+        import os
+        import socketserver
+
         os.chdir(OUT)
         h = functools.partial(http.server.SimpleHTTPRequestHandler)
         with socketserver.TCPServer(("127.0.0.1", 8000), h) as httpd:

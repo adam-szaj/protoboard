@@ -19,8 +19,10 @@ Usage (from the repo root):
 Screenshots land in ``$PROTOBOARD_SHOTS_DIR`` (default:
 ``$TMPDIR/protoboard-driver-shots``); the path of every shot is printed.
 """
+
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import traceback
@@ -36,9 +38,8 @@ SHOTS = Path(
 )
 SHOTS.mkdir(parents=True, exist_ok=True)
 
-import logging
-
-import protoboard
+# Imports below follow the startup stages so Qt and plugins see their setup.
+import protoboard  # noqa: E402
 
 print(f"protoboard package: {protoboard.__file__}")
 expected_root = Path(__file__).resolve().parents[3]
@@ -47,36 +48,38 @@ if expected_root != actual_root:
     # Worktree trap: a stale editable install can shadow this checkout's src.
     print(f"WARNING: importing from {actual_root}, driver lives in {expected_root}")
 
-from protoboard.logging_config import configure_logging
+from protoboard.logging_config import configure_logging  # noqa: E402
 
 configure_logging(verbose=False, module_overrides={"protoboard.gui": logging.INFO})
 
 # Real startup side-effects: routers + plugin discovery (as in app.main()).
-import protoboard.services.routing.builtin  # noqa: F401
-import protoboard.services.routing.builtin_enhanced  # noqa: F401
-import protoboard.services.routing.builtin_optimizers  # noqa: F401
-from protoboard.services.routing.discovery import discover_all_plugins
+import protoboard.services.routing.builtin  # noqa: E402, F401
+import protoboard.services.routing.builtin_enhanced  # noqa: E402, F401
+import protoboard.services.routing.builtin_optimizers  # noqa: E402, F401
+from protoboard.services.routing.discovery import discover_all_plugins  # noqa: E402
 
 discover_all_plugins()
 
-from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 app = QApplication([sys.argv[0]])
 app.setApplicationName("Protoboard Designer")
 
-from protoboard.controller.app_settings import load_app_settings
-from protoboard.gui.main_window import MainWindow
-from protoboard.gui.renderers.packages import load_renderer_plugins
-from protoboard.gui.session import EditorSession
-from protoboard.paths import BUILTIN_LIBRARY_DIR
-from protoboard.services.library.loader import load_library
-from protoboard.services.library.package_family_loader import (
+from protoboard.controller.app_settings import load_app_settings  # noqa: E402
+from protoboard.gui.main_window import MainWindow  # noqa: E402
+from protoboard.gui.renderers.packages import load_renderer_plugins  # noqa: E402
+from protoboard.gui.session import EditorSession  # noqa: E402
+from protoboard.paths import BUILTIN_LIBRARY_DIR  # noqa: E402
+from protoboard.services.library.loader import load_library  # noqa: E402
+from protoboard.services.library.package_family_loader import (  # noqa: E402
     load_full_package_catalogue,
 )
-from protoboard.services.library.plugin_discovery import load_generator_plugins
-from protoboard.services.persistence.project_yaml import (
+from protoboard.services.library.plugin_discovery import (  # noqa: E402
+    load_generator_plugins,
+)
+from protoboard.services.persistence.project_yaml import (  # noqa: E402
     load_project,
     set_migration_families,
     set_migration_library,
@@ -91,8 +94,15 @@ library = load_library(library_dirs, load_full_package_catalogue())
 set_migration_library(library)
 set_migration_families(load_full_package_catalogue())
 project_dir = (expected_root / "tests" / "fixtures" / "tangled").resolve()
-(board, layout, schematic, instances,
- routing_settings, layer_overrides, axis_label_settings) = load_project(project_dir)
+(
+    board,
+    layout,
+    schematic,
+    instances,
+    routing_settings,
+    layer_overrides,
+    axis_label_settings,
+) = load_project(project_dir)
 
 session = EditorSession(board=board, library=library)
 session.layout = layout
@@ -126,8 +136,10 @@ def snap(name: str) -> None:
         for y in range(0, img.height(), max(1, img.height() // 40))
     }
     blank = len(colors) < 8
-    print(f"SNAP {path}: {img.width()}x{img.height()} "
-          f"distinct_colors={len(colors)}{' BLANK!' if blank else ''}")
+    print(
+        f"SNAP {path}: {img.width()}x{img.height()} "
+        f"distinct_colors={len(colors)}{' BLANK!' if blank else ''}"
+    )
     if blank:
         failures.append(f"{name}: screenshot looks blank")
 
@@ -148,8 +160,10 @@ def step(name: str, fn) -> None:
 n_items = len(view.scene().items())
 n_comps = len(session.layout.placements)
 n_wires = len(session.layout.wires)
-print(f"scene_items={n_items} placements={n_comps} wires={n_wires} "
-      f"active_tool={type(view.active_tool).__name__}")
+print(
+    f"scene_items={n_items} placements={n_comps} wires={n_wires} "
+    f"active_tool={type(view.active_tool).__name__}"
+)
 if n_items < 10:
     failures.append("scene nearly empty after startup refresh")
 snap("initial")

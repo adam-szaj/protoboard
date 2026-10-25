@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+
+: <<'PROTOBOARD_PROFILING_NOTES'
   Profilowanie autoroute
 
   Trzy mechanizmy, niezależne — możesz włączyć po jednym lub wszystkie razem:
@@ -41,3 +44,4 @@
 
   5. Bench harness (deterministyczny, do regresji)
 
+PROTOBOARD_PROFILING_NOTES
