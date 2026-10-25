@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from collections.abc import Callable
 
 import pytest
 
@@ -13,9 +14,11 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
+from protoboard.geometry import Point
 from protoboard.services.routing import hierarchical as hierarchical_module
 from protoboard.services.routing.results import AutorouteResult
 
@@ -71,13 +74,34 @@ def test_hierarchical_routing_routes_internal_nets_before_top_level(
     )
     calls: list[set[uuid.UUID]] = []
     progress: list[str] = []
+    child_wire = Wire(
+        id=uuid.uuid4(),
+        insulated=True,
+        color="#123456",
+        fragments=[
+            Fragment(path=[Point(0.5, 0.5), Point(1.5, 0.5)], side="top"),
+            Fragment(path=[Point(1.5, 0.5), Point(1.5, 1.5)], side="bottom"),
+        ],
+    )
+    working_wires: list[Wire] = []
 
-    def recording_autoroute(**kwargs: object) -> AutorouteResult:
-        net_ids = set(kwargs["net_ids"])  # type: ignore[arg-type]
+    def recording_autoroute(
+        *,
+        layout: Layout,
+        net_ids: set[uuid.UUID],
+        progress_callback: Callable[[int, str, int], None] | None,
+        **_kwargs: object,
+    ) -> AutorouteResult:
         calls.append(net_ids)
-        callback = kwargs["progress_callback"]
-        if callback is not None:
-            callback(1, "route", 100)  # type: ignore[operator]
+        if progress_callback is not None:
+            progress_callback(1, "route", 100)
+        if net_ids == {child_net.id}:
+            return AutorouteResult(wires=[child_wire])
+        working_wires.extend(layout.wires)
+        assert len(working_wires) == 1
+        for ref in (working_wires[0].a, working_wires[0].b):
+            assert ref is not None
+            assert working_wires[0].id in layout.knots[ref.id].wire_ids
         return AutorouteResult()
 
     monkeypatch.setattr(hierarchical_module, "autoroute", recording_autoroute)
@@ -95,8 +119,17 @@ def test_hierarchical_routing_routes_internal_nets_before_top_level(
     assert calls == [{child_net.id}, {cross_net.id}]
     assert progress[0].startswith("[Child]")
     assert progress[1].startswith("[top]")
-    assert result.wires == []
+    assert len(result.wires) == 1
+    returned_wire = result.wires[0]
+    assert returned_wire is not working_wires[0]
+    assert returned_wire.a is None and returned_wire.b is None
+    assert returned_wire.id == child_wire.id
+    assert returned_wire.path == child_wire.path
+    assert returned_wire.fragments == child_wire.fragments
+    assert returned_wire.color == child_wire.color
+    assert returned_wire.insulated == child_wire.insulated
     assert layout.wires == []
+    assert layout.knots == {}
 
 
 def test_hierarchical_routing_honours_cancellation_before_first_pass(

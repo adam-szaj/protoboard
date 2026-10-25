@@ -30,6 +30,7 @@ import copy
 import threading
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -212,6 +213,9 @@ def hierarchical_autoroute(
             simplify_mode=simplify_mode,
             pad_index=pad_index,
         )
+        # Export separate wires without working-layout knot refs. AddWireCommand
+        # resolves their endpoints against the destination layout when applied.
+        merged_wires.extend(replace(w, a=None, b=None) for w in sub_result.wires)
         # Append routed wires to working_layout so subsequent passes see them.
         for w in sub_result.wires:
             try:
@@ -223,7 +227,6 @@ def hierarchical_autoroute(
                 # obstacle — better than crashing the whole hierarchical
                 # run.  Flat autoroute reports identical issues today.
                 pass
-        merged_wires.extend(sub_result.wires)
         merged_unrouted.update(sub_result.unrouted_nets)
         merged_stats.extend(sub_result.pass_stats)
         routed_net_ids.update(subset_ids)

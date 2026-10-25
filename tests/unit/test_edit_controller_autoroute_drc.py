@@ -17,14 +17,18 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, PadLayers, SizePolicy
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
+from protoboard.domain.routing.cost_model import RoutingCostModel
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.headless_session import HeadlessSession
 from protoboard.services.library.loader import load_library
 from protoboard.services.routing.autorouter import AutorouteResult
+from protoboard.services.routing.hierarchical import hierarchical_autoroute
 
 _LIBRARY_DIR = Path(__file__).parent.parent / "fixtures" / "library"
 
@@ -120,6 +124,70 @@ def test_apply_autoroute_undo_removes_the_macro() -> None:
     # One macro on the stack → one undo clears both wires.
     session.stack.undo(session)  # type: ignore[arg-type]
     assert len(session.layout.wires) == 0
+
+
+@pytest.mark.parametrize("with_groups", [False, True])
+def test_apply_hierarchical_autoroute_and_undo_redo(with_groups: bool) -> None:
+    session = _session()
+    a = _place(session, 1.5, 1.5, "R1")
+    b = _place(session, 1.5, 4.5, "R2")
+    c = _place(session, 5.5, 4.5, "R3")
+    internal = Net(id=uuid.uuid4(), name="internal", pins={PinRef(a, 1), PinRef(b, 1)})
+    cross = Net(id=uuid.uuid4(), name="cross", pins={PinRef(b, 2), PinRef(c, 1)})
+    session.schematic.nets = {internal.id: internal, cross.id: cross}
+    if with_groups:
+        group_id = uuid.uuid4()
+        session.layout.groups = {
+            ROOT_GROUP_ID: ComponentGroup(
+                id=ROOT_GROUP_ID,
+                name="Root",
+                component_ids=frozenset({c}),
+                child_group_ids=frozenset({group_id}),
+            ),
+            group_id: ComponentGroup(
+                id=group_id,
+                name="Child",
+                component_ids=frozenset({a, b}),
+                exported_pins=frozenset({PinRef(b, 2)}),
+            ),
+        }
+    session.invalidate_graph()
+    before_knots = dict(session.layout.knots)
+    result = hierarchical_autoroute(
+        board=session.board,
+        layout=session.layout,
+        schematic=session.schematic,
+        components=session.components,
+        instances=session.instances,
+        cost_model=RoutingCostModel(),
+        max_optimize_iterations=0,
+    )
+    assert result.wires
+    assert result.unrouted_nets == []
+    assert session.layout.wires == []
+    assert session.layout.knots == before_knots
+
+    applied = session.edit_controller.apply_autoroute(result)
+    assert applied == len(result.wires)
+    assert session.edit_controller.run_drc() == []
+    committed_knots = dict(session.layout.knots)
+    for wire in session.layout.wires:
+        for ref in (wire.a, wire.b):
+            assert ref is not None
+            assert wire.id in session.layout.knots[ref.id].wire_ids
+
+    session.stack.undo(session)  # type: ignore[arg-type]
+    session.invalidate_graph()
+    assert session.layout.wires == []
+    assert {issue.code for issue in session.edit_controller.run_drc()} == {
+        "MISSING_NET"
+    }
+
+    session.stack.redo(session)  # type: ignore[arg-type]
+    session.invalidate_graph()
+    assert len(session.layout.wires) == applied
+    assert session.layout.knots == committed_knots
+    assert session.edit_controller.run_drc() == []
 
 
 # -- run_drc ----------------------------------------------------------------
