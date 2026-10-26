@@ -39,7 +39,10 @@ from protoboard.domain.components.package import (
     resolve_extends,
     resolve_variant,
 )
-from protoboard.domain.components.package.generators import ResidualKind
+from protoboard.domain.components.package.generators import (
+    KIND_GENERATORS,
+    ResidualKind,
+)
 from protoboard.errors import SerializationError
 from protoboard.instrumentation.debug_trace import traced
 from protoboard.services.library.builtin_package_defs import load_builtin_package_defs
@@ -116,63 +119,40 @@ def _parse_package_options(
 
     options: list[PackageOption] = []
     for entry in raw_list:
-        ref: str | None = None
-        package: Package | None = None
-        name_raw: object = None
-        entry_style: Appearance | None = None
-        pin_map: dict[int, tuple[int, ...]] = {}
         if isinstance(entry, str):
-            ref = entry
-            name_raw = entry
-            has_explicit_name = False
-        elif isinstance(entry, dict):
-            pin_map = _parse_pin_map(entry.get("pin_map"), source, component_name=cname)
-            if isinstance(entry.get("package"), dict):
-                built = _build_component_package(
-                    cname, entry["package"], pin_count, generics
-                )
-                if isinstance(built, ResidualKind):
-                    # Partially-parameterised kind: the option becomes a
-                    # pending-kind placeholder (generic-bbox geometry, target
-                    # kind + holes stamped) — the picker's second pop-up
-                    # collects the rest, exactly like the component-level
-                    # ``package:`` path.  A provisional single-row pin cloud
-                    # stands in for the geometry until the concrete variant is
-                    # built.
-                    if not pin_count:
-                        raise SerializationError(
-                            f"{source}: footprint entry for {cname!r} leaves "
-                            f"kind {built.kind!r} parameters unfilled and the "
-                            f"component declares no pin count"
-                        )
-                    package = _pending_kind_placeholder(built, SIL(n=pin_count))
-                    if package is None:
-                        raise SerializationError(
-                            f"{source}: footprint entry for {cname!r} leaves "
-                            f"kind {built.kind!r} parameters unfilled"
-                        )
-                else:
-                    package = built
-            elif entry.get("ref") is not None:
-                ref = str(entry["ref"])
-            else:
-                raise SerializationError(
-                    f"{source}: footprint entry for {cname!r} needs 'ref' or "
-                    f"'package'"
-                )
-            name_raw = entry.get("name", ref)
-            has_explicit_name = "name" in entry
-            try:
-                entry_style = parse_style(
-                    entry.get("style"), ctx=f"{cname} footprint style"
-                )
-            except (TypeError, ValueError) as exc:
-                raise SerializationError(f"{source}: {exc}") from exc
-        else:
+            entry = {"ref": entry}
+        if not isinstance(entry, dict):
             raise SerializationError(
                 f"{source}: footprint entry for {cname!r} must be a string or "
                 f"mapping"
             )
+        unknown = set(entry) - {"name", "ref", "package", "style", "pin_map"}
+        if unknown:
+            field = sorted(unknown)[0]
+            raise SerializationError(
+                f"{source}: package option for {cname!r} has unknown field "
+                f"{field!r}; put package geometry inside 'package'"
+            )
+        pin_map = _parse_pin_map(entry.get("pin_map"), source, component_name=cname)
+        try:
+            entry_style = parse_style(
+                entry.get("style"), ctx=f"{cname} footprint style"
+            )
+        except (TypeError, ValueError) as exc:
+            raise SerializationError(f"{source}: {exc}") from exc
+        raw_ref = entry.get("ref")
+        package_raw = entry.get("package")
+        if raw_ref is not None and package_raw is not None:
+            raise SerializationError(
+                f"{source}: footprint entry for {cname!r} cannot declare both "
+                "'ref' and 'package'"
+            )
+        if raw_ref is None and not isinstance(package_raw, dict):
+            raise SerializationError(
+                f"{source}: footprint entry for {cname!r} needs 'ref' or 'package'"
+            )
+        ref = str(raw_ref) if raw_ref is not None else None
+        name_raw = entry.get("name", ref)
         name = str(name_raw) if name_raw is not None else ""
         if ref is not None:
             prefix, target = ref[:1], ref[1:]
@@ -182,22 +162,44 @@ def _parse_package_options(
                 )
             if prefix == "@":
                 ref = target
-                if not has_explicit_name:
+                if "name" not in entry:
                     name = ref
                 if resolve_variant(families, ref) is None:
                     raise SerializationError(
                         f"{source}: package option ref @{ref} did not resolve"
                     )
+            elif prefix == "#":
+                package_raw = {"extends": target}
             else:
-                package_raw = {"extends": target} if prefix == "#" else {"kind": target}
-                built = _build_component_package(
-                    cname, package_raw, pin_count, generics
-                )
-                if isinstance(built, ResidualKind):
+                generator_class = KIND_GENERATORS.get(target)
+                if generator_class is None:
+                    raise PackageDefError(f"unknown package kind {target!r}")
+                generator = generator_class(target)
+                package_raw = {"kind": target, **generator.option_values(name)}
+                if "pin_map" not in entry and pin_count is not None:
+                    pin_map = generator.option_pin_map(pin_count)
+        package: Package | None = None
+        if isinstance(package_raw, dict):
+            built = _build_component_package(cname, package_raw, pin_count, generics)
+            if isinstance(built, ResidualKind):
+                if raw_ref is not None:
                     raise SerializationError(
                         f"{source}: package option ref {ref!r} requires "
                         "additional generator parameters"
                     )
+                if not pin_count:
+                    raise SerializationError(
+                        f"{source}: footprint entry for {cname!r} leaves "
+                        f"kind {built.kind!r} parameters unfilled and the "
+                        "component declares no pin count"
+                    )
+                package = _pending_kind_placeholder(built, SIL(n=pin_count))
+                if package is None:
+                    raise SerializationError(
+                        f"{source}: footprint entry for {cname!r} leaves "
+                        f"kind {built.kind!r} parameters unfilled"
+                    )
+            else:
                 package = built
         if package is not None:
             family_id = f"{cname}-{name.lstrip('@#$')}-package"

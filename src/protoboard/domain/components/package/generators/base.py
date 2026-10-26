@@ -244,6 +244,14 @@ class PackageGenerator(ABC):
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         """Build the concrete body for *ctx* (see the module-level contract)."""
 
+    def option_values(self, name: str) -> dict[str, Any]:
+        """Generator parameters encoded in a package option's display name."""
+        return {}
+
+    def option_pin_map(self, pin_count: int) -> dict[int, tuple[int, ...]]:
+        """Default MetaPin mapping for an option without an explicit pin_map."""
+        return {}
+
     def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
         """Fill the ``auto`` slots of a declarative kind node's value tree.
 

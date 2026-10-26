@@ -67,6 +67,21 @@ error; the loader does not infer physical geometry from the number of MetaPins.
 For an intentionally plain pin-cloud body, declare `package: {kind: generic}`
 and its `pin_map` explicitly.
 
+For a two-pin radial prism, `$generic-prism` reads the pitch and body dimensions
+from the option name. The format is `<pitch>mm@<lx>x<ly>x<lz>`, with all numbers
+in millimetres and the pitch a multiple of the 2.5 mm board raster. It maps
+the two MetaPins to physical pins 1 and 2 in order:
+
+```yaml
+package_options:
+  - {name: "5mm@7.2x2.5x6.5", ref: "$generic-prism"}
+```
+
+The generator uses the `prism_radial` geometry template. To specify other
+geometry or a different pin mapping, put `package: {extends: prism_radial, ...}`
+and `pin_map` inside the option. `ref: "@family/variant"` selects a finished
+package; geometry fields beside `ref` are rejected.
+
 C/C_POL radial packages remain rigid. Old component-level `bendable_pins` entries
 do not supply mechanics; reach comes from the selected package.
 

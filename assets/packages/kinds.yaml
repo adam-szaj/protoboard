@@ -32,3 +32,9 @@ packages:
     color: "#c8433c"        # red switch housing
     dims: {ly: auto, lx: auto}
     leads: {body_offset: auto}
+
+  - name: generic-prism
+    kind: generic-prism
+    extends: prism_radial
+    dims: {lx: auto, ly: auto, lz: auto}
+    leads: {body_offset: auto}

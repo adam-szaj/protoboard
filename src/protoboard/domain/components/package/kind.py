@@ -164,6 +164,7 @@ def _build_node_package(
     gen: PackageGenerator,
     ctx: GeneratorContext,
     values: Mapping[str, Any],
+    declared: Mapping[str, Any],
 ) -> GeneratorContext:
     """Build a node-bound kind through the ordinary ``build_package`` flow.
 
@@ -174,7 +175,8 @@ def _build_node_package(
     after the required check and before validation, so ``raw_values`` keep
     ``auto`` for the UI). The built body then carries the node's full lineage
     (kind as the leaf), the merged schema and the node's declared ``color``;
-    the generator's convenience colour is only a fallback.
+    the generator's convenience colour is only a fallback. Declared generator
+    parameters also stay in ``raw_values`` so the picker sees supplied values.
     """
     tree = deep_merge(node.merged, _strip_none(values))
 
@@ -186,7 +188,9 @@ def _build_node_package(
         tree, node.kind, lineage=node.lineage, resolve_auto=_fill
     )
     if isinstance(pkg, (Prism, Cylinder, Disc)):
-        changes: dict[str, Any] = {}
+        changes: dict[str, Any] = {
+            "raw_values": deep_merge(dict(pkg.raw_values or {}), dict(declared))
+        }
         if "kind" in {f.name for f in dataclasses.fields(pkg)}:
             changes["kind"] = node.kind
         if gen.color is not None and pkg.color is None:
@@ -293,7 +297,7 @@ def build_kind_package(
                 # legacy pure-code path below (plugins keep working).
                 node = KIND_NODES.get(current)
                 if node is not None:
-                    return _build_node_package(node, gen, ctx, values)
+                    return _build_node_package(node, gen, ctx, values, declared)
             out = gen.generate(
                 dataclasses.replace(ctx, values=values, package=None, residual=None)
             )

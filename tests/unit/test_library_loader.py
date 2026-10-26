@@ -141,6 +141,13 @@ class TestTypedPackageReferences:
         with pytest.raises(SerializationError):
             _component_from_dict(raw, Path("typed.yaml"), {}, {})
 
+    def test_option_rejects_geometry_outside_package(self) -> None:
+        raw = self._raw("@dip-4/std")
+        raw["package_options"][0]["dims"] = {"lx": 7.2}  # type: ignore[index]
+
+        with pytest.raises(SerializationError, match="unknown field 'dims'"):
+            _component_from_dict(raw, Path("typed.yaml"), {}, {})
+
     def test_component_without_declared_package_is_rejected(self) -> None:
         raw = {"name": "X", "meta_pins": ["A", "B"]}
         families: dict = {}
@@ -306,10 +313,8 @@ class TestFootprintsList:
             "    package_options:\n"
             "      - name: A\n"
             "        package: {kind: sil}\n"
-            "        pins: 2\n"
             "      - name: B\n"
             "        package: {kind: sil}\n"
-            "        pins: 2\n"
             "        style: 'color: #333333'\n"
             ""
         )
@@ -785,6 +790,91 @@ class TestConsolidatedPassives:
         )  # polarity kept
         assert "Disc-D5" in [o.name for o in c.package_options]
         assert "Radial-D5" in [o.name for o in cp.package_options]
+
+    def test_foil_capacitor_builds_custom_prism(self) -> None:
+        from protoboard.domain.components.package import Prism, resolve_variant
+
+        lib = self._lib()
+        definition = lib.get("C_FOIL")
+        option = definition.package_options[0]
+        assert option.name == "5mm@7.2x2.5x6.5"
+        variant = resolve_variant(_families(lib), option.ref)
+        assert variant is not None
+        assert isinstance(variant.package, Prism)
+        assert variant.package.size_mm is not None
+        assert variant.package.size_mm.lx == pytest.approx(7.2)
+        assert variant.package.size_mm.ly == pytest.approx(2.5)
+        assert variant.package.size_mm.lz == pytest.approx(6.5)
+        assert variant.package.leads.body_offset_mm[0].dx == pytest.approx(5.0)
+        assert option.pin_map == {1: (1,), 2: (2,)}
+        positions = variant.package.pin_positions()
+        assert abs(positions[1].x - positions[0].x) == pytest.approx(2.0)
+
+    def test_named_prism_options_build_independent_packages(self) -> None:
+        from protoboard.domain.components.package import resolve_variant
+
+        families: dict = {}
+        definition = _component_from_dict(
+            {
+                "name": "X",
+                "meta_pins": ["A", "B"],
+                "package_options": [
+                    {"name": "5mm@7.2x2.5x6.5", "ref": "$generic-prism"},
+                    {"name": "7.5mm@10x3x8", "ref": "$generic-prism"},
+                ],
+            },
+            Path("named-prisms.yaml"),
+            families,
+            families,
+        )
+
+        assert [option.pin_map for option in definition.package_options] == [
+            {1: (1,), 2: (2,)},
+            {1: (1,), 2: (2,)},
+        ]
+        first, second = (
+            resolve_variant(families, option.ref)
+            for option in definition.package_options
+        )
+        assert first is not None and second is not None
+        assert first.package.pin_positions()[1].x == pytest.approx(2.0)
+        assert second.package.pin_positions()[1].x == pytest.approx(3.0)
+
+    @pytest.mark.parametrize(
+        "name",
+        ["5mm_7.2x2.5x6.5", "5mm@7.2x2.5", "0mm@7.2x2.5x6.5", "6mm@7.2x2.5x6.5"],
+    )
+    def test_named_prism_rejects_invalid_geometry(self, name: str) -> None:
+        from protoboard.domain.components.package import PackageDefError
+
+        with pytest.raises(PackageDefError, match="generic-prism option"):
+            _component_from_dict(
+                {
+                    "name": "X",
+                    "meta_pins": ["A", "B"],
+                    "package_options": [{"name": name, "ref": "$generic-prism"}],
+                },
+                Path("named-prisms.yaml"),
+                {},
+                {},
+            )
+
+    def test_named_prism_requires_two_meta_pins(self) -> None:
+        from protoboard.domain.components.package import PackageDefError
+
+        with pytest.raises(PackageDefError, match="exactly two MetaPins"):
+            _component_from_dict(
+                {
+                    "name": "X",
+                    "meta_pins": ["A", "B", "C"],
+                    "package_options": [
+                        {"name": "5mm@7.2x2.5x6.5", "ref": "$generic-prism"}
+                    ],
+                },
+                Path("named-prisms.yaml"),
+                {},
+                {},
+            )
 
     @pytest.mark.parametrize("name", ["C", "C_POL"])
     def test_radial_capacitor_packages_remain_rigid(self, name: str) -> None:

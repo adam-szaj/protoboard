@@ -177,7 +177,12 @@ class TestFootprintPickerDialog:
             return "kind/built"
 
         monkeypatch.setattr(FootprintPickerDialog, "_run_variant_dialog", _fake_run)
-        dlg = self._dialog(qtbot, [], [_opt("PinHeader", "ph", is_kind=True)])
+        dlg = self._dialog(
+            qtbot,
+            [],
+            [_opt("PinHeader", "ph", is_kind=True)],
+            _StubProvider(params=[ParamSpec("rows", "int")]),
+        )
         item = dlg._tree.topLevelItem(0)
         assert item is not None
         dlg._confirm_item(item)
@@ -192,12 +197,35 @@ class TestFootprintPickerDialog:
             "_run_variant_dialog",
             lambda self_, address: None,  # user cancelled stage 2
         )
-        dlg = self._dialog(qtbot, [], [_opt("PinHeader", "ph", is_kind=True)])
+        dlg = self._dialog(
+            qtbot,
+            [],
+            [_opt("PinHeader", "ph", is_kind=True)],
+            _StubProvider(params=[ParamSpec("rows", "int")]),
+        )
         item = dlg._tree.topLevelItem(0)
         assert item is not None
         dlg._confirm_item(item)
         assert dlg.chosen_address is None
         assert dlg.result() != QDialog.DialogCode.Accepted
+
+    def test_complete_kind_row_needs_no_variant_dialog(
+        self, qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _unexpected_dialog(self_, address: str) -> None:
+            pytest.fail(f"unexpected variant dialog for {address}")
+
+        monkeypatch.setattr(
+            FootprintPickerDialog, "_run_variant_dialog", _unexpected_dialog
+        )
+        dlg = self._dialog(qtbot, [], [_opt("Prism", "prism/1", is_kind=True)])
+        item = dlg._tree.topLevelItem(0)
+        assert item is not None
+
+        dlg._confirm_item(item)
+
+        assert dlg.chosen_address == "prism/1"
+        assert dlg.result() == QDialog.DialogCode.Accepted
 
 
 # --------------------------------------------------------------------------- #
@@ -306,6 +334,17 @@ class TestDefaultProvider:
         for name in ("PinHeader", "JST_PH"):
             opts = provider.options(lib.get(name))
             assert len(opts) == 1 and opts[0].is_kind, name
+
+    def test_named_prism_does_not_ask_for_parameters_from_its_name(
+        self, lib_and_cat
+    ) -> None:
+        lib, cat = lib_and_cat
+        provider = DefaultFootprintChoiceProvider(cat)
+
+        options = provider.options(lib.get("C_FOIL"))
+
+        assert options
+        assert all(provider.kind_params(option.address) == [] for option in options)
 
     def test_unresolvable_address_offers_nothing(self, lib_and_cat) -> None:
         _lib, cat = lib_and_cat

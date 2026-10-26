@@ -18,6 +18,9 @@ from protoboard.domain.components.package.generators import (  # noqa: F401
     generic as _generic,
 )
 from protoboard.domain.components.package.generators import (  # noqa: F401
+    generic_prism as _generic_prism,
+)
+from protoboard.domain.components.package.generators import (  # noqa: F401
     sil as _sil,
 )
 from protoboard.domain.components.package.generators.base import (

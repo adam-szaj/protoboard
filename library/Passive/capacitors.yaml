@@ -42,3 +42,17 @@ components:
   meta_pins:
   - +
   - '-'
+- name: C_FOIL
+  description: "Metal foil capacitor"
+  component_class: capacitor
+  symbol: C
+  default_value: "?"
+  meta_pins:
+  - '1'
+  - '2'
+  package_options:
+  - {name: "5mm@7.2x2.5x6.5", ref: "$generic-prism"}
+  - {name: "5mm@7.2x3.5x7.2", ref: "$generic-prism"}
+  - {name: "5mm@7.2x4.4x9.3", ref: "$generic-prism"}
+  - {name: "5mm@7.2x5.0x9.7", ref: "$generic-prism"}
+  - {name: "5mm@7.2x5.9x11", ref: "$generic-prism"}

@@ -169,8 +169,11 @@ class FootprintPickerDialog(QDialog):
         if view is None:
             return
         alt = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.AltModifier)
-        # A kind always parameterises; Alt forces the variant pop-up even on a
-        # recent (already-built) pick, to derive a new variant of the same kind.
+        if view.is_kind and not alt and not self._provider.kind_params(view.address):
+            self.chosen_address = view.address
+            self.accept()
+            return
+        # Alt forces the variant pop-up even for a complete or recent pick.
         if view.is_kind or alt:
             built = self._run_variant_dialog(view.address)
             if built is None:
