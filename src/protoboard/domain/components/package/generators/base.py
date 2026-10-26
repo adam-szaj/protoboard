@@ -101,6 +101,9 @@ class GeneratorContext:
     - ``schema``: the owning package's declared :class:`ParamSchema` (the YAML
       value-tree schema), when the caller has one — a compute step consults it
       to resolve ``auto`` holes into concrete values. ``None`` outside that path.
+    - ``component``: the source component declaration, including metadata.
+    - ``option``: the source package option declaration; empty for a component
+      with a single inline package. Both declarations are read-only inputs.
     - ``package``: the built body — ``None`` on input, set on output.
     - ``residual``: set instead of ``package`` when parameters are still
       missing (or the generator redirects to another kind) — see
@@ -113,6 +116,10 @@ class GeneratorContext:
     package: Package | None = None
     residual: ResidualKind | None = None
     schema: ParamSchema | None = None
+
+    # Source declarations are separate from the computed geometry values.
+    component: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    option: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
     def with_package(self, package: Package) -> GeneratorContext:
         """Return a copy carrying *package* (the generator's output body)."""
@@ -243,14 +250,6 @@ class PackageGenerator(ABC):
     @abstractmethod
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         """Build the concrete body for *ctx* (see the module-level contract)."""
-
-    def option_values(self, name: str) -> dict[str, Any]:
-        """Generator parameters encoded in a package option's display name."""
-        return {}
-
-    def option_pin_map(self, pin_count: int) -> dict[int, tuple[int, ...]]:
-        """Default MetaPin mapping for an option without an explicit pin_map."""
-        return {}
 
     def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
         """Fill the ``auto`` slots of a declarative kind node's value tree.

@@ -63,6 +63,70 @@ class TestMetaPinMapping:
             2: (2,),
         }
 
+    @pytest.mark.parametrize("inline", [True, False])
+    @pytest.mark.parametrize("mapping", [None, {}, {1: [2], 2: [1]}])
+    def test_default_identity_mapping_preserves_explicit_mapping(
+        self, inline, mapping
+    ) -> None:
+        declaration = {"kind": "sil", "pins": 3}
+        raw = {"name": "X", "meta_pins": ["A", "B"]}
+        if inline:
+            raw["package"] = declaration
+            owner = raw
+        else:
+            owner = {"name": "Body", "package": declaration}
+            raw["package_options"] = [owner]
+        if mapping is not None:
+            owner["pin_map"] = mapping
+        families: dict = {}
+        definition = _component_from_dict(raw, Path("mapping.yaml"), families, families)
+        expected = (
+            {1: (1,), 2: (2,)}
+            if mapping is None
+            else {key: tuple(pins) for key, pins in mapping.items()}
+        )
+        assert definition.package_options[0].pin_map == expected
+
+    @pytest.mark.parametrize("inline", [True, False])
+    def test_generator_receives_source_component_and_option(
+        self, inline, monkeypatch
+    ) -> None:
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.package.generators import (
+            KIND_GENERATORS,
+            PackageGenerator,
+            prism_from_footprint,
+        )
+
+        seen = []
+
+        class SourceGenerator(PackageGenerator):
+            def generate(self, ctx):
+                seen.append(ctx)
+                package = prism_from_footprint(SIL(n=ctx.pin_count))
+                assert package is not None
+                return ctx.with_package(package)
+
+        monkeypatch.setitem(KIND_GENERATORS, "source-test", SourceGenerator)
+        option = {"name": "Pitch/Size", "ref": "$source-test", "group": "Group"}
+        raw = {
+            "name": "Source",
+            "meta_pins": ["+", "-"],
+            "description": "Source description",
+            "metadata": {"custom": [1, 2]},
+        }
+        if inline:
+            raw["package"] = {"kind": "source-test"}
+        else:
+            raw["package_options"] = [option]
+        families: dict = {}
+        _component_from_dict(raw, Path("source.yaml"), families, families)
+        assert len(seen) == 1
+        assert seen[0].component == raw
+        assert seen[0].option == ({} if inline else option)
+        assert seen[0].with_values({"computed": 1}).component == raw
+        assert seen[0].with_values({"computed": 1}).option == seen[0].option
+
     def test_component_definition_exposes_only_metapin_api(self) -> None:
         families: dict = {}
         definition = _component_from_dict(
@@ -797,7 +861,7 @@ class TestConsolidatedPassives:
         lib = self._lib()
         definition = lib.get("C_FOIL")
         option = definition.package_options[0]
-        assert option.name == "5mm@7.2x2.5x6.5"
+        assert option.name == "5mm/7.2x2.5x6.5"
         variant = resolve_variant(_families(lib), option.ref)
         assert variant is not None
         assert isinstance(variant.package, Prism)
@@ -862,7 +926,7 @@ class TestConsolidatedPassives:
     def test_named_prism_requires_two_meta_pins(self) -> None:
         from protoboard.domain.components.package import PackageDefError
 
-        with pytest.raises(PackageDefError, match="exactly two MetaPins"):
+        with pytest.raises(PackageDefError, match="exactly two pins"):
             _component_from_dict(
                 {
                     "name": "X",

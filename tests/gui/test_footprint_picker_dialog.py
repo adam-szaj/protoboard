@@ -315,6 +315,58 @@ class TestDefaultProvider:
             "connectors/header/angled",
         ]
 
+    @pytest.mark.parametrize("group", [None, "Parts/Radial"])
+    def test_picker_path_uses_group_or_authored_ref(self, group, qtbot) -> None:
+        from protoboard.services.library.loader import _component_from_dict
+
+        families: dict = {}
+        definition = _component_from_dict(
+            {
+                "name": "X",
+                "meta_pins": ["1", "2"],
+                "package_options": [
+                    {
+                        "name": name,
+                        "ref": "$generic-prism",
+                        **({"group": group} if group is not None else {}),
+                    }
+                    for name in ("5mm@7.2x2.5x6.5", "5mm@7.2x3.5x7.2")
+                ],
+            },
+            Path("picker.yaml"),
+            families,
+            families,
+        )
+        provider = DefaultFootprintChoiceProvider(families)
+        options = provider.options(definition)
+        expected = tuple((group or "$generic-prism").split("/"))
+        assert [option.namespace for option in options] == [expected, expected]
+        assert [option.label for option in options] == [
+            option.name for option in definition.package_options
+        ]
+        assert [option.address for option in options] == [
+            option.ref for option in definition.package_options
+        ]
+        dialog = FootprintPickerDialog(provider, [], options)
+        qtbot.addWidget(dialog)
+        assert dialog._tree.topLevelItemCount() == 1
+        parent = dialog._tree.topLevelItem(0)
+        for _ in expected[1:]:
+            parent = parent.child(0)
+        assert parent.childCount() == 2
+
+    def test_slashes_in_ref_and_name_form_picker_levels(self) -> None:
+        base = sil_family(2)
+        assert base is not None
+        definition = ComponentDefinition(
+            name="J",
+            meta_pins=(MetaPin(("1",)), MetaPin(("2",))),
+            package_options=(PackageOption("Sizes/Small", "sil-2/std"),),
+        )
+        option = DefaultFootprintChoiceProvider({"sil-2": base}).options(definition)[0]
+        assert option.namespace == ("sil-2", "std", "Sizes")
+        assert option.label == "Small"
+
     def test_package_footprints_not_kind(self, lib_and_cat) -> None:
         lib, cat = lib_and_cat
         provider = DefaultFootprintChoiceProvider(cat)

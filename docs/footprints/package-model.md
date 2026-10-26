@@ -767,7 +767,17 @@ class GeneratorContext:
     values: Mapping[str, object]        # default-filled by the driver
     package: Package | None = None      # the built body (output), XOR
     residual: ResidualKind | None = None  # parameters still to collect
+    component: Mapping[str, object]      # source component declaration
+    option: Mapping[str, object]         # source package option declaration
 ```
+
+Library generation supplies the complete source component and option mappings
+as read-only inputs, separately from computed `values`. Inline component
+packages have an empty `option`; calls outside library loading may omit both
+mappings. Context transformations preserve them. `generic-prism` reads the
+size string directly from `ctx.option["name"]` in `resolve_auto`; it does not
+need a separate option-parsing interface. Default 1:1 MetaPin mapping belongs
+to the component loader, not the geometry generator.
 
 `build_kind_package(kind, ctx, schema) -> GeneratorContext` is the driver:
 default-fill + required/type checks against the generator's `params`, the

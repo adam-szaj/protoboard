@@ -95,8 +95,8 @@ class PackageOption:
 
     A component's logical identity (name/MetaPins/class) is separate from the
     packages it can be placed in. Every option is a reference into the
-    package-family catalogue. ``name`` is the picker leaf (joined with the
-    component ``symbol`` as ``symbol_name``); ``style`` overrides the list's
+    package-family catalogue. ``group/name`` is the picker path; the loader
+    defaults ``group`` to the authored reference. ``style`` overrides the list's
     ``footprint_style`` for this entry only.
     """
 
@@ -104,6 +104,9 @@ class PackageOption:
     ref: str
     style: Appearance | None = None
     pin_map: dict[int, tuple[int, ...]] = field(default_factory=dict)
+
+    # Presentation root, independent of the resolved catalogue address.
+    group: str | None = None
 
     def __post_init__(self) -> None:
         if not self.name:

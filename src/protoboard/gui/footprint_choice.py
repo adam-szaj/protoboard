@@ -138,18 +138,19 @@ class DefaultFootprintChoiceProvider:
     def options(self, defn: ComponentDefinition) -> list[PackageOptionView]:
         self._last_defn = defn
         out: list[PackageOptionView] = []
-        root = defn.refdes_prefix
         from protoboard.domain.components.package.generated_families import (
             offered_package_options,
         )
 
         for option in offered_package_options(defn, self._families):
+            group = option.group if option.group is not None else option.ref
+            path = [part for part in f"{group}/{option.name}".split("/") if part]
             out.append(
                 PackageOptionView(
-                    label=f"{root}_{option.name}",
+                    label=path[-1],
                     address=option.ref,
                     is_kind=self._ref_is_kind(option.ref),
-                    namespace=tuple(option.ref.split("/")[:-1]),
+                    namespace=tuple(path[:-1]),
                 )
             )
         return out

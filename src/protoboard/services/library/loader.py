@@ -9,9 +9,10 @@ directories, the *first* directory wins (so users can override built-ins).
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import structlog
@@ -126,14 +127,19 @@ def _parse_package_options(
                 f"{source}: footprint entry for {cname!r} must be a string or "
                 f"mapping"
             )
-        unknown = set(entry) - {"name", "ref", "package", "style", "pin_map"}
+        unknown = set(entry) - {"name", "ref", "package", "style", "pin_map", "group"}
         if unknown:
             field = sorted(unknown)[0]
             raise SerializationError(
                 f"{source}: package option for {cname!r} has unknown field "
                 f"{field!r}; put package geometry inside 'package'"
             )
-        pin_map = _parse_pin_map(entry.get("pin_map"), source, component_name=cname)
+        pin_map = _parse_pin_map(
+            entry.get("pin_map"),
+            source,
+            component_name=cname,
+            pin_count=pin_count or 0,
+        )
         try:
             entry_style = parse_style(
                 entry.get("style"), ctx=f"{cname} footprint style"
@@ -141,6 +147,9 @@ def _parse_package_options(
         except (TypeError, ValueError) as exc:
             raise SerializationError(f"{source}: {exc}") from exc
         raw_ref = entry.get("ref")
+        group = entry.get("group", raw_ref if raw_ref is not None else "")
+        if not isinstance(group, str):
+            raise SerializationError(f"{source}: package option group must be a string")
         package_raw = entry.get("package")
         if raw_ref is not None and package_raw is not None:
             raise SerializationError(
@@ -171,16 +180,12 @@ def _parse_package_options(
             elif prefix == "#":
                 package_raw = {"extends": target}
             else:
-                generator_class = KIND_GENERATORS.get(target)
-                if generator_class is None:
-                    raise PackageDefError(f"unknown package kind {target!r}")
-                generator = generator_class(target)
-                package_raw = {"kind": target, **generator.option_values(name)}
-                if "pin_map" not in entry and pin_count is not None:
-                    pin_map = generator.option_pin_map(pin_count)
+                package_raw = {"kind": target}
         package: Package | None = None
         if isinstance(package_raw, dict):
-            built = _build_component_package(cname, package_raw, pin_count, generics)
+            built = _build_component_package(
+                cname, package_raw, pin_count, generics, component=data, option=entry
+            )
             if isinstance(built, ResidualKind):
                 if raw_ref is not None:
                     raise SerializationError(
@@ -215,6 +220,7 @@ def _parse_package_options(
             PackageOption(
                 name=name,
                 ref=ref or "",
+                group=group,
                 style=style if not style.is_empty else None,
                 pin_map=pin_map,
             )
@@ -227,9 +233,10 @@ def _parse_pin_map(
     source: Path,
     *,
     component_name: str,
+    pin_count: int = 0,
 ) -> dict[int, tuple[int, ...]]:
     if raw is None:
-        return {}
+        return {index: (index,) for index in range(1, pin_count + 1)}
     if not isinstance(raw, dict):
         raise SerializationError(
             f"{source}: pin_map for {component_name!r} must be a mapping"
@@ -318,9 +325,6 @@ def _pending_kind_placeholder(
     state ride along so the picker can offer the remaining holes and rebuild
     a concrete body.  ``None`` when no placeholder can be synthesized.
     """
-    from protoboard.domain.components.package.generators import (
-        KIND_GENERATORS,
-    )
     from protoboard.domain.components.package.kind import (
         synth_generic_package,
     )
@@ -369,6 +373,9 @@ def _build_component_package(
     raw: dict[str, Any],
     pin_count: int | None = None,
     generics: dict[str, dict[str, Any]] | None = None,
+    *,
+    component: Mapping[str, Any] | None = None,
+    option: Mapping[str, Any] | None = None,
 ) -> Package | ResidualKind:
     """Build a Package from a component's inline ``package:`` block.
 
@@ -411,7 +418,15 @@ def _build_component_package(
         # Forward any remaining package fields (e.g. a connector's ``rows``) as
         # generator values; the builder ignores keys it does not use.
         values = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
-        ctx = build_kind_package(chain, GeneratorContext(pin_count=n, values=values))
+        ctx = build_kind_package(
+            chain,
+            GeneratorContext(
+                pin_count=n,
+                values=values,
+                component=MappingProxyType(dict(component or {})),
+                option=MappingProxyType(dict(option or {})),
+            ),
+        )
         if ctx.residual is not None:
             return ctx.residual
         assert ctx.package is not None  # driver sets package XOR residual
@@ -758,7 +773,7 @@ def _component_from_dict(
                 parametric_pins = True
                 build_pin_count = preview_count
         built = _build_component_package(
-            data["name"], package_raw, build_pin_count, generics
+            data["name"], package_raw, build_pin_count, generics, component=data
         )
         if isinstance(built, ResidualKind):
             pending_kind = built
@@ -832,11 +847,14 @@ def _component_from_dict(
         if "meta_pins" in data
         else tuple(MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1))
     )
-    if package_obj is not None and options:
+    if (package_obj is not None or pending_kind is not None) and options:
         options[0] = dataclasses.replace(
             options[0],
             pin_map=_parse_pin_map(
-                data.get("pin_map"), source, component_name=data["name"]
+                data.get("pin_map"),
+                source,
+                component_name=data["name"],
+                pin_count=len(meta_pins),
             ),
         )
     for option in options:

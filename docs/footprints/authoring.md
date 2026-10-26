@@ -41,8 +41,10 @@ package_options:
 ```
 
 A MetaPin may map to zero, one, or many physical pins. Physical pins must be
-within the selected package and may not be assigned to two MetaPins. Unlisted
-MetaPins are unmapped.
+within the selected package and may not be assigned to two MetaPins. When
+`pin_map` is omitted, MetaPins map to physical pins 1:1 in list order. An
+explicit mapping replaces that default entirely: unlisted MetaPins are
+unmapped, and `pin_map: {}` leaves all MetaPins unmapped.
 
 ## Typed references
 
@@ -58,6 +60,23 @@ family's existing variants. Geometry, pin mapping, rendering and pre-placement
 mechanics use the same option selector; an unrelated catalogue address is
 rejected even when its geometry exists or its pin count matches.
 
+## Picker groups
+
+The picker path is `{group}/{name}`, with `group` defaulting to the authored
+`ref` (including its prefix). Every `/` in either field creates another tree
+level; the last segment is the selectable label. Technical package addresses
+are unchanged. Inline options without `ref` or `group` use just `name`.
+
+```yaml
+package_options:
+  - name: "5mm@7.2x2.5x6.5"
+    ref: "$generic-prism"
+    group: "Capacitors/Foil"
+```
+
+This creates `Capacitors → Foil → 5mm@7.2x2.5x6.5`. Without `group`,
+all options using `$generic-prism` share the `$generic-prism` group.
+
 ## Inline and parametric packages
 
 Use `package:` for one body. It normalizes to
@@ -69,8 +88,8 @@ and its `pin_map` explicitly.
 
 For a two-pin radial prism, `$generic-prism` reads the pitch and body dimensions
 from the option name. The format is `<pitch>mm@<lx>x<ly>x<lz>`, with all numbers
-in millimetres and the pitch a multiple of the 2.5 mm board raster. It maps
-the two MetaPins to physical pins 1 and 2 in order:
+in millimetres and the pitch a multiple of the 2.5 mm board raster. The loader
+maps the two MetaPins to physical pins 1 and 2 in order by default:
 
 ```yaml
 package_options:
