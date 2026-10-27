@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QApplication
 
 from protoboard.controller.app_settings import AppSettings
 from protoboard.domain.commands.base import ComponentState
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.main_window import MainWindow
@@ -36,6 +40,32 @@ def _key_r(tool: PlaceTool) -> None:
 
 
 class TestPlaceToolPlacement:
+    @pytest.mark.parametrize("existing_instance", [False, True])
+    def test_escape_after_component_selection_before_first_click(
+        self, session: EditorSession, qtbot, existing_instance: bool
+    ) -> None:
+        window = MainWindow(session, AppSettings())
+        qtbot.addWidget(window)
+        window.show()
+        window.activateWindow()
+        window._library_panel._tree.setFocus()
+        qtbot.waitUntil(window._library_panel._tree.hasFocus)
+
+        if existing_instance:
+            instance = ComponentInstance(uuid.uuid4(), "R", "R1", "1k")
+            session.instances[instance.id] = instance
+            window._components_panel.place_requested.emit(instance.id)
+        else:
+            window._library_panel.component_selected.emit("R", None)
+        assert isinstance(window._board_view.active_tool, PlaceTool)
+        focus = QApplication.focusWidget()
+        assert focus is not None
+        qtbot.keyClick(focus, Qt.Key.Key_Escape)
+
+        assert isinstance(window._board_view.active_tool, SelectTool)
+        assert not session.layout.placements
+        assert not session.stack.can_undo()
+
     def test_cancel_floating_placement_then_exit(
         self, board_view: BoardView, session: EditorSession, monkeypatch
     ) -> None:

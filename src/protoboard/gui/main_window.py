@@ -821,6 +821,7 @@ class MainWindow(QMainWindow):
                 package_variant=package_variant_str,
             )
         )
+        self._board_view.setFocus()
         label = definition_ref
         tags = []
         if package_variant_str:
@@ -870,6 +871,7 @@ class MainWindow(QMainWindow):
             return
         tool = PlaceTool(inst.definition_ref, existing_instance=inst)
         self._board_view.set_tool(tool)
+        self._board_view.setFocus()
         self._mode_label.setText(f"Place {inst.refdes} ({inst.value})  [R] rotate")
         self._sync_tool_check(None)
 
