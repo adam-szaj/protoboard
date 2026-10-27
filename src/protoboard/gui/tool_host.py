@@ -30,6 +30,7 @@ from protoboard.gui.keymap import (
     GlobalKeyMap,
     KeyMap,
     mouse_button_chord,
+    name_of,
     wheel_chord,
 )
 from protoboard.gui.qt_inputs import key_input, mods_from_qt, pointer_input, wheel_input
@@ -215,7 +216,14 @@ class ToolHost:
         if option.data and tool is not None:
             tool.perform_context_action(option.action_id, option.data)
             return
+        # Match the keyboard's two-stage cancel: inspect the pending operation
+        # before dispatch clears it, then leave only an already idle tool.
+        cancel_exits = name_of(option.action_id) == "cancel" and (
+            tool is None or tool.can_exit()
+        )
         self._view.session.edit_controller.dispatch_tool_command(option.action_id)
+        if cancel_exits:
+            self._view.escape_to_select()
 
     @traced()
     def get_context_at(self, scene_pos: Point, view_pos: Point) -> InteractionContext:

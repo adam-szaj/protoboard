@@ -1079,6 +1079,32 @@ class TestPickRouting:
         assert tool._selection.active_pick is None
         assert tool._mouse is None
 
+    def test_cancel_action_cancels_active_pick(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        tool = _v2(board_view)
+        cancelled: list[bool] = []
+        tool._arm_pick(
+            "component",
+            Stop.confirm(),
+            on_done=lambda xs: None,
+            on_cancel=lambda: cancelled.append(True),
+        )
+        tool.command_table()["select-tool.action.cancel"]()
+        assert cancelled == [True]
+        assert tool._mouse is None
+
+    def test_cancel_action_clears_pivot_capture(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _click(tool, 0.5, 0.5)
+        tool.begin_rotate_around_point()
+        assert tool._pivot_capture_pending
+        tool.command_table()["select-tool.action.cancel"]()
+        assert not tool._pivot_capture_pending
+
 
 # -- wire-edit ----------------------------------------------------------------
 

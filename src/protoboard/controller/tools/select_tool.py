@@ -2279,13 +2279,31 @@ class SelectTool(ControllerTool):
         return {
             SELECT_ACTION_EDIT: self._begin_edit_selected,
             SELECT_ACTION_DELETE: self._delete_selection,
-            SELECT_ACTION_CANCEL: self._wire_edit_clear,
+            SELECT_ACTION_CANCEL: self.cancel,
             SELECT_ACTION_ROTATE: self.arm_rotate,
             SELECT_ACTION_MOVE: self.arm_move,
             SELECT_ACTION_FLIP: self.flip_selected,
             SELECT_ACTION_RELATION_CYCLE: self._cycle_relation,
             SELECT_ACTION_RELATION_CYCLE_BACK: self._cycle_relation_back,
         }
+
+    def cancel(self) -> bool:
+        """Abort the current interaction, then unwind group/selection when idle."""
+        if self._pivot_capture_pending or self._rotate_pivot is not None:
+            self._clear_pivot()
+            self._status("Pivot cleared")
+            return True
+        if self._dispatch_intent(Intent.CANCEL):
+            return True
+        self._wire_edit_clear()
+        if len(self._group_stack) > 1:
+            self.exit_group()
+        else:
+            self._selection.clear()
+            self._context_net_id = None
+            self._clear_free_pad_ring()
+            self.refresh_highlight()
+        return True
 
     def _cycle_relation_back(self) -> None:
         self._cycle_relation(forward=False)

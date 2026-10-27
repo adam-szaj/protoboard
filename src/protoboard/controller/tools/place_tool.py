@@ -202,6 +202,10 @@ class PlaceTool(ControllerTool):
         self.preview.clear_ghost()
         self._reset_phase()
 
+    def can_exit(self) -> bool:
+        """Cancel an unfinished placement before leaving the tool."""
+        return self._is_phase(PhaseEnum.ANCHOR)
+
     # ------------------------------------------------------------------
     # Bend-spec resolution
     # ------------------------------------------------------------------

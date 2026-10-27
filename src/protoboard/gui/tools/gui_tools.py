@@ -330,12 +330,8 @@ class SelectTool(
         shift = inp.mods.shift
         alt = inp.mods.alt
 
-        # Pivot mode: Esc clears it first.
-        if self._pivot_capture_pending or self._rotate_pivot is not None:
-            if key == Qt.Key.Key_Escape:
-                self._clear_pivot()
-                self._status("Pivot cleared")
-                return True
+        if key == Qt.Key.Key_Escape:
+            return self.cancel()
 
         # Translate the key into a semantic intent and offer it to the active
         # mouse interaction (a floating drag, or a pick via PointPickController:
@@ -388,15 +384,6 @@ class SelectTool(
             self.arm_rotate()
             return True
 
-        if key == Qt.Key.Key_Escape:
-            if len(self._group_stack) > 1:
-                self.exit_group()
-            else:
-                self._selection.clear()
-                self._context_net_id = None  # deselect drops the net context
-                self._clear_free_pad_ring()
-                self.refresh_highlight()
-            return True
         return False
 
     def on_key_release(self, inp: KeyInput) -> None:
@@ -408,8 +395,7 @@ class SimplifyTool(
 ):  # pyright: ignore[reportIncompatibleMethodOverride, reportIncompatibleVariableOverride]
     """SimplifyTool with the default Qt draft-overlay preview.
 
-    ``on_key`` is just the ``[Esc]`` clear-draft raw-key check ahead of
-    SelectTool's own ``on_key`` (KeyMap action ids + fallbacks).
+    ``on_key`` translates ``[Esc]`` to the shared cancel command.
 
     ``_SimplifyTool`` extends the *pure controller* ``SelectTool``
     (``controller.tools.select_tool.SelectTool``), not this module's
@@ -430,7 +416,7 @@ class SimplifyTool(
 
     def on_key(self, inp: KeyInput) -> bool:
         if inp.key == Qt.Key.Key_Escape:
-            self._clear_draft()
+            return self.cancel()
         return super().on_key(inp)
 
 

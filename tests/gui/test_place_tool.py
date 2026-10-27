@@ -36,6 +36,39 @@ def _key_r(tool: PlaceTool) -> None:
 
 
 class TestPlaceToolPlacement:
+    def test_cancel_floating_placement_then_exit(
+        self, board_view: BoardView, session: EditorSession, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "protoboard.controller.tools.place_tool.load_app_settings",
+            lambda: AppSettings(auto_accept_placement=False),
+        )
+        view = board_view
+        view.escape_tool.connect(lambda: view.set_tool(SelectTool()))
+        view.set_tool(PlaceTool("R"))
+        tool = view.active_tool
+        assert isinstance(tool, PlaceTool)
+        _left_click(tool, 0.5, 0.5)
+        assert tool._phase == "floating"
+        assert len(session.layout.placements) == 1
+
+        def cancel() -> None:
+            view.keyPressEvent(
+                QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.NoModifier)
+            )
+
+        cancel()
+
+        assert view.active_tool is tool
+        assert tool.can_exit()
+        assert tool._pending is None
+        assert not session.layout.placements
+        assert not session.instances
+
+        cancel()
+
+        assert isinstance(view.active_tool, SelectTool)
+
     def test_cancel_action_is_handled_before_first_placement(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
@@ -249,6 +282,36 @@ class TestPlaceToolSmdMount:
         assert smd_base is not None and axial_base is not None
         # Different bodies → pin 2 sits at different world spots from the anchor.
         assert (smd_base.x, smd_base.y) != (axial_base.x, axial_base.y)
+
+    def test_cancel_pin_drag_returns_to_anchor_then_exits(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        name = self._add_smd_def(session)
+        view = board_view
+        view.escape_tool.connect(lambda: view.set_tool(SelectTool()))
+        view.set_tool(PlaceTool(name))
+        tool = view.active_tool
+        assert isinstance(tool, PlaceTool)
+        tool.on_press(pointer(1, 1))
+        assert tool._phase == "drag_pin"
+
+        def cancel() -> None:
+            view.keyPressEvent(
+                QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.NoModifier)
+            )
+
+        cancel()
+
+        assert view.active_tool is tool
+        assert tool.can_exit()
+        assert tool._anchor_pos is None
+        assert tool._current_drag_pin is None
+        assert not tool._pin_offsets
+        assert not session.layout.placements
+
+        cancel()
+
+        assert isinstance(view.active_tool, SelectTool)
 
     def test_smd_enters_drag_pin_phase(
         self, board_view: BoardView, session: EditorSession

@@ -16,9 +16,8 @@ This SHADOWS the parent's Shift+LPM relation-select semantics ONLY when
 the hit target is a wire — clicks on components, groups or empty space
 fall through to the parent.
 
-Qt-free (controller/tools/): the ``[Esc]`` raw-key clear-draft check lives on
-the GUI-composed subclass in :mod:`protoboard.gui.tools.gui_tools`; this
-module keeps the draft/apply command methods.
+Qt-free (controller/tools/): the GUI-composed subclass translates ``[Esc]``
+into :meth:`SimplifyTool.cancel`; this module owns draft/apply/cancel commands.
 """
 
 from __future__ import annotations
@@ -102,6 +101,10 @@ class SimplifyTool(SelectTool):
         self._clear_draft()
         super().deactivate()
 
+    def cancel(self) -> bool:
+        self._clear_draft()
+        return super().cancel()
+
     def on_scene_cleared(self) -> None:
         # Scene items were destroyed under us — drop dangling refs.
         self.draft_preview.on_scene_cleared()
@@ -127,9 +130,7 @@ class SimplifyTool(SelectTool):
         self._clear_draft()
         return super().on_press(inp)
 
-    # ``on_key`` (the ``[Esc]`` raw-key clear-draft check, then delegates to
-    # SelectTool's ``on_key``) lives on the GUI-composed subclass — see
-    # :mod:`protoboard.gui.tools.gui_tools`.
+    # Raw keys are translated by the GUI-composed subclass.
 
     # ------------------------------------------------------------------
     # Preview + apply

@@ -112,6 +112,18 @@ class TestSimplifyToolDraft:
         _key(board_view, Qt.Key.Key_Escape)
         assert _draft_items(tool) == []
 
+    def test_cancel_action_clears_draft(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _add_l_shape_wire(session)
+        board_view.set_tool(SimplifyTool())
+        tool = board_view.active_tool
+        assert isinstance(tool, SimplifyTool)
+        _press(board_view, 2.5, 0.5, shift=True)
+        assert _draft_items(tool)
+        tool.command_table()["select-tool.action.cancel"]()
+        assert _draft_items(tool) == []
+
     def test_plain_lpm_after_draft_clears_it(
         self,
         board_view: BoardView,
