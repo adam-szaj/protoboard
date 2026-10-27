@@ -7,7 +7,7 @@ components:
     # Used by: LM358, LM393, LM2904, ...
 - name: _DUAL_OPAMP_SS
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   meta_pins:
   - OUT_A
   - IN-_A
@@ -36,7 +36,7 @@ components:
     - 8
 - name: _DUAL_OPAMP_DS
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   meta_pins:
   - OUT_A
   - IN-_A
@@ -65,7 +65,7 @@ components:
     - 8
 - name: _QUAD_OPAMP
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   meta_pins:
   - OUT_A
   - IN-_A
@@ -124,7 +124,7 @@ components:
 
 - name: LM339
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Quad voltage comparator, open-collector output"
   meta_pins:
   - OUT_A
@@ -216,7 +216,7 @@ components:
 
 - name: uA741
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Classic single general-purpose op-amp"
   meta_pins:
   - OFFSET_N1
@@ -246,7 +246,7 @@ components:
     - 8
 - name: TL071
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Single JFET op-amp, low noise"
   meta_pins:
   - OFFSET_N1
@@ -276,7 +276,7 @@ components:
     - 8
 - name: LM741
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Single op-amp, military/industrial"
   meta_pins:
   - OFFSET_N1

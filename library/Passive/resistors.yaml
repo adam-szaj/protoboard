@@ -29,7 +29,7 @@ components:
 - name: R_Net_4
   description: "4-resistor SIL network (common bus pin 1)"
   component_class: resistor
-  package: {kind: sil}
+  package: {ref: "$sil"}
   default_value: "?"
 
   meta_pins:
@@ -52,7 +52,7 @@ components:
 - name: R_Net_8
   description: "8-resistor SIL network (common bus pin 1)"
   component_class: resistor
-  package: {kind: sil}
+  package: {ref: "$sil"}
   default_value: "?"
 
   meta_pins:
@@ -87,7 +87,7 @@ components:
 - name: Pot
   description: "Potentiometer / trimmer (3-pin)"
   component_class: resistor
-  package: {kind: sil}
+  package: {ref: "$sil"}
   default_value: "?"
   meta_pins:
   - '1'

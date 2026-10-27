@@ -74,7 +74,7 @@ components:
 - name: SW_DPST
   description: "DPST switch (4-pin: two independent SPST)"
   component_class: switch
-  package: {kind: dip_switch}
+  package: {ref: "$dip_switch"}
   meta_pins:
   - A1
   - B1
@@ -93,7 +93,7 @@ components:
 - name: SW_DPDT
   description: "DPDT switch (6-pin: two independent SPDT)"
   component_class: switch
-  package: {kind: sil}
+  package: {ref: "$sil"}
   meta_pins:
   - COM1
   - NC1
@@ -118,7 +118,7 @@ components:
 - name: SW_DIP_4
   description: "4-position DIP switch"
   component_class: switch
-  package: {kind: dip_switch}
+  package: {ref: "$dip_switch"}
   meta_pins:
   - S1A
   - S2A

@@ -5,7 +5,7 @@ components:
 
 - name: _OSC_DIP14
   component_class: crystal
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   meta_pins:
   - NC
   - P2

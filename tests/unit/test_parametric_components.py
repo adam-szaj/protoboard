@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Parametric (variable-pin-count) component definitions.
 
-A ``package: {kind: …}`` entry with no ``pins:`` loads as a parametric base;
+A ``package: {ref: "$…"}`` entry with no ``pins:`` loads as a parametric base;
 placement-time parameters concretize it under the historical catalogue name
 (``PinHeader_1x05``), and name lookups re-synthesize — so saved projects
 referencing the old fixed-count names keep resolving.
@@ -27,13 +27,13 @@ from protoboard.services.library.parametric import (
 PIN_HEADER_RAW = {
     "name": "PinHeader",
     "component_class": "connector",
-    "package": {"kind": "pin_header"},
+    "package": {"ref": "$pin_header"},
     "description": "test header",
 }
 JST_RAW = {
     "name": "JST_XH",
     "component_class": "connector",
-    "package": {"kind": "jst"},
+    "package": {"ref": "$jst"},
 }
 
 

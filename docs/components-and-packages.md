@@ -21,9 +21,9 @@ biblioteki wskazanego przez `component_library_dirs`.
 | Wspólna geometria, która ma być uzupełniana lub nadpisywana | Szablon `packages` i `package: {extends: nazwa, ...}`. |
 | Jedna kompletna nazwana geometria | `ref: "#nazwa"`. |
 | Jeden korpus tylko dla danego komponentu | Komponentowe `package`. |
-| Obudowa zależna od liczby pinów lub parametrów | `package: {kind: generator, ...}`. |
+| Obudowa zależna od liczby pinów lub parametrów | `package: {ref: "$generator", ...}`. |
 | Dwupinowy radialny prostopadłościan opisany nazwą rozmiaru | Nazwana opcja `ref: "$generic-prism"`. |
-| Liczba pinów wybierana dopiero przy Place | Inline `kind` bez `meta_pins` i bez `package.pins`. |
+| Liczba pinów wybierana dopiero przy Place | Inline `ref: "$generator"` bez `meta_pins` i bez `package.pins`. |
 
 Szablon geometrii i rodzina rozwiązują różne problemy. Szablon współdzieli
 strukturę i parametry, a rodzina publikuje gotowe warianty do katalogu. Generator
@@ -131,7 +131,7 @@ components:
     symbol: J
     description: "Złącze czujnika"
     meta_pins: [[GND, VSS], SIGNAL, NC]
-    package: {kind: sil, pins: 4}
+    package: {ref: "$sil", pins: 4}
     pin_map: {1: [1, 4], 2: [2], 3: []}
     style: "color: #303030; corner-radius: 0.2"
     metadata: {datasheet: "sensor.pdf"}
@@ -143,12 +143,12 @@ components:
 
   - name: DOC_REVERSED
     meta_pins: [A, B]
-    package: {kind: sil}
+    package: {ref: "$sil"}
     pin_map: {1: [2], 2: [1]}
 
   - name: DOC_UNMAPPED
     meta_pins: [A, B]
-    package: {kind: sil}
+    package: {ref: "$sil"}
     pin_map: {}
 ```
 
@@ -175,9 +175,9 @@ Geometria obok `ref` jest błędem; własne wymiary umieszcza się w `package`.
 
 Prefiksy są składnią źródłowego YAML i należy ujmować je w cudzysłów. Rozstrzygnięte
 adresy runtime nie mają prefiksu. `#` nie oznacza automatycznie kompletnej
-definicji: może wskazywać szablon, ale użycie samego `ref: "#..."` nie pozwala
+definicji: może wskazywać szablon, ale skrót `ref: "#..."` bezpośrednio w opcji nie pozwala
 dopisać brakujących wymiarów. W takim przypadku należy zastosować
-`package: {extends: nazwa, ...}`.
+`package: {ref: "#nazwa", ...}` albo `package: {extends: nazwa, ...}`.
 
 Wybór pakietu jest ograniczony do opcji komponentu. Zgodna liczba pinów ani
 istnienie innego pakietu w katalogu nie uprawnia do jego wybrania. Dla wielu
@@ -224,7 +224,7 @@ components:
       - name: Own
         group: Foil
         package:
-          extends: doc-box
+          ref: "#doc-box"
           dims: {ly: 3.5}
       - "@doc/foil/large"
 ```
@@ -239,8 +239,28 @@ Pełny katalog zawiera także rodziny tworzone przez
 `domain/components/package/generated_families.py`: `dip-N` i `wdip-N` dla
 parzystych N od 4 do 64 oraz `sil-N` dla N od 3 do 40, każdą z wariantem `std`.
 Odwołanie `@dip-8/std` wybiera gotowy element katalogu, natomiast
-`package: {kind: dip_ic}` uruchamia generator dla danego komponentu. To dwie
+`package: {ref: "$dip_ic"}` uruchamia generator dla danego komponentu. To dwie
 osobne drogi do obudowy DIP.
+
+### Wspólny zapis `ref` wewnątrz `package`
+
+Komponentowe `package` i `package` zagnieżdżone w opcji korzystają z tej samej
+składni: `ref: "$pin_header"` wybiera generator, a pozostałe pola przekazują
+parametry, np. `rows: 2`. Tak samo `ref: "#doc-box"` wybiera nazwany szablon
+i pozwala uzupełnić jego `dims` lub `leads`, jak w powyższej opcji `Own`.
+Zwykłe `extends` dla geometrii pozostaje obsługiwane.
+
+Referencje katalogowe `@rodzina/wariant` i `@rodzina` deklaruje się wyłącznie
+bezpośrednio w `package_options`; nie są dozwolone w wewnętrznym `package`.
+`ref` nie można łączyć w jednym `package` z `kind` ani `extends` — wybór
+źródła musi być jednoznaczny. Nie wolno też przenosić parametrów geometrii
+obok skrótowego `ref` opcji; wtedy należy użyć zagnieżdżonego `package`.
+
+Dla dotychczasowych bibliotek zapis `package: {kind: pin_header, rows: 2}`
+nadal jest akceptowany. Nowe definicje używają `ref: "$pin_header"`;
+loader normalizuje je w jednym miejscu do wewnętrznego `kind`. Pole `kind`
+pozostaje właściwą deklaracją wiązania generatora w sekcji `packages` oraz
+nazwą używaną przez rejestr generatorów, wynikowy `Package` i renderer.
 
 ### Grupy i drzewo pickera
 
@@ -274,18 +294,18 @@ components:
   - name: DOC_HEADER_6
     component_class: connector
     meta_pins: [P1, P2, P3, P4, P5, P6]
-    package: {kind: pin_header, rows: 2}
+    package: {ref: "$pin_header", rows: 2}
 
   - name: DOC_HEADER_CHOOSE_ROWS
     component_class: connector
     meta_pins: [P1, P2, P3, P4, P5, P6]
     package_options:
       - name: Header
-        package: {kind: pin_header, rows: null}
+        package: {ref: "$pin_header", rows: null}
 
   - name: DOC_PIN_CLOUD
     meta_pins: [A, B, C]
-    package: {kind: generic}
+    package: {ref: "$generic"}
 ```
 
 Pierwszy komponent ma zawsze sześć terminali w dwóch rzędach. Drugi zostawia
@@ -297,8 +317,9 @@ pinów opisuje osobny przykład w rozdziale o generatorach.
 `package.pins` w generatorze może oznaczać fizyczną liczbę pinów różną od liczby
 MetaPinów; wtedy odpowiednie `pin_map` jest szczególnie istotne. Dla deklaracji
 geometrii bez generatora fizyczna liczba wynika z N−1 kroków `body_offset`.
-Odwołania `$...` i `#...` muszą zostać całkowicie rozwiązane podczas ładowania.
-Otwarte parametry w opcji należy deklarować przez jej wewnętrzny `package`.
+Skrótowe odwołania `ref: "$..."` i `ref: "#..."` bezpośrednio w opcji muszą
+zostać całkowicie rozwiązane podczas ładowania. Otwarte parametry w opcji
+należy deklarować przez jej wewnętrzny `package`, również z polem `ref`.
 
 ## Geometria pakietu
 
@@ -322,7 +343,8 @@ Otwarte parametry w opcji należy deklarować przez jej wewnętrzny `package`.
 | `mount_points` | Opcjonalna lista wektorów sąsiednich padów pin-2, w otworach; nie jest sekwencją pozycji pinów. |
 | `disc_profile` | Dla dysku: `flat` lub `candy`. |
 | `schema` | Deklaracje pól, wartości domyślne i typy. |
-| `kind` | Powiązanie z generatorem; opisane w rozdziale o generatorach. |
+| `ref` | W komponentowym `package`: generator `$nazwa` lub szablon `#nazwa`, z dodatkowymi parametrami. |
+| `kind` | W deklaracji węzła `packages`: powiązanie z generatorem; także wewnętrzny identyfikator w kodzie. |
 
 Nie należy stosować `mount_points` jako ogólnego sposobu wyrażania dowolnego
 rastra złącza. Do tego służy jawny `leads.body_offset`/`board_offset`.
@@ -433,7 +455,7 @@ components:
 
   - name: DOC_THREE
     meta_pins: [C, B, E]
-    package: {extends: doc-spread-three}
+    package: {ref: "#doc-spread-three"}
 
   - name: DOC_MODULE
     component_class: devboard
@@ -597,7 +619,7 @@ dialogu; Alt może wymusić otwarcie dialogu wariantu.
 Generator jest potrzebny, gdy geometria zależy od liczby pinów, parametrów lub
 nazwy opcji. Samo powielanie kilku gotowych wymiarów nie wymaga Pythona:
 wystarczą `packages:`, `extends:` i warianty rodziny. Generator wybiera się przez
-`package: {kind: ...}` albo `ref: "$nazwa"` w `package_options`. Nazwa `kind`
+`package: {ref: "$nazwa", ...}` albo samo `ref: "$nazwa"` w `package_options`. Nazwa `kind`
 identyfikuje wpis w `KIND_GENERATORS`; nie jest nazwą klasy bryły ani rodziny.
 
 ### Wszystkie generatory wbudowane
@@ -625,25 +647,25 @@ Przykłady stałej liczby pinów; każdy wpis jest niezależnym komponentem:
 components:
   - name: Demo_DIP8
     meta_pins: ['1', '2', '3', '4', '5', '6', '7', '8']
-    package: {kind: dip_ic}
+    package: {ref: "$dip_ic"}
   - name: Demo_WDIP8
     meta_pins: ['1', '2', '3', '4', '5', '6', '7', '8']
-    package: {kind: wdip_ic}
+    package: {ref: "$wdip_ic"}
   - name: Demo_Switch4
     meta_pins: ['1', '2', '3', '4']
-    package: {kind: dip_switch}
+    package: {ref: "$dip_switch"}
   - name: Demo_SIL3
     meta_pins: ['1', '2', '3']
     package_options: [{name: SIL, ref: "$sil"}]
   - name: Demo_Header2x3
     meta_pins: ['1', '2', '3', '4', '5', '6']
-    package: {kind: pin_header, rows: 2}
+    package: {ref: "$pin_header", rows: 2}
   - name: Demo_JST3
     meta_pins: ['1', '2', '3']
-    package: {kind: jst}
+    package: {ref: "$jst"}
   - name: Demo_Probe
     meta_pins: [P]
-    package: {kind: generic}
+    package: {ref: "$generic"}
 ```
 
 DIP-y mają szablony danych w `assets/packages/kinds.yaml`. Generator wypełnia
@@ -655,7 +677,7 @@ components:
   - name: Demo_DIP8_Long
     meta_pins: ['1', '2', '3', '4', '5', '6', '7', '8']
     package:
-      kind: dip_ic
+      ref: "$dip_ic"
       dims: {lx: 15.0}
 ```
 
@@ -692,13 +714,13 @@ staje się poziomem drzewa pickera. Generator nie przyjmuje samej nazwy jako
 formatu f-string i nie wykonuje wyrażeń Pythona.
 
 Tego generatora używaj w `package_options` z nazwą opcji, a nie jako samego
-`package: {kind: generic-prism}`: inline nie ma nazwy opcji, więc nie ma z czego
+`package: {ref: "$generic-prism"}`: inline nie ma nazwy opcji, więc nie ma z czego
 odczytać wymiarów. Gotowe wygenerowane opcje są kompletne i picker nie pyta
 ponownie o rozstaw ani `lx`, `ly`, `lz`.
 
 ### Zmienna liczba pinów wybierana przy umieszczaniu
 
-Brak `meta_pins` oraz brak `package.pins` przy inline `kind` oznacza komponent
+Brak `meta_pins` oraz brak `package.pins` przy inline `ref: "$generator"` oznacza komponent
 parametryczny. To inny przypadek od brakującego parametru geometrii przy
 ustalonej liście MetaPinów:
 
@@ -706,10 +728,10 @@ ustalonej liście MetaPinów:
 components:
   - name: Demo_PinHeader
     component_class: connector
-    package: {kind: pin_header}
+    package: {ref: "$pin_header"}
   - name: Demo_JST
     component_class: connector
-    package: {kind: jst}
+    package: {ref: "$jst"}
 ```
 
 Biblioteka buduje podgląd dla `generator.preview_pin_count` (domyślnie 4).
@@ -859,17 +881,21 @@ class DemoRedirect(PackageGenerator):
 components:
   - name: Demo_Complete
     meta_pins: [A, B, C]
-    package: {kind: demo_prism, pitch: 5.0}
+    package: {ref: "$demo_prism", pitch: 5.0}
   - name: Demo_Chain
     meta_pins: [A, B, C]
-    package: {kind: [demo_pitch, demo_prism]}
+    package: {ref: ["$demo_pitch", "$demo_prism"]}
   - name: Demo_AskPitch
     meta_pins: [A, B, C]
-    package: {kind: demo_prism, pitch: null}
+    package: {ref: "$demo_prism", pitch: null}
   - name: Demo_Redirect
     meta_pins: [A, B, C]
-    package: {kind: demo_redirect}
+    package: {ref: "$demo_redirect"}
 ```
+
+`ref` jako lista deklaruje łańcuch generatorów; lista musi być niepusta
+i zawierać wyłącznie referencje `$...`, np. `["$demo_pitch", "$demo_prism"]`.
+Nie służy do mieszania rodzin `@...` i szablonów `#...`.
 
 `Demo_Complete` buduje od razu. W `Demo_Chain` pierwszy krok dopisuje rozstaw,
 a drugi tworzy bryłę. Krok pośredni nie może tworzyć pakietu ani wymagać
@@ -935,14 +961,14 @@ packages:
 components:
   - name: Demo_Radial_Default
     meta_pins: [A, B]
-    package: {kind: demo_radial}
+    package: {ref: "$demo_radial"}
   - name: Demo_Radial_Editable
     meta_pins: [A, B]
-    package: {kind: demo_radial, pitch: null}
+    package: {ref: "$demo_radial", pitch: null}
   - name: Demo_Radial_Override
     meta_pins: [A, B]
     package:
-      kind: demo_radial
+      ref: "$demo_radial"
       pitch: 7.5
       dims: {lx: 12.0}
 ```
@@ -990,7 +1016,10 @@ Punktem wejścia aplikacji jest `src/protoboard/app.py`. Odkrywanie generatorów
 z katalogów biblioteki poprzedza ładowanie definicji. `load_library()` z
 `services/library/loader.py` zbiera surowe deklaracje, scala rejestr szablonów,
 ładuje rodziny, rozwiązuje dziedziczenie komponentów i buduje definicje.
-Wczytywanie geometrii nie wymaga Qt.
+Wczytywanie geometrii nie wymaga Qt. `_normalize_package_ref()` tłumaczy
+źródłowe `ref` na wewnętrzny `kind` lub `extends` przed wyborem podglądu
+parametrycznego i budową geometrii. Nie zmienia deklaracji źródłowych
+przekazywanych w `GeneratorContext.component` i `option`.
 
 ```mermaid
 flowchart TD
@@ -1005,7 +1034,8 @@ flowchart TD
     J -->|ref @| K[Istniejaca rodzina lub wariant]
     J -->|ref #| I
     J -->|ref $ lub inline package| I
-    I --> L{kind?}
+    I --> Z[_normalize_package_ref: ref na kind lub extends]
+    Z --> L{kind?}
     L -->|tak| M[build_kind_package]
     L -->|nie| N[resolve_extends i build_package]
     M --> O[Package lub podglad residual]

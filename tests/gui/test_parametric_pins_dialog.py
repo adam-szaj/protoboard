@@ -15,7 +15,7 @@ def _pin_header_base(families: dict):
         {
             "name": "PinHeader",
             "component_class": "connector",
-            "package": {"kind": "pin_header"},
+            "package": {"ref": "$pin_header"},
         },
         Path("test.yaml"),
         families,

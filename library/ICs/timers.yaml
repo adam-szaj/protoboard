@@ -1,7 +1,7 @@
 components:
 - name: NE555
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "555 timer IC"
   meta_pins:
   - GND
@@ -31,7 +31,7 @@ components:
     - 8
 - name: NE556
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Dual 555 timer IC"
   meta_pins:
   - DIS_A

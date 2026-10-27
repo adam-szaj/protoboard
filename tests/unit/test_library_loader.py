@@ -162,6 +162,89 @@ class TestMetaPinMapping:
 
 
 class TestTypedPackageReferences:
+    @pytest.mark.parametrize("inline", [True, False])
+    def test_package_generator_ref_accepts_parameters(self, inline: bool) -> None:
+        declaration = {"ref": "$pin_header", "rows": 2}
+        raw = {"name": "X", "meta_pins": ["A", "B", "C", "D"]}
+        if inline:
+            raw["package"] = declaration
+        else:
+            raw["package_options"] = [{"name": "Header", "package": declaration}]
+        families: dict = {}
+
+        definition = _component_from_dict(raw, Path("refs.yaml"), families, families)
+
+        positions = definition.default_footprint(families).pin_positions()
+        assert len({point.x for point in positions}) == 2
+        assert len({point.y for point in positions}) == 2
+        assert declaration == {"ref": "$pin_header", "rows": 2}
+
+    def test_package_generator_ref_chain_preserves_source_context(
+        self, monkeypatch
+    ) -> None:
+        from protoboard.domain.components.package.generators import (
+            KIND_GENERATORS,
+            PackageGenerator,
+        )
+
+        seen = []
+
+        class Rows(PackageGenerator):
+            def generate(self, ctx):
+                seen.append(ctx)
+                return ctx.with_values({**ctx.values, "rows": 2})
+
+        monkeypatch.setitem(KIND_GENERATORS, "test-rows", Rows)
+        raw = {
+            "name": "X",
+            "meta_pins": ["A", "B", "C", "D"],
+            "package": {"ref": ["$test-rows", "$pin_header"]},
+        }
+        families: dict = {}
+
+        definition = _component_from_dict(raw, Path("refs.yaml"), families, families)
+
+        assert definition.default_footprint(families).pin_count() == 4
+        assert seen[0].component == raw
+        assert seen[0].option == {}
+        assert "ref" not in seen[0].values
+
+    def test_package_named_ref_accepts_geometry_overrides(self) -> None:
+        families: dict = {}
+        raw = {
+            "name": "X",
+            "meta_pins": ["A", "B"],
+            "package": {
+                "ref": "#prism_radial",
+                "dims": {"lx": 7.2, "ly": 2.5, "lz": 6.5},
+                "leads": {"body_offset": 5},
+            },
+        }
+
+        definition = _component_from_dict(raw, Path("refs.yaml"), families, families)
+
+        assert definition.default_footprint(families).pin_count() == 2
+
+    @pytest.mark.parametrize(
+        "declaration",
+        [
+            {"ref": "$sil", "kind": "sil"},
+            {"ref": "$sil", "extends": "prism"},
+            {"ref": "sil"},
+            {"ref": "$"},
+            {"ref": []},
+            {"ref": ["$sil", "#prism"]},
+            {"ref": "@dip-4/std"},
+        ],
+    )
+    def test_package_ref_rejects_invalid_or_ambiguous_declarations(
+        self, declaration: dict
+    ) -> None:
+        raw = {"name": "X", "meta_pins": ["A", "B"], "package": declaration}
+
+        with pytest.raises(SerializationError):
+            _component_from_dict(raw, Path("refs.yaml"), {}, {})
+
     @staticmethod
     def _raw(ref: str) -> dict[str, object]:
         return {

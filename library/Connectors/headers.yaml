@@ -1,6 +1,6 @@
 components:
   # -----------------------------------------------------------------------
-  # Parametric connectors — the entry declares only its package kind; the pin
+  # Parametric connectors — the entry references its package generator; the pin
   # count (and the header's row count) are chosen by the user at placement
   # time (variable pin count).  The chosen parameters synthesize a concrete
   # definition under the historical catalogue name (PinHeader_1x05,
@@ -11,17 +11,17 @@ components:
 
 - name: PinHeader
   component_class: connector
-  package: {kind: pin_header}
+  package: {ref: "$pin_header"}
   description: "Pin header 2.54mm — 1×N / 2×N, count chosen at placement"
 
 - name: JST_PH
   component_class: connector
-  package: {kind: jst}
+  package: {ref: "$jst"}
   description: "JST PH (2.0mm pitch, through-hole) — count chosen at placement"
 
 - name: JST_XH
   component_class: connector
-  package: {kind: jst}
+  package: {ref: "$jst"}
   description: "JST XH (2.5mm pitch, through-hole) — count chosen at placement"
 
   # -----------------------------------------------------------------------

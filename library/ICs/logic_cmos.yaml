@@ -10,7 +10,7 @@ components:
 
 - name: CD4001
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Quad 2-input NOR gate"
   meta_pins:
   - A1
@@ -58,7 +58,7 @@ components:
     - 14
 - name: CD4011
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Quad 2-input NAND gate"
   meta_pins:
   - A1
@@ -106,7 +106,7 @@ components:
     - 14
 - name: CD4069
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Hex inverter (NOT gate)"
   meta_pins:
   - A1
@@ -154,7 +154,7 @@ components:
     - 14
 - name: CD4081
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Quad 2-input AND gate"
   meta_pins:
   - A1
@@ -202,7 +202,7 @@ components:
     - 14
 - name: CD4071
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Quad 2-input OR gate"
   meta_pins:
   - A1
@@ -250,7 +250,7 @@ components:
     - 14
 - name: CD4013
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Dual D flip-flop"
   meta_pins:
   - Q1
@@ -298,7 +298,7 @@ components:
     - 14
 - name: CD4017
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Johnson decade counter / divider"
   meta_pins:
   - Q5
@@ -352,7 +352,7 @@ components:
     - 16
 - name: CD4040
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "12-bit binary ripple counter"
   meta_pins:
   - Q12
@@ -406,7 +406,7 @@ components:
     - 16
 - name: CD4016
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Quad bilateral switch"
   meta_pins:
   - IN_A
@@ -454,7 +454,7 @@ components:
     - 14
 - name: CD4051
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "Single 8-channel analog multiplexer"
   meta_pins:
   - Y

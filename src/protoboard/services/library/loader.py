@@ -92,6 +92,35 @@ def _register_component_package(
     return f"{family_id}/{_INLINE_VARIANT}"
 
 
+def _normalize_package_ref(raw: dict[str, Any], source: Path | str) -> dict[str, Any]:
+    """Translate authored package references to the internal build vocabulary."""
+    if "ref" not in raw:
+        return raw
+    if "kind" in raw or "extends" in raw:
+        raise SerializationError(
+            f"{source}: package 'ref' cannot be combined with 'kind' or 'extends'"
+        )
+    ref = raw["ref"]
+    values = {key: value for key, value in raw.items() if key != "ref"}
+    if isinstance(ref, list):
+        if not ref or not all(
+            isinstance(step, str) and step.startswith("$") and len(step) > 1
+            for step in ref
+        ):
+            raise SerializationError(
+                f"{source}: package ref chain must be a non-empty list of $ references"
+            )
+        return {**values, "kind": [step[1:] for step in ref]}
+    if not isinstance(ref, str) or len(ref) < 2 or ref[0] not in "@#$":
+        raise SerializationError(f"{source}: package ref {ref!r} must use @, #, or $")
+    if ref.startswith("@"):
+        raise SerializationError(
+            f"{source}: catalogue package references belong in package_options"
+        )
+    selector = "kind" if ref.startswith("$") else "extends"
+    return {**values, selector: ref[1:]}
+
+
 def _parse_package_options(
     data: dict[str, Any],
     pin_count: int | None,
@@ -164,23 +193,16 @@ def _parse_package_options(
         name_raw = entry.get("name", ref)
         name = str(name_raw) if name_raw is not None else ""
         if ref is not None:
-            prefix, target = ref[:1], ref[1:]
-            if prefix not in {"@", "#", "$"} or not target:
-                raise SerializationError(
-                    f"{source}: package option ref {ref!r} must use @, #, or $"
-                )
-            if prefix == "@":
-                ref = target
+            if ref.startswith("@") and len(ref) > 1:
+                ref = ref[1:]
                 if "name" not in entry:
                     name = ref
                 if resolve_variant(families, ref) is None:
                     raise SerializationError(
                         f"{source}: package option ref @{ref} did not resolve"
                     )
-            elif prefix == "#":
-                package_raw = {"extends": target}
             else:
-                package_raw = {"kind": target}
+                package_raw = _normalize_package_ref({"ref": ref}, source)
         package: Package | None = None
         if isinstance(package_raw, dict):
             built = _build_component_package(
@@ -379,7 +401,7 @@ def _build_component_package(
 ) -> Package | ResidualKind:
     """Build a Package from a component's inline ``package:`` block.
 
-    A ``kind:`` field (e.g. ``dip_ic``) names a parameterized package whose
+    An authored ``ref: $kind`` (or internal ``kind:``) names a package whose
     geometry is built from *pin_count* via the kind generator — the look is known
     but the size follows the part. A kind whose required parameters are only
     partially supplied returns a :class:`ResidualKind` (the package-picker
@@ -400,6 +422,7 @@ def _build_component_package(
     # declarative kind nodes (kinds.yaml), which the kind driver consults.
     registry = dict(load_builtin_package_defs() if generics is None else generics)
 
+    raw = _normalize_package_ref(raw, name)
     kind = raw.get("kind")
     # ``kind:`` may be a single name or a list — a left→right generator chain
     # (compute steps deriving values, the last step building the body).
@@ -766,6 +789,7 @@ def _component_from_dict(
     parametric_pins = False
     package_raw = data.get("package")
     if isinstance(package_raw, dict):
+        package_raw = _normalize_package_ref(package_raw, source)
         build_pin_count = comp_pin_count
         if comp_pin_count is None and package_raw.get("pins") is None:
             preview_count = _parametric_preview_count(package_raw)

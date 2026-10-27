@@ -427,7 +427,7 @@ class TestProviderKindParams:
             "  - name: HDR_ASK\n"
             "    component_class: connector\n"
             "    meta_pins: [P1, P2, P3, P4, P5, P6]\n"
-            "    package: {kind: pin_header, rows: null}\n"
+            "    package: {ref: '$pin_header', rows: null}\n"
         )
         lib = load_library([tmp_path])
         return lib.get("HDR_ASK"), lib.package_families
@@ -481,7 +481,7 @@ class TestRecentVariants:
             f"  - name: {name}\n"
             f"    component_class: connector\n"
             f"    meta_pins: [{', '.join(f'P{i}' for i in range(1, pins + 1))}]\n"
-            f"    package: {{kind: pin_header, rows: null}}\n"
+            f"    package: {{ref: '$pin_header', rows: null}}\n"
         )
         lib = load_library([tmp_path])
         return lib.get(name), lib.package_families

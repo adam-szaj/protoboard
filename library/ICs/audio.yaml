@@ -6,7 +6,7 @@ components:
     # Audio amp LM386
 - name: LM386
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   meta_pins:
   - GAIN_A
   - IN-
@@ -35,7 +35,7 @@ components:
     - 8
 - name: TDA2822
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   meta_pins:
   - OUT1
   - VCC

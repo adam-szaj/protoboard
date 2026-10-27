@@ -1,7 +1,7 @@
 components:
 - name: ATmega328P
   component_class: ic
-  package: {kind: wdip_ic}
+  package: {ref: "$wdip_ic"}
   description: "AVR 8-bit MCU, 32kB flash (Arduino Uno core)"
   meta_pins:
   - PC6
@@ -91,7 +91,7 @@ components:
     - 28
 - name: ATtiny85
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "AVR 8-bit MCU, 8kB flash (DIP-8)"
   meta_pins:
   - PB5
@@ -121,7 +121,7 @@ components:
     - 8
 - name: PIC16F628A
   component_class: ic
-  package: {kind: dip_ic}
+  package: {ref: "$dip_ic"}
   description: "PIC 8-bit MCU, 2kB flash"
   meta_pins:
   - RA2
@@ -182,7 +182,7 @@ components:
 - name: IC_SOT23_6
   description: "Generic 6-pin SOT-23 / TSOP-6 IC (SMD, treated as SIL)"
   component_class: ic
-  package: {kind: sil}
+  package: {ref: "$sil"}
   aliases:
   - TSOP_6_1_65x3_05mm
   - SOT_23_6
