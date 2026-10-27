@@ -159,10 +159,9 @@ Layers are addressed by `LayerId` strings: `"top"`, `"bottom"`, and (future)
 ## 4. Components and packages
 
 Full geometry — including rotation, flip and bbox — is documented in
-[geometry.md](geometry.md). The package model a definition *points at* (bodies,
-leads, `kind`, schema) is in
-[footprints/package-model.md](footprints/package-model.md); the YAML-authoring
-guide in [footprints/authoring.md](footprints/authoring.md).
+[geometry.md](geometry.md). The package model, YAML definitions and generator
+flow are documented in
+[Komponenty i pakiety](components-and-packages.md).
 
 ```python
 @dataclass(frozen=True, slots=True)

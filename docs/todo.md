@@ -57,12 +57,8 @@ should join `pin_header`/`jst` when added.
 
 ## Kind generators — declarative-node follow-ups (updated 2026-07-06)
 
-The pluggable generator registry is feature-complete (partial kinds in
-`footprints:` options, the multi-step chain driver, per-kind recent-variant
-history — all shipped 2026-07-04; see package-model.md §6). The remaining
-edge — **`auto` resolution** — shipped 2026-07-06 as the declarative kind
-nodes pilot (`assets/packages/kinds.yaml` + `kind_nodes.py` +
-`PackageGenerator.generate`; DIP kinds only). Follow-ups from that pilot:
+The current generator contract and declarative-node flow are described in
+[Komponenty i pakiety](components-and-packages.md). Remaining follow-ups:
 
 - **Migrate the remaining builtin kinds to nodes** — `sil`, `pin_header`
   (its `rows` schema moves to the node's own `schema:` block, becoming the
@@ -93,14 +89,8 @@ not as an auto-pick.
 
 ## Generic-package invariant — follow-ups (added 2026-06-25)
 
-The runtime invariant is a non-empty `ComponentDefinition.package_options`
-collection. Each option stores a catalogue reference and `pin_map`; geometry
-belongs to the resolved `Package`, which also implements `Footprint`. The
-loader rejects components without an explicit package declaration. The implicit
-generic fallback and its old exclusion/consolidation follow-up are retired.
-An explicit `package: {kind: generic}` remains valid, as do preview packages for
-partially applied or variable-count generators. The production picker offers
-only declared options and variants expanded from their referenced families.
+The current package-selection rules are described in
+[Komponenty i pakiety](components-and-packages.md).
 
 **Body-mask bent-span difference remains a review item for explicit generic
 bodies.** `PadIndex.add_component` uses the instance's selected package and
@@ -110,16 +100,6 @@ lead's span. Generic bodies do not normally block routing
 (`body_blocks_routing=False`), but a consumer counting `ComponentBody` items
 under bent leads may observe the difference. Revisit if a consumer needs the
 bent-span body mask.
-
-## Footprint→body cleanup — remaining parity (added 2026-06-25)
-
-~~Generated DIP family body is a uniform-margin bbox, not JEDEC-sized.~~
-RESTORED 2026-07-06: `dip_body_dims_mm` (generators/dip.py) applies the
-measured fit `width = 2.54·R − 1.35` mm / `length = pin span + 2×1.27` mm in
-both DIP build paths (`DipGenerator` and the generated `dip-N`/`wdip-N`
-families); the two xfails in test_generated_families.py are live asserts
-again. Follow-up still open: per-component width override (e.g. ATmega328
-at 7.20 mm).
 
 ## Pin-name labels never rotate (surveyed 2026-07-03) — user-deferred
 
@@ -136,11 +116,8 @@ new geometry.
 
 ## Package parameter schema — deferred edges (2026-06-27)
 
-Phase 1 (declarations under `schema:` + loose validation) and a limited
-Phase 2 (`build_kind_package(kind, ctx, schema) -> GeneratorContext`) shipped.
-`auto` resolution *through* generators shipped 2026-07-06 (declarative kind
-nodes — package-model.md §5.4 and §6; an unresolved `auto` is now a loud
-`PackageDefError` naming the dotted paths). Still deferred:
+The implemented schema and `auto` contract is described in
+[Komponenty i pakiety](components-and-packages.md). Still deferred:
 
 - **Strict schema mode** — an unknown field (no schema leaf) is currently *not*
   an error (loose). A strict mode (unknown ⇒ `PackageDefError`) would need every
@@ -149,14 +126,11 @@ nodes — package-model.md §5.4 and §6; an unresolved `auto` is now a loud
   (`properties_panel.py`, one row per `schema` leaf via `fields_view`;
   generator-derived fields read-only). The remaining piece is the place-tool
   package picker sharing the same field-list widget (editing a *pending* package
-  spec, not a committed instance). See `docs/footprints/package-model.md` §5.6.
+  spec, not a committed instance). See
+  [Komponenty i pakiety](components-and-packages.md).
 
-## Multi-pin default body + SMD mount labels (added 2026-06-20)
+## SMD mount labels (added 2026-06-20)
 
-- Library YAML could set a multi-pin part's first `footprints` reference (e.g.
-  an ATmega328P defaulting to `wdip-28`) so the picker's "Default" entry resolves
-  to a specific width; today an unset default falls through to the synthesized
-  narrow body.
 - Friendlier SMD mount-combo labels (compass arrows) — kept `(dx, dy)` because
   an arrow needs pin-1 context the widget lacks; sub-hole "floating" positions.
 

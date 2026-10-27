@@ -8,8 +8,8 @@ shape is chosen. The single source of truth in code is `gui/layer_state.py`
 (`gui/board_view.py`, the orchestrator). This document mirrors them.
 
 Related: [gui.md](gui.md) (window layout, tools, shortcuts), [geometry.md](geometry.md)
-§11 (coordinate pipeline into rendering), [footprints/package-model.md](footprints/package-model.md)
-§6-7 (the `kind` / silhouette geometry the renderer draws).
+§11 (coordinate pipeline into rendering), [Komponenty i pakiety](components-and-packages.md)
+(the package geometry and generators the renderer consumes).
 
 ---
 
@@ -190,7 +190,7 @@ the source-of-truth rule.
 > **Note:** `TO92Body` / `TO220Body` still exist as classes but are **not** in
 > this dispatch — they are exercised only by unit tests. In production, TO-92 and
 > TO-220 render through the package renderers (a flat-sided cylinder and a prism
-> respectively). See [footprints/package-model.md](footprints/package-model.md).
+> respectively). See [Komponenty i pakiety](components-and-packages.md).
 
 ### 4.1 Renderer hierarchy — lineage dispatch (`gui/renderers/packages/`)
 

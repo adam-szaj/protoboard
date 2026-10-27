@@ -17,8 +17,8 @@ x/y-extent in `Rect` but across-rows/z-elevation in package dims); a vector
 magnitude is `norm()`. Screen vocabulary `[x, y, w, h]` exists only at the Qt
 boundary, `gui/qt_geometry.py`. Package bodies carry a `Size3D` in a fixed
 **package-local frame** (local +x along the lead axis, +y across it, +z
-off-board — see `docs/footprints/package-model.md`) and project into the
-world through `Package.body_frame()` (a `Transform2D`) — the along/across
+off-board — see [Komponenty i pakiety](components-and-packages.md)) and project
+into the world through `Package.body_frame()` (a `Transform2D`) — the along/across
 orientation of a body falls out of the rotation matrix, never a conditional
 swap.
 
@@ -265,7 +265,7 @@ Pin 5 lands at world position (6.5, 1.5), which is the centre of the hole at col
 `services/rendering/body_shapes.py` resolves the instance's `package_variant`
 or the definition's first declared `PackageOption` through the
 `package_families` catalogue (see
-[footprints/package-model.md](footprints/package-model.md)). Authored inline
+[Komponenty i pakiety](components-and-packages.md)). Authored inline
 `package:` blocks are registered in that catalogue at load time; runtime
 definitions do not store package geometry. The resolved `Package` directly
 implements `Footprint` and renders through `PackageBody` (`PackageRenderer`).

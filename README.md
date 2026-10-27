@@ -111,7 +111,9 @@ Services (DRC, Router, KiCAD I/O, Persistence)
 
 See [`CLAUDE.md`](CLAUDE.md) and the [`docs/`](docs/) directory for detailed
 documentation of the data model, geometry, routing, commands, persistence,
-DRC, GUI, and connectivity subsystems.
+DRC, GUI, and connectivity subsystems. Component and package definitions,
+generators, examples and code-flow diagrams are collected in
+[the component and package guide](docs/components-and-packages.md).
 
 | Layer | Technology |
 |---|---|

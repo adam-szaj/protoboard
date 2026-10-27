@@ -1,10 +1,8 @@
 # Footprint gallery
 
-> To **author** components and packages (library YAML — fields, generics, colour
-> customisation, dev-board modules) see [authoring.md](authoring.md); for the
-> design rationale (lead/offset model) see [package-model.md](package-model.md). This file is the
-> rendered gallery. For the full render chain (draw order, Z-stack, body
-> dispatch) see [../rendering.md](../rendering.md).
+> Definiowanie komponentów, pakietów i generatorów opisuje przewodnik
+> [Komponenty i pakiety](../components-and-packages.md). Ten dokument jest galerią.
+> Pełny przebieg renderowania opisano w [rendering.md](../rendering.md).
 
 Every entry below is rendered headless via `tools/render_footprints.py`. Re-generate with:
 
@@ -27,13 +25,6 @@ rather than inline geometry. The `Package` itself implements `Footprint`.
 then the package lineage is searched from the most specific node towards its
 base shape. TO-92 uses the cylinder renderer and TO-220 uses its renderer
 plugin; there are no dedicated `TO92Body` / `TO220Body` dispatch targets.
-
-Components must declare a package choice. An explicit
-`package: {kind: generic}` provides a generic bbox body; partially applied and
-variable-count generators may use preview packages until their parameters are
-filled. Missing package declarations or unresolved references do not silently
-produce a generic body. The production picker offers only declared package
-options and their family variants.
 
 Within the selected renderer, the package's `arrangement` and shape determine
 the body view:
