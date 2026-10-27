@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Declarative kind nodes: registration, binding, and the resolve_auto flow."""
+"""Declarative kind nodes: registration, binding, and the generate flow."""
 
 from __future__ import annotations
 
@@ -72,9 +72,9 @@ def _base_registry() -> dict[str, dict]:
 
 
 class _NodeGen(PackageGenerator):
-    """Scratch generator whose resolve_auto fills the node's auto slots."""
+    """Scratch generator whose generate fills the node's auto slots."""
 
-    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
+    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         values = dict(ctx.values)
         dims = dict(values.get("dims") or {})
         leads = dict(values.get("leads") or {})
@@ -87,9 +87,6 @@ class _NodeGen(PackageGenerator):
         values["dims"] = dims
         values["leads"] = leads
         return ctx.with_values(values)
-
-    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
-        raise AssertionError("node-bound build must not call generate()")
 
 
 class TestRegistration:
@@ -159,7 +156,7 @@ class TestLoadPackagesSkip:
 
 class TestNodeBuild:
 
-    def test_resolve_auto_fills_and_build_package_validates(
+    def test_generate_fills_and_build_package_validates(
         self, scratch_registries
     ) -> None:
         @register_generator(kind="_t_nodekind")
@@ -181,6 +178,82 @@ class TestNodeBuild:
         assert pkg.raw_values is not None
         assert pkg.raw_values["dims"]["ly"] == "auto"
 
+    def test_generate_receives_defaults_schema_and_source_context(
+        self, scratch_registries
+    ) -> None:
+        calls = []
+
+        @register_generator(kind="_t_nodekind")
+        class Gen(_NodeGen):
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                calls.append(ctx)
+                return super().generate(ctx)
+
+        registry = _base_registry()
+        registry["_t_nodekind"]["schema"] = {
+            "rows": {"type": "int", "default": 2},
+        }
+        register_kind_node("_t_nodekind", registry)
+        component = {"name": "Source", "meta_pins": ["A", "B"]}
+        option = {"name": "Size", "ref": "$_t_nodekind"}
+        out = build_kind_package(
+            "_t_nodekind",
+            GeneratorContext(pin_count=2, component=component, option=option),
+        )
+        assert len(calls) == 1
+        assert calls[0].values["rows"] == 2
+        assert calls[0].values["dims"]["lx"] == AUTO
+        assert calls[0].schema is not None
+        assert "dims.lx" in calls[0].schema.fields
+        assert out.component == component
+        assert out.option == option
+
+    def test_generate_can_return_a_package_with_a_template(
+        self, scratch_registries
+    ) -> None:
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.package.generators import prism_from_footprint
+
+        @register_generator(kind="_t_nodekind")
+        class Gen(PackageGenerator):
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                package = prism_from_footprint(SIL(n=ctx.pin_count))
+                assert package is not None
+                return ctx.with_package(package)
+
+        register_kind_node("_t_nodekind", _base_registry())
+        pkg = build_kind_package("_t_nodekind", GeneratorContext(pin_count=2)).package
+        assert isinstance(pkg, Prism)
+        assert pkg.kind == "_t_nodekind"
+        assert pkg.color == "#123456"
+        assert pkg.lineage == ("prism", "prismish", "_t_nodekind")
+
+    def test_generate_can_redirect_from_a_template(self, scratch_registries) -> None:
+        from protoboard.domain.components.package.generators import ResidualKind
+
+        @register_generator(kind="_t_nodekind")
+        class Gen(PackageGenerator):
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                return ctx.with_residual(ResidualKind(kind="sil"))
+
+        register_kind_node("_t_nodekind", _base_registry())
+        out = build_kind_package("_t_nodekind", GeneratorContext(pin_count=2))
+        assert isinstance(out.package, Prism)
+        assert out.package.kind == "sil"
+
+    def test_explicit_color_beats_template_color(self, scratch_registries) -> None:
+        @register_generator(kind="_t_nodekind")
+        class Gen(_NodeGen):
+            pass
+
+        register_kind_node("_t_nodekind", _base_registry())
+        pkg = build_kind_package(
+            "_t_nodekind",
+            GeneratorContext(pin_count=2, values={"color": "#abcdef"}),
+        ).package
+        assert isinstance(pkg, Prism)
+        assert pkg.color == "#abcdef"
+
     def test_generator_color_is_only_a_fallback(self, scratch_registries) -> None:
         @register_generator(kind="_t_nodekind")
         class Gen(_NodeGen):
@@ -197,7 +270,7 @@ class TestNodeBuild:
         class Identity(PackageGenerator):
 
             def generate(self, ctx: GeneratorContext) -> GeneratorContext:
-                raise AssertionError("must not fall back to generate()")
+                return ctx
 
         register_kind_node("_t_nodekind", _base_registry())
         with pytest.raises(PackageDefError, match="auto.*dims.(ly|lx)"):

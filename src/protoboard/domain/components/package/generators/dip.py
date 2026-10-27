@@ -81,8 +81,18 @@ class DipGenerator(PackageGenerator):
 
     rows_spacing: ClassVar[float] = DIP_NARROW_ROWS
 
-    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
-        """Fill the DIP node's ``auto`` slots: body dims + lead steps."""
+    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+        """Fill template values, or build directly when no template is bound."""
+        if "shape" not in ctx.values:
+            n = ctx.pin_count
+            _check_dip_pin_count(n)
+            pkg = prism_from_footprint(
+                DIL(n=n, rows_spacing=self.rows_spacing),
+                dims_mm=dip_body_dims_mm(n, self.rows_spacing),
+            )
+            if pkg is None:
+                raise PackageDefError(f"a DIP kind cannot build a body for {n} pins")
+            return ctx.with_package(pkg)
         values = dict(ctx.values)
         dims = dict(values.get("dims") or {})
         leads = dict(values.get("leads") or {})
@@ -101,19 +111,6 @@ class DipGenerator(PackageGenerator):
         values["dims"] = dims
         values["leads"] = leads
         return ctx.with_values(values)
-
-    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
-        # Node-less fallback (a registry without the kinds.yaml node bound);
-        # geometry-identical to the declarative path via the shared helpers.
-        n = ctx.pin_count
-        _check_dip_pin_count(n)
-        pkg = prism_from_footprint(
-            DIL(n=n, rows_spacing=self.rows_spacing),
-            dims_mm=dip_body_dims_mm(n, self.rows_spacing),
-        )
-        if pkg is None:
-            raise PackageDefError(f"a DIP kind cannot build a body for {n} pins")
-        return ctx.with_package(pkg)
 
 
 @register_generator(kind="wdip_ic")

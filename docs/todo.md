@@ -62,7 +62,7 @@ The pluggable generator registry is feature-complete (partial kinds in
 history — all shipped 2026-07-04; see package-model.md §6). The remaining
 edge — **`auto` resolution** — shipped 2026-07-06 as the declarative kind
 nodes pilot (`assets/packages/kinds.yaml` + `kind_nodes.py` +
-`PackageGenerator.resolve_auto`; DIP kinds only). Follow-ups from that pilot:
+`PackageGenerator.generate`; DIP kinds only). Follow-ups from that pilot:
 
 - **Migrate the remaining builtin kinds to nodes** — `sil`, `pin_header`
   (its `rows` schema moves to the node's own `schema:` block, becoming the

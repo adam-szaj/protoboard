@@ -26,7 +26,7 @@ _NAME = re.compile(
 class GenericPrismGenerator(PackageGenerator):
     """Build a rigid radial prism from ``pitch_mm@lx x ly x lz``."""
 
-    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
+    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         if ctx.pin_count != 2:
             raise PackageDefError("generic-prism needs exactly two pins")
         name = str(ctx.option.get("name", ""))
@@ -56,6 +56,3 @@ class GenericPrismGenerator(PackageGenerator):
         values["dims"] = dims
         values["leads"] = leads
         return ctx.with_values(values)
-
-    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
-        raise PackageDefError("generic-prism requires its package template")

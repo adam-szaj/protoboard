@@ -23,7 +23,8 @@ Contract for :meth:`PackageGenerator.generate`:
 
 * input: a :class:`GeneratorContext` whose ``values`` have been default-filled
   and validated against :attr:`PackageGenerator.params` by the driver;
-* output: a context with **either** ``package`` set and fully concrete (no
+* output: updated ``values`` for a declarative template, or a context with
+  **either** ``package`` set and fully concrete (no
   holes, no ``auto`` left — the driver guards totality) **or** ``residual``
   set: a :class:`ResidualKind` naming the kind whose remaining parameters the
   package-picker must collect. The residual may name a *different* kind (a
@@ -108,7 +109,8 @@ class GeneratorContext:
     - ``residual``: set instead of ``package`` when parameters are still
       missing (or the generator redirects to another kind) — see
       :class:`ResidualKind`.  An intermediate chain step may leave *both*
-      unset — a pure value transform whose output ``values`` feed the next step.
+      unset — a value transform whose output feeds the next step or builds the
+      final declarative template.
     """
 
     pin_count: int
@@ -131,7 +133,7 @@ class GeneratorContext:
 
     def with_values(self, values: Mapping[str, Any]) -> GeneratorContext:
         """Return a copy carrying *values* — a compute step's augmented tree
-        (no package, no residual: the chain driver feeds it to the next step).
+        (no package or residual: the driver continues or builds the template).
         """
         return dataclasses.replace(
             self,
@@ -249,24 +251,12 @@ class PackageGenerator(ABC):
 
     @abstractmethod
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
-        """Build the concrete body for *ctx* (see the module-level contract)."""
+        """Transform values, build a body, or return a residual.
 
-    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
-        """Fill the ``auto`` slots of a declarative kind node's value tree.
-
-        The **declarative** half of the kind contract (package-model.md §5.4):
-        when a kind is bound to a YAML node, the body is built by the ordinary
-        ``build_package`` and the generator's job shrinks to this pure value
-        transform — ``ctx.values`` is the node's defaults-filled value tree
-        (``dims`` / ``leads`` / …); the override replaces every slot that
-        still reads ``auto`` with the parameter-derived value (pin count,
-        declared parameters) and returns ``ctx.with_values(...)``. It must
-        touch ONLY ``auto`` slots (an explicit value always wins) and raise
-        :class:`PackageDefError` for parameters the kind cannot realise.
-        Default: identity — a node with ``auto`` slots but no override fails
-        loudly in the loader's no-auto-left check.
+        For a declarative kind, values include its defaults-filled template.
+        Returning values alone lets the driver build that template. Explicit
+        values take precedence over ``auto`` slots filled by the generator.
         """
-        return ctx
 
     def variant_label(self, kind: str, ctx: GeneratorContext) -> str:
         """Human label for a variant built from *ctx* (picker / catalogue).

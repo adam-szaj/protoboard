@@ -5,7 +5,7 @@
 # A node's `kind:` field links it to the registered generator; `extends:` pulls
 # in the abstract base's leads geometry and schema (so the ordinary
 # build_package validation applies); `auto` marks every parameter-dependent
-# slot the generator's resolve_auto fills (for a DIP: the body dims follow the
+# slot the generator's generate fills (for a DIP: the body dims follow the
 # pin count AND the row spacing, and the lead steps follow the pin count).
 # `null` would mean "required, user-editable" — a picker hole, not used here.
 #

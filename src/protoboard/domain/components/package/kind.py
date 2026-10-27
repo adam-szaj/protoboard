@@ -50,11 +50,14 @@ from protoboard.domain.components.package.kind_nodes import (
 )
 from protoboard.domain.components.package.loader import (
     PackageDefError,
-    PackageDict,
     build_package,
     deep_merge,
 )
-from protoboard.domain.components.package.schema import ParamSchema, SchemaError
+from protoboard.domain.components.package.schema import (
+    ParamSchema,
+    SchemaError,
+    parse_schema,
+)
 from protoboard.domain.components.package.shapes import (
     Cylinder,
     Disc,
@@ -159,45 +162,33 @@ def _strip_none(tree: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _build_node_package(
+def _generate_with_template(
     node: KindNode,
     gen: PackageGenerator,
     ctx: GeneratorContext,
-    values: Mapping[str, Any],
-    declared: Mapping[str, Any],
 ) -> GeneratorContext:
-    """Build a node-bound kind through the ordinary ``build_package`` flow.
+    """Run the shared generator with a template, then build returned values.
 
-    The caller's *values* (component overrides, defaults-filled kind
-    parameters) are deep-merged onto the node's extends-resolved tree — an
-    explicit value beats the node's ``auto``. The generator participates only
-    as the ``resolve_auto`` value transform (run inside ``_apply_schema``,
-    after the required check and before validation, so ``raw_values`` keep
-    ``auto`` for the UI). The built body then carries the node's full lineage
-    (kind as the leaf), the merged schema and the node's declared ``color``;
-    the generator's convenience colour is only a fallback. Declared generator
-    parameters also stay in ``raw_values`` so the picker sees supplied values.
+    The loader callback preserves authored ``auto`` values for the UI while
+    validating the generator's concrete values through ordinary build_package.
     """
-    tree = deep_merge(node.merged, _strip_none(values))
-
-    def _fill(filled: PackageDict) -> PackageDict:
-        out = gen.resolve_auto(dataclasses.replace(ctx, values=filled))
-        return dict(out.values)
-
-    pkg: Package = build_package(
-        tree, node.kind, lineage=node.lineage, resolve_auto=_fill
+    tree = deep_merge(node.merged, _strip_none(ctx.values))
+    try:
+        schema = parse_schema(tree.get("schema") or {})
+        filled = schema.apply_to(tree)
+        schema.check_required(filled)
+    except SchemaError as exc:
+        raise PackageDefError(f"{node.kind}: {exc}") from exc
+    out = gen.generate(dataclasses.replace(ctx, values=filled, schema=schema))
+    if out.package is not None or out.residual is not None:
+        return out
+    pkg = build_package(
+        tree,
+        node.kind,
+        lineage=node.lineage,
+        resolve_auto=lambda _: dict(out.values),
     )
-    if isinstance(pkg, (Prism, Cylinder, Disc)):
-        changes: dict[str, Any] = {
-            "raw_values": deep_merge(dict(pkg.raw_values or {}), dict(declared))
-        }
-        if "kind" in {f.name for f in dataclasses.fields(pkg)}:
-            changes["kind"] = node.kind
-        if gen.color is not None and pkg.color is None:
-            changes["color"] = gen.color
-        if changes:
-            pkg = dataclasses.replace(pkg, **changes)
-    return dataclasses.replace(ctx, values=dict(values), package=pkg, residual=None)
+    return out.with_package(pkg)
 
 
 def build_kind_package(
@@ -217,7 +208,8 @@ def build_kind_package(
        the place-tool picker can offer it for input.
     2. **Generate.** ``generate(ctx)`` runs with *schema* (the owning package's
        declared value-tree schema, when the caller has one) riding on the
-       context — a compute step consults it to resolve ``auto`` holes.
+       context. A final declarative kind receives its defaults-filled template;
+       if the generator returns values alone, the driver builds that template.
     3. **Stamp (final step only).** The declared *kind*, a ``lineage`` of
        ``(shape_root, kind)`` (so a renderer registered for the kind wins
        dispatch), the generator's convenience ``color``, and — when the
@@ -289,17 +281,14 @@ def build_kind_package(
                     residual=ResidualKind(kind=current, values=declared),
                 )
             gen.params.validate(values)
-            if final:
-                # A kind bound to a declarative YAML node builds through the
-                # ordinary build_package flow (validation, schema, raw_values,
-                # full lineage) — the generator only fills the ``auto`` slots.
-                # Node-bound kinds don't redirect; node-less kinds keep the
-                # legacy pure-code path below (plugins keep working).
-                node = KIND_NODES.get(current)
-                if node is not None:
-                    return _build_node_package(node, gen, ctx, values, declared)
-            out = gen.generate(
-                dataclasses.replace(ctx, values=values, package=None, residual=None)
+            step_ctx = dataclasses.replace(
+                ctx, values=values, package=None, residual=None
+            )
+            node = KIND_NODES.get(current) if final else None
+            out = (
+                _generate_with_template(node, gen, step_ctx)
+                if node is not None
+                else gen.generate(step_ctx)
             )
             if out.residual is not None:
                 # Redirect to another kind — loop; the completeness check at
@@ -324,16 +313,22 @@ def build_kind_package(
             if not isinstance(pkg, (Prism, Cylinder, Disc)):
                 return out.with_package(pkg)  # unknown shape — nothing to stamp
             field_names = {f.name for f in dataclasses.fields(pkg)}
-            changes: dict[str, Any] = {
-                # A kind-generated body descends from its shape root; the kind
-                # name is the leaf, so a renderer registered for it wins the
-                # dispatch.
-                "lineage": (_shape_root(pkg), current),
-            }
+            lineage = node.lineage if node is not None else (current,)
+            root = _shape_root(pkg)
+            if root not in lineage:
+                lineage = (root, *lineage)
+            changes: dict[str, Any] = {"lineage": lineage}
             if "kind" in field_names:
                 changes["kind"] = current
-            if gen.color is not None and getattr(pkg, "color", None) is None:
-                changes["color"] = gen.color
+            color = (
+                node.merged.get("color", gen.color) if node is not None else gen.color
+            )
+            if color is not None and pkg.color is None:
+                changes["color"] = color
+            if node is not None:
+                changes["raw_values"] = deep_merge(
+                    dict(pkg.raw_values or {}), dict(declared)
+                )
             if not gen.params.is_empty() and pkg.schema is None:
                 changes["schema"] = gen.params
                 changes["raw_values"] = declared

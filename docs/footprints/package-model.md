@@ -775,7 +775,7 @@ Library generation supplies the complete source component and option mappings
 as read-only inputs, separately from computed `values`. Inline component
 packages have an empty `option`; calls outside library loading may omit both
 mappings. Context transformations preserve them. `generic-prism` reads the
-size string directly from `ctx.option["name"]` in `resolve_auto`; it does not
+size string directly from `ctx.option["name"]` in `generate`; it does not
 need a separate option-parsing interface. Default 1:1 MetaPin mapping belongs
 to the component loader, not the geometry generator.
 
@@ -814,7 +814,7 @@ per-option pending-kind placeholder, exactly like the component-level
 
 > **Implemented** (2026-07-06, DIP pilot: `dip_ic` / `wdip_ic` / `dip_switch`;
 > `assets/packages/kinds.yaml`, `package/kind_nodes.py`,
-> `PackageGenerator.resolve_auto`).
+> `PackageGenerator.generate`).
 
 A kind is **hybrid**: the parameter-INdependent part is declared in YAML, the
 generator only fills the parameter-dependent values. A *kind node* is a
@@ -837,10 +837,13 @@ section entries). When `build_kind_package` dispatches a **final-step** kind
 with a bound node, it builds through the **ordinary `build_package`** flow:
 the caller's values (component overrides, defaults-filled kind parameters,
 `None` holes stripped) deep-merge onto the node's extends-resolved tree, and
-the generator participates only as `resolve_auto(ctx) -> ctx` — a pure value
-transform run inside `_apply_schema` (§5.4 step 4) that replaces every `auto`
-slot with the parameter-derived value (and raises `PackageDefError` for
-counts the kind cannot realise). The built body therefore carries what the
+the driver fills the template defaults and invokes `generate(ctx)` once.
+The generator replaces `auto` slots with parameter-derived values and returns
+the updated context (or raises `PackageDefError` for unsupported counts).
+When it returns values alone, the driver builds the template; a loader callback
+supplies the computed values while preserving the authored `auto` metadata.
+A generator may also return a concrete package or a residual, using the same
+contract as a generator without a template. The built body therefore carries what the
 legacy pure-code path never had: the full extends lineage (kind as the leaf,
 e.g. `(package, prism, prism_dil, dip_ic)`), the merged value-tree schema,
 `raw_values` with the authored `auto` (read-only in the Properties panel),
