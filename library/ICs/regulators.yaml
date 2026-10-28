@@ -6,14 +6,16 @@ components:
 - name: _TO92_3
   component_class: ic
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins: [P1, P2, P3]
+  - {name: TO92, ref: "@q-tht/TO-92", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta: [P1, P2, P3]
 
 - name: _TO220_3
   component_class: ic
   package_options:
-  - {name: TO220, ref: "@q-tht/TO-220", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins: [P1, P2, P3]
+  - {name: TO220, ref: "@q-tht/TO-220", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta: [P1, P2, P3]
 
   # -----------------------------------------------------------------------
   # Linear regulators — 78xx / 79xx (TO-220, pinout: 1=IN, 2=GND, 3=OUT)
@@ -21,17 +23,19 @@ components:
 
 - name: _78xx
   extends: _TO220_3
-  meta_pins:
-  - IN
-  - GND
-  - OUT
+  pins:
+    meta:
+    - IN
+    - GND
+    - OUT
 
 - name: _79xx
   extends: _TO220_3
-  meta_pins:
-  - IN
-  - GND
-  - OUT
+  pins:
+    meta:
+    - IN
+    - GND
+    - OUT
 
 - name: '7805'
   extends: _78xx
@@ -65,10 +69,11 @@ components:
   extends: _TO220_3
   description: "Adjustable +1.25..37V 1.5A linear regulator"
 
-  meta_pins:
-  - ADJ
-  - OUT
-  - IN
+  pins:
+    meta:
+    - ADJ
+    - OUT
+    - IN
 - name: LM337
   extends: _TO220_3
   description: "Adjustable -1.25..-37V 1.5A linear regulator"
@@ -77,32 +82,36 @@ components:
   # Low-dropout (SOT-89 / TO-92 compatible)
   # -----------------------------------------------------------------------
 
-  meta_pins:
-  - ADJ
-  - OUT
-  - IN
+  pins:
+    meta:
+    - ADJ
+    - OUT
+    - IN
 - name: LM78L05
   extends: _TO92_3
   description: "+5V 100mA LDO (TO-92)"
 
-  meta_pins:
-  - OUT
-  - GND
-  - IN
+  pins:
+    meta:
+    - OUT
+    - GND
+    - IN
 - name: LM78L33
   extends: _TO92_3
   description: "+3.3V 100mA LDO (TO-92)"
 
-  meta_pins:
-  - OUT
-  - GND
-  - IN
+  pins:
+    meta:
+    - OUT
+    - GND
+    - IN
 - name: TL431
   description: "Programable Zener Diode IC"
   component_class: ic
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92/std", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins:
-  - Ref
-  - A
-  - K
+  - {name: TO92, ref: "@q-tht/TO-92/std", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta:
+    - Ref
+    - A
+    - K

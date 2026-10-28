@@ -5,19 +5,21 @@ components:
 
 - name: _D
   component_class: diode
-  meta_pins:
-  - A
-  - K
+  pins:
+    meta:
+    - A
+    - K
 
 - name: _D_DO35
   extends: _D
   package_options:
   - ref: "@d-tht/DO/35"
-    pin_map:
-      1:
-      - 1
-      2:
-      - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
   bendable_pins:
     2:
       min_reach: 1
@@ -28,11 +30,12 @@ components:
   extends: _D
   package_options:
   - ref: "@d-tht/DO/41"
-    pin_map:
-      1:
-      - 1
-      2:
-      - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
   bendable_pins:
     2:
       min_reach: 1
@@ -43,11 +46,12 @@ components:
   extends: _D
   package_options:
   - ref: "@d-tht/DO/201"
-    pin_map:
-      1:
-      - 1
-      2:
-      - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
   bendable_pins:
     2:
       min_reach: 2

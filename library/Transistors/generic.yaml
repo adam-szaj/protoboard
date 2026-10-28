@@ -5,50 +5,57 @@ components:
 - name: Q_SOT23
   description: "Generic SOT-23 transistor (3-pin SMD, treated as SIL)"
   component_class: transistor_npn
-  package: {ref: "$sil"}
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
   aliases:
   - SOT_23
   - SOT-23
 
-  meta_pins:
-  - '1'
-  - '2'
-  - '3'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
+  pins:
+    meta:
+    - '1'
+    - '2'
+    - '3'
 - name: Q_TO126
   description: "Generic TO-126 transistor (3-pin THT)"
   component_class: transistor_npn
-  package: {ref: "$sil"}
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
   aliases:
   - TO_126_3_Vertical
   - TO-126-3
 
-  meta_pins:
-  - '1'
-  - '2'
-  - '3'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
+  pins:
+    meta:
+    - '1'
+    - '2'
+    - '3'
 - name: Q_TO92
   description: "Generic TO-92 transistor (pin order unknown)"
   component_class: transistor_npn
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
+  - {name: TO92, ref: "@q-tht/TO-92", pins: {map: {1: [1], 2: [2], 3: [3]}}}
   aliases:
   - TO_92_Inline
   - TO-92_Inline
-  meta_pins:
-  - '1'
-  - '2'
-  - '3'
+  pins:
+    meta:
+    - '1'
+    - '2'
+    - '3'

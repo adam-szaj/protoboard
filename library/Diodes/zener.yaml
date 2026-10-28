@@ -6,32 +6,34 @@ components:
 - name: _D_DO35_Z
   component_class: diode_zener
   package_options:
-  - {name: DO-35, ref: "@d-tht/DO/35", pin_map: {1: [1], 2: [2]}}
+  - {name: DO-35, ref: "@d-tht/DO/35", pins: {map: {1: [1], 2: [2]}}}
   bendable_pins:
     2:
       min_reach: 1
       max_reach: 11
       default: {x: 0, y: 2}
-  meta_pins:
-  - A
-  - K
+  pins:
+    meta:
+    - A
+    - K
 
 - name: _D_DO41_Z
   component_class: diode_zener
   package_options:
-  - {name: DO-41, ref: "@d-tht/DO/41", pin_map: {1: [1], 2: [2]}}
+  - {name: DO-41, ref: "@d-tht/DO/41", pins: {map: {1: [1], 2: [2]}}}
   bendable_pins:
     2:
       min_reach: 1
       max_reach: 17
       default: {x: 0, y: 3}
-  meta_pins:
-  - A
-  - K
+  pins:
+    meta:
+    - A
+    - K
 
-  # -----------------------------------------------------------------------
-  # 500 mW Zener diodes (DO-35 / BZX55C family)
-  # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # 500 mW Zener diodes (DO-35 / BZX55C family)
+    # -----------------------------------------------------------------------
 
 - name: BZX55C3V3
   extends: _D_DO35_Z

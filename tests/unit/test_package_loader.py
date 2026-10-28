@@ -830,3 +830,62 @@ class TestDimsValidation:
         pkgs = load_packages(self._prism({}))
         p1 = pkgs["P1"]
         assert isinstance(p1, Prism) and p1.size_mm is None
+
+
+class TestPackagePins:
+    @staticmethod
+    def definition() -> dict:
+        return {
+            "shape": "prism",
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": [[2.5, 0]],
+                "board_offset": "default",
+            },
+        }
+
+    def test_defaults_without_extends_are_resolved_from_geometry(self) -> None:
+        from protoboard.domain.components.package.loader import build_package
+
+        package = build_package(self.definition(), "plain")
+        assert package.raw_values is not None
+        assert package.raw_values["pins"] == {"count": 2, "map": "auto"}
+        assert package.schema is not None
+        assert not next(
+            v
+            for v in package.schema.fields_view(package.raw_values)
+            if v.path == "pins.count"
+        ).editable
+
+    def test_explicit_mapping_survives_geometry_build(self) -> None:
+        from protoboard.domain.components.package.loader import build_package
+
+        raw = {**self.definition(), "pins": {"count": 2, "map": {1: 2, 2: 1}}}
+        package = build_package(raw, "mapped")
+        assert package.raw_values is not None
+        assert package.raw_values["pins"]["map"] == {1: 2, 2: 1}
+        assert raw["pins"] == {"count": 2, "map": {1: 2, 2: 1}}
+
+    @pytest.mark.parametrize(
+        "pins", [{"count": 3}, {"count": 0}, {"map": {1: [False]}}]
+    )
+    def test_invalid_count_or_mapping_is_rejected(self, pins: dict) -> None:
+        from protoboard.domain.components.package.loader import build_package
+
+        with pytest.raises(PackageDefError):
+            build_package({**self.definition(), "pins": pins}, "bad")
+
+    def test_other_auto_values_still_rejected(self) -> None:
+        from protoboard.domain.components.package.loader import build_package
+
+        with pytest.raises(PackageDefError, match="unresolved"):
+            build_package({**self.definition(), "dims": {"lx": "auto"}}, "bad")
+
+
+def test_inherited_pin_map_is_replaced_whole() -> None:
+    registry = {
+        "base": {"name": "base", "pins": {"count": 2, "map": {1: 1, 2: 2}}},
+        "child": {"name": "child", "extends": "base", "pins": {"map": {1: 2}}},
+    }
+    assert resolve_extends("child", registry)["pins"] == {"count": 2, "map": {1: 2}}
+    assert registry["base"]["pins"]["map"] == {1: 1, 2: 2}

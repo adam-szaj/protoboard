@@ -6,9 +6,10 @@ components:
 - name: L
   description: "Inductor (axial, generic)"
   component_class: inductor
-  meta_pins: [P1, P2]
+  pins:
+    meta: [P1, P2]
   package_options:
-  - {name: DIN-0207, ref: "@r-tht/DIN/0207", pin_map: {1: [1], 2: [2]}}
+  - {name: DIN-0207, ref: "@r-tht/DIN/0207", pins: {map: {1: [1], 2: [2]}}}
   default_value: "?"
   bendable_pins:
     2:

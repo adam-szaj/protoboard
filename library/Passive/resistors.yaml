@@ -16,87 +16,97 @@ components:
       max_reach: 23
       default: {x: 0, y: 4}
   package_options:
-  - {name: DIN-0207, ref: "@r-tht/DIN/0207", pin_map: {1: &id001 [1], 2: &id002 [2]}} # 1/4 W axial (default)
-  - {name: DIN-0204, ref: "@r-tht/DIN/0204", pin_map: {1: *id001, 2: *id002}} # smaller axial
-  - {name: DIN-0411, ref: "@r-tht/DIN/0411", pin_map: {1: *id001, 2: *id002}} # bigger axial
-  - {name: DIN-0617, ref: "@r-tht/DIN/0617", pin_map: {1: *id001, 2: *id002}} # power axial
-  - {name: SMD-0805, ref: "@chip-smd/imperial/0805", style: "color: #222", pin_map: {1: *id001, 2: *id002}} # rigid chip
-  - {name: SMD-0603, ref: "@chip-smd/imperial/0603", style: "color: #222", pin_map: {1: *id001, 2: *id002}} # rigid chip
+  - {name: DIN-0207, ref: "@r-tht/DIN/0207", pins: {map: {1: &id001 [1], 2: &id002 [2]}}} # 1/4 W axial (default)
+  - {name: DIN-0204, ref: "@r-tht/DIN/0204", pins: {map: {1: *id001, 2: *id002}}} # smaller axial
+  - {name: DIN-0411, ref: "@r-tht/DIN/0411", pins: {map: {1: *id001, 2: *id002}}} # bigger axial
+  - {name: DIN-0617, ref: "@r-tht/DIN/0617", pins: {map: {1: *id001, 2: *id002}}} # power axial
+  - {name: SMD-0805, ref: "@chip-smd/imperial/0805", style: "color: #222", pins: {map: {1: *id001, 2: *id002}}} # rigid chip
+  - {name: SMD-0603, ref: "@chip-smd/imperial/0603", style: "color: #222", pins: {map: {1: *id001, 2: *id002}}} # rigid chip
 
-  meta_pins:
-  - P1
-  - P2
+  pins:
+    meta:
+    - P1
+    - P2
 - name: R_Net_4
   description: "4-resistor SIL network (common bus pin 1)"
   component_class: resistor
-  package: {ref: "$sil"}
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
   default_value: "?"
 
-  meta_pins:
-  - COM
-  - R1
-  - R2
-  - R3
-  - R4
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
+  pins:
+    meta:
+    - COM
+    - R1
+    - R2
+    - R3
+    - R4
 - name: R_Net_8
   description: "8-resistor SIL network (common bus pin 1)"
   component_class: resistor
-  package: {ref: "$sil"}
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
   default_value: "?"
 
-  meta_pins:
-  - COM
-  - R1
-  - R2
-  - R3
-  - R4
-  - R5
-  - R6
-  - R7
-  - R8
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
+  pins:
+    meta:
+    - COM
+    - R1
+    - R2
+    - R3
+    - R4
+    - R5
+    - R6
+    - R7
+    - R8
 - name: Pot
   description: "Potentiometer / trimmer (3-pin)"
   component_class: resistor
-  package: {ref: "$sil"}
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
   default_value: "?"
-  meta_pins:
-  - '1'
-  - W
-  - '3'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
+  pins:
+    meta:
+    - '1'
+    - W
+    - '3'

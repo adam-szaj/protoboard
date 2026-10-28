@@ -20,7 +20,13 @@ packages:
   # as a scalar-or-list only. board_offset adds the 'default'/'solve' sentinels.
   - name: package
     abstract: true
+    pins: {count: null, map: auto}
     schema:
+      pins:
+        count: {type: positive_int, default: null}
+        map:
+          type: {map: [positive_int, {oneof: [positive_int, {list: positive_int}]}]}
+          default: auto
       leads:
         direction:
           type:

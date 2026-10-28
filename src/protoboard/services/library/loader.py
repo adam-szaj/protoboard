@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from ruamel.yaml import YAML
@@ -56,14 +56,67 @@ _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
 
 
-def _component_pin_count(data: dict[str, Any]) -> int | None:
-    """The component's declared pin count, or ``None``.
+def _pins_block(
+    data: Mapping[str, Any], source: Path | str, *, component: bool = False
+) -> dict[str, Any]:
+    """Validate grouped authoring fields without changing generator source data."""
+    from protoboard.domain.components.package.schema import (
+        COMPONENT_PINS_SCHEMA,
+        PACKAGE_PINS_SCHEMA,
+        SchemaError,
+    )
 
-    ``meta_pins`` is the source of truth. A missing list denotes a parametric
-    component whose count is chosen during placement.
-    """
-    meta_pins = data.get("meta_pins")
-    return len(meta_pins) if isinstance(meta_pins, list) else None
+    raw = data.get("pins")
+    if raw is None or (
+        not component and isinstance(raw, int) and not isinstance(raw, bool)
+    ):
+        return {} if raw is None else {"count": raw}
+    if not isinstance(raw, dict):
+        raise SerializationError(f"{source}: pins must be a mapping")
+    allowed = {"count", "meta"} if component else {"count", "map"}
+    if set(raw) - allowed:
+        raise SerializationError(f"{source}: unknown pins fields {set(raw) - allowed}")
+    # Counts and logical labels are inputs to generation; only the package map
+    # can remain automatic until component/package binding.
+    unresolved = {"count", "meta"} if component else {"count"}
+    for field_name in unresolved:
+        if raw.get(field_name) == "auto":
+            raise SerializationError(f"{source}: pins.{field_name} cannot be auto")
+    try:
+        (COMPONENT_PINS_SCHEMA if component else PACKAGE_PINS_SCHEMA).validate(raw)
+    except SchemaError as exc:
+        raise SerializationError(f"{source}: pins.{exc}") from exc
+    return raw
+
+
+def _component_pin_count(data: dict[str, Any]) -> int | None:
+    pins = _pins_block(data, data.get("name", "component"), component=True)
+    if "meta" in pins and "meta_pins" in data:
+        raise SerializationError("cannot combine pins.meta with meta_pins")
+    meta = pins.get("meta", data.get("meta_pins"))
+    count = pins.get("count")
+    if isinstance(meta, list):
+        if count is not None and count != len(meta):
+            raise SerializationError(
+                "pins.count must match the number of pins.meta entries"
+            )
+        return len(meta)
+    return count
+
+
+def _package_map(package: Package | None) -> object:
+    values = package.raw_values if package is not None else None
+    pins = values.get("pins") if values else None
+    return pins.get("map") if isinstance(pins, Mapping) else None
+
+
+def _declared_map(
+    owner: Mapping[str, Any], source: Path | str, fallback: object = None
+) -> object:
+    pins = _pins_block(owner, source)
+    if "map" in pins and "pin_map" in owner:
+        raise SerializationError(f"{source}: cannot combine pins.map with pin_map")
+    return pins.get("map", owner.get("pin_map", fallback))
 
 
 def _register_component_package(
@@ -156,19 +209,21 @@ def _parse_package_options(
                 f"{source}: footprint entry for {cname!r} must be a string or "
                 f"mapping"
             )
-        unknown = set(entry) - {"name", "ref", "package", "style", "pin_map", "group"}
+        unknown = set(entry) - {
+            "name",
+            "ref",
+            "package",
+            "style",
+            "pin_map",
+            "pins",
+            "group",
+        }
         if unknown:
             field = sorted(unknown)[0]
             raise SerializationError(
                 f"{source}: package option for {cname!r} has unknown field "
                 f"{field!r}; put package geometry inside 'package'"
             )
-        pin_map = _parse_pin_map(
-            entry.get("pin_map"),
-            source,
-            component_name=cname,
-            pin_count=pin_count or 0,
-        )
         try:
             entry_style = parse_style(
                 entry.get("style"), ctx=f"{cname} footprint style"
@@ -203,6 +258,13 @@ def _parse_package_options(
                     )
             else:
                 package_raw = _normalize_package_ref({"ref": ref}, source)
+        option_pins = _pins_block(entry, source)
+        if isinstance(package_raw, dict) and "count" in option_pins:
+            package_pins = _pins_block(package_raw, source)
+            package_raw = {
+                **package_raw,
+                "pins": {**package_pins, "count": option_pins["count"]},
+            }
         package: Package | None = None
         if isinstance(package_raw, dict):
             built = _build_component_package(
@@ -237,6 +299,24 @@ def _parse_package_options(
                 families=families,
                 contributed_families=contributed_families,
             )
+        variant = resolve_variant(families, ref or "")
+        fallback_map = _package_map(package or (variant.package if variant else None))
+        if isinstance(package_raw, dict):
+            fallback_map = _declared_map(package_raw, source, fallback_map)
+        pin_map = _parse_pin_map(
+            _declared_map(entry, source, fallback_map),
+            source,
+            component_name=cname,
+            pin_count=pin_count or 0,
+        )
+        if (
+            option_pins.get("count") is not None
+            and variant is not None
+            and option_pins["count"] != variant.package.pin_count()
+        ):
+            raise SerializationError(
+                f"{source}: pins.count does not match package geometry"
+            )
         style = Appearance.resolve(entry_style, list_style)
         options.append(
             PackageOption(
@@ -257,7 +337,7 @@ def _parse_pin_map(
     component_name: str,
     pin_count: int = 0,
 ) -> dict[int, tuple[int, ...]]:
-    if raw is None:
+    if raw is None or raw == "auto":
         return {index: (index,) for index in range(1, pin_count + 1)}
     if not isinstance(raw, dict):
         raise SerializationError(
@@ -276,8 +356,12 @@ def _parse_pin_map(
             raise SerializationError(
                 f"{source}: pin_map MetaPin index must be positive"
             )
+        if isinstance(raw_package_pins, int) and not isinstance(raw_package_pins, bool):
+            raw_package_pins = [raw_package_pins]
         if not isinstance(raw_package_pins, list):
-            raise SerializationError(f"{source}: pin_map[{meta_index}] must be a list")
+            raise SerializationError(
+                f"{source}: pin_map[{meta_index}] must be a list or integer"
+            )
         try:
             parsed[meta_index] = tuple(int(pin) for pin in raw_package_pins)
         except (TypeError, ValueError) as exc:
@@ -432,7 +516,8 @@ def _build_component_package(
     elif isinstance(kind, list) and kind and all(is_kind(k) for k in kind):
         chain = tuple(str(k) for k in kind)
     if chain is not None:
-        n = pin_count if raw.get("pins") is None else int(raw["pins"])
+        pins = _pins_block(raw, name)
+        n = pins.get("count") if pins.get("count") is not None else pin_count
         if n is None:
             raise PackageDefError(
                 f"{name}: package kind {kind!r} needs a pin count "
@@ -453,7 +538,26 @@ def _build_component_package(
         if ctx.residual is not None:
             return ctx.residual
         assert ctx.package is not None  # driver sets package XOR residual
-        return ctx.package
+        if (
+            "count" in pins
+            and pins["count"] is not None
+            and ctx.package.pin_count() != pins["count"]
+        ):
+            raise PackageDefError(f"{name}: pins.count does not match package geometry")
+        package = ctx.package
+        if pins:
+            package = dataclasses.replace(
+                cast(Any, package),
+                raw_values={
+                    **(ctx.package.raw_values or {}),
+                    "pins": {
+                        **_pins_block(ctx.package.raw_values or {}, name),
+                        **pins,
+                        "count": ctx.package.pin_count(),
+                    },
+                },
+            )
+        return package
 
     node = {**raw, "name": name}
     registry[name] = node
@@ -751,11 +855,12 @@ def _component_from_dict(
     if "name" not in data or not isinstance(data["name"], str):
         raise SerializationError(f"{source}: component requires string 'name'")
     legacy_fields = {
-        "pins",
         "pin" + "_names",
         "footprints",
         "package_family" + "_ref",
     }.intersection(data)
+    if "pins" in data and not isinstance(data["pins"], (dict, type(None))):
+        legacy_fields.add("pins")
     if legacy_fields:
         field = sorted(legacy_fields)[0]
         raise SerializationError(
@@ -791,7 +896,10 @@ def _component_from_dict(
     if isinstance(package_raw, dict):
         package_raw = _normalize_package_ref(package_raw, source)
         build_pin_count = comp_pin_count
-        if comp_pin_count is None and package_raw.get("pins") is None:
+        if (
+            comp_pin_count is None
+            and _pins_block(package_raw, source).get("count") is None
+        ):
             preview_count = _parametric_preview_count(package_raw)
             if preview_count is not None:
                 parametric_pins = True
@@ -862,20 +970,27 @@ def _component_from_dict(
         )
     pin_count = comp_pin_count or default_variant.package.pin_count()
 
-    if "meta_pins" not in data and not parametric_pins:
+    component_pins = _pins_block(data, source, component=True)
+    meta_raw = component_pins.get("meta", data.get("meta_pins"))
+    if meta_raw is None and comp_pin_count is None and not parametric_pins:
         raise SerializationError(
-            f"{source}: component {data['name']!r} requires 'meta_pins'"
+            f"{source}: component {data['name']!r} requires 'meta_pins' or 'pins'"
         )
     meta_pins = (
-        _parse_meta_pins(data["meta_pins"], source, component_name=data["name"])
-        if "meta_pins" in data
+        _parse_meta_pins(meta_raw, source, component_name=data["name"])
+        if meta_raw is not None
         else tuple(MetaPin((f"P{pin}",)) for pin in range(1, pin_count + 1))
     )
     if (package_obj is not None or pending_kind is not None) and options:
+        default_map = _package_map(package_obj)
+        if isinstance(package_raw, dict):
+            default_map = _declared_map(package_raw, source, default_map)
+        if "pin_map" in data:
+            default_map = data["pin_map"]
         options[0] = dataclasses.replace(
             options[0],
             pin_map=_parse_pin_map(
-                data.get("pin_map"),
+                default_map,
                 source,
                 component_name=data["name"],
                 pin_count=len(meta_pins),

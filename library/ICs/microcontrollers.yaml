@@ -1,209 +1,221 @@
 components:
 - name: ATmega328P
   component_class: ic
-  package: {ref: "$wdip_ic"}
+  package:
+    ref: "$wdip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
+        17:
+        - 17
+        18:
+        - 18
+        19:
+        - 19
+        20:
+        - 20
+        21:
+        - 21
+        22:
+        - 22
+        23:
+        - 23
+        24:
+        - 24
+        25:
+        - 25
+        26:
+        - 26
+        27:
+        - 27
+        28:
+        - 28
   description: "AVR 8-bit MCU, 32kB flash (Arduino Uno core)"
-  meta_pins:
-  - PC6
-  - PD0
-  - PD1
-  - PD2
-  - PD3
-  - PD4
-  - VCC
-  - GND
-  - PB6
-  - PB7
-  - PD5
-  - PD6
-  - PD7
-  - PB0
-  - PB1
-  - PB2
-  - PB3
-  - PB4
-  - PB5
-  - AVCC
-  - AREF
-  - GND
-  - PC0
-  - PC1
-  - PC2
-  - PC3
-  - PC4
-  - PC5
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
-    17:
-    - 17
-    18:
-    - 18
-    19:
-    - 19
-    20:
-    - 20
-    21:
-    - 21
-    22:
-    - 22
-    23:
-    - 23
-    24:
-    - 24
-    25:
-    - 25
-    26:
-    - 26
-    27:
-    - 27
-    28:
-    - 28
+  pins:
+    meta:
+    - PC6
+    - PD0
+    - PD1
+    - PD2
+    - PD3
+    - PD4
+    - VCC
+    - GND
+    - PB6
+    - PB7
+    - PD5
+    - PD6
+    - PD7
+    - PB0
+    - PB1
+    - PB2
+    - PB3
+    - PB4
+    - PB5
+    - AVCC
+    - AREF
+    - GND
+    - PC0
+    - PC1
+    - PC2
+    - PC3
+    - PC4
+    - PC5
 - name: ATtiny85
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
   description: "AVR 8-bit MCU, 8kB flash (DIP-8)"
-  meta_pins:
-  - PB5
-  - PB3
-  - PB4
-  - GND
-  - PB0
-  - PB1
-  - PB2
-  - VCC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  pins:
+    meta:
+    - PB5
+    - PB3
+    - PB4
+    - GND
+    - PB0
+    - PB1
+    - PB2
+    - VCC
 - name: PIC16F628A
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
+        17:
+        - 17
+        18:
+        - 18
   description: "PIC 8-bit MCU, 2kB flash"
-  meta_pins:
-  - RA2
-  - RA3
-  - RA4
-  - NRST
-  - GND
-  - RB0
-  - RB1
-  - RB2
-  - RB3
-  - RB4
-  - RB5
-  - RB6
-  - RB7
-  - VCC
-  - RA6
-  - RA7
-  - RA0
-  - RA1
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
-    17:
-    - 17
-    18:
-    - 18
+  pins:
+    meta:
+    - RA2
+    - RA3
+    - RA4
+    - NRST
+    - GND
+    - RB0
+    - RB1
+    - RB2
+    - RB3
+    - RB4
+    - RB5
+    - RB6
+    - RB7
+    - VCC
+    - RA6
+    - RA7
+    - RA0
+    - RA1
 - name: IC_SOT23_6
   description: "Generic 6-pin SOT-23 / TSOP-6 IC (SMD, treated as SIL)"
   component_class: ic
-  package: {ref: "$sil"}
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
   aliases:
   - TSOP_6_1_65x3_05mm
   - SOT_23_6
   - SOT-23-6
-  meta_pins:
-  - '1'
-  - '2'
-  - '3'
-  - '4'
-  - '5'
-  - '6'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
+  pins:
+    meta:
+    - '1'
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'

@@ -6,15 +6,16 @@ components:
 - name: _XTAL_HC49
   component_class: crystal
   package_options:
-  - {name: HC-49, ref: "@y-tht/HC-49/std", pin_map: {1: [1], 2: [2]}}
+  - {name: HC-49, ref: "@y-tht/HC-49/std", pins: {map: {1: [1], 2: [2]}}}
 
   # -----------------------------------------------------------------------
   # Crystals (HC-49/U through-hole)
   # -----------------------------------------------------------------------
 
-  meta_pins:
-  - '1'
-  - '2'
+  pins:
+    meta:
+    - '1'
+    - '2'
 - name: XTAL_4MHz
   extends: _XTAL_HC49
   description: "Crystal 4 MHz HC-49/U"

@@ -10,16 +10,18 @@ components:
       body_offset: {unit: 2.5, value: []}
       board_offset: default
     bend: 0
+    pins:
+      map:
+        1:
+        - 1
   aliases:
   - TestPoint_Pad_2_0x2_0mm
   - TestPoint_Pad_1_0x1_0mm
   - TestPoint_Pad_1_5x1_5mm
 
-  meta_pins:
-  - TP
-  pin_map:
-    1:
-    - 1
+  pins:
+    meta:
+    - TP
 - name: TestPoint_2Pole
   description: "2-pin test point"
   component_class: mechanical
@@ -30,11 +32,13 @@ components:
       body_offset: {unit: 2.5, value: [[0, 1]]}
       board_offset: default
     bend: 0
-  meta_pins:
-  - '1'
-  - '2'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+  pins:
+    meta:
+    - '1'
+    - '2'

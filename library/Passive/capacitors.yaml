@@ -13,17 +13,18 @@ components:
       max_reach: 5
       default: {x: 0, y: 1}
   package_options:
-  - {name: Disc-D5, ref: "@c-tht/ceramic-disc/5", pin_map: {1: &id001 [1], 2: &id002 [2]}} # 5 mm ceramic disc (default)
-  - {name: Disc-D7, ref: "@c-tht/ceramic-disc/7", pin_map: {1: *id001, 2: *id002}} # 7 mm disc
-  - {name: Disc-D10, ref: "@c-tht/ceramic-disc/10", pin_map: {1: *id001, 2: *id002}} # 10 mm disc
-  - {name: SMD-0805, ref: "@chip-smd/imperial/0805", style: "color: #aa5", pin_map: {1: *id001, 2: *id002}} # rigid chip
-  - {name: SMD-0603, ref: "@chip-smd/imperial/0603", style: "color: #aa5", pin_map: {1: *id001, 2: *id002}} # rigid chip
+  - {name: Disc-D5, ref: "@c-tht/ceramic-disc/5", pins: {map: {1: &id001 [1], 2: &id002 [2]}}} # 5 mm ceramic disc (default)
+  - {name: Disc-D7, ref: "@c-tht/ceramic-disc/7", pins: {map: {1: *id001, 2: *id002}}} # 7 mm disc
+  - {name: Disc-D10, ref: "@c-tht/ceramic-disc/10", pins: {map: {1: *id001, 2: *id002}}} # 10 mm disc
+  - {name: SMD-0805, ref: "@chip-smd/imperial/0805", style: "color: #aa5", pins: {map: {1: *id001, 2: *id002}}} # rigid chip
+  - {name: SMD-0603, ref: "@chip-smd/imperial/0603", style: "color: #aa5", pins: {map: {1: *id001, 2: *id002}}} # rigid chip
 
   # One generic polar (electrolytic / tantalum) capacitor.  The footprints: list
   # offers the radial electrolytic cans (5 mm default, 6.3 / 8 / 10 mm).
-  meta_pins:
-  - P1
-  - P2
+  pins:
+    meta:
+    - P1
+    - P2
 - name: C_POL
   description: "Capacitor, polar — pick the body, set the value when placing"
   component_class: capacitor_polar
@@ -34,22 +35,24 @@ components:
       min_reach: 1
       max_reach: 5
       default: {x: 0, y: 1}
-  meta_pins:
-  - '+'
-  - '-'
+  pins:
+    meta:
+    - '+'
+    - '-'
   package_options:
-  - {name: Radial-D5, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/5", pin_map: {1: &id003 [1], 2: &id004 [2]}} # 5 mm can (default)
-  - {name: Radial-D6.3, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/6.3", pin_map: {1: *id003, 2: *id004}} # 6.3 mm
-  - {name: Radial-D8, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/8", pin_map: {1: *id003, 2: *id004}} # 8 mm
-  - {name: Radial-D10, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/10", pin_map: {1: *id003, 2: *id004}} # 10 mm
+  - {name: Radial-D5, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/5", pins: {map: {1: &id003 [1], 2: &id004 [2]}}} # 5 mm can (default)
+  - {name: Radial-D6.3, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/6.3", pins: {map: {1: *id003, 2: *id004}}} # 6.3 mm
+  - {name: Radial-D8, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/8", pins: {map: {1: *id003, 2: *id004}}} # 8 mm
+  - {name: Radial-D10, group: "Metal electrolytic", ref: "@c-tht/radial-electrolytic/10", pins: {map: {1: *id003, 2: *id004}}} # 10 mm
 - name: C_FOIL
   description: "Metal foil capacitor"
   component_class: capacitor
   symbol: C
   default_value: "?"
-  meta_pins:
-  - '1'
-  - '2'
+  pins:
+    meta:
+    - '1'
+    - '2'
   package_options:
   - {name: "5mm/7.2x2.5x6.5", ref: "$generic-prism", group: "Metal Foil Polimer"}
   - {name: "5mm/7.2x3.5x7.2", ref: "$generic-prism", group: "Metal Foil Polimer"}

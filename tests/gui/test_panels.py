@@ -1023,7 +1023,16 @@ class TestPropertiesParameters:
         # reports the group not-visible regardless of our setVisible(True);
         # isHidden tests our own show/hide call, not parent-tree visibility.
         assert panel._params_grp.isHidden() is False
-        assert set(panel._param_widgets) == {"dims.ly", "dims.lx"}
+        assert set(panel._param_widgets) == {
+            "dims.ly",
+            "dims.lx",
+            "pins.count",
+            "pins.map",
+        }
+        assert panel._param_widgets["pins.count"].text() == "2"
+        assert panel._param_widgets["pins.map"].text() == "auto"
+        assert panel._param_widgets["pins.count"].isReadOnly()
+        assert panel._param_widgets["pins.map"].isReadOnly()
 
     def test_set_field_is_readonly_with_value(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot

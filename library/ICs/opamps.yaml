@@ -7,109 +7,118 @@ components:
     # Used by: LM358, LM393, LM2904, ...
 - name: _DUAL_OPAMP_SS
   component_class: ic
-  package: {ref: "$dip_ic"}
-  meta_pins:
-  - OUT_A
-  - IN-_A
-  - IN+_A
-  - GND
-  - IN+_B
-  - IN-_B
-  - OUT_B
-  - VCC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+  pins:
+    meta:
+    - OUT_A
+    - IN-_A
+    - IN+_A
+    - GND
+    - IN+_B
+    - IN-_B
+    - OUT_B
+    - VCC
 - name: _DUAL_OPAMP_DS
   component_class: ic
-  package: {ref: "$dip_ic"}
-  meta_pins:
-  - OUT_A
-  - IN-_A
-  - IN+_A
-  - VEE
-  - IN+_B
-  - IN-_B
-  - OUT_B
-  - VCC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+  pins:
+    meta:
+    - OUT_A
+    - IN-_A
+    - IN+_A
+    - VEE
+    - IN+_B
+    - IN-_B
+    - OUT_B
+    - VCC
 - name: _QUAD_OPAMP
   component_class: ic
-  package: {ref: "$dip_ic"}
-  meta_pins:
-  - OUT_A
-  - IN-_A
-  - IN+_A
-  - VCC
-  - IN+_B
-  - IN-_B
-  - OUT_B
-  - OUT_C
-  - IN-_C
-  - IN+_C
-  - GND
-  - IN+_D
-  - IN-_D
-  - OUT_D
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+  pins:
+    meta:
+    - OUT_A
+    - IN-_A
+    - IN+_A
+    - VCC
+    - IN+_B
+    - IN-_B
+    - OUT_B
+    - OUT_C
+    - IN-_C
+    - IN+_C
+    - GND
+    - IN+_D
+    - IN-_D
+    - OUT_D
 - name: LM358
   extends: _DUAL_OPAMP_SS
   description: "Dual op-amp, single supply, 3..32V"
@@ -124,52 +133,55 @@ components:
 
 - name: LM339
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Quad voltage comparator, open-collector output"
-  meta_pins:
-  - OUT_A
-  - OUT_B
-  - VCC
-  - IN+_B
-  - IN-_B
-  - IN+_C
-  - IN-_C
-  - GND
-  - IN+_D
-  - IN-_D
-  - OUT_D
-  - OUT_C
-  - IN-_A
-  - IN+_A
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - OUT_A
+    - OUT_B
+    - VCC
+    - IN+_B
+    - IN-_B
+    - IN+_C
+    - IN-_C
+    - GND
+    - IN+_D
+    - IN-_D
+    - OUT_D
+    - OUT_C
+    - IN-_A
+    - IN+_A
 - name: TL072
   extends: _DUAL_OPAMP_DS
   description: "Dual JFET op-amp, low noise, low offset"
@@ -216,91 +228,100 @@ components:
 
 - name: uA741
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
   description: "Classic single general-purpose op-amp"
-  meta_pins:
-  - OFFSET_N1
-  - IN-
-  - IN+
-  - VEE
-  - OFFSET_N2
-  - OUT
-  - VCC
-  - NC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  pins:
+    meta:
+    - OFFSET_N1
+    - IN-
+    - IN+
+    - VEE
+    - OFFSET_N2
+    - OUT
+    - VCC
+    - NC
 - name: TL071
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
   description: "Single JFET op-amp, low noise"
-  meta_pins:
-  - OFFSET_N1
-  - IN-
-  - IN+
-  - VEE
-  - OFFSET_N2
-  - OUT
-  - VCC
-  - NC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  pins:
+    meta:
+    - OFFSET_N1
+    - IN-
+    - IN+
+    - VEE
+    - OFFSET_N2
+    - OUT
+    - VCC
+    - NC
 - name: LM741
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
   description: "Single op-amp, military/industrial"
-  meta_pins:
-  - OFFSET_N1
-  - IN-
-  - IN+
-  - VEE
-  - OFFSET_N2
-  - OUT
-  - VCC
-  - NC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  pins:
+    meta:
+    - OFFSET_N1
+    - IN-
+    - IN+
+    - VEE
+    - OFFSET_N2
+    - OUT
+    - VCC
+    - NC

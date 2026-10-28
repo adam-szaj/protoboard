@@ -31,6 +31,7 @@ from protoboard.domain.components.package.offsets import (
 )
 from protoboard.domain.components.package.schema import (
     AUTO,
+    PACKAGE_PINS_SCHEMA,
     ParamSchema,
     SchemaError,
     parse_schema,
@@ -63,17 +64,25 @@ class PackageDefError(ValueError):
 # --------------------------------------------------------------------------- #
 
 
-def deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
+def deep_merge(
+    base: PackageDict, override: PackageDict, *, _path: tuple[str, ...] = ()
+) -> PackageDict:
     """Merge *override* onto *base*. Nested dicts merge; scalars/lists replace.
 
     Monotonic closing: an override may fill a ``null`` (required) but the merge
     itself does not forbid re-setting — that policy is documented; here we just
-    let the child value win.
+    let the child value win. ``pins.map`` is an atomic assignment: an explicit
+    map replaces the inherited map in full.
     """
     out: PackageDict = dict(base)
     for key, val in override.items():
-        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
-            out[key] = deep_merge(out[key], val)
+        if (
+            key in out
+            and isinstance(out[key], dict)
+            and isinstance(val, dict)
+            and (*_path, key) != ("pins", "map")
+        ):
+            out[key] = deep_merge(out[key], val, _path=(*_path, key))
         else:
             out[key] = val
     return out
@@ -446,6 +455,7 @@ def _check_no_auto(tree: PackageDict, pkg: str) -> None:
     ``auto`` means "a kind generator computes this" (package-model.md §5.4); a
     value tree entering shape build with one left is a definition error — the
     node is bound to no generator, or the generator does not fill that slot.
+    ``pins.map`` is deferred until the package is bound to a component.
     The dotted paths make the message actionable.
     """
     stuck: list[str] = []
@@ -454,7 +464,7 @@ def _check_no_auto(tree: PackageDict, pkg: str) -> None:
         if isinstance(node, dict):
             for key, val in node.items():
                 _walk(val, f"{path}.{key}" if path else str(key))
-        elif node == AUTO:
+        elif node == AUTO and path != "pins.map":
             stuck.append(path)
 
     _walk({k: v for k, v in tree.items() if k != "schema"}, "")
@@ -481,7 +491,7 @@ def _apply_schema(
     Reads the ``schema:`` block (path-mirrored field declarations), applies it to
     the value tree, and returns ``(filled_values, schema, raw_values)`` — the
     value tree with defaults filled and the ``schema`` key dropped, the parsed
-    :class:`ParamSchema` (or ``None`` when there is no ``schema:``), and the
+    :class:`ParamSchema` (including the common pin fields), and the
     *original* resolved value tree for the UI (before the body_offset unwrap, so
     the Properties panel keeps the authored ``{unit, value}`` form). The shape
     build stamps schema + raw_values onto the body so the resolved definition
@@ -491,21 +501,29 @@ def _apply_schema(
     caller has one) runs between the required check and the real type check to
     replace every ``auto`` with a concrete value — ``raw_values`` are captured
     earlier, so the UI keeps seeing ``auto`` (read-only, per §5.3/§5.4). Any
-    ``auto`` still left afterwards is a loud :class:`PackageDefError`.
+    geometry ``auto`` still left afterwards is a loud :class:`PackageDefError`;
+    ``pins.map`` remains deferred until component binding.
     """
-    raw_schema = merged.get("schema")
-    if raw_schema is None:
-        if resolve_auto is not None:
-            merged = resolve_auto(merged)
-        _check_no_auto(merged, pkg)
-        return merged, None, _resolved_values(merged)
+    merged = dict(merged)
+    pins = merged.get("pins")
+    if pins is not None and not isinstance(pins, dict):
+        pins = {"count": pins}
+    merged["pins"] = PACKAGE_PINS_SCHEMA.apply_to(pins or {})
+    raw_schema = dict(merged.get("schema") or {})
+    raw_schema["pins"] = deep_merge(
+        {
+            key: {"type": spec.type, "default": spec.default}
+            for key, spec in PACKAGE_PINS_SCHEMA.fields.items()
+        },
+        raw_schema.get("pins") or {},
+    )
     try:
         schema = parse_schema(raw_schema)
         filled = schema.apply_to(merged)
         raw_values = _resolved_values(filled)  # before the body_offset unwrap
         schema.check_required(filled)
         if resolve_auto is not None:
-            filled = resolve_auto(filled)  # §5.4: generator fills ``auto``
+            filled = schema.apply_to(resolve_auto(filled))
         _check_no_auto(filled, pkg)
         _normalise_body_offset(filled, pkg)  # §5b: fold {unit,value} → mm list
         schema.validate(filled)
@@ -516,12 +534,12 @@ def _apply_schema(
 
 
 def _resolved_values(merged: PackageDict) -> dict[str, Any]:
-    """The resolved value tree the schema describes (``dims`` + ``leads``).
+    """The resolved value tree the schema describes (``dims``, ``leads``, ``pins``).
 
     Paired with a body's ``schema``, ``schema.fields_view(raw_values)`` drives the
     Properties panel. Geometry never reads this; it is metadata for the UI."""
     out: dict[str, Any] = {}
-    for key in ("dims", "leads"):
+    for key in ("dims", "leads", "pins"):
         val = merged.get(key)
         if isinstance(val, dict):
             out[key] = dict(val)
@@ -632,6 +650,13 @@ def build_package(
     if shape not in lineage:
         lineage = (str(shape), *lineage)
     leads = build_leads(merged, pkg)
+    declared_count = merged["pins"].get("count")
+    if declared_count is not None and declared_count != leads.pin_count:
+        raise PackageDefError(
+            f"{pkg}: pins.count {declared_count} disagrees with geometry "
+            f"pin count {leads.pin_count}"
+        )
+    raw_values["pins"]["count"] = leads.pin_count
     bendable_pins = _bendable_pins(merged.get("bendable_pins"), leads.pin_count, pkg)
     dims = merged.get("dims") or {}
     _validate_dims(dims, str(shape), pkg, schema)

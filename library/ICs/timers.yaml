@@ -1,79 +1,85 @@
 components:
 - name: NE555
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
   description: "555 timer IC"
-  meta_pins:
-  - GND
-  - TRIG
-  - OUT
-  - NRST
-  - CTRL
-  - THR
-  - DIS
-  - VCC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  pins:
+    meta:
+    - GND
+    - TRIG
+    - OUT
+    - NRST
+    - CTRL
+    - THR
+    - DIS
+    - VCC
 - name: NE556
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Dual 555 timer IC"
-  meta_pins:
-  - DIS_A
-  - THR_A
-  - CTRL_A
-  - NRST_A
-  - OUT_A
-  - TRIG_A
-  - GND
-  - TRIG_B
-  - OUT_B
-  - NRST_B
-  - CTRL_B
-  - THR_B
-  - DIS_B
-  - VCC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - DIS_A
+    - THR_A
+    - CTRL_A
+    - NRST_A
+    - OUT_A
+    - TRIG_A
+    - GND
+    - TRIG_B
+    - OUT_B
+    - NRST_B
+    - CTRL_B
+    - THR_B
+    - DIS_B
+    - VCC

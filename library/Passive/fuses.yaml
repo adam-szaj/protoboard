@@ -7,13 +7,14 @@ components:
   description: "Fuse (axial, glass tube, PCB holder)"
   component_class: fuse
   package_options:
-  - {name: DIN-0617, ref: "@r-tht/DIN/0617", pin_map: {1: [1], 2: [2]}}
+  - {name: DIN-0617, ref: "@r-tht/DIN/0617", pins: {map: {1: [1], 2: [2]}}}
   default_value: "?"
   bendable_pins:
     2:
       min_reach: 3
       max_reach: 9
       default: {x: 0, y: 3}
-  meta_pins:
-  - A
-  - B
+  pins:
+    meta:
+    - A
+    - B

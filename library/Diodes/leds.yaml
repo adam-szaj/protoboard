@@ -4,36 +4,40 @@ components:
   # -----------------------------------------------------------------------
 - name: _LED
   component_class: diode_led
-  meta_pins:
-  - A
-  - K
+  pins:
+    meta:
+    - A
+    - K
 - name: _LED_2_5mm
   extends: _LED
   package_options:
   - ref: "@led-tht/round/2.5"
-    pin_map:
-      1:
-      - 1
-      2:
-      - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
 - name: _LED_3_0mm
   extends: _LED
   package_options:
   - ref: "@led-tht/round/3"
-    pin_map:
-      1:
-      - 1
-      2:
-      - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
 - name: _LED_5_0mm
   extends: _LED
   package_options:
   - ref: "@led-tht/round/5"
-    pin_map:
-      1:
-      - 1
-      2:
-      - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
 - name: LED_2_5_Red
   extends: _LED_2_5mm
   style: 'color: #ff000080'
@@ -121,68 +125,70 @@ components:
         - [3, 0]
         - [9, [0, -1]]
       board_offset: default
-  meta_pins:
-  - A1
-  - A2
-  - A3
-  - A4
-  - A5
-  - A6
-  - A7
-  - A8
-  - A9
-  - A10
-  - K10
-  - K9
-  - K8
-  - K7
-  - K6
-  - K5
-  - K4
-  - K3
-  - K2
-  - K1
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
-    17:
-    - 17
-    18:
-    - 18
-    19:
-    - 19
-    20:
-    - 20
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
+        17:
+        - 17
+        18:
+        - 18
+        19:
+        - 19
+        20:
+        - 20
+  pins:
+    meta:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - K10
+    - K9
+    - K8
+    - K7
+    - K6
+    - K5
+    - K4
+    - K3
+    - K2
+    - K1
 - name: LED_BAR
   extends: _LED_BAR
   style: 'color: #a00'

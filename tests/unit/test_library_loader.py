@@ -368,7 +368,7 @@ class TestTypedPackageReferences:
             "package": {"kind": "sil"},
             "pin_map": {1: [1], 2: [2]},
         }
-        raw[legacy_field] = {} if legacy_field != "pins" else {"count": 2}
+        raw[legacy_field] = {} if legacy_field != "pins" else 2
 
         with pytest.raises(SerializationError, match=legacy_field):
             _component_from_dict(raw, Path("legacy.yaml"), {}, {})
@@ -1620,3 +1620,171 @@ components:
         lib = load_library([d])
         assert "BadPart" not in lib  # malformed package → skipped
         assert "GoodPart" in lib  # rest loads fine
+
+
+class TestGroupedPins:
+    @staticmethod
+    def _load(raw: dict, generics: dict | None = None) -> ComponentDefinition:
+        families: dict = {}
+        return _component_from_dict(
+            raw, Path("pins.yaml"), families, families, generics
+        )
+
+    def test_component_and_package_counts_are_independent(self) -> None:
+        definition = self._load(
+            {
+                "name": "X",
+                "pins": {"count": 2, "meta": ["A", "B"]},
+                "package": {
+                    "ref": "$sil",
+                    "pins": {"count": 3, "map": {1: [1, 3], 2: 2}},
+                },
+            }
+        )
+        assert [pin.labels for pin in definition.meta_pins] == [("A",), ("B",)]
+        assert definition.package_options[0].pin_map == {1: (1, 3), 2: (2,)}
+
+    @pytest.mark.parametrize("mapping", [None, "auto", {1: 2, 2: 1}])
+    def test_option_grouped_mapping(self, mapping: object) -> None:
+        option = {"name": "Body", "package": {"ref": "$sil"}, "pins": {"count": None}}
+        if mapping is not None:
+            option["pins"]["map"] = mapping
+        definition = self._load(
+            {"name": "X", "pins": {"meta": ["A", "B"]}, "package_options": [option]}
+        )
+        expected = (
+            {1: (2,), 2: (1,)} if isinstance(mapping, dict) else {1: (1,), 2: (2,)}
+        )
+        assert definition.package_options[0].pin_map == expected
+
+    def test_count_without_meta_creates_default_labels(self) -> None:
+        definition = self._load(
+            {"name": "X", "pins": {"count": 3}, "package": {"ref": "$sil"}}
+        )
+        assert [pin.labels for pin in definition.meta_pins] == [
+            ("P1",),
+            ("P2",),
+            ("P3",),
+        ]
+
+    @pytest.mark.parametrize(
+        "pins",
+        [
+            {"count": 2, "meta": ["A"]},
+            {"count": 0},
+            {"count": True},
+            {"count": "auto"},
+            {"count": "auto", "meta": ["A"]},
+            {"meta": "auto"},
+            {"meta": "A"},
+            {"meta": [True]},
+        ],
+    )
+    def test_invalid_component_pins(self, pins: dict) -> None:
+        with pytest.raises(SerializationError):
+            self._load({"name": "X", "pins": pins, "package": {"ref": "$sil"}})
+
+    @pytest.mark.parametrize(
+        "pins",
+        [
+            {"count": 0},
+            {"count": "auto"},
+            {"map": {0: 1}},
+            {"map": {1: True}},
+            {"map": {1: [0]}},
+            {"map": {1: "2"}},
+        ],
+    )
+    def test_invalid_package_pins(self, pins: dict) -> None:
+        with pytest.raises(SerializationError):
+            self._load(
+                {
+                    "name": "X",
+                    "pins": {"meta": ["A", "B"]},
+                    "package": {"ref": "$sil", "pins": pins},
+                }
+            )
+
+    def test_package_template_map_is_inherited_and_option_overrides_it(self) -> None:
+        from protoboard.services.library.builtin_package_defs import (
+            load_builtin_package_defs,
+        )
+
+        generics = {
+            **load_builtin_package_defs(),
+            "mapped": {
+                "name": "mapped",
+                "extends": "prism_radial",
+                "dims": {"lx": 7.2, "ly": 2.5, "lz": 6.5},
+                "leads": {"body_offset": 5},
+                "pins": {"map": {1: 2, 2: 1}},
+            },
+        }
+        raw = {
+            "name": "X",
+            "pins": {"meta": ["A", "B"]},
+            "package_options": [
+                {"name": "Inherited", "ref": "#mapped"},
+                {"name": "Override", "ref": "#mapped", "pins": {"map": "auto"}},
+            ],
+        }
+        definition = self._load(raw, generics)
+        assert definition.package_options[0].pin_map == {1: (2,), 2: (1,)}
+        assert definition.package_options[1].pin_map == {1: (1,), 2: (2,)}
+
+    def test_cached_generator_package_metadata_is_not_shared(self) -> None:
+        from protoboard.domain.components.package import resolve_variant
+
+        families: dict = {}
+        packages = []
+        for name, mapping in [("A", {1: 2, 2: 1}), ("B", {1: 1, 2: 2})]:
+            definition = _component_from_dict(
+                {
+                    "name": name,
+                    "pins": {"count": 2},
+                    "package": {"ref": "$generic", "pins": {"map": mapping}},
+                },
+                Path("pins.yaml"),
+                families,
+                families,
+            )
+            variant = resolve_variant(families, definition.default_package_ref())
+            assert variant is not None
+            packages.append(variant.package)
+        assert packages[0] is not packages[1]
+        assert packages[0].raw_values["pins"]["map"] == {1: 2, 2: 1}
+        assert packages[1].raw_values["pins"]["map"] == {1: 1, 2: 2}
+
+    def test_inherited_explicit_map_is_replaced_in_full(self) -> None:
+        from protoboard.services.library.builtin_package_defs import (
+            load_builtin_package_defs,
+        )
+
+        generics = {
+            **load_builtin_package_defs(),
+            "mapped": {
+                "name": "mapped",
+                "extends": "prism_radial",
+                "dims": {"lx": 7.2, "ly": 2.5, "lz": 6.5},
+                "leads": {"body_offset": 5},
+                "pins": {"map": {1: 2, 2: 1}},
+            },
+            "child": {"name": "child", "extends": "mapped", "pins": {"map": {1: 2}}},
+        }
+        definition = self._load(
+            {"name": "X", "pins": {"meta": ["A", "B"]}, "package": {"ref": "#child"}},
+            generics,
+        )
+        assert definition.default_package_option().pin_map == {1: (2,)}
+
+    def test_option_unresolved_count_reports_validation_error(self) -> None:
+        with pytest.raises(SerializationError, match="pins.count"):
+            self._load(
+                {
+                    "name": "X",
+                    "pins": {"count": 2},
+                    "package_options": [
+                        {"name": "Body", "ref": "$sil", "pins": {"count": "auto"}}
+                    ],
+                }
+            )

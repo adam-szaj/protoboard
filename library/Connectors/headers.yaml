@@ -40,16 +40,18 @@ components:
       body_offset: {unit: 2.5, value: [[0, 2]]}
       board_offset: default
     bend: 0
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
   description: "2-pin screw terminal 5.08mm"
 
-  meta_pins:
-  - +
-  - '-'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
+  pins:
+    meta:
+    - +
+    - '-'
 - name: Screw_Term_1x03
   component_class: connector
   package:
@@ -59,15 +61,17 @@ components:
       body_offset: {unit: 2.5, value: [[2, [0, 2]]]}
       board_offset: default
     bend: 0
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
   description: "3-pin screw terminal 5.08mm"
-  meta_pins:
-  - '1'
-  - '2'
-  - '3'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
+  pins:
+    meta:
+    - '1'
+    - '2'
+    - '3'

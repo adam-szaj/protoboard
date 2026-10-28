@@ -43,7 +43,7 @@ AUTO = "auto"
 # themselves shapes* is a union of those three shapes — disambiguated by the rule
 # below (a list whose every element is a known shape-or-shape-list is a union).
 #
-# Four *dict* constructors extend the grammar for the richer ``leads`` fields
+# Five *dict* constructors extend the grammar for the richer ``leads`` fields
 # (see ``docs/footprints/package-model.md`` §5.5). A dict is never a plain
 # shape, so these compose with the rules above without ambiguity:
 #
@@ -62,6 +62,7 @@ AUTO = "auto"
 #   * ``{const: <value>}``           — matches iff the value equals ``<value>``
 #                                      (lets sentinels like ``"default"`` / ``"solve"``
 #                                      be declared).
+#   * ``{map: [<key-spec>, <value-spec>]}`` — a typed mapping.
 TypeSpec = Any  # structurally recursive; validated, not statically typed.
 
 _PRIMITIVES: dict[str, type | tuple[type, ...]] = {
@@ -176,6 +177,8 @@ def _is_bool(v: object) -> bool:
 
 
 def _matches_primitive(name: str, value: object) -> bool:
+    if name == "positive_int":
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
     py = _PRIMITIVES.get(name)
     if py is None:
         raise SchemaError(f"unknown primitive type {name!r}")
@@ -246,6 +249,14 @@ def _matches(spec: TypeSpec, value: object) -> bool:
     is one of the named constructors and is never a plain shape.
     """
     if isinstance(spec, Mapping):
+        if "map" in spec:
+            pair = spec["map"]
+            if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+                raise SchemaError(f"'map' needs key and value types, got {pair!r}")
+            return isinstance(value, Mapping) and all(
+                _matches(pair[0], key) and _matches(pair[1], item)
+                for key, item in value.items()
+            )
         if "list" in spec:
             return _matches_list(spec, value)
         if "seq" in spec:
@@ -258,7 +269,8 @@ def _matches(spec: TypeSpec, value: object) -> bool:
         if "const" in spec:
             return bool(value == spec["const"])
         raise SchemaError(
-            f"type dict must carry 'list', 'seq', 'oneof', or 'const', " f"got {spec!r}"
+            f"type dict must carry 'list', 'seq', 'oneof', 'const', or 'map', "
+            f"got {spec!r}"
         )
     if isinstance(spec, str):
         return _matches_primitive(spec, value)
@@ -447,6 +459,8 @@ def _deep_copy_tree(values: Mapping[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "AUTO",
+    "PACKAGE_PINS_SCHEMA",
+    "COMPONENT_PINS_SCHEMA",
     "FieldSpec",
     "FieldStatus",
     "FieldView",
@@ -454,3 +468,25 @@ __all__ = [
     "SchemaError",
     "parse_schema",
 ]
+
+
+PACKAGE_PINS_SCHEMA = parse_schema(
+    {
+        "count": {"type": "positive_int", "default": None},
+        "map": {
+            "type": {
+                "map": [
+                    "positive_int",
+                    {"oneof": ["positive_int", {"list": "positive_int"}]},
+                ]
+            },
+            "default": AUTO,
+        },
+    }
+)
+COMPONENT_PINS_SCHEMA = parse_schema(
+    {
+        "count": {"type": "positive_int"},
+        "meta": {"type": {"list": {"oneof": ["str", {"list": "str"}]}}},
+    }
+)

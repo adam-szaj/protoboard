@@ -11,56 +11,63 @@ components:
   component_class: transistor_npn
   symbol: Q
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins: [P1, P2, P3]
+  - {name: TO92, ref: "@q-tht/TO-92", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta: [P1, P2, P3]
 
 - name: _PNP_TO92
   component_class: transistor_pnp
   symbol: Q
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins: [P1, P2, P3]
+  - {name: TO92, ref: "@q-tht/TO-92", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta: [P1, P2, P3]
 
   # Pinouts per part family.  Layout-critical: same TO-92 shell, three
   # different pin orders.
 - name: _NPN_TO92_CBE
   extends: _NPN_TO92
-  meta_pins:
-  - C
-  - B
-  - E
+  pins:
+    meta:
+    - C
+    - B
+    - E
 
 - name: _NPN_TO92_BCE
   extends: _NPN_TO92
-  meta_pins:
-  - B
-  - C
-  - E
+  pins:
+    meta:
+    - B
+    - C
+    - E
 
 - name: _NPN_TO92_EBC
   extends: _NPN_TO92
-  meta_pins:
-  - E
-  - B
-  - C
+  pins:
+    meta:
+    - E
+    - B
+    - C
 
 - name: _PNP_TO92_CBE
   extends: _PNP_TO92
-  meta_pins:
-  - C
-  - B
-  - E
+  pins:
+    meta:
+    - C
+    - B
+    - E
 
 - name: _PNP_TO92_EBC
   extends: _PNP_TO92
-  meta_pins:
-  - E
-  - B
-  - C
+  pins:
+    meta:
+    - E
+    - B
+    - C
 
-  # -----------------------------------------------------------------------
-  # NPN BJT
-  # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # NPN BJT
+    # -----------------------------------------------------------------------
 
 - name: BC547
   extends: _NPN_TO92_CBE

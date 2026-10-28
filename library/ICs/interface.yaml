@@ -1,181 +1,193 @@
 components:
 - name: MAX232
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
   description: "RS-232 dual driver/receiver, 5V single supply"
-  meta_pins:
-  - C1+
-  - VS+
-  - C1-
-  - C2+
-  - C2-
-  - VS-
-  - T2OUT
-  - R2IN
-  - R2OUT
-  - T2IN
-  - T1IN
-  - R1OUT
-  - R1IN
-  - T1OUT
-  - GND
-  - VCC
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
+  pins:
+    meta:
+    - C1+
+    - VS+
+    - C1-
+    - C2+
+    - C2-
+    - VS-
+    - T2OUT
+    - R2IN
+    - R2OUT
+    - T2IN
+    - T1IN
+    - R1OUT
+    - R1IN
+    - T1OUT
+    - GND
+    - VCC
 - name: ULN2003
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
   description: "7-channel Darlington transistor array"
-  meta_pins:
-  - IN1
-  - IN2
-  - IN3
-  - IN4
-  - IN5
-  - IN6
-  - IN7
-  - GND
-  - COM
-  - OUT7
-  - OUT6
-  - OUT5
-  - OUT4
-  - OUT3
-  - OUT2
-  - OUT1
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
+  pins:
+    meta:
+    - IN1
+    - IN2
+    - IN3
+    - IN4
+    - IN5
+    - IN6
+    - IN7
+    - GND
+    - COM
+    - OUT7
+    - OUT6
+    - OUT5
+    - OUT4
+    - OUT3
+    - OUT2
+    - OUT1
 - name: L293D
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
   description: "Dual H-bridge motor driver, 600mA"
-  meta_pins:
-  - EN1
-  - IN1
-  - OUT1
-  - GND
-  - GND
-  - OUT2
-  - IN2
-  - VCC2
-  - EN2
-  - IN3
-  - OUT3
-  - GND
-  - GND
-  - OUT4
-  - IN4
-  - VCC1
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
+  pins:
+    meta:
+    - EN1
+    - IN1
+    - OUT1
+    - GND
+    - GND
+    - OUT2
+    - IN2
+    - VCC2
+    - EN2
+    - IN3
+    - OUT3
+    - GND
+    - GND
+    - OUT4
+    - IN4
+    - VCC1
 - name: PC817
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
   description: "Single optocoupler, CTR 50-300%"
-  meta_pins:
-  - A
-  - K
-  - E
-  - C
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
+  pins:
+    meta:
+    - A
+    - K
+    - E
+    - C

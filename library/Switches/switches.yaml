@@ -14,20 +14,22 @@ components:
       board_offset: default
     bend: 0
 
-  meta_pins:
-  - A
-  - A
-  - B
-  - B
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+  pins:
+    meta:
+    - A
+    - A
+    - B
+    - B
 - name: SW_SPDT
   description: "SPDT toggle switch"
   component_class: switch
@@ -40,17 +42,19 @@ components:
       board_offset: default
     bend: 0
 
-  meta_pins:
-  - nc
-  - com
-  - no
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+  pins:
+    meta:
+    - nc
+    - com
+    - no
 - name: SW_SPST
   description: "SPST toggle switch"
   component_class: switch
@@ -62,86 +66,97 @@ components:
       body_offset: {unit: 2.5, value: [[0, 1]]}
       board_offset: default
     bend: 0
-  meta_pins:
-  - A
-  - B
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
 
+  pins:
+    meta:
+    - A
+    - B
 - name: SW_DPST
   description: "DPST switch (4-pin: two independent SPST)"
   component_class: switch
-  package: {ref: "$dip_switch"}
-  meta_pins:
-  - A1
-  - B1
-  - A2
-  - B2
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
+  package:
+    ref: "$dip_switch"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
 
+  pins:
+    meta:
+    - A1
+    - B1
+    - A2
+    - B2
 - name: SW_DPDT
   description: "DPDT switch (6-pin: two independent SPDT)"
   component_class: switch
-  package: {ref: "$sil"}
-  meta_pins:
-  - COM1
-  - NC1
-  - NO1
-  - COM2
-  - NC2
-  - NO2
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
+  package:
+    ref: "$sil"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
 
+  pins:
+    meta:
+    - COM1
+    - NC1
+    - NO1
+    - COM2
+    - NC2
+    - NO2
 - name: SW_DIP_4
   description: "4-position DIP switch"
   component_class: switch
-  package: {ref: "$dip_switch"}
-  meta_pins:
-  - S1A
-  - S2A
-  - S3A
-  - S4A
-  - S4B
-  - S3B
-  - S2B
-  - S1B
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+  package:
+    ref: "$dip_switch"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+  pins:
+    meta:
+    - S1A
+    - S2A
+    - S3A
+    - S4A
+    - S4B
+    - S3B
+    - S2B
+    - S1B

@@ -13,24 +13,26 @@ components:
         unit: 2.5
         value: [[0, 7], [3, 0], [0, -3], [0, -4]]
       board_offset: default
-  meta_pins:
-  - A1
-  - A2
-  - '12'
-  - '14'
-  - '11'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
 
+  pins:
+    meta:
+    - A1
+    - A2
+    - '12'
+    - '14'
+    - '11'
 - name: RELPOL_RM40B_1Z
   pin_count: 4
   description: "RelPOL Miniature Relay RM40B 1Z"
@@ -45,21 +47,23 @@ components:
         unit: 2.5
         value: [[3, 7], [0, -3], [0, -4]]
       board_offset: default
-  meta_pins:
-  - A1
-  - '14'
-  - '11'
-  - A2
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
 
+  pins:
+    meta:
+    - A1
+    - '14'
+    - '11'
+    - A2
 - name: RELPOL_RM85_1P
   pin_count: 8
   description: "RelPOL Miniature Relay RM40B 1P"
@@ -74,33 +78,35 @@ components:
         unit: 2.5
         value: [[-3, 0], [0, 6], [0, 2], [0, 2], [3, -4], [0, 2], [0, 2]]
       board_offset: default
-  meta_pins:
-  - A1
-  - A2
-  - '22'
-  - '21'
-  - '24'
-  - '12'
-  - '11'
-  - '14'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
 
+  pins:
+    meta:
+    - A1
+    - A2
+    - '22'
+    - '21'
+    - '24'
+    - '12'
+    - '11'
+    - '14'
 - name: RELPOL_RM85_1Z
   pin_count: 6
   description: "RelPOL Miniature Relay RM40B 1P"
@@ -115,27 +121,29 @@ components:
         unit: 2.5
         value: [[-3, 0], [0, 8], [0, 2], [3, -2], [0, 2]]
       board_offset: default
-  meta_pins:
-  - A1
-  - A2
-  - '21'
-  - '24'
-  - '11'
-  - '14'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
 
+  pins:
+    meta:
+    - A1
+    - A2
+    - '21'
+    - '24'
+    - '11'
+    - '14'
 - name: RELPOL_RM83_1P
   pin_count: 8
   description: "RelPOL Miniature Relay RM40B 1P"
@@ -150,33 +158,35 @@ components:
         unit: 2.5
         value: [[-3, 0], [0, 6], [0, 2], [0, 2], [3, -4], [0, 2], [0, 2]]
       board_offset: default
-  meta_pins:
-  - A1
-  - A2
-  - '22'
-  - '21'
-  - '24'
-  - '12'
-  - '11'
-  - '14'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
 
+  pins:
+    meta:
+    - A1
+    - A2
+    - '22'
+    - '21'
+    - '24'
+    - '12'
+    - '11'
+    - '14'
 - name: RELPOL_RM83_1Z
   pin_count: 6
   description: "RelPOL Miniature Relay RM40B 1P"
@@ -191,24 +201,26 @@ components:
         unit: 2.5
         value: [[-3, 0], [0, 8], [0, 2], [3, -2], [0, 2]]
       board_offset: default
-  meta_pins:
-  - A1
-  - A2
-  - '21'
-  - '24'
-  - '11'
-  - '14'
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
 
+  pins:
+    meta:
+    - A1
+    - A2
+    - '21'
+    - '24'
+    - '11'
+    - '14'

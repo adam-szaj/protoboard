@@ -10,499 +10,529 @@ components:
 
 - name: CD4001
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Quad 2-input NOR gate"
-  meta_pins:
-  - A1
-  - B1
-  - Y1
-  - Y2
-  - A2
-  - B2
-  - VSS
-  - Y3
-  - A3
-  - B3
-  - B4
-  - A4
-  - Y4
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - A1
+    - B1
+    - Y1
+    - Y2
+    - A2
+    - B2
+    - VSS
+    - Y3
+    - A3
+    - B3
+    - B4
+    - A4
+    - Y4
+    - VDD
 - name: CD4011
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Quad 2-input NAND gate"
-  meta_pins:
-  - A1
-  - B1
-  - Y1
-  - Y2
-  - A2
-  - B2
-  - VSS
-  - Y3
-  - A3
-  - B3
-  - B4
-  - A4
-  - Y4
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - A1
+    - B1
+    - Y1
+    - Y2
+    - A2
+    - B2
+    - VSS
+    - Y3
+    - A3
+    - B3
+    - B4
+    - A4
+    - Y4
+    - VDD
 - name: CD4069
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Hex inverter (NOT gate)"
-  meta_pins:
-  - A1
-  - Y1
-  - A2
-  - Y2
-  - A3
-  - Y3
-  - VSS
-  - Y4
-  - A4
-  - Y5
-  - A5
-  - Y6
-  - A6
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - A1
+    - Y1
+    - A2
+    - Y2
+    - A3
+    - Y3
+    - VSS
+    - Y4
+    - A4
+    - Y5
+    - A5
+    - Y6
+    - A6
+    - VDD
 - name: CD4081
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Quad 2-input AND gate"
-  meta_pins:
-  - A1
-  - B1
-  - Y1
-  - Y2
-  - A2
-  - B2
-  - VSS
-  - Y3
-  - A3
-  - B3
-  - B4
-  - A4
-  - Y4
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - A1
+    - B1
+    - Y1
+    - Y2
+    - A2
+    - B2
+    - VSS
+    - Y3
+    - A3
+    - B3
+    - B4
+    - A4
+    - Y4
+    - VDD
 - name: CD4071
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Quad 2-input OR gate"
-  meta_pins:
-  - A1
-  - B1
-  - Y1
-  - Y2
-  - A2
-  - B2
-  - VSS
-  - Y3
-  - A3
-  - B3
-  - B4
-  - A4
-  - Y4
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - A1
+    - B1
+    - Y1
+    - Y2
+    - A2
+    - B2
+    - VSS
+    - Y3
+    - A3
+    - B3
+    - B4
+    - A4
+    - Y4
+    - VDD
 - name: CD4013
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Dual D flip-flop"
-  meta_pins:
-  - Q1
-  - NQ1
-  - CLK1
-  - R1
-  - D1
-  - S1
-  - VSS
-  - S2
-  - D2
-  - R2
-  - CLK2
-  - NQ2
-  - Q2
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - Q1
+    - NQ1
+    - CLK1
+    - R1
+    - D1
+    - S1
+    - VSS
+    - S2
+    - D2
+    - R2
+    - CLK2
+    - NQ2
+    - Q2
+    - VDD
 - name: CD4017
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
   description: "Johnson decade counter / divider"
-  meta_pins:
-  - Q5
-  - Q1
-  - Q0
-  - Q2
-  - Q6
-  - Q7
-  - Q3
-  - VSS
-  - Q8
-  - Q4
-  - Q9
-  - CARRY
-  - CLK_EN
-  - CLK
-  - RST
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
+  pins:
+    meta:
+    - Q5
+    - Q1
+    - Q0
+    - Q2
+    - Q6
+    - Q7
+    - Q3
+    - VSS
+    - Q8
+    - Q4
+    - Q9
+    - CARRY
+    - CLK_EN
+    - CLK
+    - RST
+    - VDD
 - name: CD4040
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
   description: "12-bit binary ripple counter"
-  meta_pins:
-  - Q12
-  - Q6
-  - Q5
-  - Q7
-  - Q4
-  - Q3
-  - Q2
-  - VSS
-  - Q1
-  - RST
-  - CLK
-  - Q11
-  - Q10
-  - Q8
-  - Q9
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
+  pins:
+    meta:
+    - Q12
+    - Q6
+    - Q5
+    - Q7
+    - Q4
+    - Q3
+    - Q2
+    - VSS
+    - Q1
+    - RST
+    - CLK
+    - Q11
+    - Q10
+    - Q8
+    - Q9
+    - VDD
 - name: CD4016
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
   description: "Quad bilateral switch"
-  meta_pins:
-  - IN_A
-  - OUT_A
-  - CTRL_A
-  - CTRL_B
-  - OUT_B
-  - IN_B
-  - VSS
-  - IN_C
-  - OUT_C
-  - CTRL_C
-  - CTRL_D
-  - OUT_D
-  - IN_D
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
+  pins:
+    meta:
+    - IN_A
+    - OUT_A
+    - CTRL_A
+    - CTRL_B
+    - OUT_B
+    - IN_B
+    - VSS
+    - IN_C
+    - OUT_C
+    - CTRL_C
+    - CTRL_D
+    - OUT_D
+    - IN_D
+    - VDD
 - name: CD4051
   component_class: ic
-  package: {ref: "$dip_ic"}
+  package:
+    ref: "$dip_ic"
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+        5:
+        - 5
+        6:
+        - 6
+        7:
+        - 7
+        8:
+        - 8
+        9:
+        - 9
+        10:
+        - 10
+        11:
+        - 11
+        12:
+        - 12
+        13:
+        - 13
+        14:
+        - 14
+        15:
+        - 15
+        16:
+        - 16
   description: "Single 8-channel analog multiplexer"
-  meta_pins:
-  - Y
-  - Z
-  - Y4
-  - Y6
-  - Y2
-  - Y1
-  - Y5
-  - VSS
-  - INH
-  - VEE
-  - A
-  - B
-  - C
-  - Y3
-  - Y0
-  - VDD
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
-    5:
-    - 5
-    6:
-    - 6
-    7:
-    - 7
-    8:
-    - 8
-    9:
-    - 9
-    10:
-    - 10
-    11:
-    - 11
-    12:
-    - 12
-    13:
-    - 13
-    14:
-    - 14
-    15:
-    - 15
-    16:
-    - 16
+  pins:
+    meta:
+    - Y
+    - Z
+    - Y4
+    - Y6
+    - Y2
+    - Y1
+    - Y5
+    - VSS
+    - INH
+    - VEE
+    - A
+    - B
+    - C
+    - Y3
+    - Y0
+    - VDD

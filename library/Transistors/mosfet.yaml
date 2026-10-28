@@ -5,11 +5,12 @@ components:
 
 - name: _MOSFET_TO220_GDS
   package_options:
-  - {name: TO220, ref: "@q-tht/TO-220", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins:
-  - G
-  - D
-  - S
+  - {name: TO220, ref: "@q-tht/TO-220", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta:
+    - G
+    - D
+    - S
 
 - name: _MOSFET_TO220_GDS_N
   component_class: transistor_nmos
@@ -42,20 +43,22 @@ components:
 - name: _MOSFET_TO92_DGS
   component_class: transistor_npn
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins:
-  - D
-  - G
-  - S
+  - {name: TO92, ref: "@q-tht/TO-92", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta:
+    - D
+    - G
+    - S
 
 - name: _MOSFET_TO92_SGD
   component_class: transistor_npn
   package_options:
-  - {name: TO92, ref: "@q-tht/TO-92", pin_map: {1: [1], 2: [2], 3: [3]}}
-  meta_pins:
-  - S
-  - G
-  - D
+  - {name: TO92, ref: "@q-tht/TO-92", pins: {map: {1: [1], 2: [2], 3: [3]}}}
+  pins:
+    meta:
+    - S
+    - G
+    - D
 
 - name: 2N7000
   extends: _MOSFET_TO92_SGD

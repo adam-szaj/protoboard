@@ -11,17 +11,19 @@ components:
       body_offset: {unit: 2.5, value: [[0, 1], [3, 0], [0, -1]]}
       board_offset: default
     bend: 0
-  meta_pins:
-  - P1
-  - P2
-  - S1
-  - S2
-  pin_map:
-    1:
-    - 1
-    2:
-    - 2
-    3:
-    - 3
-    4:
-    - 4
+    pins:
+      map:
+        1:
+        - 1
+        2:
+        - 2
+        3:
+        - 3
+        4:
+        - 4
+  pins:
+    meta:
+    - P1
+    - P2
+    - S1
+    - S2

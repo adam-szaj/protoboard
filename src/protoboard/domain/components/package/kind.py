@@ -325,13 +325,18 @@ def build_kind_package(
             )
             if color is not None and pkg.color is None:
                 changes["color"] = color
-            if node is not None:
-                changes["raw_values"] = deep_merge(
-                    dict(pkg.raw_values or {}), dict(declared)
+            raw_values = deep_merge(dict(pkg.raw_values or {}), dict(declared))
+            raw_values["pins"] = deep_merge(
+                dict(raw_values.get("pins") or {}), {"count": pkg.pin_count()}
+            )
+            changes["raw_values"] = raw_values
+            if not gen.params.is_empty():
+                changes["schema"] = ParamSchema(
+                    {
+                        **gen.params.fields,
+                        **(pkg.schema.fields if pkg.schema is not None else {}),
+                    }
                 )
-            if not gen.params.is_empty() and pkg.schema is None:
-                changes["schema"] = gen.params
-                changes["raw_values"] = declared
             pkg = dataclasses.replace(pkg, **changes)
             return out.with_package(pkg)
     raise PackageDefError("unreachable: chain ended without a final step")

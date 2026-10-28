@@ -384,3 +384,38 @@ class TestFieldView:
         views = self._views({"dims": {"length": 5.0, "radius": 0.0, "pins": AUTO}})
         assert views["dims.width"].editable is True
         assert views["dims.width"].status is FieldStatus.REQUIRED_EMPTY
+
+
+class TestMappingConstructor:
+    def test_typed_keys_and_scalar_or_list_values(self) -> None:
+        spec = FieldSpec(
+            type={
+                "map": [
+                    "positive_int",
+                    {"oneof": ["positive_int", {"list": "positive_int"}]},
+                ]
+            }
+        )
+        spec.validate({1: 2, 2: [1, 4], 3: []}, "pins.map")
+        spec.validate({}, "pins.map")
+
+    @pytest.mark.parametrize(
+        "value", [{0: 1}, {True: 1}, {"1": 1}, {1: 0}, {1: [False]}, []]
+    )
+    def test_rejects_invalid_mapping(self, value: object) -> None:
+        with pytest.raises(SchemaError):
+            FieldSpec(
+                type={
+                    "map": [
+                        "positive_int",
+                        {"oneof": ["positive_int", {"list": "positive_int"}]},
+                    ]
+                }
+            ).validate(value, "pins.map")
+
+    @pytest.mark.parametrize("value", [0, -1, True, 1.5, "3"])
+    def test_positive_integer_rejects_non_positive_or_non_integer(
+        self, value: object
+    ) -> None:
+        with pytest.raises(SchemaError):
+            FieldSpec(type="positive_int").validate(value, "pins.count")

@@ -201,7 +201,9 @@ class TestResiduals:
         )
         assert seen["rows"] == 1  # default fed the build
         assert out.package is not None
-        assert out.package.raw_values == {"rows": None}  # hole preserved
+        assert out.package.raw_values is not None
+        assert out.package.raw_values["rows"] is None  # hole preserved
+        assert out.package.raw_values["pins"]["count"] == 3
 
     def test_redirect_to_other_kind_builds(self, scratch_registry) -> None:
         @register_generator(kind="_t_redir")

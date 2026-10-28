@@ -323,7 +323,7 @@ class TestDefaultProvider:
         definition = _component_from_dict(
             {
                 "name": "X",
-                "meta_pins": ["1", "2"],
+                "pins": {"count": 2, "meta": ["1", "2"]},
                 "package_options": [
                     {
                         "name": name,
@@ -426,8 +426,9 @@ class TestProviderKindParams:
             "components:\n"
             "  - name: HDR_ASK\n"
             "    component_class: connector\n"
-            "    meta_pins: [P1, P2, P3, P4, P5, P6]\n"
-            "    package: {ref: '$pin_header', rows: null}\n"
+            "    pins: {count: 6, meta: [P1, P2, P3, P4, P5, P6]}\n"
+            "    package: {ref: '$pin_header', "
+            "pins: {count: 6, map: auto}, rows: null}\n"
         )
         lib = load_library([tmp_path])
         return lib.get("HDR_ASK"), lib.package_families

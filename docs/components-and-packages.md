@@ -23,7 +23,7 @@ biblioteki wskazanego przez `component_library_dirs`.
 | Jeden korpus tylko dla danego komponentu | Komponentowe `package`. |
 | Obudowa zależna od liczby pinów lub parametrów | `package: {ref: "$generator", ...}`. |
 | Dwupinowy radialny prostopadłościan opisany nazwą rozmiaru | Nazwana opcja `ref: "$generic-prism"`. |
-| Liczba pinów wybierana dopiero przy Place | Inline `ref: "$generator"` bez `meta_pins` i bez `package.pins`. |
+| Liczba pinów wybierana dopiero przy Place | Inline `ref: "$generator"` bez logicznego `pins.count/meta` i fizycznego `package.pins.count`. |
 
 Szablon geometrii i rodzina rozwiązują różne problemy. Szablon współdzieli
 strukturę i parametry, a rodzina publikuje gotowe warianty do katalogu. Generator
@@ -68,7 +68,7 @@ innego pliku. Nieznane sekcje najwyższego poziomu są ostrzegane w logu.
 | Pole | Znaczenie i wartość domyślna |
 | --- | --- |
 | `name` | Wymagana nazwa komponentu. |
-| `meta_pins` | Wymagana niepusta lista dla części o stałej liczbie terminali; brak jest dopuszczony dla obsługiwanych definicji parametrycznych. |
+| `pins` | Piny logiczne: `meta` zawiera etykiety/aliasy, `count` określa ich liczbę. Liczbę można wywnioskować z `meta`; samo `count` tworzy nazwy `P1`…`Pn`. |
 | `component_class` | Klasa elektryczna; domyślnie `other`. Jest otwartym tagiem: nieznana wartość wywołuje ostrzeżenie, ale jest zachowywana. |
 | `symbol` | Opcjonalny niepusty prefiks oznaczenia, np. `R`, `C`, `U`. |
 | `description` | Opis tekstowy, domyślnie pusty. |
@@ -78,7 +78,6 @@ innego pliku. Nieznane sekcje najwyższego poziomu są ostrzegane w logu.
 | `extends` | Nazwa szablonu komponentu. Pola dziecka zastępują całe pola rodzica. |
 | `aliases` | Dodatkowe nazwy tej samej rozstrzygniętej definicji. |
 | `package` | Jedna geometria; wzajemnie wyklucza `package_options`. |
-| `pin_map` | Mapowanie dla komponentowego `package`; bez niego mapowanie 1:1. |
 | `package_options` | Niepusta lista oferowanych rodzin, wariantów lub geometrii. |
 | `footprint_style` | Domyślny styl opcji; styl konkretnej opcji nadpisuje go per właściwość. |
 
@@ -89,7 +88,7 @@ Znane klasy to `resistor`, `capacitor_polar`, `capacitor_nonpolar`, `inductor`,
 `mechanical`, `other`.
 
 Komponent musi jawnie deklarować `package` albo `package_options`. Loader nie
-wnioskuje korpusu z liczby MetaPinów. Dawne pola komponentu `pins`, `pin_names`,
+wnioskuje korpusu z liczby MetaPinów. Dawne liczbowe pole komponentu `pins` oraz pola `pin_names`,
 `footprints`, `package_family_ref` i `footprint` nie są obsługiwanym formatem.
 Mechanika `bendable_pins` należy do pakietu; takie pole na poziomie komponentu
 nie definiuje zasięgu pinów.
@@ -103,22 +102,39 @@ Pierwszeństwo per właściwość: styl egzemplarza, styl opcji (z uwzględnieni
 
 ### MetaPiny i mapowanie pinów
 
-Każdy element `meta_pins` jest tekstową etykietą lub niepustą listą aliasów
+Każdy element `pins.meta` jest tekstową etykietą lub niepustą listą aliasów
 jednego logicznego terminala, np. `[GND, VSS]`. Indeks jest 1-based i wynika
 wyłącznie z kolejności listy. Etykieta `"15"` nie nadaje terminalowi indeksu 15.
 Powtórzona etykieta w dwóch MetaPinach nie łączy ich elektrycznie.
 
-`pin_map` ma postać `indeks MetaPina: [numery fizycznych pinów]`. Jednemu
-terminalowi można przypisać zero, jeden lub wiele pinów. Każdy fizyczny pin może
-wystąpić najwyżej raz w całej mapie. Pominięte `pin_map` daje
-`meta_pins[n] -> package_pin[n]` w kolejności listy. Jawna mapa zastępuje ten
-domyślny wynik w całości: nieobecne terminale pozostają niemapowane;
-`pin_map: {}` nie mapuje żadnego terminala. Puste `[]` jawnie pokazuje terminal
-niemający fizycznego odpowiednika w danym pakiecie.
+`pins.count` komponentu oznacza liczbę terminali logicznych. Jeżeli podano
+`pins.meta`, liczba wynika z długości listy; jawne `count` musi być z nią zgodne.
+Samo `pins: {count: 3}` tworzy terminale `P1`, `P2`, `P3`.
 
-Każda mapa jest sprawdzana względem liczby MetaPinów oraz fizycznych pinów
-pakietu. Logiczny terminal bez mapowania zachowuje tożsamość w netliście, ale
-nie dostaje fizycznego punktu połączenia w tym pakiecie.
+`package.pins.count` oznacza liczbę pinów fizycznych. Może różnić się od liczby
+MetaPinów; generator lub gotowa geometria może ustalić ją bez jawnej deklaracji.
+`package.pins.map` ma postać `indeks MetaPina: numer pinu lub lista numerów`.
+Jednemu terminalowi można przypisać zero, jeden lub wiele pinów. Każdy fizyczny
+pin może wystąpić najwyżej raz w całej mapie.
+
+Brak mapy jest równoważny `map: auto`: po zbudowaniu pakietu powstaje mapowanie
+`pins.meta[n] -> package_pin[n]` według kolejności listy, z indeksami od 1.
+Jawna mapa zastępuje wynik w całości: nieobecne terminale pozostają niemapowane;
+`map: {}` nie mapuje żadnego terminala, a `[]` wskazuje terminal bez fizycznego
+odpowiednika. Przykładowo `map: {1: 2, 2: [1, 4], 3: []}` jest poprawną formą.
+
+Mapa może pochodzić z samodzielnej definicji `packages`; jej klucze nadal
+odnoszą się do indeksów MetaPinów przyszłego komponentu. Jawna mapa w
+`component.package` nadpisuje odziedziczoną mapę, a `package_options[].pins.map`
+ma pierwszeństwo przed mapą wybranego pakietu. Jawne `auto` również nadpisuje
+odziedziczoną mapę, wybierając ponownie regułę 1:1.
+
+Generyczny walidator schematu sprawdza typy i strukturę `pins`. Po rozwiązaniu
+liczb i mapy loader sprawdza zgodność liczby MetaPinów z `count`, liczby pinów
+fizycznych z geometrią, zakresy indeksów oraz powtórzenia pinów fizycznych.
+Logiczny terminal bez mapowania zachowuje tożsamość w netliście, ale nie dostaje
+fizycznego punktu połączenia w tym pakiecie. Dawne `meta_pins`, `pin_map` i
+liczbowe `package.pins` pozostają obsługiwane przy odczycie starszych bibliotek.
 
 ### Jedna geometria, dziedziczenie komponentu i aliasy
 
@@ -130,9 +146,13 @@ components:
     component_class: connector
     symbol: J
     description: "Złącze czujnika"
-    meta_pins: [[GND, VSS], SIGNAL, NC]
-    package: {ref: "$sil", pins: 4}
-    pin_map: {1: [1, 4], 2: [2], 3: []}
+    pins:
+      meta: [[GND, VSS], SIGNAL, NC]
+    package:
+      ref: "$sil"
+      pins:
+        count: 4
+        map: {1: [1, 4], 2: [2], 3: []}
     style: "color: #303030; corner-radius: 0.2"
     metadata: {datasheet: "sensor.pdf"}
 
@@ -142,18 +162,28 @@ components:
     aliases: [SENSOR_ALT]
 
   - name: DOC_REVERSED
-    meta_pins: [A, B]
-    package: {ref: "$sil"}
-    pin_map: {1: [2], 2: [1]}
+    pins:
+      meta: [A, B]
+    package:
+      ref: "$sil"
+      pins:
+        map: {1: 2, 2: 1}
 
   - name: DOC_UNMAPPED
-    meta_pins: [A, B]
-    package: {ref: "$sil"}
-    pin_map: {}
+    pins:
+      meta: [A, B]
+    package:
+      ref: "$sil"
+      pins:
+        map: {}
+
+  - name: DOC_COUNT_ONLY
+    pins: {count: 3}
+    package: {ref: "$sil", pins: {count: 3, map: auto}}
 ```
 
 W tym przypadku domyślna geometria ma adres `SENSOR-package/std`. Komponentowe
-`extends` jest płytkim scaleniem: nowe `meta_pins`, `pin_map`, `package` albo
+`extends` jest płytkim scaleniem: nowe `pins`, `package` albo
 `package_options` zastępuje całą odziedziczoną wartość. To inna reguła niż
 rekurencyjne scalanie geometrii pakietów. Szablon powinien korzystać z tej samej
 formy pakietu co dziecko: odziedziczonego `package` nie można równocześnie
@@ -161,7 +191,7 @@ uzupełnić o `package_options`.
 
 ### Opcje pakietów i prefiksy referencji
 
-Opcja dopuszcza dokładnie pola `name`, `ref`, `package`, `pin_map`, `group` i
+Opcja dopuszcza dokładnie pola `name`, `ref`, `package`, `pins`, `group` i
 `style`. Musi zawierać `ref` albo wewnętrzny `package`; nie wolno podawać obu.
 Geometria obok `ref` jest błędem; własne wymiary umieszcza się w `package`.
 Łańcuch tekstowy jest skrótem opcji zawierającej samo `ref`.
@@ -183,8 +213,8 @@ Wybór pakietu jest ograniczony do opcji komponentu. Zgodna liczba pinów ani
 istnienie innego pakietu w katalogu nie uprawnia do jego wybrania. Dla wielu
 opcji pierwsza stanowi geometrię domyślną przed wyborem egzemplarza.
 
-W YAML można użyć kotwic, np. `pin_map: {1: &p1 [1], 2: &p2 [2]}`, a w
-kolejnej opcji `pin_map: {1: *p1, 2: *p2}`. `&p1` nazywa wartość, a `*p1`
+W YAML można użyć kotwic, np. `pins: {map: {1: &p1 [1], 2: &p2 [2]}}`, a w
+kolejnej opcji `pins: {map: {1: *p1, 2: *p2}}`. `&p1` nazywa wartość, a `*p1`
 wstawia tę samą wartość; to standard YAML, niezwiązany z prefiksami referencji
 pakietów ani z numerowaniem MetaPinów.
 
@@ -215,7 +245,8 @@ components:
     component_class: capacitor_nonpolar
     symbol: C
     default_value: "?"
-    meta_pins: [P1, P2]
+    pins:
+      meta: [P1, P2]
     footprint_style: "color: #a85"
     package_options:
       - {name: Catalog, group: "Foil/Catalog", ref: "@doc/foil"}
@@ -276,7 +307,8 @@ components:
   - name: DOC_C_FOIL
     component_class: capacitor_nonpolar
     symbol: C
-    meta_pins: ['1', '2']
+    pins:
+      meta: ['1', '2']
     package_options:
       - {name: "5mm@7.2x2.5x6.5", ref: "$generic-prism", group: "Foil/Polymer"}
       - {name: "5mm/7.2x3.5x7.2", ref: "$generic-prism", group: "Foil/Polymer"}
@@ -293,18 +325,21 @@ znaczenie dla drzewa.
 components:
   - name: DOC_HEADER_6
     component_class: connector
-    meta_pins: [P1, P2, P3, P4, P5, P6]
+    pins:
+      meta: [P1, P2, P3, P4, P5, P6]
     package: {ref: "$pin_header", rows: 2}
 
   - name: DOC_HEADER_CHOOSE_ROWS
     component_class: connector
-    meta_pins: [P1, P2, P3, P4, P5, P6]
+    pins:
+      meta: [P1, P2, P3, P4, P5, P6]
     package_options:
       - name: Header
         package: {ref: "$pin_header", rows: null}
 
   - name: DOC_PIN_CLOUD
-    meta_pins: [A, B, C]
+    pins:
+      meta: [A, B, C]
     package: {ref: "$generic"}
 ```
 
@@ -314,8 +349,8 @@ Trzeci komponent jawnie żąda prostego korpusu nad chmurą pinów; nie jest
 niejawnym fallbackiem dla brakującego pakietu. Definicje ze zmienną liczbą
 pinów opisuje osobny przykład w rozdziale o generatorach.
 
-`package.pins` w generatorze może oznaczać fizyczną liczbę pinów różną od liczby
-MetaPinów; wtedy odpowiednie `pin_map` jest szczególnie istotne. Dla deklaracji
+`package.pins.count` w generatorze może oznaczać fizyczną liczbę pinów różną od liczby
+MetaPinów; wtedy odpowiednie `pins.map` jest szczególnie istotne. Dla deklaracji
 geometrii bez generatora fizyczna liczba wynika z N−1 kroków `body_offset`.
 Skrótowe odwołania `ref: "$..."` i `ref: "#..."` bezpośrednio w opcji muszą
 zostać całkowicie rozwiązane podczas ładowania. Otwarte parametry w opcji
@@ -333,6 +368,7 @@ należy deklarować przez jej wewnętrzny `package`, również z polem `ref`.
 | `shape` | `cylinder`, `prism` lub `disc`; wybiera implementację geometrii. |
 | `dims` | Wymiary w mm, zależne od kształtu. |
 | `leads` | Kierunki wyjścia, kroki pomiędzy pinami, ewentualne parametry solvera. |
+| `pins` | `count`: fizyczna liczba pinów, wyznaczana lub sprawdzana względem geometrii; `map`: domyślna mapa MetaPinów, standardowo `auto`. |
 | `arrangement` | `axial` albo `radial`; opisuje ułożenie korpusu/wyprowadzeń, nie zastępuje ich współrzędnych. |
 | `bend` | Zapas zgięcia w jednostkach otworów; domyślnie 0. |
 | `bendable_pins` | Jawna mechanika poszczególnych fizycznych pinów; ma pierwszeństwo przed wyliczaną. |
@@ -422,11 +458,13 @@ packages:
 components:
   - name: DOC_AXIAL
     component_class: resistor
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package_options: [{name: Axial, ref: "#doc-axial"}]
 
   - name: DOC_DISC
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package:
       extends: disc_radial
       dims: {diameter: 5, thickness: 2}
@@ -436,7 +474,8 @@ components:
 
   - name: DOC_ELECTROLYTIC
     component_class: capacitor_polar
-    meta_pins: ['+', '-']
+    pins:
+      meta: ['+', '-']
     package:
       extends: cylinder_radial
       dims: {diameter: 6.3, length: 11.0}
@@ -444,7 +483,8 @@ components:
 
   - name: DOC_FLAT_CYLINDER
     component_class: transistor_npn
-    meta_pins: [C, B, E]
+    pins:
+      meta: [C, B, E]
     package:
       extends: cylinder_radial
       dims: {diameter: 4.5, length: 5.2, flat_radius: 1.6, flat_normal: [0, -1]}
@@ -454,12 +494,14 @@ components:
         board_offset: [[1, 0], [1, 0]]
 
   - name: DOC_THREE
-    meta_pins: [C, B, E]
+    pins:
+      meta: [C, B, E]
     package: {ref: "#doc-spread-three"}
 
   - name: DOC_MODULE
     component_class: devboard
-    meta_pins: [P1, P2, P3, P4, P5, P6, P7, P8]
+    pins:
+      meta: [P1, P2, P3, P4, P5, P6, P7, P8]
     package:
       extends: prism_dil
       margin: [0, 2.5]
@@ -467,7 +509,8 @@ components:
         body_offset: {unit: 2.5, value: [[3, [0, 1]], [3, 0], [3, [0, -1]]]}
 
   - name: DOC_GROUPED
-    meta_pins: [A, B, C, D]
+    pins:
+      meta: [A, B, C, D]
     package:
       extends: prism
       dims: {lx: 8, ly: 4, lz: 2}
@@ -477,7 +520,8 @@ components:
         board_offset: [[1, 0], [0, 2], [-1, 0]]
 
   - name: DOC_SMD
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package:
       extends: prism_smd
       dims: {lx: 2.0, ly: 1.2, lz: 0.5, corner_radius: 0.1}
@@ -559,11 +603,11 @@ np. dla `dims` i pól opcji.
 | Brak klucza | `default` wypełnia wartość, jeśli zadeklarowano. Bez defaultu pole pozostaje nieobecne. |
 | Jawne `null` | Schema nie zastępuje go defaultem; widok pola jest edytowalny. Sterownik generatora może użyć defaultu do zbudowania podglądu, zachowując `null` jako dziurę w metadanych. |
 | Konkretna wartość | Walidowana według typu; w widoku schemy jest tylko do odczytu. |
-| `auto` | Wartość ma obliczyć generator; tylko do odczytu. Każde nierozwiązane `auto` jest błędem przy budowie konkretnej geometrii. |
+| `auto` | Wartość ma obliczyć generator; tylko do odczytu. Nierozwiązane pola geometrii są błędem przy budowie kształtu; `pins.map: auto` czeka na powiązanie z komponentem. |
 
 `required: true` bez wartości lub z `null` blokuje zwykłe `build_package`.
-`auto` spełnia kontrolę obecności, ale musi zostać zastąpione przed budową
-kształtu. Nie ma języka wyrażeń ani składni f-string w samym YAML; parsowanie
+`auto` spełnia kontrolę obecności. Dla geometrii musi zostać zastąpione przed
+budową kształtu; mapa pinów jest rozwiązywana później. Nie ma języka wyrażeń ani składni f-string w samym YAML; parsowanie
 nazwy przez `generic-prism` jest zachowaniem jego implementacji Python.
 
 Obsługiwane typy:
@@ -571,6 +615,8 @@ Obsługiwane typy:
 | Deklaracja | Znaczenie |
 | --- | --- |
 | `float`, `int`, `str`, `bool` | Typ prosty; float dopuszcza int, bool nie jest liczbą. |
+| `positive_int` | Dodatnia liczba całkowita, z wykluczeniem bool. |
+| `{map: [positive_int, positive_int]}` | Słownik o typowanych kluczach i wartościach. |
 | `[float, float]` | Wektor o stałej długości. |
 | `[float, [float, float]]` | Unia: skalar albo wektor; zagnieżdżona lista uruchamia regułę unii. |
 | `{seq: [int, [float, float]]}` | Pozycyjna para: liczba powtórzeń i wektor. |
@@ -578,7 +624,15 @@ Obsługiwane typy:
 | `{oneof: [float, [float, float], {const: solve}]}` | Jawna unia, w tym wartość literalna. |
 | `{const: default}` | Dokładnie wskazana wartość. |
 
-Poniższy samodzielny przykład używa własnego schematu i defaultów. `schema`
+Bazowy abstrakcyjny `package` deklaruje `pins.count` jako `positive_int` z
+`default: null`, a `pins.map` jako mapę dodatnich indeksów na dodatnią liczbę
+lub listę takich liczb, z `default: auto`. Te wspólne deklaracje i wartości
+obowiązują również pakiety bez jawnego `extends`. Po zbudowaniu geometrii
+`pins.count` zawiera jej rzeczywistą liczbę pinów. Schemat komponentowego
+`pins.meta` opisuje listę elementów typu `str` lub lista `str`.
+
+Poniższy samodzielny przykład używa własnego schematu i defaultów. Pola `pins`
+powtarzają schemat wspólnego przodka, aby pokazać deklarację typowanej mapy. `schema`
 nie wylicza geometrii z dodatkowych pól `catalogue_*`: pokazują one różne
 obsługiwane formy typów i pozostają metadanymi wartości.
 
@@ -587,6 +641,11 @@ packages:
   - name: doc-schema-box
     extends: prism_radial
     schema:
+      pins:
+        count: {type: positive_int, default: null}
+        map:
+          type: {map: [positive_int, {oneof: [positive_int, {list: positive_int}]}]}
+          default: auto
       dims:
         lx: {type: float, default: 7.2, required: true}
         ly: {type: float, default: 2.5, required: true}
@@ -603,7 +662,8 @@ packages:
 
 components:
   - name: DOC_SCHEMA
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package: {extends: doc-schema-box}
 ```
 
@@ -646,25 +706,32 @@ Przykłady stałej liczby pinów; każdy wpis jest niezależnym komponentem:
 ```yaml
 components:
   - name: Demo_DIP8
-    meta_pins: ['1', '2', '3', '4', '5', '6', '7', '8']
+    pins:
+      meta: ['1', '2', '3', '4', '5', '6', '7', '8']
     package: {ref: "$dip_ic"}
   - name: Demo_WDIP8
-    meta_pins: ['1', '2', '3', '4', '5', '6', '7', '8']
+    pins:
+      meta: ['1', '2', '3', '4', '5', '6', '7', '8']
     package: {ref: "$wdip_ic"}
   - name: Demo_Switch4
-    meta_pins: ['1', '2', '3', '4']
+    pins:
+      meta: ['1', '2', '3', '4']
     package: {ref: "$dip_switch"}
   - name: Demo_SIL3
-    meta_pins: ['1', '2', '3']
+    pins:
+      meta: ['1', '2', '3']
     package_options: [{name: SIL, ref: "$sil"}]
   - name: Demo_Header2x3
-    meta_pins: ['1', '2', '3', '4', '5', '6']
+    pins:
+      meta: ['1', '2', '3', '4', '5', '6']
     package: {ref: "$pin_header", rows: 2}
   - name: Demo_JST3
-    meta_pins: ['1', '2', '3']
+    pins:
+      meta: ['1', '2', '3']
     package: {ref: "$jst"}
   - name: Demo_Probe
-    meta_pins: [P]
+    pins:
+      meta: [P]
     package: {ref: "$generic"}
 ```
 
@@ -675,7 +742,8 @@ wartość ma pierwszeństwo:
 ```yaml
 components:
   - name: Demo_DIP8_Long
-    meta_pins: ['1', '2', '3', '4', '5', '6', '7', '8']
+    pins:
+      meta: ['1', '2', '3', '4', '5', '6', '7', '8']
     package:
       ref: "$dip_ic"
       dims: {lx: 15.0}
@@ -694,7 +762,8 @@ nie zastępują automatycznie wymiarów — liczy się to, co odczytuje generato
 components:
   - name: Demo_Foil
     component_class: capacitor_nonpolar
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package_options:
       - name: '5mm@7.2x2.5x6.5'
         ref: '$generic-prism'
@@ -720,7 +789,7 @@ ponownie o rozstaw ani `lx`, `ly`, `lz`.
 
 ### Zmienna liczba pinów wybierana przy umieszczaniu
 
-Brak `meta_pins` oraz brak `package.pins` przy inline `ref: "$generator"` oznacza komponent
+Brak `pins.meta` i `pins.count` komponentu oraz brak `package.pins.count` przy inline `ref: "$generator"` oznacza komponent
 parametryczny. To inny przypadek od brakującego parametru geometrii przy
 ustalonej liście MetaPinów:
 
@@ -880,16 +949,20 @@ class DemoRedirect(PackageGenerator):
 ```yaml
 components:
   - name: Demo_Complete
-    meta_pins: [A, B, C]
+    pins:
+      meta: [A, B, C]
     package: {ref: "$demo_prism", pitch: 5.0}
   - name: Demo_Chain
-    meta_pins: [A, B, C]
+    pins:
+      meta: [A, B, C]
     package: {ref: ["$demo_pitch", "$demo_prism"]}
   - name: Demo_AskPitch
-    meta_pins: [A, B, C]
+    pins:
+      meta: [A, B, C]
     package: {ref: "$demo_prism", pitch: null}
   - name: Demo_Redirect
-    meta_pins: [A, B, C]
+    pins:
+      meta: [A, B, C]
     package: {ref: "$demo_redirect"}
 ```
 
@@ -960,13 +1033,16 @@ packages:
 
 components:
   - name: Demo_Radial_Default
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package: {ref: "$demo_radial"}
   - name: Demo_Radial_Editable
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package: {ref: "$demo_radial", pitch: null}
   - name: Demo_Radial_Override
-    meta_pins: [A, B]
+    pins:
+      meta: [A, B]
     package:
       ref: "$demo_radial"
       pitch: 7.5
@@ -1019,7 +1095,10 @@ z katalogów biblioteki poprzedza ładowanie definicji. `load_library()` z
 Wczytywanie geometrii nie wymaga Qt. `_normalize_package_ref()` tłumaczy
 źródłowe `ref` na wewnętrzny `kind` lub `extends` przed wyborem podglądu
 parametrycznego i budową geometrii. Nie zmienia deklaracji źródłowych
-przekazywanych w `GeneratorContext.component` i `option`.
+przekazywanych w `GeneratorContext.component` i `option`. Generyczna walidacja
+schematu sprawdza grupy `pins` przed ich użyciem. `build_package()` ustala
+fizyczne `pins.count`; loader rozwiązuje `pins.map: auto` i sprawdza gotową
+mapę po powiązaniu z MetaPinami komponentu.
 
 ```mermaid
 flowchart TD
@@ -1028,7 +1107,8 @@ flowchart TD
     C --> D[Wbudowane szablony i wlasne packages]
     D --> E[Rejestracja wezlow kind i rodzin]
     E --> F[Komponentowe extends; pomin szablony z podkresleniem]
-    F --> H{Deklaracja pakietu}
+    F --> V[Walidacja schematu pins komponentu i opcji]
+    V --> H{Deklaracja pakietu}
     H -->|package| I[_build_component_package]
     H -->|package_options| J[_parse_package_options]
     J -->|ref @| K[Istniejaca rodzina lub wariant]
@@ -1041,8 +1121,9 @@ flowchart TD
     M --> O[Package lub podglad residual]
     N --> O
     O --> P[_register_component_package: rodzina z wariantem std]
-    K --> Q[PackageOption: kanoniczny ref i pin_map]
-    P --> Q
+    K --> R[Odziedzicz mape lub rozwiaz auto; waliduj zakresy]
+    P --> R
+    R --> Q[PackageOption: kanoniczny ref i pin_map]
     Q --> R[Walidacja mapowania i ComponentDefinition]
     R --> S[ComponentLibrary i rodziny wniesione przez biblioteke]
 ```
